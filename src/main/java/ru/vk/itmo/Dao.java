@@ -67,6 +67,7 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
      * Persists data (no-op by default).
      */
     default void flush() throws IOException {
+        //by default do nothing
     }
 
     /*
