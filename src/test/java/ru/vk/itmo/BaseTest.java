@@ -3,8 +3,6 @@ package ru.vk.itmo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.opentest4j.AssertionFailedError;
-import ru.vk.test.itmo.BaseEntry;
-import ru.vk.test.itmo.Entry;
 
 import java.util.AbstractList;
 import java.util.ArrayList;

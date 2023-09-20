@@ -1,4 +1,4 @@
-package ru.vk.test.itmo;
+package ru.vk.itmo;
 
 public record BaseEntry<Data>(Data key, Data value) implements Entry<Data> {
     @Override

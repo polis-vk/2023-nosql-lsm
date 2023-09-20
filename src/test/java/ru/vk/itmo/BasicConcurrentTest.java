@@ -1,8 +1,5 @@
 package ru.vk.itmo;
 
-import ru.vk.test.itmo.Dao;
-import ru.vk.test.itmo.Entry;
-
 import java.util.List;
 
 /**

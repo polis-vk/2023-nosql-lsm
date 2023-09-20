@@ -6,10 +6,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.ArgumentsProvider;
 import org.junit.jupiter.params.provider.ArgumentsSource;
-import ru.vk.test.itmo.Config;
-import ru.vk.test.itmo.Dao;
-import ru.vk.test.itmo.Entry;
-import ru.vk.test.DaoFactory;
 
 import java.io.IOException;
 import java.lang.annotation.ElementType;
@@ -69,7 +65,7 @@ public @interface DaoTest {
                 }
 
                 if (maxFactories.isEmpty()) {
-                    throw new IllegalStateException("No DaoFactory declared under ru.mail.polis.test.<username> package");
+                    throw new IllegalStateException("No DaoFactory declared under ru.vk.itmo.test.<username> package");
                 }
 
                 return maxFactories.stream().map(c -> {
@@ -110,8 +106,8 @@ public @interface DaoTest {
             if (clazz.getAnnotation(DaoFactory.class) == null) {
                 return null;
             }
-            if (!clazz.getPackageName().startsWith("ru.mail.polis.test.")) {
-                throw new IllegalArgumentException("DaoFactory should be under package ru.mail.polis.test.<username>");
+            if (!clazz.getPackageName().startsWith("ru.vk.itmo.test.")) {
+                throw new IllegalArgumentException("DaoFactory should be under package ru.vk.itmo.test.<username>");
             }
             return clazz;
         }

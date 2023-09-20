@@ -1,9 +1,4 @@
-package ru.vk.test;
-
-import ru.vk.test.itmo.BaseEntry;
-import ru.vk.test.itmo.Dao;
-import ru.vk.test.itmo.Config;
-import ru.vk.test.itmo.Entry;
+package ru.vk.itmo;
 
 import java.io.IOException;
 import java.util.Iterator;

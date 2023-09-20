@@ -1,4 +1,4 @@
-package ru.vk.test.itmo;
+package ru.vk.itmo;
 
 import java.io.Closeable;
 import java.io.IOException;
