@@ -53,7 +53,7 @@ public class BaseTest {
 
     public void assertContains(Iterator<? extends Entry<String>> iterator, Entry<String> entry) {
         int count = 0;
-        while(iterator.hasNext()) {
+        while (iterator.hasNext()) {
             checkInterrupted();
             if (iterator.next().equals(entry)) {
                 return;
