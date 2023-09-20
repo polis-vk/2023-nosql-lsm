@@ -1,5 +1,5 @@
 # 2023-nosql-lsm
-Проект [курса](https://polis.vk.company/curriculum/program/discipline/1356/) "NoSQL" в [Образовательном центре VK в Политехе](https://polis.vk.company/).
+Проект [курса]() "NoSQL"
 
 ## Этап 1. In-memory (deadline 27.09.23 23:59:59 MSK)
 ### Fork
