@@ -1,4 +1,4 @@
-package ru.vk.polis;
+package ru.vk.itmo;
 
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtensionContext;

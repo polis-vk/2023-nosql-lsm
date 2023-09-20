@@ -1,4 +1,4 @@
-package ru.vk.polis;
+package ru.vk.itmo;
 
 import ru.vk.test.itmo.Dao;
 import ru.vk.test.itmo.Entry;
