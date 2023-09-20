@@ -23,7 +23,9 @@ public @interface DaoFactory {
         }
 
         String toString(D data);
+
         D fromString(String data);
+
         E fromBaseEntry(Entry<D> baseEntry);
 
         static Config extractConfig(Dao<String, Entry<String>> dao) {
