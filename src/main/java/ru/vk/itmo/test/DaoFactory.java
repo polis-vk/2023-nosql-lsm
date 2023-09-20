@@ -1,4 +1,8 @@
-package ru.vk.itmo;
+package ru.vk.itmo.test;
+
+import ru.vk.itmo.Config;
+import ru.vk.itmo.Dao;
+import ru.vk.itmo.Entry;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
