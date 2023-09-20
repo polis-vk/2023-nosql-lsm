@@ -16,7 +16,6 @@ class TestDao<Data, E extends Entry<Data>> implements Dao<String, Entry<String>>
         this.config = config;
         delegate = factory.createDao(config);
 
-
         Class<?> delegateClass = delegate.getClass();
         String packageName = delegateClass.getPackageName();
         String lastPackagePart = packageName.substring(packageName.lastIndexOf('.') + 1);
