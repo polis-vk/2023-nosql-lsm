@@ -1,8 +1,9 @@
-package ru.mail.polis;
+package ru.vk.polis;
 
-import java.util.Iterator;
+import ru.vk.test.itmo.Dao;
+import ru.vk.test.itmo.Entry;
+
 import java.util.List;
-import java.util.function.Consumer;
 
 /**
  * @author incubos

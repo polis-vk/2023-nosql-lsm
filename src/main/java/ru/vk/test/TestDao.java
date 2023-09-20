@@ -1,9 +1,9 @@
-package ru.mail.polis.test;
+package ru.vk.test;
 
-import ru.mail.polis.BaseEntry;
-import ru.mail.polis.Config;
-import ru.mail.polis.Dao;
-import ru.mail.polis.Entry;
+import ru.vk.test.itmo.BaseEntry;
+import ru.vk.test.itmo.Dao;
+import ru.vk.test.itmo.Config;
+import ru.vk.test.itmo.Entry;
 
 import java.io.IOException;
 import java.util.Iterator;

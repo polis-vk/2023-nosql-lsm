@@ -1,7 +1,9 @@
-package ru.mail.polis;
+package ru.vk.polis;
 
 import org.junit.jupiter.api.Assertions;
 import org.opentest4j.AssertionFailedError;
+import ru.vk.test.itmo.Dao;
+import ru.vk.test.itmo.Entry;
 
 import java.util.ArrayList;
 import java.util.Iterator;

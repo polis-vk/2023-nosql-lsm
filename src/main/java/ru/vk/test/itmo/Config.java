@@ -1,4 +1,4 @@
-package ru.mail.polis;
+package ru.vk.test.itmo;
 
 import java.nio.file.Path;
 

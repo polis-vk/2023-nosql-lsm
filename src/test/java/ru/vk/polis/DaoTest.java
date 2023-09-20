@@ -1,4 +1,4 @@
-package ru.mail.polis;
+package ru.vk.polis;
 
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -6,7 +6,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.ArgumentsProvider;
 import org.junit.jupiter.params.provider.ArgumentsSource;
-import ru.mail.polis.test.DaoFactory;
+import ru.vk.test.itmo.Config;
+import ru.vk.test.itmo.Dao;
+import ru.vk.test.itmo.Entry;
+import ru.vk.test.DaoFactory;
 
 import java.io.IOException;
 import java.lang.annotation.ElementType;

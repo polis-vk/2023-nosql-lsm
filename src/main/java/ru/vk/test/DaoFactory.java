@@ -1,8 +1,8 @@
-package ru.mail.polis.test;
+package ru.vk.test;
 
-import ru.mail.polis.Config;
-import ru.mail.polis.Dao;
-import ru.mail.polis.Entry;
+import ru.vk.test.itmo.Dao;
+import ru.vk.test.itmo.Config;
+import ru.vk.test.itmo.Entry;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

@@ -1,4 +1,4 @@
-package ru.mail.polis;
+package ru.vk.test.itmo;
 
 public interface Entry<D> {
     D key();
