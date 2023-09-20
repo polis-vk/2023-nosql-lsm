@@ -8,15 +8,15 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.util.Iterator;
 
-class TestDao<Data, E extends Entry<Data>> implements Dao<String, Entry<String>> {
+class TestDao<DATA, E extends Entry<DATA>> implements Dao<String, Entry<String>> {
 
-    Dao<Data, E> delegate;
+    Dao<DATA, E> delegate;
 
-    final DaoFactory.Factory<Data, E> factory;
+    final DaoFactory.Factory<DATA, E> factory;
     final Config config;
     final String name;
 
-    TestDao(DaoFactory.Factory<Data, E> factory, Config config) {
+    TestDao(DaoFactory.Factory<DATA, E> factory, Config config) {
         this.factory = factory;
         this.config = config;
         delegate = factory.createDao(config);
@@ -68,7 +68,7 @@ class TestDao<Data, E extends Entry<Data>> implements Dao<String, Entry<String>>
 
     @Override
     public void upsert(Entry<String> entry) {
-        BaseEntry<Data> e = new BaseEntry<>(
+        BaseEntry<DATA> e = new BaseEntry<>(
                 factory.fromString(entry.key()),
                 factory.fromString(entry.value())
         );
