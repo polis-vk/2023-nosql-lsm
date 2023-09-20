@@ -16,21 +16,21 @@ public @interface DaoFactory {
     int stage() default 1;
     int week() default 1;
 
-    interface Factory<D, E extends Entry<D>> {
+    interface Factory<DATA, E extends Entry<DATA>> {
 
-        default Dao<D, E> createDao() {
+        default Dao<DATA, E> createDao() {
             throw new UnsupportedOperationException("Need to override one of createDao methods");
         }
 
-        default Dao<D, E> createDao(Config config) {
+        default Dao<DATA, E> createDao(Config config) {
             return createDao();
         }
 
-        String toString(D data);
+        String toString(DATA data);
 
-        D fromString(String data);
+        DATA fromString(String data);
 
-        E fromBaseEntry(Entry<D> baseEntry);
+        E fromBaseEntry(Entry<DATA> baseEntry);
 
         static Config extractConfig(Dao<String, Entry<String>> dao) {
             return ((TestDao<?,?>)dao).config;
