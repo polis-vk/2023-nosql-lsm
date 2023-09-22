@@ -1,7 +1,7 @@
 # 2023-nosql-lsm
 Проект [курса]() "NoSQL"
 
-## Этап 1. In-memory (deadline 27.09.23 23:59:59 MSK)
+## Этап 1. In-memory (deadline 2023-09-27 23:59:59 MSK)
 ### Fork
 [Форкните проект](https://help.github.com/articles/fork-a-repo/), склонируйте и добавьте `upstream`:
 ```
