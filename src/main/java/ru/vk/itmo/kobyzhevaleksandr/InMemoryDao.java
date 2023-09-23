@@ -48,7 +48,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         if (entry == null) {
-            throw new NullPointerException("Entry cannot be null.");
+            throw new IllegalArgumentException("Entry cannot be null.");
         }
         map.put(entry.key(), entry);
     }
