@@ -4,13 +4,15 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> storage
+            = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
 
     @Override
     public Iterator<Entry<MemorySegment>> all() {
@@ -35,7 +37,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return storage.subMap(from, true, to, false).values().iterator();
         }
     }
-
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
