@@ -69,6 +69,15 @@ public class BasicTest extends BaseTest {
     }
 
     @DaoTest
+    void testFindValueInTheMiddle2(Dao<String, Entry<String>> dao) throws Exception {
+        dao.upsert(entry("e", "f"));
+        dao.upsert(entry("c", "d"));
+        dao.upsert(entry("a", "b"));
+
+        assertSame(dao.get("c"), entry("c", "d"));
+    }
+
+    @DaoTest
     void testFindRangeInTheMiddle(Dao<String, Entry<String>> dao) throws Exception {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
@@ -118,6 +127,5 @@ public class BasicTest extends BaseTest {
             assertSame(dao.get(keyAt("k", i)), entries.get(i));
         }
     }
-
 
 }
