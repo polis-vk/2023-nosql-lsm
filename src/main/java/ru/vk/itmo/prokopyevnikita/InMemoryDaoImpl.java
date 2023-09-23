@@ -26,14 +26,14 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (from != null && to != null) {
-            return map.subMap(from, to).values().iterator();
-        } else if (to != null) {
-            return map.headMap(to).values().iterator();
-        } else if (from != null) {
+        if (from == null && to == null) {
+            return map.values().iterator();
+        } else if (to == null) {
             return map.tailMap(from).values().iterator();
+        } else if (from == null) {
+            return map.headMap(to).values().iterator();
         }
-        return map.values().iterator();
+        return map.subMap(from, to).values().iterator();
     }
 
     @Override
