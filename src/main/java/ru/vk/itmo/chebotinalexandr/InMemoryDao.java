@@ -1,12 +1,12 @@
 package ru.vk.itmo.chebotinalexandr;
 
-
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
+import java.util.Iterator;
+import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -15,11 +15,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             (o1, o2) -> {
                 long i = o1.mismatch(o2);
 
-                if (i >= 0)
+                if (i >= 0) {
                     return Byte.compare(
                             o1.get(ValueLayout.JAVA_BYTE, i),
                             o2.get(ValueLayout.JAVA_BYTE, i)
                     );
+                }
 
                 return 0;
             }
@@ -28,14 +29,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
 
-        if (from == null && to == null)
+        if (from == null && to == null) {
             return all();
-        else if (from == null)
+        } else if (from == null) {
             return allTo(to);
-        else if (to == null)
+        } else if (to == null) {
             return allFrom(from);
-        else
+        } else {
             return entries.subMap(from, to).values().iterator();
+        }
     }
 
     @Override
