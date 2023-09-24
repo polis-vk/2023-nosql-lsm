@@ -10,7 +10,8 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> db = new ConcurrentSkipListMap<>(InMemoryDaoImpl::comparator);
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> db =
+            new ConcurrentSkipListMap<>(InMemoryDaoImpl::comparator);
 
     private static int comparator(MemorySegment segment1, MemorySegment segment2) {
         long mismatchOffset = segment1.mismatch(segment2);

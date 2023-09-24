@@ -18,12 +18,16 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        return memorySegment == null ? null : new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
+        return memorySegment == null
+                ? null
+                : new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override
     public MemorySegment fromString(String data) {
-        return  data == null ? null : MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
+        return data == null
+                ? null
+                : MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
