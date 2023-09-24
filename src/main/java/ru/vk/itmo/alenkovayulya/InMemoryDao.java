@@ -53,9 +53,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } else if (mismatchOffset == memorySegment2.byteSize()) {
             return 1;
         }
-        return Byte.compare(
-                memorySegment1.get(ValueLayout.JAVA_BYTE, mismatchOffset),
-                memorySegment2.get(ValueLayout.JAVA_BYTE, mismatchOffset));
+        return memorySegment1.get(ValueLayout.JAVA_BYTE, mismatchOffset)
+                - memorySegment2.get(ValueLayout.JAVA_BYTE, mismatchOffset);
     }
 
     private Iterator<Entry<MemorySegment>> getIterator(Supplier<SortedMap<MemorySegment, Entry<MemorySegment>>> map) {
