@@ -21,6 +21,6 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
             return 1;
         }
 
-        return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, mismatch), o2.get(ValueLayout.JAVA_BYTE, mismatch));
+        return o1.get(ValueLayout.JAVA_BYTE, mismatch) - o2.get(ValueLayout.JAVA_BYTE, mismatch);
     }
 }
