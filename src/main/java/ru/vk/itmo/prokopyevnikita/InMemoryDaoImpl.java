@@ -10,20 +10,21 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> map =
-            new ConcurrentSkipListMap<>((o1, o2) -> {
-                long relativeOffset = o1.mismatch(o2);
-                if (relativeOffset == -1) {
-                    return 0;
-                } else if (relativeOffset == o1.byteSize()) {
-                    return -1;
-                } else if (relativeOffset == o2.byteSize()) {
-                    return 1;
-                }
-                return Byte.compare(
-                        o1.get(ValueLayout.JAVA_BYTE, relativeOffset),
-                        o2.get(ValueLayout.JAVA_BYTE, relativeOffset)
-                );
-            });
+            new ConcurrentSkipListMap<>(
+                    (o1, o2) -> {
+                        long relativeOffset = o1.mismatch(o2);
+                        if (relativeOffset == -1) {
+                            return 0;
+                        } else if (relativeOffset == o1.byteSize()) {
+                            return -1;
+                        } else if (relativeOffset == o2.byteSize()) {
+                            return 1;
+                        }
+                        return Byte.compare(
+                                o1.get(ValueLayout.JAVA_BYTE, relativeOffset),
+                                o2.get(ValueLayout.JAVA_BYTE, relativeOffset)
+                        );
+                    });
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
