@@ -2,7 +2,6 @@ package ru.vk.itmo;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 
 public interface Dao<D, E extends Entry<D>> extends Closeable {

@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentTreeMap;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryStorage;
     private static final Iterator<Entry<MemorySegment>> EMPTY_ITERATOR = new Iterator<>() {
         @Override
         public boolean hasNext() {
@@ -25,35 +25,41 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     };
 
     public InMemoryDao() {
-        memorySegmentTreeMap = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+        inMemoryStorage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return memorySegmentTreeMap.get(key);
+        return inMemoryStorage.get(key);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (memorySegmentTreeMap.isEmpty()) {
+        if (inMemoryStorage.isEmpty()) {
             return EMPTY_ITERATOR;
         }
 
-        if (from == null) {
-            from = memorySegmentTreeMap.firstKey();
+        if (from == null && to == null) {
+            return inMemoryStorage.values().iterator();
         }
 
+        MemorySegment localFrom = from;
+        MemorySegment localTo = to;
         boolean last = false;
+
+        if (from == null) {
+            localFrom = inMemoryStorage.firstKey();
+        }
         if (to == null) {
-            to = memorySegmentTreeMap.lastKey();
+            localTo = inMemoryStorage.lastKey();
             last = true;
         }
 
-        return memorySegmentTreeMap.subMap(from, true, to, last).values().iterator();
+        return inMemoryStorage.subMap(localFrom, true, localTo, last).values().iterator();
     }
 
     @Override
     public synchronized void upsert(Entry<MemorySegment> entry) {
-        memorySegmentTreeMap.put(entry.key(), entry);
+        inMemoryStorage.put(entry.key(), entry);
     }
 }
