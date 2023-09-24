@@ -16,12 +16,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao() {
         memorySegments = new ConcurrentSkipListMap<>((o1, o2) -> {
-            if (o1 == null) {
-                return -1;
-            } else if (o2 == null) {
-                return 1;
-            }
-
             var mismatchOffset = o1.mismatch(o2);
             if (mismatchOffset == -1) {
                 return 0;
