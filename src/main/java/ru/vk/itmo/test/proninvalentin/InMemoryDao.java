@@ -35,12 +35,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> allTo(MemorySegment to) {
-        return memorySegments.headMap(to).sequencedValues().iterator();
+        return memorySegments.headMap(to).values().iterator();
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> all() {
-        return memorySegments.sequencedValues().iterator();
+        return memorySegments.values().iterator();
     }
 
     @Override
@@ -52,7 +52,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } else if (from == null) {
             return allTo(to);
         } else {
-            return memorySegments.tailMap(from, true).headMap(to).sequencedValues().iterator();
+            return memorySegments.tailMap(from).headMap(to).values().iterator();
         }
     }
 
@@ -63,7 +63,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> allFrom(MemorySegment from) {
-        return memorySegments.tailMap(from, true).sequencedValues().iterator();
+        return memorySegments.tailMap(from).values().iterator();
     }
 
     @Override
