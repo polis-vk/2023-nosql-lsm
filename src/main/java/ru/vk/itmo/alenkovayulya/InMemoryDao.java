@@ -21,7 +21,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
 
-        return entries.isEmpty() ? Collections.emptyIterator() : entries.subMap(
+        if (entries.isEmpty()) {
+            return Collections.emptyIterator();
+        }
+
+        return entries.subMap(
                 from == null ? entries.firstKey() : from, true,
                 to == null ? entries.lastKey() : to, to == null).values().iterator();
     }
