@@ -2,7 +2,6 @@ package ru.vk.itmo.svistukhinandrey;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.test.svistukhinandrey.Utils;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Comparator;

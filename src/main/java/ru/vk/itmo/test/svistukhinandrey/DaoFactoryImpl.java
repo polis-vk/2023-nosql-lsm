@@ -3,6 +3,7 @@ package ru.vk.itmo.test.svistukhinandrey;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.svistukhinandrey.InMemoryDao;
+import ru.vk.itmo.svistukhinandrey.Utils;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;

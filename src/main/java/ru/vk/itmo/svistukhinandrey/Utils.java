@@ -1,9 +1,10 @@
-package ru.vk.itmo.test.svistukhinandrey;
+package ru.vk.itmo.svistukhinandrey;
 
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
@@ -32,6 +33,6 @@ public class Utils {
             return null;
         }
 
-        return new String(memorySegment.toArray(ValueLayout.JAVA_CHAR));
+        return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 }
