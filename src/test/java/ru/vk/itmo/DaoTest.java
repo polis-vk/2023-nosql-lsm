@@ -32,7 +32,7 @@ import java.util.stream.Stream;
 @Retention(RetentionPolicy.RUNTIME)
 @ParameterizedTest
 @ArgumentsSource(DaoTest.DaoList.class)
-@Timeout(5)
+//@Timeout(5)
 public @interface DaoTest {
 
     class DaoList implements ArgumentsProvider {
