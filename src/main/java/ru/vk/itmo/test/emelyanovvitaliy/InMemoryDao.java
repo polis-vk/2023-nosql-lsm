@@ -12,7 +12,15 @@ import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final Comparator<MemorySegment> comparator = Comparator.comparing(MemorySegment::asByteBuffer);
+    private final Comparator<MemorySegment> comparator = (o1, o2) -> {
+        if (o1 == o2) {
+            return 0;
+        }
+        if (o1.byteSize() != o2.byteSize()) {
+            return Long.compare(o1.byteSize(), o2.byteSize());
+        }
+        return o1.asByteBuffer().compareTo(o2.asByteBuffer());
+    };
     private final ConcurrentSkipListMap<MemorySegment, MemorySegment> mappings = new ConcurrentSkipListMap<>(
             comparator
     );
@@ -24,6 +32,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        MemorySegment acutalFrom = from;
+        MemorySegment acutalTo = to;
         if (mappings.isEmpty()) {
             return new Iterator<>() {
                 @Override
@@ -38,16 +48,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             };
         }
         boolean includeLast = false;
-        if (from == null) {
-            from = mappings.firstKey();
+        if (acutalFrom == null) {
+            acutalFrom = mappings.firstKey();
         }
-        if (to == null) {
-            to = mappings.lastKey();
+        if (acutalTo == null) {
+            acutalTo = mappings.lastKey();
             includeLast = true;
         }
-        return privateGet(from, to, includeLast);
+        return privateGet(acutalFrom, acutalTo, includeLast);
     }
-
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
