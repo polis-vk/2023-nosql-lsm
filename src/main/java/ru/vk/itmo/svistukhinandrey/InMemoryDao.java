@@ -36,7 +36,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             last = true;
         }
 
-        return inMemoryStorage.subMap(localFrom, true, localTo, last).values().iterator();
+        return inMemoryStorage.subMap(localFrom, true, localTo, last).sequencedValues().iterator();
     }
 
     @Override
