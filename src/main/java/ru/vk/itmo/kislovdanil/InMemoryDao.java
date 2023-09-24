@@ -52,7 +52,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        ConcurrentNavigableMap<MemorySegment, MemorySegment> subMap= storage;
+        ConcurrentNavigableMap<MemorySegment, MemorySegment> subMap = storage;
         if (from != null) subMap = subMap.tailMap(from);
         if (to != null) subMap = subMap.headMap(to);
         Iterator<Map.Entry<MemorySegment, MemorySegment>> it = subMap.entrySet().iterator();
