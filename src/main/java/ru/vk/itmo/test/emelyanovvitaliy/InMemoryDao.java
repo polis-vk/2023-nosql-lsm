@@ -8,7 +8,6 @@ import java.lang.foreign.MemorySegment;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -32,30 +31,19 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        MemorySegment acutalFrom = from;
-        MemorySegment acutalTo = to;
-        if (mappings.isEmpty()) {
-            return new Iterator<>() {
-                @Override
-                public boolean hasNext() {
-                    return false;
-                }
+        Iterator<Map.Entry<MemorySegment, MemorySegment>> iterator = privateGet(from, to);
+        return new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                return iterator.hasNext();
+            }
 
-                @Override
-                public Entry<MemorySegment> next() {
-                    throw new NoSuchElementException();
-                }
-            };
-        }
-        boolean includeLast = false;
-        if (acutalFrom == null) {
-            acutalFrom = mappings.firstKey();
-        }
-        if (acutalTo == null) {
-            acutalTo = mappings.lastKey();
-            includeLast = true;
-        }
-        return privateGet(acutalFrom, acutalTo, includeLast);
+            @Override
+            public Entry<MemorySegment> next() {
+                Map.Entry<MemorySegment, MemorySegment> result = iterator.next();
+                return new BaseEntry<>(result.getKey(), result.getValue());
+            }
+        };
     }
 
     @Override
@@ -63,21 +51,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         mappings.put(entry.key(), entry.value());
     }
 
-    private Iterator<Entry<MemorySegment>> privateGet(MemorySegment from, MemorySegment to, boolean includeLast) {
-        Iterator<Map.Entry<MemorySegment, MemorySegment>> it = mappings.subMap(from, true, to, includeLast)
-                .sequencedEntrySet().iterator();
-        return new Iterator<>() {
-            @Override
-            public boolean hasNext() {
-                return it.hasNext();
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                Map.Entry<MemorySegment, MemorySegment> entry = it.next();
-                return new BaseEntry<>(entry.getKey(), entry.getValue());
-            }
-        };
+    private Iterator<Map.Entry<MemorySegment, MemorySegment>> privateGet(MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return mappings.entrySet().iterator();
+        } else if (from == null) {
+            return mappings.headMap(to).entrySet().iterator();
+        } else if (to == null) {
+            return mappings.headMap(from).entrySet().iterator();
+        }
+        return mappings.subMap(from, to)
+                .entrySet().iterator();
     }
 
 }
