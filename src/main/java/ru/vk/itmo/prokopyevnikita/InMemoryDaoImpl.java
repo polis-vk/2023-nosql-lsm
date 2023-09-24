@@ -14,14 +14,15 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
                 long relativeOffset = o1.mismatch(o2);
                 if (relativeOffset == -1) {
                     return 0;
-                } else if (relativeOffset < o1.byteSize() && relativeOffset < o2.byteSize()) {
-                    return Byte.compare(
-                            o1.get(ValueLayout.JAVA_BYTE, relativeOffset),
-                            o2.get(ValueLayout.JAVA_BYTE, relativeOffset)
-                    );
-                } else {
-                    return Long.compare(o1.byteSize(), o2.byteSize());
+                } else if (relativeOffset == o1.byteSize()) {
+                    return -1;
+                } else if (relativeOffset == o2.byteSize()) {
+                    return 1;
                 }
+                return Byte.compare(
+                        o1.get(ValueLayout.JAVA_BYTE, relativeOffset),
+                        o2.get(ValueLayout.JAVA_BYTE, relativeOffset)
+                );
             });
 
     @Override
