@@ -31,7 +31,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return new DaoIter(from, to);
+        if (from == null || to == null) {
+            if (from == null && to == null) {
+                return data.values().iterator();
+            } else if (from == null) {
+                return data.headMap(to).values().iterator();
+            } else {
+                return data.tailMap(from).values().iterator();
+            }
+        } else {
+            return data.subMap(from, to).values().iterator();
+        }
     }
 
     @Override
@@ -42,33 +52,5 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         data.put(entry.key(), entry);
-    }
-
-    private class DaoIter implements Iterator<Entry<MemorySegment>> {
-        Iterator<Entry<MemorySegment>> it;
-
-        DaoIter(MemorySegment from, MemorySegment to) {
-            if (from == null || to == null) {
-                if (from == null && to == null) {
-                    it = data.values().iterator();
-                } else if (from == null) {
-                    it = data.headMap(to).values().iterator();
-                } else {
-                    it = data.tailMap(from).values().iterator();
-                }
-            } else {
-                it = data.subMap(from, to).values().iterator();
-            }
-        }
-
-        @Override
-        public boolean hasNext() {
-            return it.hasNext();
-        }
-
-        @Override
-        public Entry<MemorySegment> next() {
-            return it.next();
-        }
     }
 }
