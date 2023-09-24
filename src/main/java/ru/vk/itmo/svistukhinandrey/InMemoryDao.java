@@ -24,19 +24,19 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            return inMemoryStorage.values().iterator();
+            return inMemoryStorage.sequencedValues().iterator();
         }
 
-        boolean last = false;
+        boolean isLastInclusive = false;
         MemorySegment localFrom = (from == null) ? inMemoryStorage.firstKey() : from;
         MemorySegment localTo = to;
 
         if (to == null) {
             localTo = inMemoryStorage.lastKey();
-            last = true;
+            isLastInclusive = true;
         }
 
-        return inMemoryStorage.subMap(localFrom, true, localTo, last).sequencedValues().iterator();
+        return inMemoryStorage.subMap(localFrom, true, localTo, isLastInclusive).sequencedValues().iterator();
     }
 
     @Override
