@@ -5,14 +5,12 @@ import java.lang.foreign.ValueLayout;
 
 public class Utils {
     public static String transform(MemorySegment memorySegment) {
-        StringBuilder stringBuilder = new StringBuilder();
-        for (int i = 0; i < memorySegment.byteSize(); i++) {
-            char a = (char) memorySegment.get(ValueLayout.JAVA_BYTE, i);
-            if (a != 0) {
-                stringBuilder.append((char) memorySegment.get(ValueLayout.JAVA_BYTE, i));
-            }
+        char[] chars = new char[(int) (memorySegment.byteSize() / 2)];
+
+        for (int i = 0; i < memorySegment.byteSize() / 2; i++) {
+            chars[i] = memorySegment.getAtIndex(ValueLayout.JAVA_CHAR, i);
         }
-        return stringBuilder.toString();
+        return new String(chars);
     }
 
 
