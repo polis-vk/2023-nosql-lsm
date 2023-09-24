@@ -39,7 +39,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private int compareSegments(MemorySegment memorySegment1, MemorySegment memorySegment2) {
         long mismatchOffset = memorySegment1.mismatch(memorySegment2);
-        return mismatchOffset == -1 ? 0 : Byte.compare(
+        if (mismatchOffset == -1) {
+            return 0;
+        } else if (mismatchOffset == memorySegment1.byteSize()) {
+            return -1;
+        } else if (mismatchOffset == memorySegment2.byteSize()) {
+            return 1;
+        }
+        return Byte.compare(
                 memorySegment1.get(ValueLayout.JAVA_BYTE, mismatchOffset),
                 memorySegment2.get(ValueLayout.JAVA_BYTE, mismatchOffset));
     }
