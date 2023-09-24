@@ -19,11 +19,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             var mismatchOffset = o1.mismatch(o2);
             if (mismatchOffset == -1) {
                 return 0;
+            } else if (mismatchOffset == o1.byteSize()) {
+                return -1;
+            } else if (mismatchOffset == o2.byteSize()) {
+                return 1;
             }
 
-            return o1.get(ValueLayout.JAVA_BYTE, mismatchOffset) > o2.get(ValueLayout.JAVA_BYTE, mismatchOffset)
-                    ? 1
-                    : -1;
+            return o1.get(ValueLayout.JAVA_BYTE, mismatchOffset) - o2.get(ValueLayout.JAVA_BYTE, mismatchOffset);
         });
     }
 
