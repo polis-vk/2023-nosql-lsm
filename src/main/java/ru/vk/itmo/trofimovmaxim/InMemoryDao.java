@@ -5,19 +5,17 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-//    Map<MemorySegment, MemorySegment> data;
-//    TreeSet<MemorySegment> orderedKeys;
-
-//    TreeSet<Entry<MemorySegment>> data;
 
     final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data;
 
-    Comparator<MemorySegment> compareSegment = (o1, o2) -> {
+    static final Comparator<MemorySegment> COMPARE_SEGMENT = (o1, o2) -> {
         if (o1 == null || o2 == null) {
             return o1 == null ? -1 : 1;
         }
@@ -28,14 +26,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     };
 
     public InMemoryDao() {
-//        data = new HashMap<>();
-//        orderedKeys = new TreeSet<>(compareSegment);
-
-//        data = new TreeSet<>((o1, o2) -> compareSegment.compare(o1.key(), o2.key()));
-
-//        data = new TreeMap<>(compareSegment);
-
-        data = new ConcurrentSkipListMap<>(compareSegment);
+        data = new ConcurrentSkipListMap<>(COMPARE_SEGMENT);
     }
 
     @Override
@@ -45,107 +36,39 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-//        var it = get(key, null);
-//        if (it.hasNext()) {
-//            return it.next();
-//        }
-//        return null;
-
-//        var res = data.floor(new BaseEntry<>(key, null));
-//        if (compareSegment.compare(key, res.key()) == 0) {
-//            return res;
-//        }
-//        return null;
-//        System.out.println(data.get(key));
-//
-//        return new BaseEntry<>(key, data.get(key));
-
         return data.get(key);
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-//        data.put(entry.key(), entry.value());
-//        orderedKeys.add(entry.key());
-
-//        data.add(entry);  // or copy?
-
         data.put(entry.key(), entry);
     }
 
     private class DaoIter implements Iterator<Entry<MemorySegment>> {
-//        final Iterator<Entry<MemorySegment>> it = data.iterator();
-//        Entry<MemorySegment> current = null;
-//        MemorySegment to;
-
-//        final Iterator<MemorySegment> it = orderedKeys.iterator();
-//        MemorySegment current = null;
-//        MemorySegment to;
-
-        final Iterator<MemorySegment> it = data.navigableKeySet().iterator();
-        MemorySegment current = null;
-        MemorySegment to;
+        Iterator<Entry<MemorySegment>> it;
 
         DaoIter(MemorySegment from, MemorySegment to) {
-//            this.to = to;
-//            if (it.hasNext()) {
-//                current = it.next();
-//                while (compareSegment.compare(current.key(), from) < 0 && it.hasNext()) {
-//                    current = it.next();
-//                }
-//                if (compareSegment.compare(current.key(), from) < 0) {
-//                    if (it.hasNext()) {
-//                        current = it.next();
-//                    } else {
-//                        current = null;
-//                    }
-//                }
-//            }
-
-            this.to = to;
-            if (it.hasNext()) {
-                current = it.next();
-                while (compareSegment.compare(current, from) < 0 && it.hasNext()) {
-                    current = it.next();
+            if (from == null || to == null) {
+                if (from == null && to == null) {
+                    it = data.values().iterator();
+                } else if (from == null) {
+                    it = data.headMap(to).values().iterator();
+                } else {
+                    it = data.tailMap(from).values().iterator();
                 }
-                if (compareSegment.compare(current, from) < 0) {
-                    if (it.hasNext()) {
-                        current = it.next();
-                    } else {
-                        current = null;
-                    }
-                }
+            } else {
+                it = data.subMap(from, to).values().iterator();
             }
         }
 
         @Override
         public boolean hasNext() {
-            return current != null;
+            return it.hasNext();
         }
 
         @Override
         public Entry<MemorySegment> next() {
-//            var result = current;
-//            Entry<MemorySegment> next = null;
-//            if (it.hasNext()) {
-//                next = it.next();
-//                if (to != null && compareSegment.compare(next.key(), to) >= 0) {
-//                    next = null;
-//                }
-//            }
-//            current = next;
-//            return result;
-
-            var result = current;
-            MemorySegment next = null;
-            if (it.hasNext()) {
-                next = it.next();
-                if (to != null && compareSegment.compare(next, to) >= 0) {
-                    next = null;
-                }
-            }
-            current = next;
-            return data.get(result);
+            return it.next();
         }
     }
 }
