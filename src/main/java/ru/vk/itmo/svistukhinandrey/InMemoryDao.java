@@ -4,17 +4,28 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
+import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentTreeMap;
+    private static final Iterator<Entry<MemorySegment>> EMPTY_ITERATOR = new Iterator<>() {
+        @Override
+        public boolean hasNext() {
+            return false;
+        }
+
+        @Override
+        public Entry<MemorySegment> next() {
+            throw new NoSuchElementException();
+        }
+    };
 
     public InMemoryDao() {
-        memorySegmentTreeMap = new ConcurrentSkipListMap<>(Comparator.comparing(Utils::memorySegmentToString));
+        memorySegmentTreeMap = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     }
 
     @Override
@@ -25,7 +36,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (memorySegmentTreeMap.isEmpty()) {
-            return Utils.getEmptyIterator();
+            return EMPTY_ITERATOR;
         }
 
         if (from == null) {
@@ -42,7 +53,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void upsert(Entry<MemorySegment> entry) {
+    public synchronized void upsert(Entry<MemorySegment> entry) {
         memorySegmentTreeMap.put(entry.key(), entry);
     }
 }

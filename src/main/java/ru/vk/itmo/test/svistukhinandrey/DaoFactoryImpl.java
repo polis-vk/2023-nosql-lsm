@@ -3,10 +3,10 @@ package ru.vk.itmo.test.svistukhinandrey;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.svistukhinandrey.InMemoryDao;
-import ru.vk.itmo.svistukhinandrey.Utils;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 @DaoFactory
@@ -14,7 +14,11 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        return Utils.memorySegmentToString(memorySegment);
+        if (memorySegment == null) {
+            return null;
+        }
+
+        return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override
