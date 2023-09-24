@@ -5,6 +5,7 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 @DaoFactory
@@ -17,12 +18,16 @@ public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Ent
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        return StandardCharsets.UTF_8.decode(memorySegment.asByteBuffer()).toString();
+        return memorySegment == null
+                ? null
+                : new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override
     public MemorySegment fromString(String data) {
-        return data == null ? null : MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
+        return data == null
+                ? null
+                : MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override

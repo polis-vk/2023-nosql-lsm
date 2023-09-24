@@ -52,6 +52,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
+        if (key == null) return null;
         return memorySegments.getOrDefault(key, null);
     }
 
@@ -62,6 +63,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
+        if (entry.key() == null) return;
         memorySegments.put(entry.key(), entry);
     }
 }
