@@ -3,7 +3,7 @@ package ru.vk.itmo.test.kholoshniavadim.inmemory;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.DaoFactory;
-import ru.vk.itmo.test.kholoshniavadim.utils.StringConverter;
+import ru.vk.itmo.test.kholoshniavadim.utils.StringConverterUtil;
 
 import java.lang.foreign.MemorySegment;
 
@@ -16,12 +16,12 @@ public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        return StringConverter.toString(memorySegment);
+        return StringConverterUtil.toString(memorySegment);
     }
 
     @Override
     public MemorySegment fromString(String data) {
-        return StringConverter.fromString(data);
+        return StringConverterUtil.fromString(data);
     }
 
     @Override

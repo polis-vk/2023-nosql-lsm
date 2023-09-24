@@ -6,8 +6,8 @@ import java.util.Comparator;
 public class MemorySegmentComparator implements Comparator<MemorySegment> {
     @Override
     public int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
-        final String string1 = StringConverter.toString(memorySegment1);
-        final String string2 = StringConverter.toString(memorySegment2);
+        final String string1 = StringConverterUtil.toString(memorySegment1);
+        final String string2 = StringConverterUtil.toString(memorySegment2);
 
         if (string1 == null && string2 == null) return 0;
         if (string1 == null) return -1;

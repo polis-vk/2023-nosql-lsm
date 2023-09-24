@@ -5,8 +5,11 @@ import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
-public class StringConverter {
+public class StringConverterUtil {
     private static final Charset charset = StandardCharsets.UTF_8;
+
+    private StringConverterUtil() {
+    }
 
     public static String toString(MemorySegment memorySegment) {
         if (memorySegment == null) {
