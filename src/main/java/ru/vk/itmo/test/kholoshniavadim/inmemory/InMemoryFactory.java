@@ -8,7 +8,7 @@ import ru.vk.itmo.test.kholoshniavadim.utils.StringConverterUtil;
 import java.lang.foreign.MemorySegment;
 
 @DaoFactory
-public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+public final class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
         return new InMemoryDao();

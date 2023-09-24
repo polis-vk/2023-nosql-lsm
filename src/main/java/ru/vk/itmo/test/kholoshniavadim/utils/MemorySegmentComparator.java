@@ -3,7 +3,7 @@ package ru.vk.itmo.test.kholoshniavadim.utils;
 import java.lang.foreign.MemorySegment;
 import java.util.Comparator;
 
-public class MemorySegmentComparator implements Comparator<MemorySegment> {
+public final class MemorySegmentComparator implements Comparator<MemorySegment> {
     @Override
     public int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
         final String string1 = StringConverterUtil.toString(memorySegment1);
