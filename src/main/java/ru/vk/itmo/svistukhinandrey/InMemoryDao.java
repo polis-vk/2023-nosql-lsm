@@ -6,19 +6,26 @@ import ru.vk.itmo.test.svistukhinandrey.Utils;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.Iterator;
-import java.util.TreeMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    TreeMap<MemorySegment, Entry<MemorySegment>> memorySegmentTreeMap;
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memorySegmentTreeMap;
+    private final Iterator<Entry<MemorySegment>> emptyIterator = new Iterator<>() {
+        @Override
+        public boolean hasNext() {
+            return false;
+        }
+
+        @Override
+        public Entry<MemorySegment> next() {
+            return null;
+        }
+    };
 
     public InMemoryDao() {
-        memorySegmentTreeMap = new TreeMap<>(Comparator.comparing(x -> {
-            if (x == null) return null;
-            return Utils.transform(x);
-        }));
+        memorySegmentTreeMap = new ConcurrentSkipListMap<>(Comparator.comparing(Utils::transform));
     }
 
     @Override
@@ -50,17 +57,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             return memorySegmentTreeMap.subMap(from, true, to, last).values().iterator();
         } else {
-            return new Iterator<>() {
-                @Override
-                public boolean hasNext() {
-                    return false;
-                }
-
-                @Override
-                public Entry<MemorySegment> next() {
-                    return null;
-                }
-            };
+            return emptyIterator;
         }
     }
 

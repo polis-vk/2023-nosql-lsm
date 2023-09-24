@@ -5,6 +5,10 @@ import java.lang.foreign.ValueLayout;
 
 public class Utils {
     public static String transform(MemorySegment memorySegment) {
+        if (memorySegment == null) {
+            return null;
+        }
+
         char[] chars = new char[(int) (memorySegment.byteSize() / 2)];
 
         for (int i = 0; i < memorySegment.byteSize() / 2; i++) {
@@ -12,6 +16,4 @@ public class Utils {
         }
         return new String(chars);
     }
-
-
 }
