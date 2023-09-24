@@ -1,19 +1,37 @@
 package ru.vk.itmo.test.svistukhinandrey;
 
+import ru.vk.itmo.Entry;
+
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 public class Utils {
-    public static String transform(MemorySegment memorySegment) {
+
+    private Utils() {}
+
+    private static final Iterator<Entry<MemorySegment>> emptyIterator = new Iterator<>() {
+        @Override
+        public boolean hasNext() {
+            return false;
+        }
+
+        @Override
+        public Entry<MemorySegment> next() {
+            throw new NoSuchElementException();
+        }
+    };
+
+    public static Iterator<Entry<MemorySegment>> getEmptyIterator() {
+        return emptyIterator;
+    }
+
+    public static String memorySegmentToString(MemorySegment memorySegment) {
         if (memorySegment == null) {
             return null;
         }
 
-        char[] chars = new char[(int) (memorySegment.byteSize() / 2)];
-
-        for (int i = 0; i < memorySegment.byteSize() / 2; i++) {
-            chars[i] = memorySegment.getAtIndex(ValueLayout.JAVA_CHAR, i);
-        }
-        return new String(chars);
+        return new String(memorySegment.toArray(ValueLayout.JAVA_CHAR));
     }
 }

@@ -6,19 +6,23 @@ import ru.vk.itmo.svistukhinandrey.InMemoryDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
+import java.nio.charset.StandardCharsets;
 
 @DaoFactory
 public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+
     @Override
     public String toString(MemorySegment memorySegment) {
-        return Utils.transform(memorySegment);
+        return Utils.memorySegmentToString(memorySegment);
     }
 
     @Override
     public MemorySegment fromString(String data) {
-        if (data == null) return null;
-        return MemorySegment.ofArray(data.toCharArray());
+        if (data == null) {
+            return null;
+        }
+
+        return MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
