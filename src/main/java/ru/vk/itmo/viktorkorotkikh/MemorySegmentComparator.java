@@ -7,7 +7,8 @@ import java.util.Comparator;
 public class MemorySegmentComparator implements Comparator<MemorySegment> {
     @Override
     public int compare(MemorySegment o1, MemorySegment o2) {
-        long mismatch = o1.mismatch(o2); // range of 0 (inclusive) up to the size (in bytes) of the smaller memory segment (exclusive).
+        // range of 0 (inclusive) up to the size (in bytes) of the smaller memory segment (exclusive).
+        long mismatch = o1.mismatch(o2);
         if (mismatch == -1) { // equals
             return 0;
         }
