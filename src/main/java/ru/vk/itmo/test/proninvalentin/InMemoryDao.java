@@ -5,7 +5,6 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -16,24 +15,21 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memorySegments;
 
     public InMemoryDao() {
-        memorySegments = new ConcurrentSkipListMap<>(new Comparator<MemorySegment>() {
-            @Override
-            public int compare(MemorySegment o1, MemorySegment o2) {
-                if (o1 == null) {
-                    return -1;
-                } else if (o2 == null) {
-                    return 1;
-                }
-
-                var mismatchOffset = o1.mismatch(o2);
-                if (mismatchOffset == -1) {
-                    return 0;
-                }
-
-                return o1.get(ValueLayout.JAVA_BYTE, mismatchOffset) > o2.get(ValueLayout.JAVA_BYTE, mismatchOffset)
-                        ? 1
-                        : -1;
+        memorySegments = new ConcurrentSkipListMap<>((o1, o2) -> {
+            if (o1 == null) {
+                return -1;
+            } else if (o2 == null) {
+                return 1;
             }
+
+            var mismatchOffset = o1.mismatch(o2);
+            if (mismatchOffset == -1) {
+                return 0;
+            }
+
+            return o1.get(ValueLayout.JAVA_BYTE, mismatchOffset) > o2.get(ValueLayout.JAVA_BYTE, mismatchOffset)
+                    ? 1
+                    : -1;
         });
     }
 
@@ -53,7 +49,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return all();
         } else if (from != null && to == null) {
             return allFrom(from);
-        } else if (from == null && to != null) {
+        } else if (from == null) {
             return allTo(to);
         } else {
             return memorySegments.tailMap(from, true).headMap(to).sequencedValues().iterator();
