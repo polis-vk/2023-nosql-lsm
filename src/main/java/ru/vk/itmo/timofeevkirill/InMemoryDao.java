@@ -9,7 +9,8 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     MemorySegmentComparator msComparator = new MemorySegmentComparator();
-    ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries = new ConcurrentSkipListMap<>(msComparator);
+    ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries =
+            new ConcurrentSkipListMap<>(msComparator);
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -26,8 +27,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             public boolean hasNext() {
                 if (!i.hasNext()) return false;
                 entry = i.next();
-                while (from != null && msComparator.compare(entry, from) < 0 ||
-                        to != null && msComparator.compare(entry, to) >= 0) {
+                while (from != null && msComparator.compare(entry, from) < 0
+                        || to != null && msComparator.compare(entry, to) >= 0) {
                     if (!i.hasNext()) return false;
                     entry = i.next();
                 }
