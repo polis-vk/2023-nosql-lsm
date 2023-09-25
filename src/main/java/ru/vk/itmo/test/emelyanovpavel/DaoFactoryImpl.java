@@ -32,4 +32,5 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
     public Entry<MemorySegment> fromBaseEntry(Entry<MemorySegment> baseEntry) {
         return baseEntry;
     }
+
 }

@@ -72,4 +72,5 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Entry<MemorySegment> get(MemorySegment key) {
         return storage.get(key);
     }
+
 }
