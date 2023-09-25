@@ -39,9 +39,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        if(key == null) {
-            return null;
-        }
         return storage.get(key);
     }
 
