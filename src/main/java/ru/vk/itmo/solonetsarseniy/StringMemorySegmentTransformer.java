@@ -3,7 +3,7 @@ package ru.vk.itmo.solonetsarseniy;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 
-public class StringMemorySegmentTransformer implements Transformer<String, MemorySegment>{
+public class StringMemorySegmentTransformer implements Transformer<String, MemorySegment> {
     private final Transformer<String, ByteBuffer> stringByteBufferTransformer =
         new StringByteBufferTransformer();
 

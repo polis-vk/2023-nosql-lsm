@@ -1,6 +1,5 @@
 package ru.vk.itmo.solonetsarseniy;
 
-import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
@@ -9,14 +8,8 @@ import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> database = DatabaseBuilder.build();
-    private Config config;
-
-    public InMemoryDao(Config config) {
-        this.config = config;
-    }
-
-    public InMemoryDao() {}
+    private static final DatabaseBuilder databaseBuilder = new DatabaseBuilder();
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> database = databaseBuilder.build();
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {

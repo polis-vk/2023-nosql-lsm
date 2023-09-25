@@ -1,6 +1,5 @@
 package ru.vk.itmo.test.solonetsarseniy;
 
-import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.solonetsarseniy.InMemoryDao;
@@ -17,11 +16,6 @@ public class StringDaoFactory implements DaoFactory.Factory<MemorySegment, Entry
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
         return new InMemoryDao();
-    }
-
-    @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new InMemoryDao(config);
     }
 
     @Override

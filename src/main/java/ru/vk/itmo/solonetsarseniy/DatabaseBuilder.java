@@ -6,9 +6,9 @@ import java.lang.foreign.MemorySegment;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DatabaseBuilder {
-    private final static MemorySegmentComparator COMPARATOR = new MemorySegmentComparator();
+    private static final MemorySegmentComparator COMPARATOR = new MemorySegmentComparator();
 
-    public static ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> build() {
+    public ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> build() {
         return new ConcurrentSkipListMap<>(COMPARATOR);
     }
 }
