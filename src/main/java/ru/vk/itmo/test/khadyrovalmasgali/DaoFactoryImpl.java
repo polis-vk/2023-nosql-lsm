@@ -18,16 +18,9 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        if (memorySegment == null) {
-            return null;
-        }
-        long size = memorySegment.byteSize();
-        if (size > Integer.MAX_VALUE) {
-            throw new IllegalArgumentException("Memory segment byte size > Int.MAX_VALUE");
-        }
-        byte[] bytes = new byte[(int) size];
-        MemorySegment.copy(memorySegment, ValueLayout.JAVA_BYTE, 0, bytes, 0, (int) size);
-        return new String(bytes, StandardCharsets.UTF_8);
+        return memorySegment == null ?
+                null
+                : new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override
