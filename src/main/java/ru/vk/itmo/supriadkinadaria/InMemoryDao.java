@@ -17,22 +17,21 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 long mismatch = o1.mismatch(o2);
                 if (mismatch == -1) {
                     return 0;
-                }
-                if (o1.get(JAVA_BYTE, mismatch) > o2.get(JAVA_BYTE, mismatch)) {
+                } else if(o1.byteSize() == mismatch) {
+                    return -1;
+                } else if (o2.byteSize() == mismatch) {
                     return 1;
                 }
-                return -1;
+                return o1.get(JAVA_BYTE, mismatch) - o2.get(JAVA_BYTE, mismatch);
             });
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from != null && to != null) {
             return storage.subMap(from, to).values().iterator();
-        }
-        if (to != null) {
+        } else if (to != null) {
             return storage.headMap(to).values().iterator();
-        }
-        if (from != null) {
+        } else if (from != null) {
             return storage.tailMap(from).values().iterator();
         }
         return storage.values().iterator();
@@ -40,6 +39,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
+        if(key == null) {
+            return null;
+        }
         return storage.get(key);
     }
 
