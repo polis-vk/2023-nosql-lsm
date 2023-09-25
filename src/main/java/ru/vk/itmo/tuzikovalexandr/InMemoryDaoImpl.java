@@ -1,10 +1,11 @@
 package ru.vk.itmo.tuzikovalexandr;
 
 import java.lang.foreign.MemorySegment;
+
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+
 import java.util.Iterator;
-import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -13,20 +14,16 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        // Iterator<Entry<MemorySegment>> memoryIterators = memory.values().iterator();
 
-        if (from == null && to == null) return memory.values().iterator();
-        else if (from == null) return memory.headMap(to, false).values().iterator();
-        else if (to == null) return memory.subMap(from, true, memory.lastKey(), false).values().iterator();
-        else return memory.subMap(from, true, to, false).values().iterator();
-
-        /*return new Iterator<Entry<MemorySegment>>() {
-            @Override
-            public boolean hasNext() { return memoryIterators.hasNext(); }
-
-            @Override
-            public Entry<MemorySegment> next() { return memoryIterators.next(); }
-        };*/
+        if (from == null && to == null) {
+            return memory.values().iterator();
+        } else if (from == null) {
+            return memory.headMap(to, false).values().iterator();
+        } else if (to == null) {
+            return memory.subMap(from, true, memory.lastKey(), false).values().iterator();
+        } else {
+            return memory.subMap(from, true, to, false).values().iterator();
+        }
     }
 
     @Override
