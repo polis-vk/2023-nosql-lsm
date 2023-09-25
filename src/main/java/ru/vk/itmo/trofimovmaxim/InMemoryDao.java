@@ -5,7 +5,6 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
@@ -19,10 +18,25 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (o1 == null || o2 == null) {
             return o1 == null ? -1 : 1;
         }
-        return Arrays.compare(
-                o1.toArray(ValueLayout.OfByte.JAVA_BYTE),
-                o2.toArray(ValueLayout.OfByte.JAVA_BYTE)
-        );
+
+        long o1size = o1.byteSize();
+        long o2size = o2.byteSize();
+
+        for (long i = 0; i < Math.min(o1size, o2size); ++i) {
+            byte o1byte = o1.get(ValueLayout.OfByte.JAVA_BYTE, i);
+            byte o2byte = o2.get(ValueLayout.OfByte.JAVA_BYTE, i);
+            if (o1byte < o2byte) {
+                return -1;
+            } else if (o1byte > o2byte) {
+                return 1;
+            }
+        }
+        if (o1size < o2size) {
+            return -1;
+        } else if (o1size == o2size) {
+            return 0;
+        }
+        return 1;
     };
 
     public InMemoryDao() {
