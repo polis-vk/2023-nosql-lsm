@@ -19,31 +19,24 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        Iterator<MemorySegment> i = memorySegmentEntries.keySet().iterator();
-        return new Iterator<>() {
-            MemorySegment entry;
-
-            @Override
-            public boolean hasNext() {
-                if (!i.hasNext()) return false;
-                entry = i.next();
-                while (from != null && msComparator.compare(entry, from) < 0
-                        || to != null && msComparator.compare(entry, to) >= 0) {
-                    if (!i.hasNext()) return false;
-                    entry = i.next();
-                }
-                return true;
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                return memorySegmentEntries.get(entry);
-            }
-        };
+        if (from != null && to != null) {
+            return memorySegmentEntries.tailMap(from).headMap(to).values().iterator();
+        } else if (from != null) {
+            return memorySegmentEntries.tailMap(from).values().iterator();
+        } else if (to != null) {
+            return memorySegmentEntries.headMap(to).values().iterator();
+        } else {
+            return memorySegmentEntries.values().iterator();
+        }
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         memorySegmentEntries.put(entry.key(), entry);
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> all() {
+        return memorySegmentEntries.values().iterator();
     }
 }
