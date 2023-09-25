@@ -1,6 +1,5 @@
 package ru.vk.itmo.smirnovdmitrii;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
@@ -13,7 +12,7 @@ import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private NavigableMap<MemorySegment, MemorySegment> memorySegmentMap =
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentMap =
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
 
     private static final class MemorySegmentComparator implements Comparator<MemorySegment> {
@@ -27,58 +26,35 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             } else if (o2.byteSize() == offset) {
                 return 1;
             }
-
             return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, offset), o2.get(ValueLayout.JAVA_BYTE, offset));
         }
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
-
-        class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
-
-            private final Iterator<Map.Entry<MemorySegment, MemorySegment>> mapIterator;
-
-            public InMemoryIterator() {
-                final Map<MemorySegment, MemorySegment> map;
-                if (from == null && to == null) {
-                    map = memorySegmentMap;
-                } else if (from == null) {
-                    map = memorySegmentMap.headMap(to);
-                } else if (to == null) {
-                    map = memorySegmentMap.tailMap(from);
-                } else {
-                    map = memorySegmentMap.subMap(from, to);
-                }
-                mapIterator = map.entrySet().iterator();
-            }
-
-            @Override
-            public boolean hasNext() {
-                return mapIterator.hasNext();
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                final Map.Entry<MemorySegment, MemorySegment> entry = mapIterator.next();
-                return new BaseEntry<>(entry.getKey(), entry.getValue());
-            }
+        final Map<MemorySegment, Entry<MemorySegment>> map;
+        if (from == null && to == null) {
+            map = memorySegmentMap;
+        } else if (from == null) {
+            map = memorySegmentMap.headMap(to);
+        } else if (to == null) {
+            map = memorySegmentMap.tailMap(from);
+        } else {
+            map = memorySegmentMap.subMap(from, to);
         }
-
-        return new InMemoryIterator();
+        return map.values().iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
         checkClosed();
-        final MemorySegment value = memorySegmentMap.get(key);
-        return value == null ? null : new BaseEntry<>(key, value);
+        return key == null ? null : memorySegmentMap.get(key);
     }
 
     @Override
     public void upsert(final Entry<MemorySegment> entry) {
         checkClosed();
-        memorySegmentMap.put(entry.key(), entry.value());
+        memorySegmentMap.put(entry.key(), entry);
     }
 
     private void checkClosed() {
