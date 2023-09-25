@@ -6,6 +6,7 @@ import ru.vk.itmo.smirnovdmitrii.InMemoryDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.charset.Charset;
 
 @DaoFactory
@@ -18,7 +19,8 @@ public class MemorySegmentFactory implements DaoFactory.Factory<MemorySegment, E
 
     @Override
     public String toString(final MemorySegment memorySegment) {
-        return memorySegment == null ? null : Charset.defaultCharset().decode(memorySegment.asByteBuffer()).toString();
+        return memorySegment == null ? null :
+                new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), Charset.defaultCharset());
     }
 
     @Override
