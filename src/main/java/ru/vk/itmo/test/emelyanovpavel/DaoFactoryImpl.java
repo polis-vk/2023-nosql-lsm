@@ -2,6 +2,7 @@ package ru.vk.itmo.test.emelyanovpavel;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.emelyanovpavel.DaoImpl;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
