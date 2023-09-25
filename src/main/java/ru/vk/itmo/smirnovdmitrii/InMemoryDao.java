@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, MemorySegment> memorySegmentMap =
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+    private boolean isClosed = false;
 
     private static final class MemorySegmentComparator implements Comparator<MemorySegment> {
         @Override
@@ -27,6 +28,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             } else if (o2.byteSize() == offset) {
                 return 1;
             }
+
             return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, offset), o2.get(ValueLayout.JAVA_BYTE, offset));
         }
     }
@@ -69,12 +71,26 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
+        checkClosed();
         final MemorySegment value = memorySegmentMap.get(key);
         return value == null ? null : new BaseEntry<>(key, value);
     }
 
     @Override
     public void upsert(final Entry<MemorySegment> entry) {
+        checkClosed();
         memorySegmentMap.put(entry.key(), entry.value());
+    }
+
+    private void checkClosed() {
+        if (isClosed) {
+            throw new IllegalStateException("dao is closed");
+        }
+    }
+
+    @Override
+    public synchronized void close() {
+        isClosed = true;
+        memorySegmentMap.clear();
     }
 }
