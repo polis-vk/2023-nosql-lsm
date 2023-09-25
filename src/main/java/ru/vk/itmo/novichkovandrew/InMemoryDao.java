@@ -6,50 +6,46 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.Iterator;
+import java.util.NavigableSet;
+import java.util.concurrent.ConcurrentSkipListSet;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> data;
+    final ConcurrentSkipListSet<Entry<MemorySegment>> data;
 
     public InMemoryDao() {
-        this.data = new ConcurrentSkipListMap<>(this::compareMemorySegment);
+        this.data = new ConcurrentSkipListSet<>((o1, o2) -> compareMemorySegment(o1.key(), o2.key()));
     }
 
-
-    private Map<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, MemorySegment to) {
-        if (from != null && to != null) {
-            return data.subMap(from, to);
-        } else if (from != null) {
-            return data.tailMap(from, true);
-        } else if (to != null) {
-            return data.headMap(to, false);
+    private NavigableSet<Entry<MemorySegment>> getSubMap(Entry<MemorySegment> from, Entry<MemorySegment> to) {
+        if (from.key() != null && to.key() != null) {
+            return data.subSet(from, to);
+        } else if (from.key() != null) {
+            return data.tailSet(from, true);
+        } else if (to.key() != null) {
+            return data.headSet(to, false);
         }
         return data;
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return getSubMap(from, to).values().iterator();
+        Entry<MemorySegment> dummyFrom = new BaseEntry<>(from, null);
+        Entry<MemorySegment> dummyTo = new BaseEntry<>(to, null);
+        return getSubMap(dummyFrom, dummyTo).iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Iterator<Entry<MemorySegment>> iterator = get(key, null);
-        if (!iterator.hasNext()) {
-            return null;
-        }
-        Entry<MemorySegment> nextKey = iterator.next();
-        if (key.mismatch(nextKey.key()) == -1) {
-            return nextKey;
-        }
-        return null;
+        Entry<MemorySegment> dummyEntry = new BaseEntry<>(key, null);
+        Entry<MemorySegment> value = data.ceiling(dummyEntry);
+        return value == null || value.key().mismatch(key) != -1 ? null : value;
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        data.put(entry.key(), entry);
+        data.add(entry);
     }
 
     private int compareMemorySegment(MemorySegment first, MemorySegment second) {
