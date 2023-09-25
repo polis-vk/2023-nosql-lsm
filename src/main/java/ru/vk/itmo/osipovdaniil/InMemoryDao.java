@@ -28,8 +28,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (mismatchOffset == -1) {
                 return 0;
             }
-            return Byte.compare(a.get(ValueLayout.JAVA_BYTE, mismatchOffset),
-                    b.get(ValueLayout.JAVA_BYTE, mismatchOffset));
+            return Byte.compare(a.getAtIndex(ValueLayout.JAVA_BYTE, mismatchOffset),
+                    b.getAtIndex(ValueLayout.JAVA_BYTE, mismatchOffset));
         }
     }
 
