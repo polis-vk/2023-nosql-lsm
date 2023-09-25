@@ -1,12 +1,11 @@
 package ru.vk.itmo.test.tuzikovalexandr;
 
-import java.lang.foreign.MemorySegment;
-
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.DaoFactory;
 import ru.vk.itmo.tuzikovalexandr.InMemoryDaoImpl;
 
+import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
