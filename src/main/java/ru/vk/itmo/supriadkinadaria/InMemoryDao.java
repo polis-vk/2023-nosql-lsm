@@ -1,0 +1,50 @@
+package ru.vk.itmo.supriadkinadaria;
+
+import ru.vk.itmo.Dao;
+import ru.vk.itmo.Entry;
+
+import java.lang.foreign.MemorySegment;
+import java.util.Iterator;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
+
+public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
+            new ConcurrentSkipListMap<>((o1, o2) -> {
+                long mismatch = o1.mismatch(o2);
+                if (mismatch == -1) {
+                    return 0;
+                }
+                if (o1.get(JAVA_BYTE, mismatch) > o2.get(JAVA_BYTE, mismatch)) {
+                    return 1;
+                }
+                return -1;
+            });
+
+    @Override
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        if (from != null && to != null) {
+            return storage.subMap(from, to).values().iterator();
+        }
+        if (to != null) {
+            return storage.headMap(to).values().iterator();
+        }
+        if (from != null) {
+            return storage.tailMap(from).values().iterator();
+        }
+        return storage.values().iterator();
+    }
+
+    @Override
+    public Entry<MemorySegment> get(MemorySegment key) {
+        return storage.get(key);
+    }
+
+    @Override
+    public void upsert(Entry<MemorySegment> entry) {
+        storage.put(entry.key(), entry);
+    }
+}
