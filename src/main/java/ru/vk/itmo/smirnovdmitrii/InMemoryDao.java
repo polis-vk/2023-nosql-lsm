@@ -1,5 +1,9 @@
 package ru.vk.itmo.smirnovdmitrii;
 
+import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Dao;
+import ru.vk.itmo.Entry;
+
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
@@ -7,9 +11,6 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import ru.vk.itmo.BaseEntry;
-import ru.vk.itmo.Dao;
-import ru.vk.itmo.Entry;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -70,10 +71,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
         final MemorySegment value = memorySegmentMap.get(key);
-        if (value == null) {
-            return null;
-        }
-        return new BaseEntry<>(key, value);
+        return value == null ? null : new BaseEntry<>(key, value);
     }
 
     @Override

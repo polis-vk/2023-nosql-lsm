@@ -1,11 +1,12 @@
 package ru.vk.itmo.test.smirnovdmitrii;
 
-import java.lang.foreign.MemorySegment;
-import java.nio.charset.Charset;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.smirnovdmitrii.InMemoryDao;
 import ru.vk.itmo.test.DaoFactory;
+
+import java.lang.foreign.MemorySegment;
+import java.nio.charset.Charset;
 
 @DaoFactory
 public class MemorySegmentFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
