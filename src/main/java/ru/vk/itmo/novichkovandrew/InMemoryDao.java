@@ -17,7 +17,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      * {@link ConcurrentSkipListMap#subMap(Object, Object)} method return subMap by keys.
      * If we try to use
      * {@link java.util.concurrent.ConcurrentSkipListSet} in order to save
-     * entries only, that in the method {@link #get(MemorySegment, MemorySegment)} we need to allocate new BaseEntry, cause
+     * entries only, that in the method {@link #get(MemorySegment, MemorySegment)} we need to allocate new BaseEntry,
+     * cause
      * {@link java.util.concurrent.ConcurrentSkipListSet#subSet(Object, Object)} takes two entries.<br>
      * Example:
      * <pre> {@code
@@ -38,9 +39,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, MemorySegment to) {
         if (from != null && to != null) {
             return entriesMap.subMap(from, to);
-        } else if (from != null) {
+        }
+        if (from != null) {
             return entriesMap.tailMap(from, true);
-        } else if (to != null) {
+        }
+        if (to != null) {
             return entriesMap.headMap(to, false);
         }
         return entriesMap;
