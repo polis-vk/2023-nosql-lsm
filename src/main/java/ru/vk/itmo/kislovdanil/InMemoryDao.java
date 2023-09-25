@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    ConcurrentSkipListMap<MemorySegment, MemorySegment> storage = new ConcurrentSkipListMap<>(new MemSegComparator());
 
     private static class MemSegComparator implements Comparator<MemorySegment> {
         @Override
@@ -24,12 +25,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (mismatch == Math.min(o1.byteSize(), o2.byteSize())) {
                 return Long.compare(o1.byteSize(), o2.byteSize());
             }
-            return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, mismatch),
-                    o2.get(ValueLayout.JAVA_BYTE, mismatch));
+            return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, mismatch), o2.get(ValueLayout.JAVA_BYTE, mismatch));
         }
     }
-
-    ConcurrentSkipListMap<MemorySegment, MemorySegment> storage = new ConcurrentSkipListMap<>(new MemSegComparator());
 
     private static class IteratorWrapper implements Iterator<Entry<MemorySegment>> {
         Iterator<Map.Entry<MemorySegment, MemorySegment>> innerIt;
