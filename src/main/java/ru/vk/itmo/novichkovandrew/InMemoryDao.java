@@ -1,49 +1,36 @@
 package ru.vk.itmo.novichkovandrew;
 
+import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Iterator;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    final Set<Entry<MemorySegment>> data;
+    final TreeMap<MemorySegment, Entry<MemorySegment>> data;
 
     public InMemoryDao() {
-        this.data = new TreeSet<>((o1, o2) -> compareMemorySegment(o1.key(), o2.key()));
+        this.data = new TreeMap<>(this::compareMemorySegment);
+    }
+
+
+    private Map<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, MemorySegment to) {
+        if (from != null && to != null) {
+            return data.subMap(from, to);
+        } else if (from != null) {
+            return data.tailMap(from, true);
+        } else if (to != null) {
+            return data.headMap(to, false);
+        }
+        return data;
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        final Iterator<Entry<MemorySegment>> iterator = data.iterator();
-        Entry<MemorySegment> value = null;
-        while (iterator.hasNext()) {
-            value = iterator.next();
-            if (compareMemorySegment(from, value.key()) <= 0) {
-                break;
-            }
-        }
-        Entry<MemorySegment> finalValue = value;
-        return new Iterator<>() {
-            Entry<MemorySegment> val = finalValue;
-
-            @Override
-            public boolean hasNext() {
-                if (val == null) return false;
-                return compareMemorySegment(val.key(), to) < 0;
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                var result = val;
-                val = iterator.hasNext() ? iterator.next() : null;
-                return result;
-            }
-        };
+        return getSubMap(from, to).values().iterator();
     }
 
     @Override
@@ -53,34 +40,26 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
         Entry<MemorySegment> nextKey = iterator.next();
-        if (equals(nextKey.key(), key)) {
+        if (key.mismatch(nextKey.key()) == -1) {
             return nextKey;
         }
         return null;
     }
 
-
-    private boolean equals(MemorySegment a, MemorySegment b) {
-        if (a == b) return true;
-        if (a == null || a.getClass() != b.getClass()) return false;
-        return compareMemorySegment(a, b) == 0;
-    }
-
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        data.add(entry);
+        data.put(entry.key(), entry);
     }
 
-    private int compareMemorySegment(MemorySegment first, MemorySegment second) { //TODO #1: Fix allocate arrays;
+    private int compareMemorySegment(MemorySegment first, MemorySegment second) {
         if (first == null || second == null) return -1;
-        byte[] f = first.toArray(ValueLayout.JAVA_BYTE);
-        byte[] s = second.toArray(ValueLayout.JAVA_BYTE);
-        if (f.length != s.length) return Integer.compare(f.length, s.length);
-        for (int i = 0; i < f.length; i++) {
-            if (f[i] != s[i]) {
-                return Integer.compare(f[i], s[i]);
-            }
+        if (first.byteSize() != second.byteSize()) {
+            return Long.compare(first.byteSize(), second.byteSize());
         }
-        return 0;
+        long missIndex = first.mismatch(second);
+        return missIndex == -1 ? 0 : Byte.compare(
+                first.getAtIndex(ValueLayout.JAVA_BYTE, missIndex),
+                second.getAtIndex(ValueLayout.JAVA_BYTE, missIndex)
+        );
     }
 }
