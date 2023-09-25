@@ -7,13 +7,14 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.*;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    final TreeMap<MemorySegment, Entry<MemorySegment>> data;
+    final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> data;
 
     public InMemoryDao() {
-        this.data = new TreeMap<>(this::compareMemorySegment);
+        this.data = new ConcurrentSkipListMap<>(this::compareMemorySegment);
     }
 
 
