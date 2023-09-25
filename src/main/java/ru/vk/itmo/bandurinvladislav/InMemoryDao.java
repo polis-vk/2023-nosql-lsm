@@ -39,12 +39,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private Iterator<Entry<MemorySegment>> getEntryIterator(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
             return inMemoryStorage.values().iterator();
-        } else if (from != null && to != null) {
-            return inMemoryStorage.subMap(from, to).values().iterator();
-        } else if (from != null) {
+        } else if (from == null) {
+            return inMemoryStorage.headMap(to, false).values().iterator();
+        } else if (to == null) {
             return inMemoryStorage.tailMap(from, true).values().iterator();
         } else {
-            return inMemoryStorage.headMap(to, false).values().iterator();
+            return inMemoryStorage.subMap(from, to).values().iterator();
         }
     }
 }
