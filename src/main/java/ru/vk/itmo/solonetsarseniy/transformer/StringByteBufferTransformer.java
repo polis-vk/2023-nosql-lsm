@@ -1,4 +1,4 @@
-package ru.vk.itmo.solonetsarseniy;
+package ru.vk.itmo.solonetsarseniy.transformer;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;

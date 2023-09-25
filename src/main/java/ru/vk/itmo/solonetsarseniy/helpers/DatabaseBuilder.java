@@ -1,4 +1,4 @@
-package ru.vk.itmo.solonetsarseniy;
+package ru.vk.itmo.solonetsarseniy.helpers;
 
 import ru.vk.itmo.Entry;
 

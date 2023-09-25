@@ -3,8 +3,8 @@ package ru.vk.itmo.test.solonetsarseniy;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.solonetsarseniy.InMemoryDao;
-import ru.vk.itmo.solonetsarseniy.StringMemorySegmentTransformer;
-import ru.vk.itmo.solonetsarseniy.Transformer;
+import ru.vk.itmo.solonetsarseniy.transformer.StringMemorySegmentTransformer;
+import ru.vk.itmo.solonetsarseniy.transformer.Transformer;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;

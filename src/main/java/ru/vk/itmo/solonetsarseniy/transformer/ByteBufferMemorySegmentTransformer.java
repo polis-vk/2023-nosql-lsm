@@ -1,4 +1,4 @@
-package ru.vk.itmo.solonetsarseniy;
+package ru.vk.itmo.solonetsarseniy.transformer;
 
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
