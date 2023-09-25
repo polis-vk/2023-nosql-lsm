@@ -11,7 +11,7 @@ import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 @DaoFactory
-public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>>{
+public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
