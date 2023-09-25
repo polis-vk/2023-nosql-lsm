@@ -1,51 +1,64 @@
 package ru.vk.itmo.novichkovandrew;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
-import java.util.NavigableSet;
-import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.NavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-
-    final ConcurrentSkipListSet<Entry<MemorySegment>> data;
+    /**
+     * I used {@link ConcurrentSkipListMap} of (entry.key(), entry) here, because
+     * method {@link #get(MemorySegment, MemorySegment)} takes
+     * keys as arguments. <br>
+     * {@link ConcurrentSkipListMap#subMap(Object, Object)} method return subMap by keys.
+     * If we try to use
+     * {@link java.util.concurrent.ConcurrentSkipListSet} in order to save
+     * entries only, that in the method {@link #get(MemorySegment, MemorySegment)} we need to allocate new BaseEntry, cause
+     * {@link java.util.concurrent.ConcurrentSkipListSet#subSet(Object, Object)} takes two entries.<br>
+     * Example:
+     * <pre> {@code
+     * @Override
+     * public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+     *     Entry<MemorySegment> dummyFrom = new BaseEntry<>(from, null);
+     *     Entry<MemorySegment> dummyFrom = new BaseEntry<>(from, null);
+     *     return getSubSet(dummyFrom, dummyTo).iterator();
+     * }}</pre>
+     * What's realisation is better?
+     */
+    final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> entriesMap;
 
     public InMemoryDao() {
-        this.data = new ConcurrentSkipListSet<>((o1, o2) -> compareMemorySegment(o1.key(), o2.key()));
+        this.entriesMap = new ConcurrentSkipListMap<>(this::compareMemorySegment);
     }
 
-    private NavigableSet<Entry<MemorySegment>> getSubMap(Entry<MemorySegment> from, Entry<MemorySegment> to) {
-        if (from.key() != null && to.key() != null) {
-            return data.subSet(from, to);
-        } else if (from.key() != null) {
-            return data.tailSet(from, true);
-        } else if (to.key() != null) {
-            return data.headSet(to, false);
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, MemorySegment to) {
+        if (from != null && to != null) {
+            return entriesMap.subMap(from, to);
+        } else if (from != null) {
+            return entriesMap.tailMap(from, true);
+        } else if (to != null) {
+            return entriesMap.headMap(to, false);
         }
-        return data;
+        return entriesMap;
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        Entry<MemorySegment> dummyFrom = new BaseEntry<>(from, null);
-        Entry<MemorySegment> dummyTo = new BaseEntry<>(to, null);
-        return getSubMap(dummyFrom, dummyTo).iterator();
+        return getSubMap(from, to).values().iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> dummyEntry = new BaseEntry<>(key, null);
-        Entry<MemorySegment> value = data.ceiling(dummyEntry);
-        return value == null || value.key().mismatch(key) != -1 ? null : value;
+        return entriesMap.get(key);
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        data.add(entry);
+        entriesMap.put(entry.key(), entry);
     }
 
     private int compareMemorySegment(MemorySegment first, MemorySegment second) {
