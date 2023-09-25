@@ -12,11 +12,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ConcurrentSkipListMap<MemorySegment,
             Entry<MemorySegment>> data = new ConcurrentSkipListMap<>((o1, o2) -> {
-        long size = o2.byteSize();
-        for (long i = 0, j = 0; i < o1.byteSize(); ++i, ++j) {
-            if (j == size) {
-                break;
-            }
+        for (long i = 0, j = 0; i < o1.byteSize() && j < o2.byteSize(); ++i, ++j) {
             byte b1 = o1.get(ValueLayout.JAVA_BYTE, i);
             byte b2 = o2.get(ValueLayout.JAVA_BYTE, j);
             if (b1 > b2) {
