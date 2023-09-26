@@ -7,7 +7,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.Map;
 import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -33,23 +32,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             dataSlice = mp.subMap(from, to);
         }
 
-        return new Iterator<Entry<MemorySegment>>() {
-            Iterator<Map.Entry<MemorySegment, Entry<MemorySegment>>> iterator;
-            public Iterator<Entry<MemorySegment>> init(Iterator<Map.Entry<MemorySegment, Entry<MemorySegment>>> it) {
-                this.iterator = it;
-                return this;
-            }
-
-            @Override
-            public boolean hasNext() {
-                return iterator.hasNext();
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                return iterator.next().getValue();
-            }
-        }.init(dataSlice.entrySet().iterator());
+        return dataSlice.values().iterator();
     }
 
     @Override
