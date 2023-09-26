@@ -17,7 +17,7 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        return new String(memorySegment.asByteBuffer().array(), StandardCharsets.UTF_8);
+        return new String((byte[]) memorySegment.heapBase().orElseThrow(), StandardCharsets.UTF_8);
     }
 
     @Override

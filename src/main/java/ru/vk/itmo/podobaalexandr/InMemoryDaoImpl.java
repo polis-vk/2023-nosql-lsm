@@ -4,6 +4,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
@@ -16,12 +17,15 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> innerMap = memorySegmentEntryMap;
-        if (from != null) {
+
+        if (from != null && to == null) {
             innerMap = innerMap.tailMap(from);
-        }
-        if (to != null) {
+        } else if (from == null && to != null) {
             innerMap = innerMap.headMap(to);
+        } else if (from != null) {
+            innerMap = innerMap.subMap(from, to);
         }
+
         return innerMap.values().iterator();
     }
 
@@ -39,7 +43,14 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
         @Override
         public int compare(MemorySegment o1, MemorySegment o2) {
-            return o1.asByteBuffer().compareTo(o2.asByteBuffer());
+
+            if (o1.byteSize() == o2.byteSize()) {
+                long mismatch = o1.mismatch(o2);
+                return mismatch == -1 ?
+                        0 : o1.get(ValueLayout.JAVA_BYTE, mismatch) - o2.get(ValueLayout.JAVA_BYTE, mismatch);
+            }
+
+            return Long.compare(o1.byteSize(), o2.byteSize());
         }
     }
 
