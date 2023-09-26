@@ -14,10 +14,11 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final Comparator<MemorySegment> MEMORY_SEGMENT_COMPARATOR =
-            Comparator.comparing(
-                    memorySegment -> memorySegment.toArray(ValueLayout.JAVA_BYTE),
-                    Arrays::compare
-            );
+            Comparator.comparingLong(MemorySegment::byteSize)
+                    .thenComparing(
+                            memorySegment -> memorySegment.toArray(ValueLayout.JAVA_BYTE),
+                            Arrays::compare
+                    );
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
 
