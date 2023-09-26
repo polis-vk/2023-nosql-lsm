@@ -22,7 +22,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         if (mismatch < 0) {
             return 0;
         }
-        return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, mismatch), o2.get(ValueLayout.JAVA_BYTE, mismatch));
+        return Byte.compare(o1.getAtIndex(ValueLayout.JAVA_BYTE, mismatch), o2.getAtIndex(ValueLayout.JAVA_BYTE, mismatch));
     };
 
     @Override
