@@ -29,7 +29,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> allFrom(MemorySegment from) {
-        if (checkNullMemorySegment(from)) {
+        if (from == null) {
             return all();
         }
         return getValuesIterator(storage.tailMap(from));
@@ -37,7 +37,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> allTo(MemorySegment to) {
-        if (checkNullMemorySegment(to)) {
+        if (to == null) {
             return all();
         }
         return getValuesIterator(storage.headMap(to));
@@ -50,10 +50,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (checkNullMemorySegment(from)) {
+        if (from == null) {
             return allTo(to);
         }
-        if (checkNullMemorySegment(to)) {
+        if (to == null) {
             return allFrom(from);
         }
         return getValuesIterator(storage.subMap(from, to));
@@ -62,10 +62,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         storage.put(entry.key(), entry);
-    }
-
-    private boolean checkNullMemorySegment(MemorySegment memorySegment) {
-        return memorySegment == null || MemorySegment.NULL.equals(memorySegment);
     }
 
     private Iterator<Entry<MemorySegment>> getValuesIterator(

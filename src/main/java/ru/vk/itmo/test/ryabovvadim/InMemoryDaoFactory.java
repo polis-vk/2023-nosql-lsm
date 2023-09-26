@@ -13,7 +13,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public String toString(MemorySegment memorySegment) {
-        if (memorySegment == null || MemorySegment.NULL.equals(memorySegment)) {
+        if (memorySegment == null) {
             return null;
         }
         return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), UTF_8);
@@ -22,7 +22,7 @@ public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Ent
     @Override
     public MemorySegment fromString(String data) {
         if (data == null) {
-            return MemorySegment.NULL;
+            return null;
         }
         return MemorySegment.ofArray(data.getBytes(UTF_8));
     }
