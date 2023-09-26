@@ -2,25 +2,24 @@ package ru.vk.itmo.cheshevandrey;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.test.cheshevandrey.InMemoryFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> map = new ConcurrentSkipListMap<>(
-            (fSeg, sSeg) -> {
-                int fSegSize = (int) fSeg.byteSize();
-                int sSegSize = (int) sSeg.byteSize();
+            (seg1, seg2) -> {
+                int segSize1 = (int) seg1.byteSize();
+                int segSize2 = (int) seg2.byteSize();
 
-                if (fSegSize == sSegSize) {
+                if (segSize1 == segSize2) {
                     int offset = 0;
-                    for (int i = fSegSize; i > 0; i--) {
-                        byte firstByte = fSeg.get(ValueLayout.JAVA_BYTE, offset);
-                        byte secondByte = sSeg.get(ValueLayout.JAVA_BYTE, offset);
+                    for (int i = segSize1; i > 0; i--) {
+                        byte firstByte = seg1.get(ValueLayout.JAVA_BYTE, offset);
+                        byte secondByte = seg2.get(ValueLayout.JAVA_BYTE, offset);
                         if (firstByte > secondByte) {
                             return 1;
                         } else if (firstByte < secondByte) {
@@ -29,7 +28,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         offset++;
                     }
                     return 0;
-                } else if (fSegSize > sSegSize) {
+                } else if (segSize1 > segSize2) {
                     return 1;
                 } else {
                     return -1;
@@ -55,8 +54,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             last = map.ceilingKey(to);
         }
 
-        return (last == null) ?
-                map.tailMap(first, true).values().iterator() :
+        return (last == null)
+                ? map.tailMap(first, true).values().iterator() :
                 map.subMap(first, last).values().iterator();
     }
 

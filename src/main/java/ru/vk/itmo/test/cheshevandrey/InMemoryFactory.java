@@ -9,7 +9,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-
 @DaoFactory
 public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
@@ -36,8 +35,8 @@ public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<
 
     @Override
     public MemorySegment fromString(String data) {
-        return (data == null) ?
-                MemorySegment.NULL :
+        return (data == null)
+                ? MemorySegment.NULL :
                 MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
     }
 
