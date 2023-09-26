@@ -5,13 +5,13 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
-import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     MemorySegmentComparator msComparator;
-    ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries;
+    NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries;
 
     public DaoImpl() {
         msComparator = new MemorySegmentComparator();
@@ -25,13 +25,17 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (from != null) {
-            memorySegmentEntries = memorySegmentEntries.tailMap(from);
+        if (from == null && to == null) {
+            return memorySegmentEntries.values().iterator();
         }
-        if (to != null) {
-            memorySegmentEntries = memorySegmentEntries.headMap(to);
+        if (from == null) {
+            return memorySegmentEntries.headMap(to).values().iterator();
         }
-        return memorySegmentEntries.values().iterator();
+        if (to == null) {
+            return memorySegmentEntries.tailMap(from).values().iterator();
+        }
+
+        return memorySegmentEntries.subMap(from, true, to, false).values().iterator();
     }
 
     @Override
