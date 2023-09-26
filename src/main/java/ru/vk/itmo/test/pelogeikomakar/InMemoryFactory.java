@@ -19,13 +19,11 @@ public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<
     @Override
     public String toString(MemorySegment data) {
         return data == null ? null : new String(data.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
-        //data.getUtf8String(0);
     }
 
     @Override
     public MemorySegment fromString(String data) {
         return data == null ? null : MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
-        //MemorySegment.ofArray(data.toCharArray());
     }
 
     @Override
