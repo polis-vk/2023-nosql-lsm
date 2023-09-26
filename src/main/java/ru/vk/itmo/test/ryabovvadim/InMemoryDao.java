@@ -32,7 +32,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (from == null) {
             return all();
         }
-        return getValuesIterator(storage.tailMap(from));
+        return storage.tailMap(from).values().iterator();
     }
 
     @Override
@@ -40,12 +40,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (to == null) {
             return all();
         }
-        return getValuesIterator(storage.headMap(to));
+        return storage.headMap(to).values().iterator();
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> all() {
-        return getValuesIterator(storage);
+        return storage.values().iterator();
     }
 
     @Override
@@ -56,17 +56,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (to == null) {
             return allFrom(from);
         }
-        return getValuesIterator(storage.subMap(from, to));
+        return storage.subMap(from, to).values().iterator();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         storage.put(entry.key(), entry);
-    }
-
-    private Iterator<Entry<MemorySegment>> getValuesIterator(
-            Map<MemorySegment, Entry<MemorySegment>> map
-    ) {
-        return map.values().iterator();
     }
 }
