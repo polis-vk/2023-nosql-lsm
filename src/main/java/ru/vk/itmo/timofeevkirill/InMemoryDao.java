@@ -19,14 +19,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (from != null && to != null) {
-            return memorySegmentEntries.tailMap(from).headMap(to).values().iterator();
-        } else if (from != null) {
-            return memorySegmentEntries.tailMap(from).values().iterator();
-        } else if (to != null) {
-            return memorySegmentEntries.headMap(to).values().iterator();
-        } else {
+        if (from == null && to == null) {
             return memorySegmentEntries.values().iterator();
+        } else if (from == null) {
+            return memorySegmentEntries.headMap(to).values().iterator();
+        } else if (to == null) {
+            return memorySegmentEntries.tailMap(from).values().iterator();
+        } else {
+            return memorySegmentEntries.tailMap(from).headMap(to).values().iterator();
         }
     }
 
