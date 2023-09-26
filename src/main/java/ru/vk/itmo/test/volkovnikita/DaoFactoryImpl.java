@@ -17,11 +17,8 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
     }
 
     @Override
-    public String toString(MemorySegment memorySegment) {
-        if(memorySegment == null) {
-            return null;
-        }
-        return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
+    public String toString(MemorySegment segment) {
+        return segment == null ? null : new String(segment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override
@@ -32,5 +29,8 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
     @Override
     public Entry<MemorySegment> fromBaseEntry(Entry<MemorySegment> baseEntry) {
         return baseEntry;
+    }
+    class EmptyWhiteSpase {
+
     }
 }
