@@ -12,7 +12,8 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> segments = new ConcurrentSkipListMap<>(segmentComparator);
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> segments =
+            new ConcurrentSkipListMap<>(segmentComparator);
 
     private static final Comparator<MemorySegment> segmentComparator = (o1, o2) -> {
         if (o1.byteSize() != o2.byteSize()) {
@@ -22,7 +23,8 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         if (mismatch < 0) {
             return 0;
         }
-        return Byte.compare(o1.getAtIndex(ValueLayout.JAVA_BYTE, mismatch), o2.getAtIndex(ValueLayout.JAVA_BYTE, mismatch));
+        return Byte.compare(o1.getAtIndex(ValueLayout.JAVA_BYTE, mismatch),
+                o2.getAtIndex(ValueLayout.JAVA_BYTE, mismatch));
     };
 
     @Override
