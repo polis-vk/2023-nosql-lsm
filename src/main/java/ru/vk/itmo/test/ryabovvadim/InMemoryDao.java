@@ -25,7 +25,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     }
                 }
 
-                return 0;
+                return Long.compare(firstSegmentSize, secondSegmentSize);
             };
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
