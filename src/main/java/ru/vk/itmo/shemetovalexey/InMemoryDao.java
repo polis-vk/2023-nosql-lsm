@@ -13,6 +13,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> daoMap =
             new ConcurrentSkipListMap<>(comparator);
+
     private static final Comparator<MemorySegment> comparator = (left, right) -> {
         for (long i = 0; i < left.byteSize() && i < right.byteSize(); i++) {
             if (getByte(left, i) - getByte(right, i) != 0) {
