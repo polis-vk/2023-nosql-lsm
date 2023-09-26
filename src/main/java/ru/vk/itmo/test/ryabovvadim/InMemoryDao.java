@@ -5,20 +5,28 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final Comparator<MemorySegment> MEMORY_SEGMENT_COMPARATOR =
-            Comparator.comparingLong(MemorySegment::byteSize)
-                    .thenComparing(
-                            memorySegment -> memorySegment.toArray(ValueLayout.JAVA_BYTE),
-                            Arrays::compare
-                    );
+            (firstSegment, secondSegment) -> {
+                long firstSegmentSize = firstSegment.byteSize();
+                long secondSegmentSize = secondSegment.byteSize();
+                byte firstSegmentByte, secondSegmentByte;
+
+                for (long i = 0; i < Math.min(firstSegmentSize, secondSegmentSize); ++i) {
+                    firstSegmentByte = firstSegment.getAtIndex(ValueLayout.JAVA_BYTE, i);
+                    secondSegmentByte = secondSegment.getAtIndex(ValueLayout.JAVA_BYTE, i);
+
+                    if (firstSegmentByte != secondSegmentByte) {
+                        return Byte.compare(firstSegmentByte, secondSegmentByte);
+                    }
+                }
+
+                return 0;
+            };
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
 
