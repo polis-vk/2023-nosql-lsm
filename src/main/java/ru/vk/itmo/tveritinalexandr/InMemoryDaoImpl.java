@@ -5,12 +5,13 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.Iterator;
+import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final SortedMap<MemorySegment, Entry<MemorySegment>> DB = new ConcurrentSkipListMap<>((o1, o2) -> {
+    private final SortedMap<MemorySegment, Entry<MemorySegment>> dataBase = new ConcurrentSkipListMap<>((o1, o2) -> {
         ByteBuffer o1Buffer = o1.asByteBuffer().asReadOnlyBuffer();
         ByteBuffer o2Buffer = o2.asByteBuffer().asReadOnlyBuffer();
 
@@ -25,27 +26,27 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return DB.get(key);
+        return dataBase.get(key);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            return DB.values().iterator();
+            return dataBase.values().iterator();
         }
         if (from == null) {
-            return DB.headMap(to).values().iterator();
+            return dataBase.headMap(to).values().iterator();
         }
         if (to == null) {
-            return DB.tailMap(from).values().iterator();
+            return dataBase.tailMap(from).values().iterator();
         }
-        return DB.subMap(from, to).values().iterator();
+        return dataBase.subMap(from, to).values().iterator();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         if (entry == null) return;
 
-        DB.put(entry.key(), entry);
+        dataBase.put(entry.key(), entry);
     }
 }

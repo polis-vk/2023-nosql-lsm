@@ -17,12 +17,12 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        return memorySegment == null? null : new String(memorySegment.asByteBuffer().array(), StandardCharsets.UTF_8);
+        return memorySegment == null ? null : new String(memorySegment.asByteBuffer().array(), StandardCharsets.UTF_8);
     }
 
     @Override
     public MemorySegment fromString(String data) {
-        return data == null? null : MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
+        return data == null ? null : MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
