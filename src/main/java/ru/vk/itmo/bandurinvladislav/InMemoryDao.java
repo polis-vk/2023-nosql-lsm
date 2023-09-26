@@ -13,7 +13,6 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final Comparator<MemorySegment> MEMORY_SEGMENT_COMPARATOR = (m1, m2) -> {
         long mismatch = m1.mismatch(m2);
-
         if (mismatch == m2.byteSize()) {
             return 1;
         } else if (mismatch == m1.byteSize()) {
