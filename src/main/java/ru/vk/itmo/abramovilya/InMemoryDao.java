@@ -4,11 +4,11 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
@@ -49,8 +49,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return 1;
         }
         return Byte.compare(
-                segment1.get(JAVA_BYTE, offset),
-                segment2.get(JAVA_BYTE, offset)
+                segment1.get(ValueLayout.JAVA_BYTE, offset),
+                segment2.get(ValueLayout.JAVA_BYTE, offset)
         );
     }
 }
