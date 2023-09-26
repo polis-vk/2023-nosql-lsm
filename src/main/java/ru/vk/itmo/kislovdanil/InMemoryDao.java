@@ -7,11 +7,11 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(new MemSegComparator());
+    ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> storage =
+            new ConcurrentSkipListMap<>(new MemSegComparator());
 
     private static class MemSegComparator implements Comparator<MemorySegment> {
         @Override
@@ -29,10 +29,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> subMap = storage;
-        if (from != null) subMap = subMap.tailMap(from);
-        if (to != null) subMap = subMap.headMap(to);
-        return subMap.values().iterator();
+        if (from == null && to == null) return storage.values().iterator();
+        if (from != null && to == null) return storage.tailMap(from).values().iterator();
+        if (from == null) return storage.headMap(to).values().iterator();
+        return storage.subMap(from, to).values().iterator();
     }
 
     @Override
