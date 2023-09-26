@@ -15,7 +15,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             (firstSegment, secondSegment) -> {
                 long firstSegmentSize = firstSegment.byteSize();
                 long secondSegmentSize = secondSegment.byteSize();
-                byte firstSegmentByte, secondSegmentByte;
+                byte firstSegmentByte;
+                byte secondSegmentByte;
 
                 for (long i = 0; i < Math.min(firstSegmentSize, secondSegmentSize); ++i) {
                     firstSegmentByte = firstSegment.getAtIndex(ValueLayout.JAVA_BYTE, i);
