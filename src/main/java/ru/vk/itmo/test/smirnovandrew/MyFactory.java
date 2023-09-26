@@ -28,7 +28,7 @@ public class MyFactory implements DaoFactory.Factory<MemorySegment, Entry<Memory
 
     @Override
     public MemorySegment fromString(String data) {
-        if(data == null) {
+        if (data == null) {
             return null;
         }
         return MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
