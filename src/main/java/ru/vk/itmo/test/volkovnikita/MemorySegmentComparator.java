@@ -1,21 +1,12 @@
 package ru.vk.itmo.test.volkovnikita;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
 public class MemorySegmentComparator implements Comparator<MemorySegment> {
 
     @Override
     public int compare(MemorySegment o1, MemorySegment o2) {
-        long mismatchOffset = o1.mismatch(o2);
-        if (mismatchOffset == -1) {
-            return 0;
-        } else if (mismatchOffset == o1.byteSize()) {
-            return -1;
-        } else if (mismatchOffset == o2.byteSize()) {
-            return 1;
-        }
-        return o1.get(ValueLayout.JAVA_BYTE, mismatchOffset) - o2.get(ValueLayout.JAVA_BYTE, mismatchOffset);
+        return o1.asByteBuffer().compareTo(o2.asByteBuffer());
     }
 }

@@ -25,15 +25,13 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (from != null && to != null) {
-            return memorySegmentEntries.tailMap(from).headMap(to).values().iterator();
-        } else if (from != null) {
-            return memorySegmentEntries.tailMap(from).values().iterator();
-        } else if (to != null) {
-            return memorySegmentEntries.headMap(to).values().iterator();
-        } else {
-            return memorySegmentEntries.values().iterator();
+        if (from != null) {
+            memorySegmentEntries = memorySegmentEntries.tailMap(from);
         }
+        if (to != null) {
+            memorySegmentEntries = memorySegmentEntries.headMap(to);
+        }
+        return memorySegmentEntries.values().iterator();
     }
 
     @Override
