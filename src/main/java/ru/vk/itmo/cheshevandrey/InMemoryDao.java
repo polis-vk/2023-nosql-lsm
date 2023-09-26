@@ -2,43 +2,20 @@ package ru.vk.itmo.cheshevandrey;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.test.cheshevandrey.InMemoryFactory;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> map = new ConcurrentSkipListMap<>(
-            (seg1, seg2) -> {
-                int segSize1 = (int) seg1.byteSize();
-                int segSize2 = (int) seg2.byteSize();
-
-                if (segSize1 == segSize2) {
-                    int offset = 0;
-                    for (int i = segSize1; i > 0; i--) {
-                        byte firstByte = seg1.get(ValueLayout.JAVA_BYTE, offset);
-                        byte secondByte = seg2.get(ValueLayout.JAVA_BYTE, offset);
-                        if (firstByte > secondByte) {
-                            return 1;
-                        } else if (firstByte < secondByte) {
-                            return -1;
-                        }
-                        offset++;
-                    }
-                    return 0;
-                } else if (segSize1 > segSize2) {
-                    return 1;
-                } else {
-                    return -1;
-                }
-            }
-    );
+    ConcurrentSkipListMap<String, Entry<MemorySegment>> map = new ConcurrentSkipListMap<>();
+    InMemoryFactory factory = new InMemoryFactory();
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return map.get(key);
+        return map.get(factory.toString(key));
     }
 
     @Override
@@ -47,11 +24,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return map.values().iterator();
         }
 
-        MemorySegment first = (from == MemorySegment.NULL) ? map.firstKey() : map.ceilingKey(from);
-        MemorySegment last = null;
+        String first = (from == MemorySegment.NULL) ? map.firstKey() : map.ceilingKey(factory.toString(from));
+        String last = null;
 
         if (to != MemorySegment.NULL) {
-            last = map.ceilingKey(to);
+            last = map.ceilingKey(factory.toString(to));
         }
 
         return (last == null)
@@ -61,6 +38,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        map.put(entry.key(), entry);
+        String key = factory.toString(entry.key());
+        map.put(key, entry);
     }
 }
