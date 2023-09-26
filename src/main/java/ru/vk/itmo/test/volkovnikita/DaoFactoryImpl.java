@@ -1,6 +1,5 @@
 package ru.vk.itmo.test.volkovnikita;
 
-
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.DaoFactory;
