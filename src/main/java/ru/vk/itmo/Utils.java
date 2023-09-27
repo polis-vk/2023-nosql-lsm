@@ -4,9 +4,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
-public class Utils {
-    private Utils() {
-    }
+public final class Utils {
 
     public static Comparator<MemorySegment> memorySegmentComparator = (o1, o2) -> {
         long size1 = o1.byteSize();
@@ -26,4 +24,7 @@ public class Utils {
 
         return compare;
     };
+
+    private Utils() {
+    }
 }

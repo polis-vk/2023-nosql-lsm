@@ -15,7 +15,7 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        MemorySegment newFrom = (from== null) ? MemorySegment.NULL : from;
+        MemorySegment newFrom = (from == null) ? MemorySegment.NULL : from;
 
         if (to == null) {
             return concurrentSkipListMap.tailMap(newFrom).values().iterator();
