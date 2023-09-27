@@ -33,9 +33,7 @@ public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment
             return null;
         }
 
-        if (!fromStringDict.containsKey(data)) {
-            fromStringDict.put(data, data.getBytes(StandardCharsets.UTF_8));
-        }
+        fromStringDict.computeIfAbsent(data, s -> s.getBytes(StandardCharsets.UTF_8));
         return MemorySegment.ofArray(fromStringDict.get(data));
     }
 

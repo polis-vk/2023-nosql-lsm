@@ -5,7 +5,7 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.grunskiialexey.MemorySegmentDaoFactory;
 
 import java.lang.foreign.MemorySegment;
-import java.util.*;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
