@@ -1,13 +1,14 @@
 package ru.vk.itmo.test.gamzatgadzhimagomedov;
 
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.nio.charset.StandardCharsets;
-
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.gamzatgadzhimagomedov.InMemoryDao;
 import ru.vk.itmo.test.DaoFactory;
+
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.nio.charset.StandardCharsets;
+
 
 @DaoFactory
 public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
