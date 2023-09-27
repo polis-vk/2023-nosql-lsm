@@ -48,9 +48,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (map.size() == 0) {
-            return map.values().iterator();
-        }
 
         if (from == null && to == null) {
             return map.values().iterator();
