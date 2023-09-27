@@ -44,16 +44,17 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
         @Override
         public int compare(MemorySegment o1, MemorySegment o2) {
 
+            int sizeDiff = Long.compare(o1.byteSize(), o2.byteSize());
+            long mismatch = o1.mismatch(o2);
+
             if (o1.byteSize() != 0 && o2.byteSize() != 0) {
-                long mismatch = o1.mismatch(o2);
                 int diff = mismatch == -1
                         ? 0
                         : o1.get(ValueLayout.JAVA_BYTE, mismatch) - o2.get(ValueLayout.JAVA_BYTE, mismatch);
-                return diff == 0 ? Long.compare(o1.byteSize(), o2.byteSize()) : diff;
-            } else {
-                return Long.compare(o1.byteSize(), o2.byteSize());
+                return diff == 0 ? sizeDiff : diff;
             }
 
+            return sizeDiff;
         }
     }
 
