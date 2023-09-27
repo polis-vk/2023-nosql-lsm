@@ -19,20 +19,19 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         @Override
         public int compare(final MemorySegment a, final MemorySegment b) {
-            if (a.byteSize() < b.byteSize()) {
-                return -1;
-            } else if (a.byteSize() > b.byteSize()) {
-                return 1;
-            }
             long mismatchOffset = a.mismatch(b);
             if (mismatchOffset == -1) {
                 return 0;
+            } else if (mismatchOffset == a.byteSize()) {
+                return -1;
+            } else if (mismatchOffset == b.byteSize()) {
+                return 1;
+            } else {
+                return Byte.compare(a.getAtIndex(ValueLayout.JAVA_BYTE, mismatchOffset),
+                        b.getAtIndex(ValueLayout.JAVA_BYTE, mismatchOffset));
             }
-            return Byte.compare(a.getAtIndex(ValueLayout.JAVA_BYTE, mismatchOffset),
-                    b.getAtIndex(ValueLayout.JAVA_BYTE, mismatchOffset));
         }
     }
-
 
     /**
      * Returns ordered iterator of entries with keys between from (inclusive) and to (exclusive).
