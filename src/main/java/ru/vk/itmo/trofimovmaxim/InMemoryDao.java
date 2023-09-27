@@ -23,6 +23,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (mism == -1) {
             return (int) (o1.byteSize() - o2.byteSize());
         }
+        if (mism == o1.byteSize() || mism == o2.byteSize()) {
+            return mism == o1.byteSize() ? -1 : 1;
+        }
         return Byte.compare(
                 o1.get(ValueLayout.OfByte.JAVA_BYTE, mism),
                 o2.get(ValueLayout.OfByte.JAVA_BYTE, mism)
