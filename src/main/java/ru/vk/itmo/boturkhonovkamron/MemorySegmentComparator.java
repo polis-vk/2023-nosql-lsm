@@ -14,11 +14,11 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
 
     @Override
     public int compare(final MemorySegment left, final MemorySegment right) {
-        if (left == right) {
-            return 0;
-        }
         if (left == null || right == null) {
             return left == null ? -1 : 1;
+        }
+        if (left.equals(right)) {
+            return 0;
         }
         final long leftSize = left.byteSize();
         final long rightSize = right.byteSize();
