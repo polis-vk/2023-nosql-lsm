@@ -10,25 +10,24 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
 
         long o1Size = o1.byteSize();
         long o2Size = o2.byteSize();
+        long minSize = Math.min(o1Size, o2Size);
+
+        long offset = -1;
+        while (minSize != 0) {
+            minSize -= 1;
+            offset += 1;
+            byte first = o1.get(ValueLayout.JAVA_BYTE, offset);
+            byte second = o2.get(ValueLayout.JAVA_BYTE, offset);
+            if (first != second) {
+                return first - second;
+            }
+
+        }
 
         if (o1Size < o2Size) {
             return -1;
         } else if (o1Size > o2Size) {
             return 1;
-        } else {
-            long offset = -1;
-            while (o1Size != 0) {
-                o1Size -= 1;
-                offset += 1;
-                byte first = o1.get(ValueLayout.JAVA_BYTE, offset);
-                byte second = o2.get(ValueLayout.JAVA_BYTE, offset);
-                if (first > second) {
-                    return 1;
-                } else if (first < second) {
-                    return -1;
-                }
-
-            }
         }
         return 0;
     }
