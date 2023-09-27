@@ -1,9 +1,13 @@
 package ru.vk.itmo;
 
+import ru.vk.itmo.danilinandrew.InMemoryDao;
+import ru.vk.itmo.danilinandrew.MemorySegmentComparator;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Comparator;
 import java.util.Iterator;
 
 public interface Dao<D, E extends Entry<D>> extends Closeable {
@@ -31,7 +35,7 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
         MemorySegment o1 = next.key() instanceof MemorySegment ? ((MemorySegment) next.key()) : null;
         MemorySegment o2 = key instanceof MemorySegment ? ((MemorySegment) key) : null;
 
-        if (compare(o1, o2) == 0) {
+        if (new MemorySegmentComparator().compare(o1, o2) == 0) {
             return next;
         }
         return null;
