@@ -27,6 +27,21 @@ public class BasicTest extends BaseTest {
     }
 
     @DaoTest
+    void testOrder(Dao<String, Entry<String>> dao) {
+        dao.upsert(entry("b", "b"));
+        dao.upsert(entry("aa", "aa"));
+        dao.upsert(entry("", ""));
+
+        assertSame(
+                dao.all(),
+
+                entry("", ""),
+                entry("aa", "aa"),
+                entry("b", "b")
+        );
+    }
+
+    @DaoTest
     void testTree(Dao<String, Entry<String>> dao) {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
