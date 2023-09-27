@@ -16,13 +16,15 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             new ConcurrentSkipListMap<>(segmentComparator);
 
     private static final Comparator<MemorySegment> segmentComparator = (o1, o2) -> {
-        if (o1.byteSize() != o2.byteSize()) {
-            return Long.compare(o1.byteSize(), o2.byteSize());
-        }
-
         long mismatch = o1.mismatch(o2);
         if (mismatch < 0) {
             return 0;
+        }
+        if (mismatch >= o1.byteSize()) {
+            return -1;
+        }
+        if (mismatch >= o2.byteSize()) {
+            return 1;
         }
         return Byte.compare(o1.getAtIndex(ValueLayout.JAVA_BYTE, mismatch),
                 o2.getAtIndex(ValueLayout.JAVA_BYTE, mismatch));
