@@ -7,7 +7,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.SortedMap;
+import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -20,7 +20,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         return Long.compare(segment1.byteSize(), segment2.byteSize());
     };
-    private final SortedMap<MemorySegment, Entry<MemorySegment>> dataMap
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> dataMap
             = new ConcurrentSkipListMap<>(memorySegmentComparator);
 
     @Override
