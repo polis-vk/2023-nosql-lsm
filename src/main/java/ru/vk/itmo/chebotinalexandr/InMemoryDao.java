@@ -13,16 +13,24 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final SortedMap<MemorySegment, Entry<MemorySegment>> entries = new ConcurrentSkipListMap<>(
             (o1, o2) -> {
-                long i = o1.mismatch(o2);
+                long offset = o1.mismatch(o2);
 
-                if (i >= 0) {
-                    return Byte.compare(
-                            o1.get(ValueLayout.JAVA_BYTE, i),
-                            o2.get(ValueLayout.JAVA_BYTE, i)
-                    );
+                if (offset == -1) {
+                    return 0;
+                }
+                if (offset == o1.byteSize()) {
+                    return -1;
+                }
+                if (offset == o2.byteSize()) {
+                    return 1;
                 }
 
-                return 0;
+
+                return Byte.compare(
+                            o1.get(ValueLayout.JAVA_BYTE, offset),
+                            o2.get(ValueLayout.JAVA_BYTE, offset)
+                );
+
             }
     );
 
