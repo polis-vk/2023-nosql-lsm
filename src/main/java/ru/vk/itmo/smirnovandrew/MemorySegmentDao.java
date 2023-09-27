@@ -19,6 +19,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         if (o1.byteSize() != o2.byteSize()) {
             return Long.compare(o1.byteSize(), o2.byteSize());
         }
+
         long mismatch = o1.mismatch(o2);
         if (mismatch < 0) {
             return 0;
