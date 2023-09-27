@@ -10,27 +10,8 @@ import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    /**
-     * I used {@link ConcurrentSkipListMap} of (entry.key(), entry) here, because
-     * method {@link #get(MemorySegment, MemorySegment)} takes
-     * keys as arguments. <br>
-     * {@link ConcurrentSkipListMap#subMap(Object, Object)} method return subMap by keys.
-     * If we try to use
-     * {@link java.util.concurrent.ConcurrentSkipListSet} in order to save
-     * entries only, that in the method {@link #get(MemorySegment, MemorySegment)} we need to allocate new BaseEntry,
-     * cause
-     * {@link java.util.concurrent.ConcurrentSkipListSet#subSet(Object, Object)} takes two entries.<br>
-     * Example:
-     * <pre> {@code
-     * @Override
-     * public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-     *     Entry<MemorySegment> dummyFrom = new BaseEntry<>(from, null);
-     *     Entry<MemorySegment> dummyFrom = new BaseEntry<>(from, null);
-     *     return getSubSet(dummyFrom, dummyTo).iterator();
-     * }}</pre>
-     * What's realisation is better?
-     */
-    final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> entriesMap;
+
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> entriesMap;
 
     public InMemoryDao() {
         this.entriesMap = new ConcurrentSkipListMap<>(this::compareMemorySegment);
