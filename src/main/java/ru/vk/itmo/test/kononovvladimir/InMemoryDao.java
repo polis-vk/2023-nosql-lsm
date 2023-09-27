@@ -15,13 +15,13 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        from = (from == null) ? MemorySegment.NULL : from;
+        MemorySegment newFrom = (from== null) ? MemorySegment.NULL : from;
 
         if (to == null) {
-            return concurrentSkipListMap.tailMap(from).values().iterator();
+            return concurrentSkipListMap.tailMap(newFrom).values().iterator();
         }
 
-        return concurrentSkipListMap.subMap(from, to).values().iterator();
+        return concurrentSkipListMap.subMap(newFrom, to).values().iterator();
     }
 
     @Override

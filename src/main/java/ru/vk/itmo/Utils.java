@@ -5,6 +5,9 @@ import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
 public class Utils {
+    private Utils() {
+    }
+
     public static Comparator<MemorySegment> memorySegmentComparator = (o1, o2) -> {
         long size1 = o1.byteSize();
         long size2 = o2.byteSize();
