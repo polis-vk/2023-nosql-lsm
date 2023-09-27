@@ -10,7 +10,8 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> concurrentSkipListMap = new ConcurrentSkipListMap<>(Utils.memorySegmentComparator);
+    ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> concurrentSkipListMap
+            = new ConcurrentSkipListMap<>(Utils.memorySegmentComparator);
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {

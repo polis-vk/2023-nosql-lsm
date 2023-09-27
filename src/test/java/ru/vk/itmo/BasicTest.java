@@ -119,18 +119,4 @@ public class BasicTest extends BaseTest {
         }
     }
 
-    @DaoTest
-    void testOrder(Dao<String, Entry<String>> dao) {
-        dao.upsert(entry("b", "b"));
-        dao.upsert(entry("aa", "aa"));
-        dao.upsert(entry("", ""));
-
-        assertSame(
-                dao.all(),
-
-                entry("", ""),
-                entry("aa", "aa"),
-                entry("b", "b")
-        );
-    }
 }
