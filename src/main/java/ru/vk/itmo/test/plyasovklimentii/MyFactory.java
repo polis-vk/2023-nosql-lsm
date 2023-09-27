@@ -17,7 +17,7 @@ public class MyFactory implements DaoFactory.Factory<MemorySegment, Entry<Memory
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        if(memorySegment == null) {
+        if (memorySegment == null) {
             return null;
         }
         return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
@@ -27,8 +27,10 @@ public class MyFactory implements DaoFactory.Factory<MemorySegment, Entry<Memory
     public MemorySegment fromString(String data) {
         if (data == null) {
             return null;
+        } else {
+            return MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
         }
-        return MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
+
     }
 
     @Override

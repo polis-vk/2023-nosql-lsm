@@ -15,6 +15,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
+    public Entry<MemorySegment> get(MemorySegment key) {
+        return storage.get(key);
+    }
+
+    @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
             return storage.sequencedValues().iterator();
