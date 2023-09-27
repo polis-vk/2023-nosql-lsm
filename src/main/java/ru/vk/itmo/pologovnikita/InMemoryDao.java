@@ -31,12 +31,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return segmentToEntry.values().iterator();
         }
         ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> subMap;
-        if (from != null && to != null) {
-            subMap = segmentToEntry.subMap(from, to);
-        } else if (from == null) {
+        if (from == null) {
             subMap = segmentToEntry.headMap(to);
-        } else {
+        } else if (to == null) {
             subMap = segmentToEntry.tailMap(from);
+        } else {
+            subMap = segmentToEntry.subMap(from, to);
         }
         return subMap.values().iterator();
     }
