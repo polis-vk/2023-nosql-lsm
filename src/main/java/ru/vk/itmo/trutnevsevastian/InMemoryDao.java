@@ -7,13 +7,12 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private NavigableMap<MemorySegment, Entry<MemorySegment>> storage =
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
 
     @Override
