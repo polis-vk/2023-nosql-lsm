@@ -18,7 +18,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     public static final Comparator<MemorySegment> COMPARATOR = (lhs, rhs) -> {
         final long mismatch = lhs.mismatch(rhs);
         final long lhsSize = lhs.byteSize();
-        final long rhsSize = lhs.byteSize();
+        final long rhsSize = rhs.byteSize();
         final long minSize = Math.min(lhsSize, rhsSize);
         if (mismatch == -1) {
             return 0;
