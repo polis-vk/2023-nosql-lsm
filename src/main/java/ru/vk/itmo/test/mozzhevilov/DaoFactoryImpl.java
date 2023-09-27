@@ -9,7 +9,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 @DaoFactory
-public class DaoFactoryImpl<D, E extends Entry<D>> implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
@@ -18,10 +18,7 @@ public class DaoFactoryImpl<D, E extends Entry<D>> implements DaoFactory.Factory
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        if (memorySegment == null) {
-            return null;
-        }
-        return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
+        return memorySegment == null ? null : new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override

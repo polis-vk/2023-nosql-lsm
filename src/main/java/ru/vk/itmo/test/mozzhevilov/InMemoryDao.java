@@ -5,10 +5,12 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao<D, E extends Entry<D>> implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
 
@@ -46,7 +48,7 @@ public class InMemoryDao<D, E extends Entry<D>> implements Dao<MemorySegment, En
         inner.put(entry.key(), entry);
     }
 
-    static public class MemorySegmentComparator implements Comparator<MemorySegment> {
+    static class MemorySegmentComparator implements Comparator<MemorySegment> {
 
         @Override
         public int compare(MemorySegment entry1, MemorySegment entry2) {
@@ -60,7 +62,10 @@ public class InMemoryDao<D, E extends Entry<D>> implements Dao<MemorySegment, En
             if (firstMismatch == entry2.byteSize()) {
                 return 1;
             }
-            return Byte.compareUnsigned(entry1.getAtIndex(ValueLayout.JAVA_BYTE, firstMismatch), entry2.getAtIndex(ValueLayout.JAVA_BYTE, firstMismatch));
+            return Byte.compareUnsigned(
+                    entry1.getAtIndex(ValueLayout.JAVA_BYTE, firstMismatch),
+                    entry2.getAtIndex(ValueLayout.JAVA_BYTE, firstMismatch)
+            );
         }
 
     }
