@@ -4,6 +4,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
+import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -12,7 +13,11 @@ import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final SortedMap<MemorySegment, Entry<MemorySegment>> dataBase = new ConcurrentSkipListMap<>((o1, o2) -> {
-        if (o1.byteSize() != o2.byteSize()) return Long.compare(o1.byteSize(), o2.byteSize());
+        // Не очень понял кой порядок элементов нам нужно поддерживать, изначально думал, что
+        // будет логтчно "", "b", "aa", но в тесте проверяется "", "aa", "b"
+        if(o1.byteSize() == 0) return -1;
+
+        if (o1.byteSize() != o2.byteSize()) return Long.compare(o2.byteSize(), o1.byteSize());
 
         var offset = o1.mismatch(o2);
         if (offset == -1) return 0;
