@@ -5,7 +5,7 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -23,7 +23,9 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
                     if (ms1.byteSize() == mismatch) {
                         return -1;
                     }
-                    return Byte.compare(ms1.get(ValueLayout.JAVA_BYTE, mismatch), ms2.get(ValueLayout.JAVA_BYTE, mismatch));
+                    return Byte.compare(
+                            ms1.get(ValueLayout.JAVA_BYTE, mismatch),
+                            ms2.get(ValueLayout.JAVA_BYTE, mismatch));
                 }
             }
     );
