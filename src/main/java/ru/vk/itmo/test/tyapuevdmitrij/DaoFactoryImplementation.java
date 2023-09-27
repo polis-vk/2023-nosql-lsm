@@ -33,3 +33,4 @@ public class DaoFactoryImplementation implements DaoFactory.Factory<MemorySegmen
         return baseEntry;
     }
 }
+
