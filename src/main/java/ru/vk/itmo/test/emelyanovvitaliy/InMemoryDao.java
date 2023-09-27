@@ -13,9 +13,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (o1 == o2) {
             return 0;
         }
-        if (o1.byteSize() != o2.byteSize()) {
-            return Long.compare(o1.byteSize(), o2.byteSize());
-        }
         return o1.asByteBuffer().compareTo(o2.asByteBuffer());
     };
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> mappings = new ConcurrentSkipListMap<>(
