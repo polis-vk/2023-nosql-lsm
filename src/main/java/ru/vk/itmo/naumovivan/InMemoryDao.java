@@ -5,12 +5,11 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final static Comparator<MemorySegment> MEMSEG_COMP = (ms1, ms2) -> {
+    private static int compareMemorySegments(final MemorySegment ms1, final MemorySegment ms2) {
         final long n1 = ms1.byteSize();
         final long n2 = ms2.byteSize();
         for (long i = 0; i < n1 && i < n2; ++i) {
@@ -23,7 +22,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return Long.compare(n1, n2);
     };
 
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> map = new ConcurrentSkipListMap<>(MEMSEG_COMP);
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> map =
+            new ConcurrentSkipListMap<>(InMemoryDao::compareMemorySegments);
 
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {

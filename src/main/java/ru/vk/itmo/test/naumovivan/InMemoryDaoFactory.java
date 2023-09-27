@@ -1,6 +1,5 @@
 package ru.vk.itmo.test.naumovivan;
 
-import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.naumovivan.InMemoryDao;
