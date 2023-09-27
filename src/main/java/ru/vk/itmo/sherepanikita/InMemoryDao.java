@@ -19,14 +19,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
             return all();
-        }
-        else if (from == null) {
+        } else if (from == null) {
             return allTo(to);
-        }
-        else if (to == null) {
+        } else if (to == null) {
             return allFrom(from);
-        }
-        else {
+        } else {
             return allBetween(from, to);
         }
     }
@@ -59,8 +56,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void upsert(Entry<MemorySegment> entry) {
         if (entry == null) {
             throw new IllegalArgumentException("Incoming entry is NULL");
-        }
-        else {
+        } else {
             segments.put(entry.key(), entry);
         }
     }

@@ -21,8 +21,7 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
     public String toString(MemorySegment memorySegment) {
         if (memorySegment == null) {
             return null;
-        }
-        else {
+        } else {
             return new String(
                     memorySegment.toArray(ValueLayout.JAVA_BYTE),
                     StandardCharsets.UTF_8
@@ -34,8 +33,7 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
     public MemorySegment fromString(String data) {
         if (data == null) {
             return null;
-        }
-        else {
+        } else {
             return MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
         }
     }
