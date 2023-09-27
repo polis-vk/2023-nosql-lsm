@@ -7,7 +7,8 @@ import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.charset.StandardCharsets;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 @DaoFactory
 public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
@@ -22,7 +23,7 @@ public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<
 
         int memorySegmentSize = (int) memorySegment.byteSize();
 
-        byte[] byteArray = new byte[(int) memorySegmentSize];
+        byte[] byteArray = new byte[memorySegmentSize];
 
         int offset = 0;
         while (offset < memorySegmentSize) {
@@ -30,14 +31,14 @@ public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<
             offset++;
         }
 
-        return new String(byteArray);
+        return new String(byteArray, UTF_8);
     }
 
     @Override
     public MemorySegment fromString(String data) {
         return (data == null)
                 ? MemorySegment.NULL :
-                MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
+                MemorySegment.ofArray(data.getBytes(UTF_8));
     }
 
     @Override

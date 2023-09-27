@@ -48,16 +48,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return map.values().iterator();
         }
 
-        MemorySegment first = (from == MemorySegment.NULL) ? map.firstKey() : from;
-        MemorySegment last = null;
+        MemorySegment first = (from == MemorySegment.NULL || from == null)
+                ? map.firstKey() :
+                from;
 
-        if (to != MemorySegment.NULL) {
-            last = to;
-        }
-
-        return (last == null)
+        return (to == MemorySegment.NULL || to == null)
                 ? map.tailMap(first, true).values().iterator() :
-                map.subMap(first, last).values().iterator();
+                map.subMap(first, to).values().iterator();
     }
 
     @Override
