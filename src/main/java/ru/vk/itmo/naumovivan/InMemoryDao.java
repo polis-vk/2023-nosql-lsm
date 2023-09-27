@@ -9,6 +9,9 @@ import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> map =
+            new ConcurrentSkipListMap<>(InMemoryDao::compareMemorySegments);
+
     private static int compareMemorySegments(final MemorySegment ms1, final MemorySegment ms2) {
         final long n1 = ms1.byteSize();
         final long n2 = ms2.byteSize();
@@ -20,10 +23,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
         return Long.compare(n1, n2);
-    };
-
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> map =
-            new ConcurrentSkipListMap<>(InMemoryDao::compareMemorySegments);
+    }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
