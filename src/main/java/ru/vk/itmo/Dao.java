@@ -6,10 +6,8 @@ import java.util.Iterator;
 
 public interface Dao<D, E extends Entry<D>> extends Closeable {
 
-
     /**
      * Returns ordered iterator of entries with keys between from (inclusive) and to (exclusive).
-     *
      * @param from lower bound of range (inclusive)
      * @param to upper bound of range (exclusive)
      * @return entries [from;to)
@@ -18,7 +16,6 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
 
     /**
      * Returns entry by key. Note: default implementation is far from optimal.
-     *
      * @param key entry`s key
      * @return entry
      */
@@ -36,7 +33,6 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
 
     /**
      * Returns ordered iterator of all entries with keys from (inclusive).
-     *
      * @param from lower bound of range (inclusive)
      * @return entries with key >= from
      */
@@ -46,7 +42,6 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
 
     /**
      * Returns ordered iterator of all entries with keys < to.
-     *
      * @param to upper bound of range (exclusive)
      * @return entries with key < to
      */
@@ -56,7 +51,6 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
 
     /**
      * Returns ordered iterator of all entries.
-     *
      * @return all entries
      */
     default Iterator<E> all() {
@@ -65,7 +59,6 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
 
     /**
      * Inserts of replaces entry.
-     *
      * @param entry element to upsert
      */
     void upsert(E entry);
