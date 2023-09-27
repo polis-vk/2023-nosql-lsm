@@ -54,11 +54,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         if (from == null && to == null) {
             return map.values().iterator();
-        } else if (from == MemorySegment.NULL && to == MemorySegment.NULL) {
-            return map.headMap(from, true).values().iterator();
+        } else if (from == MemorySegment.NULL) {
+            if (to == MemorySegment.NULL) {
+                return map.headMap(from, true).values().iterator();
+            } else {
+                return map.subMap(map.firstKey(), to).values().iterator();
+            }
         } else {
-            MemorySegment first = (from == MemorySegment.NULL) ? map.firstKey() : from;
-            return map.subMap(first, to).values().iterator();
+            return map.subMap(from, to).values().iterator();
         }
     }
 
