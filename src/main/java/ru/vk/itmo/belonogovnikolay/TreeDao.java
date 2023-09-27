@@ -9,8 +9,7 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-
-public class TreeDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public final class TreeDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> arena;
 
