@@ -48,6 +48,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return -1;
         }
 
+        if (first.byteSize() < second.byteSize()) {
+            return -1;
+        }
+
         long offset = MemorySegment.mismatch(first, 0, first.byteSize(), second, 0, second.byteSize());
 
         // Equal segments
