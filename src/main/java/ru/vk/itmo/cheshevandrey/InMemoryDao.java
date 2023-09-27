@@ -16,8 +16,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 long segSize1 = seg1.byteSize();
                 long segSize2 = seg2.byteSize();
 
-                if (segSize1 != segSize2) {
-                    return Long.compare(segSize1, segSize2);
+                if (segSize1 == 0 && segSize2 == 0) {
+                    return 0;
+                } else if (segSize1 > segSize2 || segSize1 == 0) {
+                    return -1;
+                } else if (segSize1 < segSize2) {
+                    return 1;
                 }
 
                 int offset = 0;
@@ -48,13 +52,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return map.values().iterator();
         }
 
-        MemorySegment first = (from == MemorySegment.NULL || from == null)
-                ? map.firstKey() :
-                from;
 
-        return (to == MemorySegment.NULL || to == null)
-                ? map.tailMap(first, true).values().iterator() :
-                map.subMap(first, to).values().iterator();
+        if (from == null && to == null) {
+            return map.values().iterator();
+        } else if (from == MemorySegment.NULL && to == MemorySegment.NULL) {
+            return map.headMap(from, true).values().iterator();
+        } else {
+            MemorySegment first = (from == MemorySegment.NULL) ? map.firstKey() : from;
+            return map.subMap(first, to).values().iterator();
+        }
     }
 
     @Override
