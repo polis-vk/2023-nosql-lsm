@@ -47,10 +47,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private int compareMemorySegment(MemorySegment first, MemorySegment second) {
         if (first == null || second == null) return -1;
-        if (first.byteSize() != second.byteSize()) {
-            return Long.compare(first.byteSize(), second.byteSize());
-        }
         long missIndex = first.mismatch(second);
+        if (missIndex == first.byteSize()) {
+            return -1;
+        }
+        if (missIndex == second.byteSize()) {
+            return 1;
+        }
         return missIndex == -1 ? 0 : Byte.compare(
                 first.getAtIndex(ValueLayout.JAVA_BYTE, missIndex),
                 second.getAtIndex(ValueLayout.JAVA_BYTE, missIndex)
