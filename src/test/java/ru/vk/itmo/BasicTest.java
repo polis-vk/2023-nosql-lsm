@@ -109,7 +109,7 @@ public class BasicTest extends BaseTest {
     }
 
     @DaoTest
-    void testAllTo(Dao<String, Entry<String>> dao) throws Exception {
+    void testAllTo(Dao< String, Entry<String>> dao) throws Exception {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
         dao.upsert(entry("a", "b"));
@@ -120,6 +120,21 @@ public class BasicTest extends BaseTest {
 
                 entry("a", "b"),
                 entry("c", "d")
+        );
+    }
+
+    @DaoTest
+    void testAllFrom(Dao< String, Entry<String>> dao) throws Exception {
+        dao.upsert(entry("e", "f"));
+        dao.upsert(entry("c", "d"));
+        dao.upsert(entry("a", "b"));
+
+
+        assertSame(
+                dao.allFrom("c"),
+
+                entry("c", "d"),
+                entry("e", "f")
         );
     }
 
