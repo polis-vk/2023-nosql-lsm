@@ -24,18 +24,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 while (offset < segSize1) {
                     byte byte1 = seg1.get(ValueLayout.JAVA_BYTE, offset);
                     byte byte2 = seg2.get(ValueLayout.JAVA_BYTE, offset);
-                    int byteComparison = Byte.compare(byte1, byte2);
 
-                    if (byteComparison != 0) {
-                        return byteComparison;
+                    int compareResult = Byte.compare(byte1, byte2);
+                    if (compareResult != 0) {
+                        return compareResult;
                     }
+
                     offset++;
                 }
 
                 return 0;
             }
     );
-
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -48,11 +48,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return map.values().iterator();
         }
 
-        MemorySegment first = (from == MemorySegment.NULL) ? map.firstKey() : map.ceilingKey(from);
+        MemorySegment first = (from == MemorySegment.NULL) ? map.firstKey() : from;
         MemorySegment last = null;
 
         if (to != MemorySegment.NULL) {
-            last = map.ceilingKey(to);
+            last = to;
         }
 
         return (last == null)

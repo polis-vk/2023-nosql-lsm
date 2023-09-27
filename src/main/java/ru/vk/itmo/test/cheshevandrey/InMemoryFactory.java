@@ -20,17 +20,17 @@ public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<
     @Override
     public String toString(MemorySegment memorySegment) {
 
-        StringBuilder sb = new StringBuilder();
-        long memorySegmentSize = memorySegment.byteSize();
+        int memorySegmentSize = (int) memorySegment.byteSize();
+
+        byte[] byteArray = new byte[(int) memorySegmentSize];
 
         int offset = 0;
         while (offset < memorySegmentSize) {
-            char character = (char) memorySegment.get(ValueLayout.JAVA_BYTE, offset);
-            sb.append(character);
+            byteArray[offset] = memorySegment.get(ValueLayout.JAVA_BYTE, offset);
             offset++;
         }
 
-        return sb.toString();
+        return new String(byteArray);
     }
 
     @Override
