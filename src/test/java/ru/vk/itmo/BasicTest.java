@@ -76,6 +76,7 @@ public class BasicTest extends BaseTest {
 
     @DaoTest
     void testFindValueInTheMiddle(Dao<String, Entry<String>> dao) throws Exception {
+        dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
         dao.upsert(entry("a", "b"));
 
