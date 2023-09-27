@@ -23,7 +23,7 @@ public class InMemDaoFactoryImpl implements DaoFactory.Factory<MemorySegment, En
 
     @Override
     public MemorySegment fromString(String data) {
-        return data==null? null : MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
+        return data == null? null : MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
