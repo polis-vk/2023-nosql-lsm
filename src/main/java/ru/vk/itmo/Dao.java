@@ -2,20 +2,24 @@ package ru.vk.itmo;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 
 public interface Dao<D, E extends Entry<D>> extends Closeable {
 
+
     /**
      * Returns ordered iterator of entries with keys between from (inclusive) and to (exclusive).
+     *
      * @param from lower bound of range (inclusive)
-     * @param to upper bound of range (exclusive)
+     * @param to   upper bound of range (exclusive)
      * @return entries [from;to)
      */
     Iterator<E> get(D from, D to);
 
     /**
      * Returns entry by key. Note: default implementation is far from optimal.
+     *
      * @param key entry`s key
      * @return entry
      */
@@ -25,14 +29,22 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
             return null;
         }
         E next = iterator.next();
-        if (next.key().equals(key)) {
+        if (equals(key, next.key())) {
             return next;
         }
         return null;
     }
 
+    default boolean equals(D o1, D o2) {
+        if (o1 instanceof MemorySegment && o2 instanceof MemorySegment) {
+            return Utils.memorySegmentComparator.compare((MemorySegment) o1, (MemorySegment) o2) == 0;
+        }
+        return o1.equals(o2);
+    }
+
     /**
      * Returns ordered iterator of all entries with keys from (inclusive).
+     *
      * @param from lower bound of range (inclusive)
      * @return entries with key >= from
      */
@@ -42,6 +54,7 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
 
     /**
      * Returns ordered iterator of all entries with keys < to.
+     *
      * @param to upper bound of range (exclusive)
      * @return entries with key < to
      */
@@ -51,6 +64,7 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
 
     /**
      * Returns ordered iterator of all entries.
+     *
      * @return all entries
      */
     default Iterator<E> all() {
@@ -59,6 +73,7 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
 
     /**
      * Inserts of replaces entry.
+     *
      * @param entry element to upsert
      */
     void upsert(E entry);
