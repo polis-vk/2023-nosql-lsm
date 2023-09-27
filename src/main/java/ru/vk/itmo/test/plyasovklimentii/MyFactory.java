@@ -6,7 +6,6 @@ import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.lang.reflect.Array;
 import java.nio.charset.StandardCharsets;
 
 @DaoFactory
