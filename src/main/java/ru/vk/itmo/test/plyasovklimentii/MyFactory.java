@@ -1,4 +1,5 @@
 package ru.vk.itmo.test.plyasovklimentii;
+
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.plyasovklimentii.InMemoryDao;
