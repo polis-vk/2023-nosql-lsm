@@ -52,7 +52,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return map.values().iterator();
         }
 
-
         if (from == null && to == null) {
             return map.values().iterator();
         } else if (from == MemorySegment.NULL && to == MemorySegment.NULL) {
