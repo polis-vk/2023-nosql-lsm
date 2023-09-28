@@ -53,7 +53,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } else if (to == null) {
             return inMemoryStorage.tailMap(from, true).values().iterator();
         } else {
-            return inMemoryStorage.subMap(from, to).values().iterator();
+            return inMemoryStorage.subMap(from, true, to, false).values().iterator();
         }
     }
 }
