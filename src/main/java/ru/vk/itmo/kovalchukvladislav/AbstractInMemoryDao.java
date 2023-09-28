@@ -1,12 +1,12 @@
 package ru.vk.itmo.kovalchukvladislav;
 
+import ru.vk.itmo.Dao;
+import ru.vk.itmo.Entry;
+
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-
-import ru.vk.itmo.Dao;
-import ru.vk.itmo.Entry;
 
 public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<D, E> {
     private final ConcurrentNavigableMap<D, E> dao;
