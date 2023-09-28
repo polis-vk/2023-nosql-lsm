@@ -24,7 +24,7 @@ public final class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment
         }
 
         if (to == null) {
-            return data.headMap(from).values().iterator();
+            return data.tailMap(from).values().iterator();
         }
 
         return data.subMap(from, to).values().iterator();
