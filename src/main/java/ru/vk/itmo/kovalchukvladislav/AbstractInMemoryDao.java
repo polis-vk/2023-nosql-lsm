@@ -24,7 +24,7 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
         } else if (to == null) {
             return allFromUnsafe(from);
         }
-        return dao.subMap(from, true, to, false).values().iterator();
+        return dao.subMap(from, to).values().iterator();
     }
 
     @Override
@@ -48,7 +48,7 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
      * @return entries with key >= from
      */
     private Iterator<E> allFromUnsafe(D from) {
-        return dao.tailMap(from, true).values().iterator();
+        return dao.tailMap(from).values().iterator();
     }
 
     @Override
@@ -62,7 +62,7 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
      * @return entries with key < to
      */
     private Iterator<E> allToUnsafe(D to) {
-        return dao.headMap(to, false).values().iterator();
+        return dao.headMap(to).values().iterator();
     }
 
     @Override
