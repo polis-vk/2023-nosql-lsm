@@ -15,19 +15,22 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             (firstSegment, secondSegment) -> {
                 long firstSegmentSize = firstSegment.byteSize();
                 long secondSegmentSize = secondSegment.byteSize();
-                byte firstSegmentByte;
-                byte secondSegmentByte;
+                long mismatchOffset = firstSegment.mismatch(secondSegment);
 
-                for (long i = 0; i < Math.min(firstSegmentSize, secondSegmentSize); ++i) {
-                    firstSegmentByte = firstSegment.getAtIndex(ValueLayout.JAVA_BYTE, i);
-                    secondSegmentByte = secondSegment.getAtIndex(ValueLayout.JAVA_BYTE, i);
-
-                    if (firstSegmentByte != secondSegmentByte) {
-                        return Byte.compare(firstSegmentByte, secondSegmentByte);
-                    }
+                if (mismatchOffset == firstSegmentSize) {
+                    return -1;
+                }
+                if (mismatchOffset == secondSegmentSize) {
+                    return 1;
+                }
+                if (mismatchOffset == -1) {
+                    return Long.compare(firstSegmentSize, secondSegmentSize);
                 }
 
-                return Long.compare(firstSegmentSize, secondSegmentSize);
+                return Byte.compare(
+                        firstSegment.get(ValueLayout.JAVA_BYTE, mismatchOffset),
+                        secondSegment.get(ValueLayout.JAVA_BYTE, mismatchOffset)
+                );
             };
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
