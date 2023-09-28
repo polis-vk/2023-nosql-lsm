@@ -1,6 +1,5 @@
 package ru.vk.itmo.kovalchukvladislav;
 
-import java.io.IOException;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
@@ -51,10 +50,5 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
     @Override
     public Iterator<E> all() {
         return dao.values().iterator();
-    }
-
-    @Override
-    public void flush() throws IOException {
-        dao.clear();
     }
 }
