@@ -39,11 +39,17 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
 
     @Override
     public Iterator<E> allFrom(D from) {
+        if (from == null) {
+            return all();
+        }
         return dao.tailMap(from, false).values().iterator();
     }
 
     @Override
     public Iterator<E> allTo(D to) {
+        if (to == null) {
+            return all();
+        }
         return dao.headMap(to, false).values().iterator();
     }
 
