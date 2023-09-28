@@ -29,10 +29,7 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
         }
 
         E next = iterator.next();
-        MemorySegment o1 = next.key() instanceof MemorySegment ? ((MemorySegment) next.key()) : null;
-        MemorySegment o2 = key instanceof MemorySegment ? ((MemorySegment) key) : null;
-
-        if (new MemorySegmentComparator().compare(o1, o2) == 0) {
+        if (next.key().equals(key)) {
             return next;
         }
         return null;

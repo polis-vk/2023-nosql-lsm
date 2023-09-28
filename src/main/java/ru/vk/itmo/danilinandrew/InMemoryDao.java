@@ -13,6 +13,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
 
     @Override
+    public Entry<MemorySegment> get(MemorySegment key) {
+        return data.get(key);
+    }
+
+    @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         MemorySegment updatedFrom = (from == null) ? MemorySegment.NULL : from;
 
