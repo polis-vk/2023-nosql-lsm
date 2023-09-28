@@ -17,14 +17,15 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (from != null && to != null) {
-            return memorySegmentEntriesMap.subMap(from, to).values().iterator();
-        } else if (from != null) {
-            return memorySegmentEntriesMap.tailMap(from).values().iterator();
-        } else if (to != null) {
+        if (from == null && to == null) {
+            return memorySegmentEntriesMap.values().iterator();
+        } else if (from == null) {
             return memorySegmentEntriesMap.headMap(to).values().iterator();
+        } else if (to == null) {
+            return memorySegmentEntriesMap.tailMap(from).values().iterator();
         }
-        return memorySegmentEntriesMap.values().iterator();
+
+        return memorySegmentEntriesMap.subMap(from, to).values().iterator();
     }
 
     @Override
@@ -61,7 +62,10 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
                 return 1;
             }
 
-            return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, relativeOffset), o2.get(ValueLayout.JAVA_BYTE, relativeOffset));
+            return Byte.compare(
+                    o1.get(ValueLayout.JAVA_BYTE, relativeOffset),
+                    o2.get(ValueLayout.JAVA_BYTE, relativeOffset)
+            );
         }
     }
 }
