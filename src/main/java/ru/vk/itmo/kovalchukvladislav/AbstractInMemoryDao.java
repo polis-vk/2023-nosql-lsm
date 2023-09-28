@@ -59,7 +59,7 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
     /**
      * Doesn't check the argument for null. Should be called only if there was a check before
      * @param to NotNull upper bound of range (exclusive)
-     * @return upper bound of range (exclusive)
+     * @return entries with key < to
      */
     private Iterator<E> allToUnsafe(D to) {
         return dao.headMap(to, false).values().iterator();
