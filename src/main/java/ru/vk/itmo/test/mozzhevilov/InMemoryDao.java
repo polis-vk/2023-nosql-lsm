@@ -14,38 +14,30 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
 
-    SortedMap<MemorySegment, Entry<MemorySegment>> inner = new ConcurrentSkipListMap<>(memorySegmentComparator);
+    SortedMap<MemorySegment, Entry<MemorySegment>> innerMap = new ConcurrentSkipListMap<>(memorySegmentComparator);
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from != null && to != null) {
-            return inner.subMap(from, to).values().iterator();
+            return innerMap.subMap(from, to).values().iterator();
         }
         if (to != null) {
-            return inner.headMap(to).values().iterator();
+            return innerMap.headMap(to).values().iterator();
         }
         if (from != null) {
-            return inner.tailMap(from).values().iterator();
+            return innerMap.tailMap(from).values().iterator();
         }
-        return inner.values().iterator();
+        return innerMap.values().iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Iterator<Entry<MemorySegment>> iterator = get(key, null);
-        if (!iterator.hasNext()) {
-            return null;
-        }
-        Entry<MemorySegment> next = iterator.next();
-        if (memorySegmentComparator.compare(next.key(), key) == 0) {
-            return next;
-        }
-        return null;
+        return innerMap.get(key);
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        inner.put(entry.key(), entry);
+        innerMap.put(entry.key(), entry);
     }
 
     static class MemorySegmentComparator implements Comparator<MemorySegment> {
