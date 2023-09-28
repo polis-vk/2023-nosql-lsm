@@ -30,18 +30,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Iterator<Entry<MemorySegment>> iterator = get(key, null);
-
-        if (!iterator.hasNext()) {
-            return null;
-        }
-        Entry<MemorySegment> next = iterator.next();
-
-        if (memorySegmentComparator.compare(key, next.key()) == 0) {
-            return next;
-        }
-
-        return null;
+        return memorySegmentEntriesMap.get(key);
     }
 
     @Override
