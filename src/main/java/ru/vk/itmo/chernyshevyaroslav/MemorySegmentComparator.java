@@ -10,14 +10,11 @@ public final class MemorySegmentComparator implements Comparator<MemorySegment> 
         long offset = o1.mismatch(o2);
         if (offset == -1) {
             return 0;
-        }
-        else if (o1.byteSize() == offset) {
+        } else if (o1.byteSize() == offset) {
             return -1;
-        }
-        else if (o2.byteSize() == offset) {
+        } else if (o2.byteSize() == offset) {
             return 1;
-        }
-        else {
+        } else {
             return Byte.compareUnsigned(o1.get(ValueLayout.JAVA_BYTE, offset), o2.get(ValueLayout.JAVA_BYTE, offset));
         }
     }
