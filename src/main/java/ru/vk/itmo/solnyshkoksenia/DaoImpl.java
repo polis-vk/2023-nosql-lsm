@@ -7,7 +7,10 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -17,7 +20,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        int fromIndex = getIndex(from, 0), toIndex = getIndex(to, list.size());
+        int fromIndex = getIndex(from, 0);
+        int toIndex = getIndex(to, list.size());
         return list.subList(fromIndex, toIndex).iterator();
     }
 

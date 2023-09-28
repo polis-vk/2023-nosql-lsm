@@ -17,7 +17,7 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        return memorySegment == null ? null : new String(memorySegment.toArray(ValueLayout.JAVA_CHAR));
+        return memorySegment == null ? null : String.valueOf(memorySegment.toArray(ValueLayout.JAVA_CHAR));
     }
 
     @Override
