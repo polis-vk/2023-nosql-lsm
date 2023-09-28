@@ -6,25 +6,24 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
+import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final ConcurrentSkipListMap<MemorySegment,
+    private final ConcurrentNavigableMap<MemorySegment,
             Entry<MemorySegment>> data = new ConcurrentSkipListMap<>((o1, o2) -> {
-        long size1 = o1.byteSize();
-        long size2 = o2.byteSize();
-        for (long i = 0, j = 0; i < size1 && j < size2; ++i, ++j) {
-            byte b1 = o1.get(ValueLayout.JAVA_BYTE, i);
-            byte b2 = o2.get(ValueLayout.JAVA_BYTE, j);
-            if (b1 > b2) {
-                return 1;
-            }
-            if (b1 < b2) {
-                return -1;
-            }
+        long mismatch = o1.mismatch(o2);
+        if (mismatch == o2.byteSize()) {
+            return 1;
+        } else if (mismatch == o1.byteSize()) {
+            return -1;
+        } else if (mismatch == -1) {
+            return 0;
         }
-        return Long.compare(size1, size2);
+        return Byte.compare(
+                o1.get(ValueLayout.JAVA_BYTE, mismatch),
+                o2.get(ValueLayout.JAVA_BYTE, mismatch));
     });
 
     @Override
