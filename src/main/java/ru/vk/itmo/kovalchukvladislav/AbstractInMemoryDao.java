@@ -20,9 +20,9 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
         if (from == null && to == null) {
             return all();
         } else if (from == null) {
-            return allTo(to);
+            return allToUnsafe(to);
         } else if (to == null) {
-            return allFrom(from);
+            return allFromUnsafe(from);
         }
         return dao.subMap(from, true, to, false).values().iterator();
     }
@@ -39,17 +39,29 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
 
     @Override
     public Iterator<E> allFrom(D from) {
-        if (from == null) {
-            return all();
-        }
-        return dao.tailMap(from, false).values().iterator();
+        return from == null ? all() : allFromUnsafe(from);
+    }
+
+    /**
+     * Doesn't check the argument for null. Should be called only if there was a check before
+     * @param from NotNull lower bound of range (inclusive)
+     * @return entries with key >= from
+     */
+    private Iterator<E> allFromUnsafe(D from) {
+        return dao.tailMap(from, true).values().iterator();
     }
 
     @Override
     public Iterator<E> allTo(D to) {
-        if (to == null) {
-            return all();
-        }
+        return to == null ? all() : allToUnsafe(to);
+    }
+
+    /**
+     * Doesn't check the argument for null. Should be called only if there was a check before
+     * @param to NotNull upper bound of range (exclusive)
+     * @return upper bound of range (exclusive)
+     */
+    private Iterator<E> allToUnsafe(D to) {
         return dao.headMap(to, false).values().iterator();
     }
 
