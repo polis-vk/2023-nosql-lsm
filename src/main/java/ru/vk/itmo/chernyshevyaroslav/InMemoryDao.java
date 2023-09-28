@@ -9,18 +9,16 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> data =
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
             return data.values().iterator();
-        }
-        else if (from == null) {
+        } else if (from == null) {
             return data.headMap(to).values().iterator();
-        }
-        else if (to == null) {
+        } else if (to == null) {
             return data.tailMap(from).values().iterator();
-        }
-        else {
+        } else {
             return data.subMap(from, to).values().iterator();
         }
     }
