@@ -8,6 +8,7 @@ import java.util.Comparator;
 
 public class MemorySegmentDao extends AbstractInMemoryDao<MemorySegment, Entry<MemorySegment>> {
     private static final Comparator<? super MemorySegment> COMPARATOR = getComparator();
+    private static final ValueLayout.OfByte VALUE_LAYOUT = ValueLayout.JAVA_BYTE;
 
     public MemorySegmentDao() {
         super(COMPARATOR);
@@ -24,8 +25,8 @@ public class MemorySegmentDao extends AbstractInMemoryDao<MemorySegment, Entry<M
                 return 1;
             }
 
-            byte byteA = a.getAtIndex(ValueLayout.JAVA_BYTE, diffIndex);
-            byte byteB = b.getAtIndex(ValueLayout.JAVA_BYTE, diffIndex);
+            byte byteA = a.getAtIndex(VALUE_LAYOUT, diffIndex);
+            byte byteB = b.getAtIndex(VALUE_LAYOUT, diffIndex);
             return Byte.compare(byteA, byteB);
         };
     }

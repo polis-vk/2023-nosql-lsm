@@ -12,8 +12,8 @@ import java.nio.charset.StandardCharsets;
 
 @DaoFactory
 public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
-    private static final Charset DEFAULT_CHARSET = StandardCharsets.UTF_8;
-    private static final ValueLayout.OfByte DEFAULT_VALUE_LAYOUT = ValueLayout.JAVA_BYTE;
+    private static final Charset CHARSET = StandardCharsets.UTF_8;
+    private static final ValueLayout.OfByte VALUE_LAYOUT = ValueLayout.JAVA_BYTE;
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
@@ -25,7 +25,7 @@ public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment
         if (memorySegment == null) {
             return null;
         }
-        return new String(memorySegment.toArray(DEFAULT_VALUE_LAYOUT), DEFAULT_CHARSET);
+        return new String(memorySegment.toArray(VALUE_LAYOUT), CHARSET);
     }
 
     @Override
@@ -33,7 +33,7 @@ public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment
         if (data == null) {
             return null;
         }
-        return MemorySegment.ofArray(data.getBytes(DEFAULT_CHARSET));
+        return MemorySegment.ofArray(data.getBytes(CHARSET));
     }
 
     @Override
