@@ -43,20 +43,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private static int compare(MemorySegment first, MemorySegment second) {
-        // Null comparison
-        if (first == null || second == null) {
-            return -1;
-        }
-
-        if (first.byteSize() < second.byteSize()) {
-            return -1;
-        }
-
         long offset = MemorySegment.mismatch(first, 0, first.byteSize(), second, 0, second.byteSize());
 
         // Equal segments
         if (offset == -1) {
             return 0;
+        }
+
+        if (offset == first.byteSize()) {
+            return -1;
+        } else if (offset == second.byteSize()) {
+            return 1;
         }
 
         var firstByteToCompare = first.get(ValueLayout.JAVA_BYTE, offset);
