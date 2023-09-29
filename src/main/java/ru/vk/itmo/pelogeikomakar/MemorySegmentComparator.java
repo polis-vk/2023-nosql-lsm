@@ -35,8 +35,7 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
         if (first != second) {
             return first - second;
         }
-
-
+        
         return 0;
     }
 }
