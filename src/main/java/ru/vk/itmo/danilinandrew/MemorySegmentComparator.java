@@ -8,21 +8,23 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
 
     @Override
     public int compare(MemorySegment o1, MemorySegment o2) {
-        int offset = 0;
+       long mismatch = o1.mismatch(o2);
 
-        while (offset < o1.byteSize() && offset < o2.byteSize()) {
-            byte byte1 = o1.get(ValueLayout.JAVA_BYTE, offset);
-            byte byte2 = o2.get(ValueLayout.JAVA_BYTE, offset);
+       if (mismatch == -1) {
+           return 0;
+       }
 
-            int compareRes = Byte.compare(byte1, byte2);
+       if (mismatch == o1.byteSize()) {
+           return -1;
+       }
 
-            if (compareRes == 0) {
-                offset++;
-            } else {
-                return compareRes;
-            }
-        }
+       if (mismatch == o2.byteSize()) {
+           return 1;
+       }
 
-        return Long.compare(o1.byteSize(), o2.byteSize());
+       return Byte.compare(
+               o1.get(ValueLayout.JAVA_BYTE, mismatch),
+               o2.get(ValueLayout.JAVA_BYTE, mismatch)
+       );
     }
 }
