@@ -39,7 +39,7 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return concurrentSkipListMap.values().iterator();
         }
 
-        if (from == null){
+        if (from == null) {
             return concurrentSkipListMap.headMap(to).values().iterator();
         }
 
