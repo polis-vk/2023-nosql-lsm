@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    public static Comparator<MemorySegment> memorySegmentComparator = (o1, o2) -> {
+    private final Comparator<MemorySegment> memorySegmentComparator = (o1, o2) -> {
         long mismatch = o1.mismatch(o2);
         if (mismatch == -1) return 0;
         else if (mismatch == o1.byteSize()) {
@@ -25,7 +25,7 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return Byte.compare(b1, b2);
         }
     };
-    ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> concurrentSkipListMap
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> concurrentSkipListMap
             = new ConcurrentSkipListMap<>(memorySegmentComparator);
 
     @Override
@@ -35,13 +35,19 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        MemorySegment newFrom = (from == null) ? MemorySegment.NULL : from;
-
-        if (to == null) {
-            return concurrentSkipListMap.tailMap(newFrom).values().iterator();
+        if (from == null && to == null) {
+            return concurrentSkipListMap.values().iterator();
         }
 
-        return concurrentSkipListMap.subMap(newFrom, to).values().iterator();
+        if (from == null){
+            return concurrentSkipListMap.headMap(to).values().iterator();
+        }
+
+        if (to == null) {
+            return concurrentSkipListMap.tailMap(from).values().iterator();
+        }
+
+        return concurrentSkipListMap.subMap(from, to).values().iterator();
     }
 
     @Override
