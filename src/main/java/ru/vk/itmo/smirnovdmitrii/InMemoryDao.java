@@ -1,57 +1,67 @@
 package ru.vk.itmo.smirnovdmitrii;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.OutMemoryDao;
+import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.util.Comparator;
+import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentMap =
-            new ConcurrentSkipListMap<>(new MemorySegmentComparator());
 
-    private static final class MemorySegmentComparator implements Comparator<MemorySegment> {
-        @Override
-        public int compare(final MemorySegment o1, final MemorySegment o2) {
-            long offset = o1.mismatch(o2);
-            if (offset == -1) {
-                return 0;
-            } else if (o1.byteSize() == offset) {
-                return -1;
-            } else if (o2.byteSize() == offset) {
-                return 1;
-            }
-            return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, offset), o2.get(ValueLayout.JAVA_BYTE, offset));
-        }
+    private static final Config DEFAULT_CONFIG = new Config(Path.of(""));
+    private long size = 0;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage =
+            new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+    private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
+
+    public InMemoryDao() {
+        this(DEFAULT_CONFIG);
+    }
+
+    public InMemoryDao(final Config config) {
+        final Path basePath = config.basePath();
+        outMemoryDao = new FileDao(basePath);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
         final Map<MemorySegment, Entry<MemorySegment>> map;
         if (from == null && to == null) {
-            map = memorySegmentMap;
+            map = storage;
         } else if (from == null) {
-            map = memorySegmentMap.headMap(to);
+            map = storage.headMap(to);
         } else if (to == null) {
-            map = memorySegmentMap.tailMap(from);
+            map = storage.tailMap(from);
         } else {
-            map = memorySegmentMap.subMap(from, to);
+            map = storage.subMap(from, to);
         }
         return map.values().iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
-        return key == null ? null : memorySegmentMap.get(key);
+        final Entry<MemorySegment> result = key == null ? null : storage.get(key);
+        return result == null ? outMemoryDao.get(key) : null;
     }
 
     @Override
     public void upsert(final Entry<MemorySegment> entry) {
-        memorySegmentMap.put(entry.key(), entry);
+        final MemorySegment key = entry.key();
+        size += key.byteSize() + entry.value().byteSize();
+        storage.put(key, entry);
     }
+
+    @Override
+    public synchronized void close() throws IOException {
+            outMemoryDao.save(storage, size);
+    }
+
 }
