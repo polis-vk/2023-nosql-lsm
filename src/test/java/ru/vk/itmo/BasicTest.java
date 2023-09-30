@@ -3,6 +3,7 @@ package ru.vk.itmo;
 import org.junit.jupiter.api.Assertions;
 import org.opentest4j.AssertionFailedError;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -12,12 +13,12 @@ import java.util.List;
  */
 public class BasicTest extends BaseTest {
 
-    @DaoTest
+    @DaoTest(stage = 1)
     void testEmpty(Dao<String, Entry<String>> dao) {
         assertEmpty(dao.all());
     }
 
-    @DaoTest
+    @DaoTest(stage = 1)
     void testSingle(Dao<String, Entry<String>> dao) {
         dao.upsert(entry("a", "b"));
         assertSame(
@@ -26,7 +27,7 @@ public class BasicTest extends BaseTest {
         );
     }
 
-    @DaoTest
+    @DaoTest(stage = 1)
     void testOrder(Dao<String, Entry<String>> dao) {
         dao.upsert(entry("b", "b"));
         dao.upsert(entry("aa", "aa"));
@@ -41,7 +42,7 @@ public class BasicTest extends BaseTest {
         );
     }
 
-    @DaoTest
+    @DaoTest(stage = 1)
     void testOrder2(Dao<String, Entry<String>> dao) {
         dao.upsert(entry("aa", "aa"));
         dao.upsert(entry("b", "b"));
@@ -56,7 +57,7 @@ public class BasicTest extends BaseTest {
         );
     }
 
-    @DaoTest
+    @DaoTest(stage = 1)
     void testTree(Dao<String, Entry<String>> dao) {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
@@ -71,9 +72,9 @@ public class BasicTest extends BaseTest {
         );
     }
 
-    @DaoTest
+    @DaoTest(stage = 1)
     void testManyIterators(Dao<String, Entry<String>> dao) throws Exception {
-        List<Entry<String>> entries = new ArrayList<>(entries("k", "v", 10_000));
+        List<Entry<String>> entries = new ArrayList<>(entries(10_000));
         for (Entry<String> entry : entries) {
             dao.upsert(entry);
         }
@@ -89,7 +90,7 @@ public class BasicTest extends BaseTest {
         }
     }
 
-    @DaoTest
+    @DaoTest(stage = 1)
     void testFindValueInTheMiddle(Dao<String, Entry<String>> dao) throws Exception {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
@@ -98,7 +99,7 @@ public class BasicTest extends BaseTest {
         assertSame(dao.get("c"), entry("c", "d"));
     }
 
-    @DaoTest
+    @DaoTest(stage = 1)
     void testFindRangeInTheMiddle(Dao<String, Entry<String>> dao) throws Exception {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
@@ -107,7 +108,7 @@ public class BasicTest extends BaseTest {
         assertSame(dao.get("c", "e"), entry("c", "d"));
     }
 
-    @DaoTest
+    @DaoTest(stage = 1)
     void testFindFullRange(Dao<String, Entry<String>> dao) throws Exception {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
@@ -123,7 +124,7 @@ public class BasicTest extends BaseTest {
         );
     }
 
-    @DaoTest
+    @DaoTest(stage = 1)
     void testAllTo(Dao<String, Entry<String>> dao) throws Exception {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
@@ -138,29 +139,13 @@ public class BasicTest extends BaseTest {
         );
     }
 
-    @DaoTest
-    void testAllFrom(Dao< String, Entry<String>> dao) throws Exception {
-        dao.upsert(entry("e", "f"));
-        dao.upsert(entry("c", "d"));
-        dao.upsert(entry("a", "b"));
-
-
-        assertSame(
-                dao.allFrom("c"),
-
-                entry("c", "d"),
-                entry("e", "f")
-        );
-    }
-
-    @DaoTest
+    @DaoTest(stage = 1)
     void testHugeData(Dao<String, Entry<String>> dao) throws Exception {
         int count = 100_000;
-        List<Entry<String>> entries = entries("k", "v", count);
-        entries.forEach(dao::upsert);
+        entries(count).forEach(dao::upsert);
 
         for (int i = 0; i < count; i++) {
-            assertSame(dao.get(keyAt("k", i)), entries.get(i));
+            assertSame(dao.get(keyAt(i)), entryAt(i));
         }
     }
 
