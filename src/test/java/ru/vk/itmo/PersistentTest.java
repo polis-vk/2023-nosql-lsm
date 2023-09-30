@@ -5,6 +5,7 @@ import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 public class PersistentTest extends BaseTest {
@@ -16,6 +17,32 @@ public class PersistentTest extends BaseTest {
 
         dao = DaoFactory.Factory.reopen(dao);
         assertSame(dao.get(keyAt(1)), entryAt(1));
+    }
+
+    @DaoTest(stage = 2)
+    void multiLine(Dao<String, Entry<String>> dao) throws IOException {
+        final Entry<String> entry = entry("key1\nkey2", "value1\nvalue2");
+        dao.upsert(entry);
+        dao.close();
+
+        dao = DaoFactory.Factory.reopen(dao);
+        assertSame(dao.get(entry.key()), entry);
+    }
+
+    @DaoTest(stage = 2)
+    void variability(Dao<String, Entry<String>> dao) throws IOException {
+        final Collection<Entry<String>> entries =
+                List.of(
+                        entry("key1", "value1"),
+                        entry("key10", "value10"),
+                        entry("key1000", "value1000"));
+        entries.forEach(dao::upsert);
+        dao.close();
+
+        dao = DaoFactory.Factory.reopen(dao);
+        for (final Entry<String> entry : entries) {
+            assertSame(dao.get(entry.key()), entry);
+        }
     }
 
     @DaoTest(stage = 2)
