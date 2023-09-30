@@ -1,5 +1,6 @@
 package ru.vk.itmo.test.smirnovdmitrii;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.smirnovdmitrii.InMemoryDao;
@@ -15,6 +16,11 @@ public class MemorySegmentFactory implements DaoFactory.Factory<MemorySegment, E
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
         return new InMemoryDao();
+    }
+
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(final Config config) {
+        return new InMemoryDao(config);
     }
 
     @Override

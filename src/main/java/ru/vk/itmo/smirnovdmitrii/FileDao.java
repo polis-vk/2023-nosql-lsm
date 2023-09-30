@@ -4,7 +4,6 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.OutMemoryDao;
 import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
-import ru.vk.itmo.test.smirnovdmitrii.MemorySegmentFactory;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -12,10 +11,10 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.Objects;
@@ -30,6 +29,10 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
     public FileDao(final Path basePath) {
         try {
             Files.createDirectories(basePath);
+            final Path filePath = basePath.resolve(SS_TABLE_NAME);
+            if (!Files.exists(filePath)) {
+                Files.createFile(basePath.resolve(SS_TABLE_NAME));
+            }
         } catch (final IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -63,7 +66,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
             final long valueSize = storage.get(ValueLayout.JAVA_LONG_UNALIGNED, currentPos);
             currentPos += Long.BYTES;
             if (currentKeySize == keySize) {
-                if (comparator.compare(key,currentKey) == 0) {
+                if (comparator.compare(key, currentKey) == 0) {
                     result = new BaseEntry<>(currentKey, storage.asSlice(currentPos, valueSize));
                 }
             }
@@ -73,7 +76,8 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
     }
 
     @Override
-    public void save(final Map<MemorySegment, Entry<MemorySegment>> storage, final long byteSize) {
+    public void save(final Map<MemorySegment, Entry<MemorySegment>> storage) {
+        Objects.requireNonNull(storage, "storage must be not null");
         if (storage.isEmpty()) {
             return;
         }
@@ -81,11 +85,15 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.READ)) {
-            final long appendSize = byteSize + Long.BYTES * 2L * storage.size();
+            long appendSize = 0;
+            final Collection<Entry<MemorySegment>> values = storage.values();
+            for (final Entry<MemorySegment> entry : values) {
+                appendSize += entry.value().byteSize() + entry.key().byteSize() + 2L * Long.BYTES;
+            }
             final MemorySegment mapped = channel.map(
                     FileChannel.MapMode.READ_WRITE, channel.size(), appendSize, Arena.ofAuto());
             long offset = 0;
-            for (final Entry<MemorySegment> entry: storage.values()) {
+            for (final Entry<MemorySegment> entry : values) {
                 offset = write(entry.key(), mapped, offset);
                 offset = write(entry.value(), mapped, offset);
             }
@@ -96,8 +104,14 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
 
     private long write(final MemorySegment from, final MemorySegment to, long offset) {
         final long fromByteSize = from.byteSize();
+//        if (offset > to.byteSize() - Long.BYTES) {
+//            throw new AssertionError();
+//        }
         to.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, fromByteSize);
         offset += Long.BYTES;
+//        if (offset > to.byteSize() - fromByteSize) {
+//            throw new AssertionError();
+//        }
         MemorySegment.copy(from, 0, to, offset, fromByteSize);
         return offset + from.byteSize();
     }

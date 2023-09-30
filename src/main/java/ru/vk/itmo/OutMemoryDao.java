@@ -6,6 +6,6 @@ import java.util.Map;
 public interface OutMemoryDao<D, E extends Entry<D>> {
     Entry<MemorySegment> get(D key);
 
-    void save(Map<D,E> map, long byteSize);
+    void save(Map<D,E> map);
 
 }

@@ -13,11 +13,11 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final Config DEFAULT_CONFIG = new Config(Path.of(""));
-    private long size = 0;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
@@ -49,19 +49,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
         final Entry<MemorySegment> result = key == null ? null : storage.get(key);
-        return result == null ? outMemoryDao.get(key) : null;
+        return result == null ? outMemoryDao.get(key) : result;
     }
 
     @Override
     public void upsert(final Entry<MemorySegment> entry) {
-        final MemorySegment key = entry.key();
-        size += key.byteSize() + entry.value().byteSize();
-        storage.put(key, entry);
+        storage.put(entry.key(), entry);
     }
 
     @Override
-    public synchronized void close() throws IOException {
-            outMemoryDao.save(storage, size);
+    public synchronized void close() {
+        outMemoryDao.save(storage);
     }
 
 }
