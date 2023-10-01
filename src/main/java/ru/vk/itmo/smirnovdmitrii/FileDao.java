@@ -20,7 +20,6 @@ import java.util.Map;
 import java.util.Objects;
 
 public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>> {
-
     private static final String SS_TABLE_NAME = "ss_table";
     private final Path basePath;
 
@@ -104,14 +103,8 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
 
     private long write(final MemorySegment from, final MemorySegment to, long offset) {
         final long fromByteSize = from.byteSize();
-//        if (offset > to.byteSize() - Long.BYTES) {
-//            throw new AssertionError();
-//        }
         to.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, fromByteSize);
         offset += Long.BYTES;
-//        if (offset > to.byteSize() - fromByteSize) {
-//            throw new AssertionError();
-//        }
         MemorySegment.copy(from, 0, to, offset, fromByteSize);
         return offset + from.byteSize();
     }
