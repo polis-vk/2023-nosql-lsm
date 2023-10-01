@@ -78,7 +78,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
             return null;
         } catch (IOException e) {
-            throw new RuntimeException(STR. "IOException while working with file \{ storagePath }: \{ e.getMessage() }" );
+            throw new RuntimeException(
+                    String.format("IOException while working with file %s: %s", storagePath, e.getMessage()));
         }
     }
 
