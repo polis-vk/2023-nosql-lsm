@@ -6,25 +6,25 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-
-import static java.nio.file.StandardOpenOption.*;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(InMemoryDao::compareMemorySegments);
     private final Path storagePath;
     private final Arena arena = Arena.ofConfined();
-    private long readOffset = 0;
-    private long writeOffset = 0;
+    private long readOffset;
+    private long writeOffset;
 
     public InMemoryDao(Config config) {
         storagePath = config.basePath().resolve("storage");
@@ -65,7 +65,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         readOffset = 0;
         MemorySegment lastMemorySegment = null;
-        try (FileChannel fc = FileChannel.open(storagePath, READ)) {
+        try (FileChannel fc = FileChannel.open(storagePath, StandardOpenOption.READ)) {
             MemorySegment mapped = fc.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storagePath), arena);
             while (readOffset < Files.size(storagePath)) {
                 MemorySegment keySegment = getMemorySegment(mapped);
@@ -78,8 +78,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
             return null;
         } catch (IOException e) {
-            throw new RuntimeException(
-                    String.format("IOException while working with file %s: %s", storagePath, e.getMessage()));
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -106,7 +105,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private void writeMapIntoFile() throws IOException {
         writeOffset = 0;
-        try (var channel = FileChannel.open(storagePath, READ, WRITE, TRUNCATE_EXISTING, CREATE);
+        try (var channel = FileChannel.open(storagePath,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.CREATE);
              var writeArena = Arena.ofConfined()) {
             MemorySegment mapped = channel.map(FileChannel.MapMode.READ_WRITE, 0, calcMapByteSizeInFile(), writeArena);
             for (var entry : map.values()) {
@@ -136,7 +139,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         MemorySegment.copy(memorySegment, 0, mapped, writeOffset, msSize);
         writeOffset += msSize;
     }
-
 
     private static int compareMemorySegments(MemorySegment segment1, MemorySegment segment2) {
         long offset = segment1.mismatch(segment2);
