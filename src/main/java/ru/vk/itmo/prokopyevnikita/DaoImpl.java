@@ -16,7 +16,9 @@ import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -24,9 +26,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Config config;
     private final MemorySegment mappedFile;
     private final Arena arena;
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> map =
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>((o1, o2) -> {
                 long relativeOffset = o1.mismatch(o2);
                 if (relativeOffset == -1) {
