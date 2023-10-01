@@ -51,7 +51,8 @@ public class PersistentDaoImpl extends AbstractMemoryDao implements Dao<MemorySe
         Entry<MemorySegment> entry = db.get(key);
         if (entry != null) {
             return entry;
-        } else if (mapTable == null) {
+        }
+        if (mapTable == null) {
             return null;
         }
 
