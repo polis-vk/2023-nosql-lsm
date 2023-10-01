@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private SSTable sortedStringTable;
+    private final SSTable sortedStringTable;
     private final SortedMap<MemorySegment, Entry<MemorySegment>> entries =
             new ConcurrentSkipListMap<>(InMemoryDao::comparator);
 
