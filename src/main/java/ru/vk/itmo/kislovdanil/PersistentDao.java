@@ -1,17 +1,26 @@
 package ru.vk.itmo.kislovdanil;
 
+import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> storage =
+public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(new MemSegComparator());
+    private final SSTable table;
+
+    public PersistentDao(Config config) throws IOException {
+        this.table = new SSTable(config.basePath(), new MemSegComparator());
+    }
 
     private static class MemSegComparator implements Comparator<MemorySegment> {
         @Override
@@ -37,11 +46,24 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return storage.get(key);
+        Entry<MemorySegment> ans = storage.get(key);
+        if (ans != null) return ans;
+        try {
+            MemorySegment data = table.find(key);
+            if (data == null) return null;
+            return new BaseEntry<>(key, table.find(key));
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         storage.put(entry.key(), entry);
+    }
+
+    @Override
+    public void close() throws IOException {
+        table.write(storage);
     }
 }
