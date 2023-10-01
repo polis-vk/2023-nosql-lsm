@@ -22,6 +22,11 @@ public class SSTable {
     private final Comparator<MemorySegment> memSegComp;
 
     public static final class ByteUtils {
+
+        private ByteUtils() {
+
+        }
+
         private static final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
 
         public static byte[] longToBytes(long data) {
