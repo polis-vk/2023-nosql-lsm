@@ -9,42 +9,25 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
-import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-import static java.lang.Math.min;
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.WRITE;
+import static java.nio.file.StandardOpenOption.*;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private static final int CHUNK_SIZE = 1024;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(InMemoryDao::compareMemorySegments);
     private final Path storagePath;
-
     private final Arena arena = Arena.ofConfined();
-
-    private long offset = 0;
-
-    public InMemoryDao() {
-        storagePath = null;
-    }
+    private long readOffset = 0;
+    private long writeOffset = 0;
 
     public InMemoryDao(Config config) {
         storagePath = config.basePath().resolve("storage");
-        if (!Files.exists(storagePath)) {
-            try {
-                Files.createFile(storagePath);
-            } catch (IOException _) {
-            }
-        }
     }
 
     @Override
@@ -80,11 +63,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (storagePath == null || !Files.exists(storagePath)) {
             return null;
         }
-        offset = 0;
+        readOffset = 0;
         MemorySegment lastMemorySegment = null;
         try (FileChannel fc = FileChannel.open(storagePath, READ)) {
             MemorySegment mapped = fc.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storagePath), arena);
-            while (offset < Files.size(storagePath)) {
+            while (readOffset < Files.size(storagePath)) {
                 MemorySegment keySegment = getMemorySegment(mapped);
                 if (compareMemorySegments(key, keySegment) == 0) {
                     lastMemorySegment = getMemorySegment(mapped);
@@ -95,18 +78,64 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
             return null;
         } catch (IOException e) {
-            throw new RuntimeException("Can't open storage file " + STR. "\{ e.getMessage() }" );
+            throw new RuntimeException(STR. "IOException while working with file \{ storagePath }: \{ e.getMessage() }" );
         }
     }
 
     private MemorySegment getMemorySegment(MemorySegment mappedMemory) throws IOException {
-        long size = mappedMemory.get(ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN), offset);
-        offset += Long.BYTES;
-        MemorySegment memorySegment = mappedMemory.asSlice(offset, size);
-        offset += size;
+        long size = mappedMemory.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
+        readOffset += Long.BYTES;
+        MemorySegment memorySegment = mappedMemory.asSlice(readOffset, size);
+        readOffset += size;
         return memorySegment;
-
     }
+
+    @Override
+    public void flush() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (arena.scope().isAlive()) {
+            arena.close();
+        }
+        writeMapIntoFile();
+    }
+
+    private void writeMapIntoFile() throws IOException {
+        writeOffset = 0;
+        try (var channel = FileChannel.open(storagePath, READ, WRITE, TRUNCATE_EXISTING, CREATE);
+             var writeArena = Arena.ofConfined()) {
+            MemorySegment mapped = channel.map(FileChannel.MapMode.READ_WRITE, 0, calcMapByteSizeInFile(), writeArena);
+            for (var entry : map.values()) {
+                writeMemorySegment(entry.key(), mapped);
+                writeMemorySegment(entry.value(), mapped);
+            }
+            mapped.load();
+        }
+    }
+
+    private long calcMapByteSizeInFile() {
+        long size = 0;
+        for (var entry : map.values()) {
+            size += 2 * Long.BYTES;
+            size += entry.key().byteSize();
+            size += entry.value().byteSize();
+        }
+        return size;
+    }
+
+    // Every memorySegment in file has the following structure:
+    // 8 bytes - size, <size> bytes - value
+    private void writeMemorySegment(MemorySegment memorySegment, MemorySegment mapped) {
+        long msSize = memorySegment.byteSize();
+        mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, writeOffset, msSize);
+        writeOffset += Long.BYTES;
+        MemorySegment.copy(memorySegment, 0, mapped, writeOffset, msSize);
+        writeOffset += msSize;
+    }
+
 
     private static int compareMemorySegments(MemorySegment segment1, MemorySegment segment2) {
         long offset = segment1.mismatch(segment2);
@@ -121,42 +150,5 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 segment1.get(ValueLayout.JAVA_BYTE, offset),
                 segment2.get(ValueLayout.JAVA_BYTE, offset)
         );
-    }
-
-    @Override
-    public void flush() throws IOException {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void close() throws IOException {
-        arena.close();
-        writeMapIntoFile();
-    }
-
-    private void writeMapIntoFile() throws IOException {
-        try (WritableByteChannel channel = Files.newByteChannel(storagePath, WRITE)) {
-            for (var entry : map.values()) {
-                writeMemorySegment(entry.key(), channel);
-                writeMemorySegment(entry.value(), channel);
-            }
-        }
-    }
-
-    // Every memorySegment in file has the following structure:
-    // 8 bytes - size, <size> bytes - value
-    private static void writeMemorySegment(MemorySegment memorySegment, WritableByteChannel channel) throws IOException {
-        long msSize = memorySegment.byteSize();
-        ByteBuffer sizeBuffer = ByteBuffer.allocate(Long.BYTES);
-        sizeBuffer.putLong(msSize);
-        channel.write(sizeBuffer.flip());
-//        channel.write(memorySegment.asByteBuffer());
-
-        long offset = 0;
-        while (offset < msSize) {
-            var chunk = memorySegment.asSlice(offset, min(CHUNK_SIZE, msSize - offset)).asByteBuffer();
-            offset += CHUNK_SIZE;
-            channel.write(chunk);
-        }
     }
 }
