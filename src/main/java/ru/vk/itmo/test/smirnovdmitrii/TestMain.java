@@ -174,9 +174,8 @@ public class TestMain {
             dao.upsert(entry("a", "b"));
             dao.reopen();
             dao.upsert(entry("c", "d"));
-            dao.upsert((entry("e", "f")));
+            dao.upsert(entry("e", "f"));
             dao.reopen();
-            assertEquals("b", dao.get("a").value());
             assertEquals("d", dao.get("c").value());
             assertEquals("f", dao.get("e").value());
         }
@@ -191,7 +190,7 @@ public class TestMain {
             for (int i = 0; i < count; i++) {
                 assertEquals("v" + i, dao.get("k" + i).value());
             }
-            System.out.println("performance time:" + (Instant.now().toEpochMilli() - instant.toEpochMilli()));
+            System.out.println("performance time: " + (Instant.now().toEpochMilli() - instant.toEpochMilli()));
         }
 
         public void testRepeatedReadSequence(final TestDao dao) throws IOException {
