@@ -22,29 +22,35 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
-            new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+        new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     private final static String TABLE_FILENAME = "ssTable.dat";
 
     private final Arena arena = Arena.global();
     private final Config config;
-    private final MemorySegment ssTableFile;
+    private final MemorySegment mappedSsTable;
 
     public InMemoryDao() {
-        this.config = null;
-        this.ssTableFile = null;
+        this.config = new Config(Path.of(""));
+        this.mappedSsTable = null;
     }
 
+    /*
+    Filling ssTable with bytes from the memory segment with a structure:
+    [key_size][key][value_size][value]...
+
+    If value is null then value_size = -1
+     */
     public InMemoryDao(Config config) throws IOException {
         this.config = config;
-        var tablePath = getTablePath();
-        MemorySegment tableSegment;
+        Path tablePath = getTablePath();
+        MemorySegment mappedTableSegment;
         try {
-            var size = Files.size(tablePath);
-            tableSegment = mapFile(tablePath, size, FileChannel.MapMode.READ_ONLY, StandardOpenOption.READ);
+            long size = Files.size(tablePath);
+            mappedTableSegment = mapFile(tablePath, size, FileChannel.MapMode.READ_ONLY, StandardOpenOption.READ);
         } catch (NoSuchFileException e) {
-            tableSegment = null;
+            mappedTableSegment = null;
         }
-        ssTableFile = tableSegment;
+        mappedSsTable = mappedTableSegment;
     }
 
     @Override
@@ -61,27 +67,33 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        var entry = map.get(key);
+        Entry<MemorySegment> entry = map.get(key);
         if (entry != null) {
             return entry;
         }
-        if (ssTableFile == null) {
+        if (mappedSsTable == null) {
             return null;
         }
 
-        var offset = 0L;
-        while (offset < ssTableFile.byteSize()) {
-            var keySize = ssTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+        long offset = 0;
+        while (offset < mappedSsTable.byteSize()) {
+            long keySize = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
-            var valueSize = ssTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
+            long valueSize = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
 
             if (keySize != key.byteSize()) {
                 offset += keySize + Long.BYTES + valueSize;
                 continue;
             }
 
-            if (key.mismatch(ssTableFile.asSlice(offset, keySize)) == -1) {
-                return new BaseEntry<>(key, ssTableFile.asSlice(offset + keySize + Long.BYTES, valueSize));
+            if (key.mismatch(mappedSsTable.asSlice(offset, keySize)) == -1) {
+                MemorySegment value;
+                if (valueSize == -1) {
+                    value = null;
+                } else {
+                    value = mappedSsTable.asSlice(offset + keySize + Long.BYTES, valueSize);
+                }
+                return new BaseEntry<>(key, value);
             }
             offset += keySize + Long.BYTES + valueSize;
         }
@@ -98,23 +110,22 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        var ssTableSize = 0L;
+        long ssTableSize = 0;
         long valueSize;
         for (Entry<MemorySegment> entry : map.values()) {
             valueSize = entry.value() == null ? 0 : entry.value().byteSize();
             ssTableSize += Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize;
         }
 
-        var tablePath = getTablePath();
-        Files.deleteIfExists(tablePath);
-        Files.createFile(tablePath);
-        var newSsTableFile = mapFile(tablePath, ssTableSize, FileChannel.MapMode.READ_WRITE,
-            StandardOpenOption.READ, StandardOpenOption.WRITE);
+        Path tablePath = getTablePath();
+        MemorySegment mappedSsTableFile = mapFile(tablePath, ssTableSize, FileChannel.MapMode.READ_WRITE,
+            StandardOpenOption.READ, StandardOpenOption.WRITE,
+            StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
-        var offset = 0L;
+        long offset = 0;
         for (Entry<MemorySegment> entry : map.values()) {
-            offset += writeSegmentInfoToTableFile(newSsTableFile, entry.key(), offset);
-            offset += writeSegmentInfoToTableFile(newSsTableFile, entry.value(), offset);
+            offset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.key(), offset);
+            offset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.value(), offset);
         }
     }
 
@@ -129,13 +140,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private long writeSegmentInfoToTableFile(MemorySegment tableFile, MemorySegment segment, long offset) {
+    private long writeSegmentToMappedTableFile(MemorySegment mappedTableFile, MemorySegment segment, long offset) {
         if (segment == null) {
-            tableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
+            mappedTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
             return Long.BYTES;
         }
-        tableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, segment.byteSize());
-        tableFile.asSlice(offset + Long.BYTES).copyFrom(segment);
+        mappedTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, segment.byteSize());
+        MemorySegment.copy(segment, 0, mappedTableFile, offset + Long.BYTES, segment.byteSize());
         return Long.BYTES + segment.byteSize();
     }
 }
