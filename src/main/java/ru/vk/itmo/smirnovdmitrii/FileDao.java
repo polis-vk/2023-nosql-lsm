@@ -59,7 +59,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
                 return binarySearch(key, storage, offsets);
             }
         } catch (final IOException e) {
-            throw new UncheckedIOException(e);
+            throw new UncheckedIOException("Exception while getting value from disk.", e);
         }
     }
 
@@ -94,6 +94,12 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         return null;
     }
 
+    /*
+        Saves storage with one byte block per element. One block is
+        [JAVA_LONG_UNALIGNED] key_size [bytes] key [JAVA_LONG_UNALIGNED] value_size [bytes] value (without spaces).
+
+        Also saves offsets in same order.
+     */
     @Override
     public void save(final Map<MemorySegment, Entry<MemorySegment>> storage) {
         Objects.requireNonNull(storage, "storage must be not null");
@@ -129,7 +135,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
                 }
             }
         } catch (final IOException e) {
-            throw new UncheckedIOException(e);
+            throw new UncheckedIOException("Exception while saving value to disk.", e);
         }
     }
 
