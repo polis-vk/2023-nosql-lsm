@@ -6,14 +6,12 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.OutMemoryDao;
 import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
 
-import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 

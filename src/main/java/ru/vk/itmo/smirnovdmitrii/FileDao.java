@@ -48,11 +48,11 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
         Objects.requireNonNull(key);
-        try (final FileChannel ssTableChannel = FileChannel.open(ssTablePath,
+        try (FileChannel ssTableChannel = FileChannel.open(ssTablePath,
                 StandardOpenOption.READ)) {
             final MemorySegment storage = ssTableChannel.map(
                     FileChannel.MapMode.READ_ONLY, 0, ssTableChannel.size(), Arena.ofAuto());
-            try (final FileChannel ssTableOffsetsChannel = FileChannel.open(ssTableOffsetsPath,
+            try (FileChannel ssTableOffsetsChannel = FileChannel.open(ssTableOffsetsPath,
                     StandardOpenOption.READ)) {
                 final MemorySegment offsets = ssTableOffsetsChannel.map(
                         FileChannel.MapMode.READ_ONLY, 0, ssTableOffsetsChannel.size(), Arena.ofAuto());
@@ -106,7 +106,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         if (storage.isEmpty()) {
             return;
         }
-        try (final FileChannel ssTableChannel = FileChannel.open(ssTablePath,
+        try (FileChannel ssTableChannel = FileChannel.open(ssTablePath,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.WRITE,
@@ -119,7 +119,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
             final MemorySegment mappedSsTable = ssTableChannel.map(
                     FileChannel.MapMode.READ_WRITE, 0, appendSize, Arena.ofAuto());
             long ssTableOffset = 0;
-            try (final FileChannel ssTableOffsetsChannel = FileChannel.open(ssTableOffsetsPath,
+            try (FileChannel ssTableOffsetsChannel = FileChannel.open(ssTableOffsetsPath,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING,
                     StandardOpenOption.WRITE,
@@ -139,11 +139,11 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         }
     }
 
-    private long write(final MemorySegment from, final MemorySegment to, long offset) {
+    private long write(final MemorySegment from, final MemorySegment to, final long offset) {
         final long fromByteSize = from.byteSize();
         to.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, fromByteSize);
-        offset += Long.BYTES;
-        MemorySegment.copy(from, 0, to, offset, fromByteSize);
-        return offset + from.byteSize();
+        final long valueOffset = offset + Long.BYTES;
+        MemorySegment.copy(from, 0, to, valueOffset, fromByteSize);
+        return valueOffset + from.byteSize();
     }
 }
