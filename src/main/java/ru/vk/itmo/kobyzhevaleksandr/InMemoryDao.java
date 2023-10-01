@@ -5,22 +5,22 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
-import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            return all();
+            return map.values().iterator();
         } else if (from == null) {
-            return allTo(to);
+            return map.headMap(to).values().iterator();
         } else if (to == null) {
-            return allFrom(from);
+            return map.tailMap(from).values().iterator();
         }
         return map.subMap(from, to).values().iterator();
     }
@@ -28,21 +28,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         return map.get(key);
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> allFrom(MemorySegment from) {
-        return map.tailMap(from).values().iterator();
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> allTo(MemorySegment to) {
-        return map.headMap(to).values().iterator();
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> all() {
-        return map.values().iterator();
     }
 
     @Override
