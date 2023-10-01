@@ -23,7 +23,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
         new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-    private final static String TABLE_FILENAME = "ssTable.dat";
+    private static final String TABLE_FILENAME = "ssTable.dat";
 
     private final Arena arena = Arena.global();
     private final Config config;
