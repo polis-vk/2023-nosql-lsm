@@ -18,11 +18,10 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
             return -1;
         } else if (offsetInBytes == segmentTwoSizeInBytes) {
             return 1;
-        } else {
-            return Byte.compare(
-                    segmentOne.get(ValueLayout.JAVA_BYTE, offsetInBytes),
-                    segmentTwo.get(ValueLayout.JAVA_BYTE, offsetInBytes)
-            );
         }
+        return Byte.compare(
+                segmentOne.get(ValueLayout.JAVA_BYTE, offsetInBytes),
+                segmentTwo.get(ValueLayout.JAVA_BYTE, offsetInBytes)
+        );
     }
 }
