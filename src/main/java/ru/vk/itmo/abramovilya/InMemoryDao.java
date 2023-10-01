@@ -10,24 +10,28 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
-import java.nio.channels.SeekableByteChannel;
 import java.nio.channels.WritableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.lang.Math.min;
 import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final int CHUNK_SIZE = 1024;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(InMemoryDao::compareMemorySegments);
     private final Path storagePath;
+
+    private final Arena arena = Arena.ofConfined();
+
+    private long offset = 0;
 
     public InMemoryDao() {
         storagePath = null;
@@ -76,13 +80,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (storagePath == null || !Files.exists(storagePath)) {
             return null;
         }
+        offset = 0;
         MemorySegment lastMemorySegment = null;
-        try (var reader = Files.newByteChannel(storagePath, READ)) {
-            while (true) {
-                MemorySegment keySegment = getMemorySegment(reader);
-                if (keySegment == null) break;
+        try (FileChannel fc = FileChannel.open(storagePath, READ)) {
+            MemorySegment mapped = fc.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storagePath), arena);
+            while (offset < Files.size(storagePath)) {
+                MemorySegment keySegment = getMemorySegment(mapped);
                 if (compareMemorySegments(key, keySegment) == 0) {
-                    lastMemorySegment = getMemorySegment(reader);
+                    lastMemorySegment = getMemorySegment(mapped);
                 }
             }
             if (lastMemorySegment != null) {
@@ -90,20 +95,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
             return null;
         } catch (IOException e) {
-            // TODO: Заменить на DaoException
-            throw new RuntimeException("Can't open storage file");
+            throw new RuntimeException("Can't open storage file " + STR. "\{ e.getMessage() }" );
         }
     }
 
-    private MemorySegment getMemorySegment(SeekableByteChannel reader) throws IOException {
-        ByteBuffer valueSizeBuffer = ByteBuffer.allocate(Long.BYTES);
-        int vreadBytes = reader.read(valueSizeBuffer);
-        if (vreadBytes == -1) return null;
-        // TODO: Сделать чтобы нормально читать long байт
-        int valueSize = (int) valueSizeBuffer.flip().getLong();
-        ByteBuffer valueBuffer = ByteBuffer.allocate(valueSize);
-        reader.read(valueBuffer);
-        return MemorySegment.ofBuffer(valueBuffer.flip());
+    private MemorySegment getMemorySegment(MemorySegment mappedMemory) throws IOException {
+        long size = mappedMemory.get(ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN), offset);
+        offset += Long.BYTES;
+        MemorySegment memorySegment = mappedMemory.asSlice(offset, size);
+        offset += size;
+        return memorySegment;
+
     }
 
     private static int compareMemorySegments(MemorySegment segment1, MemorySegment segment2) {
@@ -128,11 +130,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
+        arena.close();
         writeMapIntoFile();
     }
 
     private void writeMapIntoFile() throws IOException {
-        try (WritableByteChannel channel = Files.newByteChannel(storagePath, StandardOpenOption.APPEND)) {
+        try (WritableByteChannel channel = Files.newByteChannel(storagePath, WRITE)) {
             for (var entry : map.values()) {
                 writeMemorySegment(entry.key(), channel);
                 writeMemorySegment(entry.value(), channel);
