@@ -20,7 +20,9 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static java.nio.file.StandardOpenOption.*;
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public static final String FILENAME = "sstable.save";
@@ -76,7 +78,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         for (Entry<MemorySegment> entry : mappings.values()) {
             size += entry.value().byteSize() + entry.key().byteSize() + 2 * Long.BYTES;
         }
-        try (FileChannel fc = FileChannel.open(sstablePath, Set.of(CREATE, READ, WRITE)); Arena arena = Arena.ofConfined()) {
+        try (FileChannel fc = FileChannel.open(sstablePath, Set.of(CREATE, READ, WRITE));
+             Arena arena = Arena.ofConfined()) {
             Collection<Entry<MemorySegment>> vals = mappings.values();
             MemorySegment mapped = fc.map(READ_WRITE, 0, size, arena);
             long offset = 0;
@@ -120,6 +123,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
         } catch (IOException ignored) {
+            return null;
         }
         return null;
     }
