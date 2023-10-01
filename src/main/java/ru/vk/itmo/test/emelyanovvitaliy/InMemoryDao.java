@@ -93,11 +93,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    @Override
-    public void close() throws IOException {
-        Dao.super.close();
-    }
-
     private Entry<MemorySegment> getFromFile(MemorySegment key) {
         if (!Files.exists(sstablePath)) {
             return null;
