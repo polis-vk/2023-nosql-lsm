@@ -13,7 +13,6 @@ import java.nio.charset.StandardCharsets;
 @DaoFactory(stage = 2)
 public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
-
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
         return new InMemoryDao(config);
     }

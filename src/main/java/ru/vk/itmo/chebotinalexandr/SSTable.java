@@ -82,7 +82,6 @@ public class SSTable {
         }
     }
 
-
     private MemorySegment readMappedSegment() {
 
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
