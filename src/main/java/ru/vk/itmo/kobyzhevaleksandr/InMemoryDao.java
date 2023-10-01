@@ -16,15 +16,15 @@ import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
-import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
+            new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     private final static String TABLE_FILENAME = "ssTable.dat";
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
-        new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     private final Arena arena = Arena.global();
     private final Config config;
     private final MemorySegment ssTableFile;
@@ -50,11 +50,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            return all();
+            return map.values().iterator();
         } else if (from == null) {
-            return allTo(to);
+            return map.headMap(to).values().iterator();
         } else if (to == null) {
-            return allFrom(from);
+            return map.tailMap(from).values().iterator();
         }
         return map.subMap(from, to).values().iterator();
     }
@@ -86,21 +86,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             offset += keySize + Long.BYTES + valueSize;
         }
         return null;
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> allFrom(MemorySegment from) {
-        return map.tailMap(from).values().iterator();
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> allTo(MemorySegment to) {
-        return map.headMap(to).values().iterator();
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> all() {
-        return map.values().iterator();
     }
 
     @Override
