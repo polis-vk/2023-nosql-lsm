@@ -22,12 +22,11 @@ public class SSTable {
     private final Comparator<MemorySegment> memSegComp;
 
     public static final class ByteUtils {
+        private static final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
 
         private ByteUtils() {
 
         }
-
-        private static final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
 
         public static byte[] longToBytes(long data) {
             buffer.putLong(data);
@@ -69,10 +68,7 @@ public class SSTable {
         removeOldData();
         long currentDataOffset = 0;
         long currentIndexOffset = 0;
-        try (FileOutputStream summaryOutput = new FileOutputStream(summaryFile.toString());
-             FileOutputStream indexOutput = new FileOutputStream(indexFile.toString());
-             FileOutputStream dataOutput = new FileOutputStream(dataFile.toString())
-        ) {
+        try (FileOutputStream summaryOutput = new FileOutputStream(summaryFile.toString()); FileOutputStream indexOutput = new FileOutputStream(indexFile.toString()); FileOutputStream dataOutput = new FileOutputStream(dataFile.toString())) {
             for (Entry<MemorySegment> entry : memTable.values()) {
                 MemorySegment value = entry.value();
                 MemorySegment key = entry.key();
@@ -102,8 +98,7 @@ public class SSTable {
         }
     }
 
-    private IndexRecord findByKey(RandomAccessFile file, MemorySegment key, List<IndexRecord> records)
-            throws IOException {
+    private IndexRecord findByKey(RandomAccessFile file, MemorySegment key, List<IndexRecord> records) throws IOException {
         for (IndexRecord curRecord : records) {
             MemorySegment curKey = readIndex(file, curRecord);
             if (memSegComp.compare(key, curKey) == 0) {
@@ -127,8 +122,7 @@ public class SSTable {
     public MemorySegment find(MemorySegment key) throws IOException {
         ByteBuffer summaryBytes = ByteBuffer.wrap(Files.readAllBytes(summaryFile));
         List<IndexRecord> indexRecords = new ArrayList<>();
-        try (RandomAccessFile indexRAFile = new RandomAccessFile(indexFile.toString(), "r");
-             RandomAccessFile dataRAFile = new RandomAccessFile(dataFile.toString(), "r")) {
+        try (RandomAccessFile indexRAFile = new RandomAccessFile(indexFile.toString(), "r"); RandomAccessFile dataRAFile = new RandomAccessFile(dataFile.toString(), "r")) {
             while (summaryBytes.remaining() > 0) {
                 long offset = summaryBytes.getLong();
                 long len = summaryBytes.getLong();
