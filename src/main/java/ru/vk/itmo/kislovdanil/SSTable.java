@@ -16,8 +16,12 @@ import java.util.List;
 import java.util.NavigableMap;
 
 public class SSTable {
+    private final Path summaryFile;
+    private final Path indexFile;
+    private final Path dataFile;
+    private final Comparator<MemorySegment> memSegComp;
 
-    private static class ByteUtils {
+    public static final class ByteUtils {
         private static final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
 
         public static byte[] longToBytes(long data) {
@@ -27,11 +31,6 @@ public class SSTable {
             return result;
         }
     }
-
-    private final Path summaryFile;
-    private final Path indexFile;
-    private final Path dataFile;
-    private final Comparator<MemorySegment> memSegComp;
 
     private void createIfNotExists(Path path) throws IOException {
         if (Files.notExists(path)) {
@@ -100,10 +99,10 @@ public class SSTable {
 
     private IndexRecord findByKey(RandomAccessFile file, MemorySegment key, List<IndexRecord> records)
             throws IOException {
-        for (IndexRecord record : records) {
-            MemorySegment curKey = readIndex(file, record);
+        for (IndexRecord curRecord : records) {
+            MemorySegment curKey = readIndex(file, curRecord);
             if (memSegComp.compare(key, curKey) == 0) {
-                return record;
+                return curRecord;
             }
         }
         return null;
