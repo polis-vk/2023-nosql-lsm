@@ -13,12 +13,6 @@ import java.nio.charset.StandardCharsets;
 
 @DaoFactory(stage = 2)
 public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
-
-    @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
-    }
-
     @Override
     public String toString(MemorySegment memorySegment) {
         return memorySegment == null
@@ -40,6 +34,6 @@ public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Ent
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return DaoFactory.Factory.super.createDao(config);
+        return new InMemoryDao(config);
     }
 }

@@ -1,34 +1,21 @@
 package ru.vk.itmo.proninvalentin;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memorySegments;
+    private final FileDao fileDao;
 
-    public InMemoryDao() {
-        memorySegments = new ConcurrentSkipListMap<>(InMemoryDao::compare);
-    }
-
-    private static int compare(MemorySegment o1, MemorySegment o2) {
-        var mismatchOffset = o1.mismatch(o2);
-        if (mismatchOffset == -1) {
-            return 0;
-        } else if (mismatchOffset == o1.byteSize()) {
-            return -1;
-        } else if (mismatchOffset == o2.byteSize()) {
-            return 1;
-        }
-
-        return Byte.compare(
-                o1.get(ValueLayout.JAVA_BYTE, mismatchOffset),
-                o2.get(ValueLayout.JAVA_BYTE, mismatchOffset));
+    public InMemoryDao(Config config) {
+        fileDao = new FileDao(config);
+        memorySegments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     }
 
     @Override
@@ -61,7 +48,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return memorySegments.get(key);
+        Entry<MemorySegment> ms = memorySegments.get(key);
+        if (ms == null) {
+            ms = fileDao.read(key);
+        }
+        return ms;
     }
 
     @Override
@@ -70,12 +61,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void flush() throws IOException {
-        Dao.super.flush();
-    }
-
-    @Override
     public void close() throws IOException {
-        Dao.super.close();
+        fileDao.write(memorySegments.values());
     }
 }
