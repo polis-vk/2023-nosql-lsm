@@ -31,17 +31,17 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
     );
 
-    private final PersistentStorage pStorage;
+    private final PersistentStorage persistentStorage;
     private final Path basePath;
 
     public InMemDaoImpl(Path basePath) {
         this.basePath = basePath;
-        pStorage = new PersistentStorage(this.basePath);
+        persistentStorage = new PersistentStorage(this.basePath);
     }
 
     public InMemDaoImpl() {
         this.basePath = Paths.get("./");
-        pStorage = new PersistentStorage(this.basePath);
+        persistentStorage = new PersistentStorage(this.basePath);
     }
 
     @Override
@@ -61,7 +61,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Entry<MemorySegment> get(MemorySegment key) {
         var val = this.memStorage.get(key);
         if (val == null) {
-            return pStorage.get(key);
+            return persistentStorage.get(key);
         }
         return val;
     }
@@ -73,7 +73,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() {
-        pStorage.store(memStorage.values());
+        persistentStorage.store(memStorage.values());
         memStorage.clear();
     }
 }
