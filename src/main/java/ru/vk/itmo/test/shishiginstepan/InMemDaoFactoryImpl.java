@@ -24,6 +24,9 @@ public class InMemDaoFactoryImpl implements DaoFactory.Factory<MemorySegment, En
 
     @Override
     public String toString(MemorySegment memorySegment) {
+        if (memorySegment == null) {
+            return null;
+        }
         return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
