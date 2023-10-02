@@ -27,6 +27,10 @@ public final class SSTable implements Closeable {
 
     private static final String TMP_FILE_EXTENSION = ".tmp";
 
+    private static final long METADATA_SIZE = Byte.SIZE;
+
+    private static final long ENTRY_METADATA_SIZE = Byte.SIZE;
+
     private SSTable(Arena arena, MemorySegment mappedSSTableFile) {
         this.arena = arena;
         this.mappedSSTableFile = mappedSSTableFile;
@@ -55,21 +59,33 @@ public final class SSTable implements Closeable {
         Arena arena;
         MemorySegment mappedSSTableFile;
 
-        long size = 0;
+        long entriesDataSize = 0;
 
         for (Entry<MemorySegment> entry : entries) {
-            size += getEntrySize(entry);
+            entriesDataSize += getEntrySize(entry);
         }
+
+        long entriesDataOffset = METADATA_SIZE + ENTRY_METADATA_SIZE * entries.size(); // оставляем место под метаданные
 
         try (FileChannel channel = FileChannel.open(tmpSSTable, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
             arena = Arena.ofConfined();
-            mappedSSTableFile = channel.map(FileChannel.MapMode.READ_WRITE, 0L, size, arena);
+            mappedSSTableFile = channel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0L,
+                    entriesDataOffset + entriesDataSize,
+                    arena
+            );
         }
 
-        long offset = 0;
+        mappedSSTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, entries.size());
+
+        long offset = entriesDataOffset;
+        long index = 0;
         for (Entry<MemorySegment> entry : entries) {
+            mappedSSTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, METADATA_SIZE + index * ENTRY_METADATA_SIZE, offset);
             offset += writeMemorySegment(mappedSSTableFile, entry.key(), offset);
             offset += writeMemorySegment(mappedSSTableFile, entry.value(), offset);
+            index++;
         }
 
         mappedSSTableFile.force();
@@ -93,22 +109,41 @@ public final class SSTable implements Closeable {
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-        long offset = 0;
-        while (offset < this.mappedSSTableFile.byteSize()) {
-            long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            MemorySegment savedKey = mappedSSTableFile.asSlice(offset + Byte.SIZE, keySize);
-
-            boolean keyWasFound = MemorySegmentComparator.INSTANCE.compare(key, savedKey) == 0;
-
-            long valueOffset = offset + Byte.SIZE + keySize;
-            long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
-
-            if (keyWasFound) {
-                return new BaseEntry<>(savedKey, mappedSSTableFile.asSlice(valueOffset + Byte.SIZE, valueSize));
-            }
-            offset = valueOffset + valueSize + Byte.SIZE;
+        long entryOffset = getEntryOffset(key);
+        if (entryOffset == -1) {
+            return null;
         }
-        return null;
+
+        long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, entryOffset);
+        MemorySegment savedKey = mappedSSTableFile.asSlice(entryOffset + Byte.SIZE, keySize);
+
+        long valueOffset = entryOffset + Byte.SIZE + keySize;
+        long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
+        return new BaseEntry<>(savedKey, mappedSSTableFile.asSlice(valueOffset + Byte.SIZE, valueSize));
+    }
+
+    private long getEntryOffset(MemorySegment key) {
+        long entriesSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        long left = 0;
+        long right = entriesSize - 1;
+        while (left <= right) {
+            long mid = (right + left) / 2;
+            long keySizeOffset = mappedSSTableFile.get(
+                    ValueLayout.JAVA_LONG_UNALIGNED,
+                    METADATA_SIZE + mid * ENTRY_METADATA_SIZE
+            );
+            long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, keySizeOffset);
+            MemorySegment keyFromSSTable = mappedSSTableFile.asSlice(keySizeOffset + Byte.SIZE, keySize);
+            int keyComparison = MemorySegmentComparator.INSTANCE.compare(key, keyFromSSTable);
+            if (keyComparison > 0) {
+                left = mid + 1;
+            } else if (keyComparison < 0) {
+                right = mid - 1;
+            } else {
+                return keySizeOffset;
+            }
+        }
+        return -1;
     }
 
     @Override
