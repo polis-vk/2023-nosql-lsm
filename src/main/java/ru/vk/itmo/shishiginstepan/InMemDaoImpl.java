@@ -158,7 +158,7 @@ class SimpleSSTable{
                 var keySize = file.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
 
-                if (-1 == MemorySegment.mismatch(key, 0, keySize, file, offset, offset+keySize)){
+                if (-1 == MemorySegment.mismatch(key, 0, key.byteSize(), file, offset, offset+keySize)){
                     offset += keySize;
                     var valSize = file.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                     offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
