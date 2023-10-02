@@ -12,15 +12,16 @@ import java.nio.charset.StandardCharsets;
 
 @DaoFactory(stage = 2)
 public class InMemDaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
         return new InMemDaoImpl();
     }
+
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
         return new InMemDaoImpl(config.basePath());
     }
-
 
     @Override
     public String toString(MemorySegment memorySegment) {
