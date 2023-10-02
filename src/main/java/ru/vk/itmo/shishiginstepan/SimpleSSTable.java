@@ -15,11 +15,13 @@ import java.util.Iterator;
 public class SimpleSSTable {
     private final Path sstPath;
     private long size;
+
     private static class SSTableCreationException extends RuntimeException {
         public SSTableCreationException(Throwable cause) {
             super(cause);
         }
     }
+
     private static class SSTableRWException extends RuntimeException {
         public SSTableRWException(Throwable cause) {
             super(cause);
@@ -50,10 +52,12 @@ public class SimpleSSTable {
             long offset = 0;
             while (entries.hasNext()) {
                 var entry = entries.next();
+
                 file.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
                 offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
                 MemorySegment.copy(entry.key(), 0, file, offset, entry.key().byteSize());
                 offset += entry.key().byteSize();
+
                 file.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.value().byteSize());
                 offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
                 MemorySegment.copy(entry.value(), 0, file, offset, entry.value().byteSize());
@@ -64,14 +68,13 @@ public class SimpleSSTable {
         }
     }
 
-    public MemorySegment get(MemorySegment key){
+    public MemorySegment get(MemorySegment key) {
         try (var fileChannel = FileChannel.open(sstPath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
             var file = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, this.size, Arena.ofConfined());
             long offset = 0;
             while (offset < this.size) {
                 var keySize = file.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
-
 
                 if (-1 == MemorySegment.mismatch(key, 0, key.byteSize(), file, offset, offset + keySize)) {
                     offset += keySize;
