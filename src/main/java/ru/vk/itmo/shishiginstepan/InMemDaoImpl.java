@@ -93,7 +93,6 @@ class PersistentStorage{
     }
 
     public void store(Collection<Entry<MemorySegment>> data){
-
         final long[] dataSize = {0};
         data.forEach(x -> dataSize[0] += x.value().byteSize() + x.key().byteSize() + 16);
         sstable.writeEntries(data.iterator(), dataSize[0]);
