@@ -65,7 +65,6 @@ public class SSTable {
 
     public void write(SortedMap<MemorySegment, Entry<MemorySegment>> dataToFlush) throws IOException {
         long size = 0;
-        long offset = 0;
 
         for (Entry<MemorySegment> entry : dataToFlush.values()) {
             size += entryByteSize(entry);
@@ -75,12 +74,16 @@ public class SSTable {
 
         MemorySegment writeSegment = writeMappedSegment(size);
 
+        long offset = 0;
         writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE, dataToFlush.size());
         offset += Long.BYTES + Long.BYTES * dataToFlush.size();
 
         long i = 0;
         for (Entry<MemorySegment> entry : dataToFlush.values()) {
-            writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + i * Byte.SIZE, offset); //write key offset, then key and value
+            writeSegment.set(
+                    ValueLayout.JAVA_LONG_UNALIGNED,
+                    Long.BYTES + i * Byte.SIZE, offset
+            );
             offset = writeSegment(entry.key(), writeSegment, offset);
             offset = writeSegment(entry.value(), writeSegment, offset);
             i++;
@@ -89,13 +92,14 @@ public class SSTable {
 
     private long writeSegment(MemorySegment src, MemorySegment dst, long offset) {
         long size = src.byteSize();
+        long newOffset = offset;
 
-        dst.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, size);
-        offset += Long.BYTES;
-        MemorySegment.copy(src, 0, dst, offset, size);
-        offset += size;
+        dst.set(ValueLayout.JAVA_LONG_UNALIGNED, newOffset, size);
+        newOffset += Long.BYTES;
+        MemorySegment.copy(src, 0, dst, newOffset, size);
+        newOffset += size;
 
-        return offset;
+        return newOffset;
     }
 
     private MemorySegment readMappedSegment() {
