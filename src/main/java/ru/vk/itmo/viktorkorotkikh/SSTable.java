@@ -65,9 +65,7 @@ public final class SSTable implements Closeable {
             entriesDataSize += getEntrySize(entry);
         }
 
-        // оставляем место в начале файла под метаданные:
-        // кол-во записей, offset'ы, по которым получаем размер ключа
-        long entriesDataOffset = METADATA_SIZE + ENTRY_METADATA_SIZE * entries.size();
+        long entriesDataOffset = METADATA_SIZE + ENTRY_METADATA_SIZE * entries.size(); // оставляем место под метаданные
 
         try (FileChannel channel = FileChannel.open(tmpSSTable, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
             arena = Arena.ofConfined();
@@ -79,14 +77,12 @@ public final class SSTable implements Closeable {
             );
         }
 
-        mappedSSTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, entries.size()); // кол-во записей в sstable
+        mappedSSTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, entries.size());
 
         long offset = entriesDataOffset;
         long index = 0;
         for (Entry<MemorySegment> entry : entries) {
-            // в начало файла записываем offset размера ключа каждой записи
             mappedSSTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, METADATA_SIZE + index * ENTRY_METADATA_SIZE, offset);
-            // записываем ключ и значение
             offset += writeMemorySegment(mappedSSTableFile, entry.key(), offset);
             offset += writeMemorySegment(mappedSSTableFile, entry.value(), offset);
             index++;
@@ -107,7 +103,6 @@ public final class SSTable implements Closeable {
             long offset
     ) {
         long memorySegmentToWriteSize = memorySegmentToWrite.byteSize();
-        // сначала размер memorySegment, потом сам memorySegment
         ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, memorySegmentToWriteSize);
         ssTableMemorySegment.asSlice(offset + Byte.SIZE, memorySegmentToWriteSize).copyFrom(memorySegmentToWrite);
         return Byte.SIZE + memorySegmentToWriteSize;
@@ -128,13 +123,11 @@ public final class SSTable implements Closeable {
     }
 
     private long getEntryOffset(MemorySegment key) {
-        // бинарный поиск по offset ключей, которые записаны в начале файла
         long entriesSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
         long left = 0;
         long right = entriesSize - 1;
         while (left <= right) {
             long mid = (right + left) / 2;
-            // offset по которому достаём размер ключа записи
             long keySizeOffset = mappedSSTableFile.get(
                     ValueLayout.JAVA_LONG_UNALIGNED,
                     METADATA_SIZE + mid * ENTRY_METADATA_SIZE
