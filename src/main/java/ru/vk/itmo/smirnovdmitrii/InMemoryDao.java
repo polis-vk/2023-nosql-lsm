@@ -10,13 +10,13 @@ import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.NavigableMap;
+import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final Config DEFAULT_CONFIG = new Config(Path.of(""));
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage =
+    private final SortedMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
 
@@ -46,7 +46,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
-        final Entry<MemorySegment> result = key == null ? null : storage.get(key);
+        final Entry<MemorySegment> result = storage.get(key);
         return result == null ? outMemoryDao.get(key) : result;
     }
 
