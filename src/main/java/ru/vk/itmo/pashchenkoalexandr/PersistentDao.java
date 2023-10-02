@@ -5,7 +5,11 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.*;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
@@ -20,11 +24,10 @@ public class PersistentDao extends AbstractDao implements Dao<MemorySegment, Ent
     }
 
     @Override
-    public Entry<MemorySegment> get(MemorySegment key)  {
+    public Entry<MemorySegment> get(MemorySegment key) {
         try {
             return getEntry(key);
-        }
-        catch(IOException ex) {
+        } catch (IOException ex) {
             return null;
         }
     }
