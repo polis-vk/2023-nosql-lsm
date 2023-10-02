@@ -18,6 +18,7 @@ import java.util.SortedMap;
 public class SSTable {
     public static final String SSTABLE_NAME = "sstable";
     private final Path path;
+    private static final long OFFSET_FOR_SIZE = 0;
 
     public SSTable(Config config) {
         path = config.basePath().resolve(SSTABLE_NAME);
@@ -32,22 +33,31 @@ public class SSTable {
 
         MemorySegment readSegment = readMappedSegment();
 
-        long offset = 0;
-        while (offset < readSegment.byteSize()) {
-            long currKeySize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
-            long valueSize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
+        long low = -1;
+        long high = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE);
 
-            MemorySegment currKey = readSegment.asSlice(offset, currKeySize);
-            offset += currKeySize;
+        while (low < high - 1) {
+            long mid = (high - low) / 2 + low;
 
-            if (InMemoryDao.comparator(key, currKey) == 0) {
-                MemorySegment value = readSegment.asSlice(offset, valueSize);
-                return new BaseEntry<>(key, value);
+            long offset = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + mid * Byte.SIZE);
+
+            long keySize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            offset += Long.BYTES;
+            MemorySegment currKey = readSegment.asSlice(offset, keySize);
+            offset += currKey.byteSize();
+
+            int compare = InMemoryDao.comparator(currKey, key);
+
+            if (compare == 0) {
+                long valueSize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                offset += Long.BYTES;
+
+                return new BaseEntry<>(key, readSegment.asSlice(offset, valueSize));
+            } else if (compare > 0) {
+                high = mid;
+            } else {
+                low = mid;
             }
-
-            offset += valueSize;
         }
 
         return null;
@@ -55,31 +65,37 @@ public class SSTable {
 
     public void write(SortedMap<MemorySegment, Entry<MemorySegment>> dataToFlush) throws IOException {
         long size = 0;
+        long offset = 0;
 
         for (Entry<MemorySegment> entry : dataToFlush.values()) {
-            if (entry == null) continue;
             size += entryByteSize(entry);
         }
         size += 2L * Long.BYTES * dataToFlush.size();
+        size += Long.BYTES + Long.BYTES * dataToFlush.size();
 
         MemorySegment writeSegment = writeMappedSegment(size);
 
-        long offset = 0;
+        writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE, dataToFlush.size());
+        offset += Long.BYTES + Long.BYTES * dataToFlush.size();
+
+        long i = 0;
         for (Entry<MemorySegment> entry : dataToFlush.values()) {
-
-            long keySize = entry.key().byteSize();
-            long valueSize = entry.value().byteSize();
-
-            writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, keySize);
-            offset += Long.BYTES;
-            writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, valueSize);
-            offset += Long.BYTES;
-
-            MemorySegment.copy(entry.key(), 0, writeSegment, offset, keySize);
-            offset += keySize;
-            MemorySegment.copy(entry.value(), 0, writeSegment, offset, valueSize);
-            offset += valueSize;
+            writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + i * Byte.SIZE, offset); //write key offset, then key and value
+            offset = writeSegment(entry.key(), writeSegment, offset);
+            offset = writeSegment(entry.value(), writeSegment, offset);
+            i++;
         }
+    }
+
+    private long writeSegment(MemorySegment src, MemorySegment dst, long offset) {
+        long size = src.byteSize();
+
+        dst.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, size);
+        offset += Long.BYTES;
+        MemorySegment.copy(src, 0, dst, offset, size);
+        offset += size;
+
+        return offset;
     }
 
     private MemorySegment readMappedSegment() {
