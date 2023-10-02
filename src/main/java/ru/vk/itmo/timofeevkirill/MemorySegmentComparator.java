@@ -1,24 +1,21 @@
 package ru.vk.itmo.timofeevkirill;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
 public class MemorySegmentComparator implements Comparator<MemorySegment> {
-    public int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
-        long mismatch = memorySegment1.mismatch(memorySegment2);
-        if (mismatch == -1) {
-            return 0;
-        }
-        if (mismatch == memorySegment1.byteSize()) {
-            return -1;
-        }
-        if (mismatch == memorySegment2.byteSize()) {
-            return 1;
-        }
-        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
-        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
+    @Override
+    public int compare(MemorySegment segment1, MemorySegment segment2) {
+        byte[] byteArray1 = (byte[]) segment1.heapBase().orElseThrow();
+        byte[] byteArray2 = (byte[]) segment2.heapBase().orElseThrow();
 
-        return Byte.compare(b1, b2);
+        int minLength = Math.min(byteArray1.length, byteArray2.length);
+        for (int i = 0; i < minLength; i++) {
+            int cmp = Byte.compare(byteArray1[i], byteArray2[i]);
+            if (cmp != 0) {
+                return cmp;
+            }
+        }
+        return Integer.compare(byteArray1.length, byteArray2.length);
     }
 }
