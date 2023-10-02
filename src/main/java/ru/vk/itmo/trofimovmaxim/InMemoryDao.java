@@ -1,10 +1,17 @@
 package ru.vk.itmo.trofimovmaxim;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
@@ -12,7 +19,9 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data;
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable;
+    private Config config = null;
+    private MemorySegment sstable;
 
     private static final Comparator<MemorySegment> COMPARE_SEGMENT = (o1, o2) -> {
         if (o1 == null || o2 == null) {
@@ -33,31 +42,64 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     };
 
     public InMemoryDao() {
-        data = new ConcurrentSkipListMap<>(COMPARE_SEGMENT);
+        memTable = new ConcurrentSkipListMap<>(COMPARE_SEGMENT);
+    }
+
+    public InMemoryDao(Config config) {
+        this.config = config;
+        memTable = new ConcurrentSkipListMap<>(COMPARE_SEGMENT);
+
+        try (RandomAccessFile randomAccessFile = new RandomAccessFile(
+                Files.walk(config.basePath()).findFirst().get().toFile(), "r"
+        );
+             FileChannel channel = randomAccessFile.getChannel()) {
+            sstable = channel.map(FileChannel.MapMode.READ_ONLY, 0, randomAccessFile.length(), Arena.global());
+        } catch (FileNotFoundException e) {
+            System.err.println("File not found: " + e);
+        } catch (IOException e) {
+            System.err.println("IOException: " + e);
+        } catch (Exception e) {
+            System.err.println("Some exception: " + e);
+        }
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from == null || to == null) {
             if (from == null && to == null) {
-                return data.values().iterator();
+                return memTable.values().iterator();
             } else if (from == null) {
-                return data.headMap(to).values().iterator();
+                return memTable.headMap(to).values().iterator();
             } else {
-                return data.tailMap(from).values().iterator();
+                return memTable.tailMap(from).values().iterator();
             }
         } else {
-            return data.subMap(from, to).values().iterator();
+            return memTable.subMap(from, to).values().iterator();
         }
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return data.get(key);
+        var resultMemTable = memTable.get(key);
+        if (resultMemTable != null) {
+            return resultMemTable;
+        }
+        return null;
+
+        // TODO 4bytes показывающие сколько байт занимает следующий key+value
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        data.put(entry.key(), entry);
+        memTable.put(entry.key(), entry);
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (config != null) {
+            // TODO
+        } else {
+            System.err.println("DAO don't know path to save directory");
+        }
     }
 }
