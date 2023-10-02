@@ -48,23 +48,24 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
         Objects.requireNonNull(key);
+
         final MemorySegment storage;
-        final MemorySegment offsets;
-        try (FileChannel ssTableChannel = FileChannel.open(ssTablePath,
-                StandardOpenOption.READ)) {
+        try (FileChannel ssTableChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
             storage = ssTableChannel.map(
                     FileChannel.MapMode.READ_ONLY, 0, ssTableChannel.size(), Arena.ofAuto());
         } catch (final IOException e) {
             throw new UncheckedIOException("exception while mapping ss table for read.", e);
         }
-        try (FileChannel ssTableOffsetsChannel = FileChannel.open(offsetsPath,
-                StandardOpenOption.READ)) {
+
+        final MemorySegment offsets;
+        try (FileChannel ssTableOffsetsChannel = FileChannel.open(offsetsPath, StandardOpenOption.READ)) {
             offsets = ssTableOffsetsChannel.map(
                     FileChannel.MapMode.READ_ONLY, 0, ssTableOffsetsChannel.size(), Arena.ofAuto());
 
         } catch (final IOException e) {
             throw new UncheckedIOException("exception while mapping offsets for ss table for read.", e);
         }
+
         return binarySearch(key, storage, offsets);
     }
 
@@ -116,28 +117,28 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         for (final Entry<MemorySegment> entry : values) {
             appendSize += entry.value().byteSize() + entry.key().byteSize() + 2L * Long.BYTES;
         }
+
         final MemorySegment mappedSsTable;
-        final MemorySegment mappedOffsets;
-        try (FileChannel ssTableChannel = FileChannel.open(
-                ssTablePath,
+        final StandardOpenOption[] openOptions = {
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.READ,
-                StandardOpenOption.WRITE)) {
+                StandardOpenOption.WRITE
+        };
+        try (FileChannel ssTableChannel = FileChannel.open(ssTablePath, openOptions)) {
             mappedSsTable = ssTableChannel.map(
                     FileChannel.MapMode.READ_WRITE, 0, appendSize, Arena.ofAuto());
         } catch (final IOException e) {
             throw new UncheckedIOException("exception while mapping ss table for read-write.", e);
         }
-        try (FileChannel offsetsChannel = FileChannel.open(
-                offsetsPath,
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.READ,
-                StandardOpenOption.WRITE)) {
+
+        final MemorySegment mappedOffsets;
+        try (FileChannel offsetsChannel = FileChannel.open(offsetsPath, openOptions)) {
             mappedOffsets = offsetsChannel.map(
                     FileChannel.MapMode.READ_WRITE, 0, (long) values.size() * Long.BYTES, Arena.ofAuto());
         } catch (final IOException e) {
             throw new UncheckedIOException("exception while mapping offsets for ss table (while saving).", e);
         }
+
         long ssTableOffset = 0;
         long ssTableOffsetsOffset = 0;
         for (final Entry<MemorySegment> entry : values) {
