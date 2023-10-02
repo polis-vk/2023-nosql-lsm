@@ -6,11 +6,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
-public class Constants {
-    private Constants() {
-        throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
-    }
-
+public final class Constants {
     public static final String FILE_NAME = "SS_TABLE";
     public static final Set<OpenOption> WRITE_OPTIONS = new HashSet<>(Arrays.asList(
             StandardOpenOption.READ,
@@ -19,4 +15,8 @@ public class Constants {
             StandardOpenOption.TRUNCATE_EXISTING
     ));
     public static final OpenOption READ_OPTIONS = StandardOpenOption.READ;
+
+    private Constants() {
+        throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
+    }
 }
