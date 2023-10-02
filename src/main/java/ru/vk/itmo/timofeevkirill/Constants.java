@@ -7,12 +7,16 @@ import java.util.HashSet;
 import java.util.Set;
 
 public class Constants {
-    public final static String FILE_NAME = "SS_TABLE";
-    public final static Set<OpenOption> WRITE_OPTIONS = new HashSet<>(Arrays.asList(
+    private Constants() {
+        throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
+    }
+
+    public static final String FILE_NAME = "SS_TABLE";
+    public static final Set<OpenOption> WRITE_OPTIONS = new HashSet<>(Arrays.asList(
             StandardOpenOption.READ,
             StandardOpenOption.WRITE,
             StandardOpenOption.CREATE,
             StandardOpenOption.TRUNCATE_EXISTING
     ));
-    public final static OpenOption READ_OPTIONS = StandardOpenOption.READ;
+    public static final OpenOption READ_OPTIONS = StandardOpenOption.READ;
 }

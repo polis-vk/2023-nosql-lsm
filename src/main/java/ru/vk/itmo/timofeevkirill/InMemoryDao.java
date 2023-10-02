@@ -117,12 +117,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         long offset = 0;
         for (Entry<MemorySegment> entry : memTableMap.values()) {
             MemorySegment key = entry.key();
-            MemorySegment value = entry.value();
-
             writeMappedMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, key.byteSize());
             offset += Long.BYTES;
             writeMappedMemorySegment.asSlice(offset).copyFrom(key);
             offset += key.byteSize();
+
+            MemorySegment value = entry.value();
             writeMappedMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, value.byteSize());
             offset += Long.BYTES;
             writeMappedMemorySegment.asSlice(offset).copyFrom(entry.value());
