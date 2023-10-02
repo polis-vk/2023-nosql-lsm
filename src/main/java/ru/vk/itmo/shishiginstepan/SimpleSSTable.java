@@ -36,17 +36,17 @@ public class SimpleSSTable {
         this.size = dataSize;
         try (var fileChannel = FileChannel.open(sstPath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
             var file = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, dataSize, Arena.ofConfined());
-            long j = 0;
+            long offset = 0;
             while (entries.hasNext()) {
                 var entry = entries.next();
-                file.set(ValueLayout.JAVA_LONG_UNALIGNED, j, entry.key().byteSize());
-                j += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
-                MemorySegment.copy(entry.key(), 0, file, j, entry.key().byteSize());
-                j += entry.key().byteSize();
-                file.set(ValueLayout.JAVA_LONG_UNALIGNED, j, entry.value().byteSize());
-                j += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
-                MemorySegment.copy(entry.value(), 0, file, j, entry.value().byteSize());
-                j += entry.value().byteSize();
+                file.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
+                offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+                MemorySegment.copy(entry.key(), 0, file, offset, entry.key().byteSize());
+                offset += entry.key().byteSize();
+                file.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.value().byteSize());
+                offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+                MemorySegment.copy(entry.value(), 0, file, offset, entry.value().byteSize());
+                offset += entry.value().byteSize();
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -60,6 +60,7 @@ public class SimpleSSTable {
             while (offset < this.size) {
                 var keySize = file.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+
 
                 if (-1 == MemorySegment.mismatch(key, 0, key.byteSize(), file, offset, offset + keySize)) {
                     offset += keySize;
