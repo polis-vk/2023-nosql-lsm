@@ -15,9 +15,20 @@ import java.util.Iterator;
 public class SimpleSSTable {
     private final Path sstPath;
     private long size;
+    private static class SSTableCreationException extends RuntimeException {
+        public SSTableCreationException(Throwable cause) {
+            super(cause);
+        }
+    }
+    private static class SSTableRWException extends RuntimeException {
+        public SSTableRWException(Throwable cause) {
+            super(cause);
+        }
+    }
 
     SimpleSSTable(Path basePath) {
         sstPath = Path.of(basePath.toAbsolutePath() + "/sstable");
+
         try {
             if (!Files.exists(basePath)) {
                 Files.createDirectory(basePath);
@@ -28,7 +39,7 @@ public class SimpleSSTable {
                 Files.createFile(sstPath);
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new SSTableCreationException(e);
         }
     }
 
@@ -49,11 +60,11 @@ public class SimpleSSTable {
                 offset += entry.value().byteSize();
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new SSTableRWException(e);
         }
     }
 
-    public MemorySegment get(MemorySegment key) {
+    public MemorySegment get(MemorySegment key){
         try (var fileChannel = FileChannel.open(sstPath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
             var file = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, this.size, Arena.ofConfined());
             long offset = 0;
@@ -73,7 +84,7 @@ public class SimpleSSTable {
                 offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new SSTableRWException(e);
         }
         return null;
     }
