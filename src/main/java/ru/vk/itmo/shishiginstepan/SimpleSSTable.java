@@ -40,18 +40,13 @@ public class SimpleSSTable {
             while (entries.hasNext()) {
                 var entry = entries.next();
                 file.set(ValueLayout.JAVA_LONG_UNALIGNED, j, entry.key().byteSize());
-                //MemorySegment.copy();//   TODO переписать на копировании мем.сегментов
                 j += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
-                for (int i = 0; i < entry.key().byteSize(); i++) {
-                    file.set(ValueLayout.JAVA_BYTE, j, entry.key().getAtIndex(ValueLayout.JAVA_BYTE, i));
-                    j++;
-                }
+                MemorySegment.copy(entry.key(), 0, file, j, entry.key().byteSize());
+                j += entry.key().byteSize();
                 file.set(ValueLayout.JAVA_LONG_UNALIGNED, j, entry.value().byteSize());
                 j += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
-                for (int i = 0; i < entry.value().byteSize(); i++) {
-                    file.set(ValueLayout.JAVA_BYTE, j, entry.value().getAtIndex(ValueLayout.JAVA_BYTE, i));
-                    j++;
-                }
+                MemorySegment.copy(entry.value(), 0, file, j, entry.value().byteSize());
+                j += entry.value().byteSize();
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
