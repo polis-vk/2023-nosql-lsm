@@ -12,7 +12,6 @@ import java.nio.file.Paths;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -20,25 +19,22 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memStorage = new ConcurrentSkipListMap<>(
-            new Comparator<MemorySegment>() {
-                @Override
-                public int compare(MemorySegment o1, MemorySegment o2) {
-                    var mismatch = o1.mismatch(o2);
-                    if (mismatch == -1) {
-                        return 0;
-                    }
-
-                    if (mismatch == o1.byteSize()) {
-                        return -1;
-                    }
-
-                    if (mismatch == o2.byteSize()) {
-                        return 1;
-                    }
-                    byte b1 = o1.get(ValueLayout.JAVA_BYTE, mismatch);
-                    byte b2 = o2.get(ValueLayout.JAVA_BYTE, mismatch);
-                    return Byte.compare(b1, b2);
+            (o1, o2) -> {
+                var mismatch = o1.mismatch(o2);
+                if (mismatch == -1) {
+                    return 0;
                 }
+
+                if (mismatch == o1.byteSize()) {
+                    return -1;
+                }
+
+                if (mismatch == o2.byteSize()) {
+                    return 1;
+                }
+                byte b1 = o1.get(ValueLayout.JAVA_BYTE, mismatch);
+                byte b2 = o2.get(ValueLayout.JAVA_BYTE, mismatch);
+                return Byte.compare(b1, b2);
             }
     );
 
@@ -168,7 +164,7 @@ class SimpleSSTable{
                     var valSize = file.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                     offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
                     return file.asSlice(offset, valSize);
-                };
+                }
                 offset += keySize;
                 offset += file.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
