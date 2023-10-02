@@ -22,10 +22,10 @@ public class SimpleSSTable {
             if (!Files.exists(basePath)) {
                 Files.createDirectory(basePath);
             }
-            if (!Files.exists(sstPath)) {
-                Files.createFile(sstPath);
-            } else {
+            if (Files.exists(sstPath)) {
                 this.size = Files.size(sstPath);
+            } else {
+                Files.createFile(sstPath);
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
