@@ -67,16 +67,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Entry<MemorySegment> get(MemorySegment key) {
         var val = this.memStorage.get(key);
         if (val == null) {
-            val = new Entry<MemorySegment>() {
-                @Override
-                public MemorySegment key() {
-                    return key;
-                }
-                @Override
-                public MemorySegment value() {
-                    return pStorage.get(key);
-                }
-            } ;
+            return pStorage.get(key);
         }
         return val;
     }
@@ -108,8 +99,19 @@ class PersistentStorage{
         sstable.writeEntries(data.iterator(), dataSize[0]);
     }
 
-    public MemorySegment get(MemorySegment key) {
-        return this.sstable.get(key);
+    public Entry<MemorySegment> get(MemorySegment key) {
+        var ssTableResult = this.sstable.get(key);
+        return ssTableResult == null? null: new Entry<>() {
+            @Override
+            public MemorySegment key() {
+                return key;
+            }
+
+            @Override
+            public MemorySegment value() {
+                return ssTableResult;
+            }
+        };
     }
 }
 
