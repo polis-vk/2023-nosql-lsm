@@ -20,11 +20,11 @@ public class PersistenceDao extends AbstractMemorySegmentDao {
 
         Entry<MemorySegment> memoryEntry = entries.get(key);
 
-        if (memoryEntry != null) {
-            return memoryEntry;
-        } else {
+        if (memoryEntry == null) {
             return persistentFileHandler.readByKey(key);
         }
+
+        return memoryEntry;
     }
 
     @Override

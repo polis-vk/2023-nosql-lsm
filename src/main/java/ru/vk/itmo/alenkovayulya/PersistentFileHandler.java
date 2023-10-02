@@ -31,9 +31,12 @@ public class PersistentFileHandler {
     }
 
     public Entry<MemorySegment> readByKey(MemorySegment key) {
-        try (var storageChannel = FileChannel.open(storagePath, READ); var indexesChannel = FileChannel.open(storageIndexesPath, READ)) {
-            var storageSegment = storageChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storagePath), Arena.global());
-            var indexesSegment = indexesChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storageIndexesPath), Arena.global());
+        try (var storageChannel = FileChannel.open(storagePath, READ);
+             var indexesChannel = FileChannel.open(storageIndexesPath, READ)) {
+            var storageSegment = storageChannel.map(
+                    FileChannel.MapMode.READ_ONLY, 0, Files.size(storagePath), Arena.global());
+            var indexesSegment = indexesChannel.map(
+                    FileChannel.MapMode.READ_ONLY, 0, Files.size(storageIndexesPath), Arena.global());
 
             long i = 0;
             var indexesNumber = indexesSegment.byteSize() / Long.BYTES;
@@ -72,9 +75,12 @@ public class PersistentFileHandler {
             storageSize += entry.key().byteSize() + entry.value().byteSize() + 2L * Long.BYTES;
         }
 
-        try (var storageChannel = FileChannel.open(storagePath, TRUNCATE_EXISTING, CREATE, WRITE, READ); var indexesChannel = FileChannel.open(storageIndexesPath, TRUNCATE_EXISTING, CREATE, WRITE, READ)) {
-            var storageSegment = storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, storageSize, Arena.global());
-            var indexesSegment = indexesChannel.map(FileChannel.MapMode.READ_WRITE, 0, indexesSize, Arena.global());
+        try (var storageChannel = FileChannel.open(storagePath, TRUNCATE_EXISTING, CREATE, WRITE, READ);
+             var indexesChannel = FileChannel.open(storageIndexesPath, TRUNCATE_EXISTING, CREATE, WRITE, READ)) {
+            var storageSegment = storageChannel.map(
+                    FileChannel.MapMode.READ_WRITE, 0, storageSize, Arena.global());
+            var indexesSegment = indexesChannel.map(
+                    FileChannel.MapMode.READ_WRITE, 0, indexesSize, Arena.global());
             long indexOffset = 0;
             long storageRecordOffset = 0;
             for (Entry<MemorySegment> entry : entries) {
