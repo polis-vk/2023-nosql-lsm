@@ -8,11 +8,11 @@ import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.NavigableMap;
+import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentMap =
+    private final SortedMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
 
     private static final class MemorySegmentComparator implements Comparator<MemorySegment> {
@@ -34,24 +34,24 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
         final Map<MemorySegment, Entry<MemorySegment>> map;
         if (from == null && to == null) {
-            map = memorySegmentMap;
+            map = storage;
         } else if (from == null) {
-            map = memorySegmentMap.headMap(to);
+            map = storage.headMap(to);
         } else if (to == null) {
-            map = memorySegmentMap.tailMap(from);
+            map = storage.tailMap(from);
         } else {
-            map = memorySegmentMap.subMap(from, to);
+            map = storage.subMap(from, to);
         }
         return map.values().iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
-        return key == null ? null : memorySegmentMap.get(key);
+        return storage.get(key);
     }
 
     @Override
     public void upsert(final Entry<MemorySegment> entry) {
-        memorySegmentMap.put(entry.key(), entry);
+        storage.put(entry.key(), entry);
     }
 }
