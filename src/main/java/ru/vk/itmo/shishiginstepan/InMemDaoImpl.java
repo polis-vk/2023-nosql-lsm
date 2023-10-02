@@ -121,7 +121,14 @@ class SimpleSSTable{
     SimpleSSTable(Path basePath){
         sstPath = Path.of(basePath.toAbsolutePath() + "/sstable");
         try {
-            Files.createFile(sstPath);
+            if (!Files.exists(basePath)) {
+                Files.createDirectory(basePath);
+            }
+            if (!Files.exists(sstPath)){
+                Files.createFile(sstPath);
+            } else {
+                this.size = Files.size(sstPath);
+            }
         } catch (IOException e) {
             throw new RuntimeException(e);        }
     }
