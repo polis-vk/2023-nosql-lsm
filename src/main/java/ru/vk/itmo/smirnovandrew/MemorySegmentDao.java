@@ -17,17 +17,21 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     private static final Comparator<MemorySegment> segmentComparator = (o1, o2) -> {
         long mismatch = o1.mismatch(o2);
-        if (mismatch < 0) {
+        if (mismatch == -1) {
             return 0;
         }
-        if (mismatch >= o1.byteSize()) {
+        if (mismatch == o1.byteSize()) {
             return -1;
         }
-        if (mismatch >= o2.byteSize()) {
+        if (mismatch == o2.byteSize()) {
             return 1;
         }
-        return Byte.compare(o1.getAtIndex(ValueLayout.JAVA_BYTE, mismatch),
-                o2.getAtIndex(ValueLayout.JAVA_BYTE, mismatch));
+        try {
+            return Byte.compare(o1.getAtIndex(ValueLayout.JAVA_BYTE, mismatch),
+                    o2.getAtIndex(ValueLayout.JAVA_BYTE, mismatch));
+        } catch (IndexOutOfBoundsException e) {
+            return 0;
+        }
     };
 
     @Override
