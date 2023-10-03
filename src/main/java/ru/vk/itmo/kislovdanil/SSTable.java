@@ -117,10 +117,11 @@ public class SSTable {
             MemorySegment curKey = indexFile.asSlice(indexRange.offset, indexRange.length);
             int compRes = memSegComp.compare(key, curKey);
             if (compRes == 0) readRange(indexFile, indexRange.offset + indexRange.length);
-            if (compRes < 0)
+            if (compRes < 0) {
                 right = middle;
-            else
+            } else {
                 left = middle;
+            }
         }
         for (long i = left; i <= right; i++) {
             Range indexRange = readRange(summaryFile, i * Long.BYTES * 2);
@@ -134,7 +135,8 @@ public class SSTable {
 
     public MemorySegment find(MemorySegment key) throws IOException {
         Arena arena = Arena.ofAuto();
-        MemorySegment indexMappedFile, summaryMappedFile;
+        MemorySegment indexMappedFile;
+        MemorySegment summaryMappedFile;
         try (RandomAccessFile indexRAFile = new RandomAccessFile(indexFile.toString(), "r");
              RandomAccessFile summaryRAFile = new RandomAccessFile(summaryFile.toString(), "r")) {
             indexMappedFile = indexRAFile.getChannel().map(FileChannel.MapMode.READ_ONLY,
