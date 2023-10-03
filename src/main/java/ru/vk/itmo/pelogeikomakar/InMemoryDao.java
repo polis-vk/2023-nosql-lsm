@@ -77,8 +77,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         long targetKeySize = key.byteSize();
 
         while (offset < ssTable.byteSize()) {
-            long sizeOfKey = ssTable.get(ValueLayout.JAVA_LONG, offset);
-            long sizeOfVal = ssTable.get(ValueLayout.JAVA_LONG, offset + Long.BYTES);
+            long sizeOfKey = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            long sizeOfVal = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + Long.BYTES);
             offset += 2L * Long.BYTES;
 
             if (sizeOfKey == targetKeySize) {
@@ -97,7 +97,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        if (daoConfig == null) {
+        if (daoConfig == null || map.isEmpty()) {
             return;
         }
 
@@ -119,10 +119,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         long offset = 0;
         for (var item : map.values()) {
-            memSegmentOut.set(ValueLayout.JAVA_LONG, offset, item.key().byteSize());
+            memSegmentOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, item.key().byteSize());
             offset += Long.BYTES;
 
-            memSegmentOut.set(ValueLayout.JAVA_LONG, offset, item.value().byteSize());
+            memSegmentOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, item.value().byteSize());
             offset += Long.BYTES;
 
             memSegmentOut.asSlice(offset, item.key().byteSize()).copyFrom(item.key());
