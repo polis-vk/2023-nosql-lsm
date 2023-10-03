@@ -78,8 +78,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return ssTable.get(key);
         }
         return null;
-
-        // TODO 4bytes показывающие сколько байт занимает следующий key+value
     }
 
     @Override
