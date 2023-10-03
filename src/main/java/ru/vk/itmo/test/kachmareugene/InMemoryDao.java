@@ -18,9 +18,9 @@ import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.lang.Long.min;
+import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
-import static java.nio.file.StandardOpenOption.CREATE;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
