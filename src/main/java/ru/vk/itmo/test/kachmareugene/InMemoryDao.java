@@ -62,7 +62,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         long valueByteSize;
 
         while (offset < maxSize) {
-            offset = alignmentBy(offset, 8);
+            offset = alignmentBy(offset, Long.BYTES);
             keyByteSize = mapped.get(ValueLayout.JAVA_LONG, offset);
             offset += Long.BYTES;
             valueByteSize = mapped.get(ValueLayout.JAVA_LONG, offset);
@@ -120,7 +120,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private long dumpSegmentSize(MemorySegment mapped, long size, long offset) {
-        long formattedOffset = alignmentBy(offset, 8);
+        long formattedOffset = alignmentBy(offset, Long.BYTES);
         mapped.set(ValueLayout.JAVA_LONG, formattedOffset, size);
         return formattedOffset + Long.BYTES;
     }
@@ -146,7 +146,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             long dataLenght = 0L;
 
             for (var kv : mp.values()) {
-                dataLenght += alignmentBy(kv.key().byteSize() + kv.value().byteSize() + 16, 8);
+                dataLenght += alignmentBy(
+                        kv.key().byteSize() + kv.value().byteSize() + 2 * Long.BYTES,
+                        Long.BYTES);
             }
 
             long currOffset = 0L;
