@@ -55,11 +55,13 @@ public class SimpleSSTable {
 
                 file.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
                 offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+
                 MemorySegment.copy(entry.key(), 0, file, offset, entry.key().byteSize());
                 offset += entry.key().byteSize();
 
                 file.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.value().byteSize());
                 offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+
                 MemorySegment.copy(entry.value(), 0, file, offset, entry.value().byteSize());
                 offset += entry.value().byteSize();
             }
