@@ -1,4 +1,4 @@
-package ru.vk.itmo.pashchenkoalexandr;
+package ru.vk.itmo.dyagayalexandra;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;

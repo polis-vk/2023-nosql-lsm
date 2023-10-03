@@ -1,10 +1,9 @@
-package ru.vk.itmo.pashchenkoalexandr;
+package ru.vk.itmo.dyagayalexandra;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
@@ -12,29 +11,10 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class AbstractDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    protected final Comparator<MemorySegment> comparator = AbstractDao::compare;
+    protected final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
 
     protected final NavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(comparator);
-
-    private static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
-        long mismatch = memorySegment1.mismatch(memorySegment2);
-        if (mismatch == -1) {
-            return 0;
-        }
-
-        if (mismatch == memorySegment1.byteSize()) {
-            return -1;
-        }
-
-        if (mismatch == memorySegment2.byteSize()) {
-            return 1;
-        }
-
-        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
-        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
-        return Byte.compare(b1, b2);
-    }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
