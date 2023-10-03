@@ -10,11 +10,10 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    MemorySegmentComparator msComparator;
-    NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries;
 
     public DaoImpl() {
-        msComparator = new MemorySegmentComparator();
+        MemorySegmentComparator msComparator = new MemorySegmentComparator();
         memorySegmentEntries = new ConcurrentSkipListMap<>(msComparator);
     }
 
