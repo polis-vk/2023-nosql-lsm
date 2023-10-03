@@ -4,9 +4,7 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -25,16 +23,17 @@ import static java.nio.file.StandardOpenOption.*;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-
     private final Comparator<MemorySegment> memorySegmentComparatorImpl = new MemorySegmentComparator();
-    private final SortedMap<MemorySegment, Entry<MemorySegment>> mp = new ConcurrentSkipListMap<>(memorySegmentComparatorImpl);
+    private final SortedMap<MemorySegment, Entry<MemorySegment>> mp =
+            new ConcurrentSkipListMap<>(memorySegmentComparatorImpl);
 
     private final Path ssTablesDir;
-    private final String ssTableName = "ssTable.txt";
+    private final static String ssTableName = "ssTable.txt";
 
     public InMemoryDao() {
         this.ssTablesDir = null;
     }
+
     public InMemoryDao(Path path) {
         this.ssTablesDir = path;
     }
@@ -58,7 +57,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private MemorySegment searchKeyInFile(MemorySegment mapped, MemorySegment key, long maxSize) {
         long offset = 0L;
-        long kSize, vSize;
+        long kSize;
+        long vSize;
 
         while (offset < maxSize) {
             offset = alignmentBy(offset, 8);
@@ -81,12 +81,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return mp.get(key);
         }
 
-        // fixme check existence
         if (ssTablesDir == null) {
             return null;
         }
-        Set<OpenOption> options = Set.of(READ);
-        try (FileChannel channel = FileChannel.open(ssTablesDir.resolve(ssTableName), options)) {
+
+        try (FileChannel channel = FileChannel.open(ssTablesDir.resolve(ssTableName), READ)) {
             MemorySegment mapped = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), Arena.ofAuto());
             return new BaseEntry<>(key, searchKeyInFile(mapped, key, channel.size()));
         } catch (IOException e) {
@@ -119,27 +118,28 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-
     private long dumpSegmentSize(MemorySegment mapped, long size, long offset) {
         long formattedOffset = alignmentBy(offset, 8);
         mapped.set(ValueLayout.JAVA_LONG, formattedOffset, size);
         return formattedOffset + Long.BYTES;
     }
+
     private long dumpSegment(MemorySegment mapped, MemorySegment data, long offset) {
         MemorySegment.copy(data, 0, mapped, offset, data.byteSize());
         return offset + data.byteSize();
     }
 
-
     private long alignmentBy(long data, long by) {
-        return data % by != 0 ? data + (by - data % by) : data;
+        return data % by == 0 ? data : data + (by - data % by);
     }
+
     @Override
     public void close() throws IOException {
         if (ssTablesDir == null) {
             return;
         }
-        Set<OpenOption> options = Set.of(WRITE, READ, StandardOpenOption.CREATE);
+
+        Set<OpenOption> options = Set.of(WRITE, READ, CREATE);
         try (FileChannel channel = FileChannel.open(ssTablesDir.resolve(ssTableName), options)) {
             long currOffset = 0L;
             long allDataLen = 0L;
@@ -155,7 +155,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 currOffset = dumpSegment(mappedSegment, kv.key(), currOffset);
                 currOffset = dumpSegment(mappedSegment, kv.value(), currOffset);
             }
-
         } finally {
             mp.clear();
         }
