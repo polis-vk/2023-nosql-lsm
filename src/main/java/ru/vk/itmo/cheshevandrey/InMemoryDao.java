@@ -24,10 +24,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             this::compare
     );
 
-    public InMemoryDao() {
-
-    }
-
     public InMemoryDao(Config config) {
         if (config.basePath() != null) {
             this.storagePath = config.basePath().resolve("output.txt");
@@ -90,6 +86,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     offset += valueSize;
                 }
 
+                offHeapArena.close();
             } catch (IOException e) {
                 return null;
             }
@@ -146,15 +143,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private long storeAndGetOffset(MemorySegment ssTable,
                                   MemorySegment value,
                                   long offset) {
+        long newOffset = offset;
         long valueSize = value.byteSize();
 
-        ssTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, valueSize);
-        offset += Long.BYTES;
+        ssTable.set(ValueLayout.JAVA_LONG_UNALIGNED, newOffset, valueSize);
+        newOffset += Long.BYTES;
 
-        MemorySegment.copy(value, 0, ssTable, offset, valueSize);
-        offset += valueSize;
+        MemorySegment.copy(value, 0, ssTable, newOffset, valueSize);
+        newOffset += valueSize;
 
-        return offset;
+        return newOffset;
     }
 
     @Override

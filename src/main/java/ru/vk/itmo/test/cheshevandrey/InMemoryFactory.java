@@ -15,11 +15,6 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
-    }
-
-    @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
         return new InMemoryDao(config);
     }
