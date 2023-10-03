@@ -100,7 +100,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             Files.deleteIfExists(daoConfig.basePath().resolve(ssTableName));
         }
 
-
         long ssTableSizeOut = map.size() * Long.BYTES * 2L;
         for (var item : map.values()) {
             ssTableSizeOut += item.key().byteSize() + item.value().byteSize();
