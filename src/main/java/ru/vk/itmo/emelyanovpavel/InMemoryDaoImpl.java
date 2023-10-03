@@ -10,7 +10,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
-public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(
             (o1, o2) -> {

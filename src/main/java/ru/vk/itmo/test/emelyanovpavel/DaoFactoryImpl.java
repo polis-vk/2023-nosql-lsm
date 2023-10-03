@@ -2,7 +2,7 @@ package ru.vk.itmo.test.emelyanovpavel;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.emelyanovpavel.DaoImpl;
+import ru.vk.itmo.emelyanovpavel.InMemoryDaoImpl;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
@@ -15,7 +15,7 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new DaoImpl();
+        return new InMemoryDaoImpl();
     }
 
     @Override
