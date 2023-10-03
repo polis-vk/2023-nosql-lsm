@@ -1,14 +1,15 @@
 package ru.vk.itmo.test.kachmareugene;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.lang.foreign.Arena;
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@ru.vk.itmo.test.DaoFactory
+@ru.vk.itmo.test.DaoFactory(stage = 2)
 public class DaoFactory implements ru.vk.itmo.test.DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public String toString(MemorySegment memorySegment) {
@@ -20,7 +21,7 @@ public class DaoFactory implements ru.vk.itmo.test.DaoFactory.Factory<MemorySegm
         if (data == null) {
             return null;
         }
-        return Arena.ofAuto().allocateArray(ValueLayout.JAVA_BYTE, data.getBytes(StandardCharsets.UTF_8));
+        return MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
@@ -31,5 +32,10 @@ public class DaoFactory implements ru.vk.itmo.test.DaoFactory.Factory<MemorySegm
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
         return new InMemoryDao();
+    }
+
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new InMemoryDao(config.basePath());
     }
 }
