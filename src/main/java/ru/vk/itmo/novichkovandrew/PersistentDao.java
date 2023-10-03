@@ -22,11 +22,11 @@ import java.util.List;
 
 public class PersistentDao extends InMemoryDao {
     /**
-     * Index file path associated with its SSTable
+     * Index file path associated with its SSTable.
      */
     private final Path indexFilePath;
     /**
-     * File with SSTable path
+     * File with SSTable path.
      */
     private final Path dataFilePath;
 
@@ -38,7 +38,6 @@ public class PersistentDao extends InMemoryDao {
             StandardOpenOption.CREATE,
             StandardOpenOption.TRUNCATE_EXISTING
     };
-
 
     public PersistentDao(Path path) {
         try {
@@ -57,7 +56,6 @@ public class PersistentDao extends InMemoryDao {
             return offset + ":" + byteSize;
         }
     }
-
 
     private long writeToChannel(FileChannel channel, MemorySegment segment, long offset) throws IOException {
         int size = channel.write(ByteBuffer.wrap(segment.toArray(ValueLayout.JAVA_BYTE)), offset);
