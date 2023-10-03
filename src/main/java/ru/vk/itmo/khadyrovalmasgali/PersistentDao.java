@@ -16,10 +16,13 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String SSTABLE_NAME = "sstable";
+    private static final Logger logger = Logger.getLogger(PersistentDao.class.getName());
     private final Path path;
     private final Arena arena;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data;
@@ -112,7 +115,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 upsert(new BaseEntry<>(readSegment(mappedSegment), readSegment(mappedSegment)));
             }
         } catch (IOException e) {
-            System.err.println("Unable to load data: " + e.getMessage());
+            logger.log(Level.ALL, "Unable to load data: " + e.getMessage());
         }
     }
 
@@ -130,7 +133,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
         } catch (IOException e) {
-            System.err.println("Unable to load data: " + e.getMessage());
+            logger.log(Level.ALL, "Unable to load data: " + e.getMessage());
         }
         return null;
     }
