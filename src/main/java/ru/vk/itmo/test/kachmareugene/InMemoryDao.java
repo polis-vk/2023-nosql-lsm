@@ -11,7 +11,6 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Set;
@@ -19,7 +18,9 @@ import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.lang.Long.min;
-import static java.nio.file.StandardOpenOption.*;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.WRITE;
+import static java.nio.file.StandardOpenOption.CREATE;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -28,7 +29,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<>(memorySegmentComparatorImpl);
 
     private final Path ssTablesDir;
-    private final static String ssTableName = "ssTable.txt";
+    private static final String SS_TABLE_NAME = "ssTable.txt";
 
     public InMemoryDao() {
         this.ssTablesDir = null;
@@ -57,20 +58,20 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private MemorySegment searchKeyInFile(MemorySegment mapped, MemorySegment key, long maxSize) {
         long offset = 0L;
-        long kSize;
-        long vSize;
+        long keyByteSize;
+        long valueByteSize;
 
         while (offset < maxSize) {
             offset = alignmentBy(offset, 8);
-            kSize = mapped.get(ValueLayout.JAVA_LONG, offset);
+            keyByteSize = mapped.get(ValueLayout.JAVA_LONG, offset);
             offset += Long.BYTES;
-            vSize = mapped.get(ValueLayout.JAVA_LONG, offset);
+            valueByteSize = mapped.get(ValueLayout.JAVA_LONG, offset);
             offset += Long.BYTES;
 
-            if (memorySegmentComparatorImpl.compare(key, mapped.asSlice(offset, kSize)) == 0) {
-                return mapped.asSlice(offset + kSize, vSize);
+            if (memorySegmentComparatorImpl.compare(key, mapped.asSlice(offset, keyByteSize)) == 0) {
+                return mapped.asSlice(offset + keyByteSize, valueByteSize);
             }
-            offset += kSize + vSize;
+            offset += keyByteSize + valueByteSize;
         }
         return null;
     }
@@ -85,7 +86,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
 
-        try (FileChannel channel = FileChannel.open(ssTablesDir.resolve(ssTableName), READ)) {
+        try (FileChannel channel = FileChannel.open(ssTablesDir.resolve(SS_TABLE_NAME), READ)) {
             MemorySegment mapped = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), Arena.ofAuto());
             return new BaseEntry<>(key, searchKeyInFile(mapped, key, channel.size()));
         } catch (IOException e) {
@@ -130,24 +131,27 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private long alignmentBy(long data, long by) {
-        return data % by == 0 ? data : data + (by - data % by);
+        return data % by == 0L ? data : data + (by - data % by);
     }
 
     @Override
     public void close() throws IOException {
         if (ssTablesDir == null) {
+            mp.clear();
             return;
         }
 
         Set<OpenOption> options = Set.of(WRITE, READ, CREATE);
-        try (FileChannel channel = FileChannel.open(ssTablesDir.resolve(ssTableName), options)) {
-            long currOffset = 0L;
-            long allDataLen = 0L;
+        try (FileChannel channel = FileChannel.open(ssTablesDir.resolve(SS_TABLE_NAME), options)) {
+            long dataLenght = 0L;
+
             for (var kv : mp.values()) {
-                allDataLen += alignmentBy(kv.key().byteSize() + kv.value().byteSize() + 16, 8);
+                dataLenght += alignmentBy(kv.key().byteSize() + kv.value().byteSize() + 16, 8);
             }
+
+            long currOffset = 0L;
             MemorySegment mappedSegment = channel.map(
-                    FileChannel.MapMode.READ_WRITE, currOffset, allDataLen, Arena.ofAuto());
+                    FileChannel.MapMode.READ_WRITE, currOffset, dataLenght, Arena.ofAuto());
 
             for (var kv : mp.values()) {
                 currOffset = dumpSegmentSize(mappedSegment, kv.key().byteSize(), currOffset);
