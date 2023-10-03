@@ -16,8 +16,9 @@ import java.util.Collection;
 
 public class SSTable {
 
-    private static final int BLOCK_SIZE = Byte.SIZE * 8;
-    private static final long DATA_SIZE = ValueLayout.JAVA_BYTE.byteSize();
+    private static final long KEY_SIZE = ValueLayout.JAVA_BYTE.byteSize();
+    private static final long KEY_BLOCK_SIZE = Byte.SIZE * 8L;
+    private static final long VALUE_MAX_SIZE = ValueLayout.JAVA_SHORT_UNALIGNED.byteSize();
     private static final String SS_TABLE_FILENAME = "sstable.db";
     private final Path ssTablePath;
     private final MemorySegment data;
@@ -47,12 +48,14 @@ public class SSTable {
         while (pos < data.byteSize()) {
             byte keySize = data.get(ValueLayout.JAVA_BYTE, pos++);
             MemorySegment foundKey = data.asSlice(pos, keySize);
-            pos += BLOCK_SIZE;
-            if (memorySegmentComparator.compare(key, foundKey) == 0) { // compare with mismatch
-                byte valueSize = data.get(ValueLayout.JAVA_BYTE, pos++);
+            pos += KEY_BLOCK_SIZE;
+            short valueSize = data.get(ValueLayout.JAVA_SHORT_UNALIGNED, pos);
+            pos += VALUE_MAX_SIZE;
+            long fragmentation = ((valueSize + KEY_BLOCK_SIZE - 1) / KEY_BLOCK_SIZE) * KEY_BLOCK_SIZE;
+            if (memorySegmentComparator.compare(key, foundKey) == 0) {
                 return new BaseEntry<>(foundKey, data.asSlice(pos, valueSize));
             }
-            pos += BLOCK_SIZE + DATA_SIZE;
+            pos += fragmentation;
         }
 
         return null;
@@ -67,7 +70,12 @@ public class SSTable {
         Files.deleteIfExists(ssTablePath);
         Files.createFile(ssTablePath);
 
-        long dataBlockSize = (BLOCK_SIZE + DATA_SIZE) * 2L * data.size();
+        long dataBlockSize = 0L;
+
+        for (Entry<MemorySegment> entry : data) {
+            long fragmentation = ((entry.value().byteSize() + KEY_BLOCK_SIZE - 1) / KEY_BLOCK_SIZE) * KEY_BLOCK_SIZE;
+            dataBlockSize += KEY_SIZE + KEY_BLOCK_SIZE + VALUE_MAX_SIZE + fragmentation;
+        }
 
         try (FileChannel indexesFileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
             indexesMemorySegment = indexesFileChannel.map(FileChannel.MapMode.READ_WRITE, 0, dataBlockSize, Arena.global());
@@ -75,13 +83,17 @@ public class SSTable {
             long pos = 0;
             for (Entry<MemorySegment> entry : data) {
                 indexesMemorySegment.set(ValueLayout.JAVA_BYTE, pos, (byte) entry.key().byteSize());
-                pos += DATA_SIZE;
+                pos += KEY_SIZE;
                 indexesMemorySegment.asSlice(pos).copyFrom(entry.key());
-                pos += BLOCK_SIZE;
-                indexesMemorySegment.set(ValueLayout.JAVA_BYTE, pos, (byte) entry.value().byteSize());
-                pos += DATA_SIZE;
+                pos += KEY_BLOCK_SIZE;
+
+                long valueSize = entry.value().byteSize();
+                long fragmentation = ((valueSize + KEY_BLOCK_SIZE - 1) / KEY_BLOCK_SIZE) * KEY_BLOCK_SIZE;
+
+                indexesMemorySegment.set(ValueLayout.JAVA_SHORT_UNALIGNED, pos, (short) valueSize);
+                pos += VALUE_MAX_SIZE;
                 indexesMemorySegment.asSlice(pos).copyFrom(entry.value());
-                pos += BLOCK_SIZE;
+                pos += fragmentation;
             }
         }
     }
