@@ -19,11 +19,6 @@ public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<
     }
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
-    }
-
-    @Override
     public String toString(MemorySegment data) {
         return data == null ? null : new String(data.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }

@@ -23,11 +23,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>>(memorySegmentComparator);
 
-    private MemorySegment ssTable = null;
-    private Arena ssTableArena = null;
+    private MemorySegment ssTable;
+    private Arena ssTableArena;
 
-    private final static String ssTableName = "SINGLE_SS_TABLE_PELOGEIKO";
-    private Config daoConfig = null;
+    private static final String SSTABLE_NAME = "SINGLE_SS_TABLE_PELOGEIKO";
+    private Config daoConfig;
 
     public InMemoryDao(Config config) {
         if (config == null) {
@@ -36,18 +36,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         try {
             daoConfig = config;
-            Path ssTablePath = config.basePath().resolve(ssTableName);
+            Path ssTablePath = config.basePath().resolve(SSTABLE_NAME);
             FileChannel tableFile = FileChannel.open(ssTablePath, StandardOpenOption.READ);
             ssTableArena = Arena.ofConfined();
             ssTable = tableFile.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), ssTableArena);
+
+            tableFile.close();
 
         } catch (IOException e) {
             ssTable = null;
             ssTableArena = null;
         }
-    }
-
-    public InMemoryDao() {
     }
 
     @Override
@@ -97,7 +96,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (ssTableArena != null) {
             ssTableArena.close();
             ssTableArena = null;
-            Files.deleteIfExists(daoConfig.basePath().resolve(ssTableName));
+            Files.deleteIfExists(daoConfig.basePath().resolve(SSTABLE_NAME));
         }
 
         long ssTableSizeOut = map.size() * Long.BYTES * 2L;
@@ -105,7 +104,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             ssTableSizeOut += item.key().byteSize() + item.value().byteSize();
         }
 
-        FileChannel fileOut = FileChannel.open(daoConfig.basePath().resolve(ssTableName),
+        FileChannel fileOut = FileChannel.open(daoConfig.basePath().resolve(SSTABLE_NAME),
                 StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
         Arena arenaWriter = Arena.ofConfined();
         MemorySegment memSegmentOut = fileOut.map(FileChannel.MapMode.READ_WRITE,
@@ -126,6 +125,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             offset += item.value().byteSize();
         }
         arenaWriter.close();
+        fileOut.close();
 
     }
 
