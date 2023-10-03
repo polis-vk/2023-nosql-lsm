@@ -1,20 +1,15 @@
 package ru.vk.itmo.proninvalentin;
 
-import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-
-import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memorySegments;
-    private final FileDao fileDao;
 
-    public InMemoryDao(Config config) {
-        fileDao = new FileDao(config);
+    public InMemoryDao() {
         memorySegments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     }
 
@@ -48,20 +43,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> ms = memorySegments.get(key);
-        if (ms == null) {
-            ms = fileDao.read(key);
-        }
-        return ms;
+        return memorySegments.get(key);
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         memorySegments.put(entry.key(), entry);
-    }
-
-    @Override
-    public void close() throws IOException {
-        fileDao.write(memorySegments.values());
     }
 }

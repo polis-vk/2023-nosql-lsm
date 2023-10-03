@@ -3,7 +3,7 @@ package ru.vk.itmo.test.proninvalentin;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.proninvalentin.InMemoryDao;
+import ru.vk.itmo.proninvalentin.DaoFacade;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -12,7 +12,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 @DaoFactory(stage = 2)
-public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public String toString(MemorySegment memorySegment) {
         return memorySegment == null
@@ -33,7 +33,12 @@ public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Ent
     }
 
     @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao() throws IOException {
+        return new DaoFacade();
+    }
+
+    @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new InMemoryDao(config);
+        return new DaoFacade(config);
     }
 }

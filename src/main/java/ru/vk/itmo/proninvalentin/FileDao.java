@@ -12,7 +12,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Collection;
+import java.util.Iterator;
 
 public class FileDao {
     // Файл со значениями
@@ -22,32 +22,21 @@ public class FileDao {
     private final Path valuesPath;
     private final Path offsetsPath;
     private final MemorySegmentComparator comparator;
+    private long countOfMemorySegments;
 
     public FileDao(Config config) {
-        // TODO: убрать ручное создание файла
-        if(Files.notExists(config.basePath())) {
-            try {
-                Files.createDirectory(config.basePath());
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
         valuesPath = config.basePath().resolve(VALUES_FILENAME);
         offsetsPath = config.basePath().resolve(OFFSETS_FILENAME);
         comparator = new MemorySegmentComparator();
     }
 
     Entry<MemorySegment> read(MemorySegment msKey) {
-        try (FileChannel valuesChannel = FileChannel.open(
-                valuesPath,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.READ);
-             FileChannel offsetsChannel = FileChannel.open(
-                     offsetsPath,
-                     StandardOpenOption.CREATE,
-                     StandardOpenOption.WRITE,
-                     StandardOpenOption.READ)) {
+        if (Files.notExists(valuesPath) || Files.notExists(offsetsPath)) {
+            return null;
+        }
+
+        try (FileChannel valuesChannel = FileChannel.open(valuesPath, StandardOpenOption.READ);
+             FileChannel offsetsChannel = FileChannel.open(offsetsPath, StandardOpenOption.READ)) {
             try (Arena arena = Arena.ofConfined()) {
                 MemorySegment valuesStorage = valuesChannel.map(FileChannel.MapMode.READ_ONLY, 0, valuesChannel.size(), arena);
                 MemorySegment offsetsStorage = offsetsChannel.map(FileChannel.MapMode.READ_ONLY, 0, offsetsChannel.size(), arena);
@@ -60,6 +49,7 @@ public class FileDao {
                 MemorySegment key = getBySizeOffset(valuesStorage, keySizeOffset);
                 long valueSizeOffset = keySizeOffset + Long.BYTES + key.byteSize();
                 MemorySegment value = getBySizeOffset(valuesStorage, valueSizeOffset);
+
                 return new BaseEntry<>(
                         MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)),
                         MemorySegment.ofArray(value.toArray(ValueLayout.JAVA_BYTE)));
@@ -88,8 +78,7 @@ public class FileDao {
                 return m * Long.BYTES;
             } else if (comparator.compare(key, desiredKey) < 0) {
                 l = m + 1;
-            }
-            else {
+            } else {
                 r = m - 1;
             }
         }
@@ -97,7 +86,7 @@ public class FileDao {
         return -1;
     }
 
-    void write(Collection<Entry<MemorySegment>> valuesInMemory) throws IOException {
+    void write(InMemoryDao inMemoryDao) throws IOException {
         try (FileChannel valuesChannel = FileChannel.open(
                 valuesPath,
                 StandardOpenOption.CREATE,
@@ -111,10 +100,12 @@ public class FileDao {
             try (Arena arena = Arena.ofConfined()) {
                 long valuesFileOffset = 0L;
                 long offsetsFileOffset = 0L;
-                MemorySegment valuesStorage = getValuesStorage(valuesInMemory, valuesChannel, arena);
-                MemorySegment offsetsStorage = getOffsetsStorage(valuesInMemory, offsetsChannel, arena);
+                MemorySegment valuesStorage = getValuesStorage(inMemoryDao.all(), valuesChannel, arena);
+                MemorySegment offsetsStorage = getOffsetsStorage(offsetsChannel, arena);
 
-                for (Entry<MemorySegment> keyValuePair : valuesInMemory) {
+                var it = inMemoryDao.all();
+                while (it.hasNext()) {
+                    Entry<MemorySegment> keyValuePair = it.next();
                     offsetsFileOffset = writeOffset(valuesFileOffset, offsetsStorage, offsetsFileOffset);
                     valuesFileOffset = writeKeyValuePair(keyValuePair, valuesStorage, valuesFileOffset);
                 }
@@ -122,25 +113,26 @@ public class FileDao {
         }
     }
 
-    private MemorySegment getValuesStorage(Collection<Entry<MemorySegment>> valuesInMemory,
+    private MemorySegment getValuesStorage(Iterator<Entry<MemorySegment>> valuesInMemory,
                                            FileChannel valuesChannel,
                                            Arena arena) throws IOException {
         long keysSize = 0L;
         long valuesSize = 0L;
 
-        for (Entry<MemorySegment> v : valuesInMemory) {
+        while (valuesInMemory.hasNext()) {
+            Entry<MemorySegment> v = valuesInMemory.next();
             keysSize += v.key().byteSize();
             valuesSize += v.value().byteSize();
+            countOfMemorySegments++;
         }
 
-        long inMemoryDataSize = 2L * Long.BYTES * valuesInMemory.size() + keysSize + valuesSize;
+        long inMemoryDataSize = 2L * Long.BYTES * countOfMemorySegments + keysSize + valuesSize;
         return valuesChannel.map(FileChannel.MapMode.READ_WRITE, 0, inMemoryDataSize, arena);
     }
 
-    private MemorySegment getOffsetsStorage(Collection<Entry<MemorySegment>> valuesInMemory,
-                                            FileChannel offsetsChannel,
+    private MemorySegment getOffsetsStorage(FileChannel offsetsChannel,
                                             Arena arena) throws IOException {
-        long inMemoryDataSize = (long) Long.BYTES * valuesInMemory.size();
+        long inMemoryDataSize = (long) Long.BYTES * countOfMemorySegments;
         return offsetsChannel.map(FileChannel.MapMode.READ_WRITE, 0, inMemoryDataSize, arena);
     }
 
