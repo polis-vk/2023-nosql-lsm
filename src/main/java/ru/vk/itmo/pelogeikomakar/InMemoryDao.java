@@ -16,31 +16,27 @@ import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.lang.foreign.ValueLayout;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
 
-    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>>(memorySegmentComparator);
 
     private MemorySegment ssTable = null;
     private Arena ssTableArena = null;
 
-    private final String SS_TABLE_NAME = "SINGLE_SS_TABLE_PELOGEIKO";
+    private final static String ssTableName = "SINGLE_SS_TABLE_PELOGEIKO";
     private Config daoConfig = null;
 
     public InMemoryDao(Config config) {
         if (config == null) {
-            ssTable = null;
-            ssTableArena = null;
-            daoConfig = null;
             return;
         }
 
         try {
             daoConfig = config;
-            Path ssTablePath = config.basePath().resolve(SS_TABLE_NAME);
+            Path ssTablePath = config.basePath().resolve(ssTableName);
             FileChannel tableFile = FileChannel.open(ssTablePath, StandardOpenOption.READ);
             ssTableArena = Arena.ofConfined();
             ssTable = tableFile.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), ssTableArena);
@@ -52,9 +48,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public InMemoryDao() {
-        ssTable = null;
-        ssTableArena = null;
-        daoConfig = null;
     }
 
     @Override
@@ -66,13 +59,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         Entry<MemorySegment> value = map.get(key);
 
         if (value == null && ssTable != null) {
-            value = getFromSSTABLE(key);
+            value = getFromSSTable(key);
         }
 
         return value;
     }
 
-    private Entry<MemorySegment> getFromSSTABLE(MemorySegment key) {
+    private Entry<MemorySegment> getFromSSTable(MemorySegment key) {
         long offset = 0;
         long targetKeySize = key.byteSize();
 
@@ -104,7 +97,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (ssTableArena != null) {
             ssTableArena.close();
             ssTableArena = null;
-            Files.deleteIfExists(daoConfig.basePath().resolve(SS_TABLE_NAME));
+            Files.deleteIfExists(daoConfig.basePath().resolve(ssTableName));
         }
 
 
@@ -113,9 +106,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             ssTableSizeOut += item.key().byteSize() + item.value().byteSize();
         }
 
-        FileChannel fileOut = FileChannel.open(daoConfig.basePath().resolve(SS_TABLE_NAME), StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+        FileChannel fileOut = FileChannel.open(daoConfig.basePath().resolve(ssTableName),
+                StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
         Arena arenaWriter = Arena.ofConfined();
-        MemorySegment memSegmentOut = fileOut.map(FileChannel.MapMode.READ_WRITE, 0, ssTableSizeOut, arenaWriter);
+        MemorySegment memSegmentOut = fileOut.map(FileChannel.MapMode.READ_WRITE,
+                0, ssTableSizeOut, arenaWriter);
 
         long offset = 0;
         for (var item : map.values()) {
