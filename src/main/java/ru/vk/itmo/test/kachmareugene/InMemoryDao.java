@@ -155,8 +155,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 currOffset = dumpSegment(mappedSegment, kv.key(), currOffset);
                 currOffset = dumpSegment(mappedSegment, kv.value(), currOffset);
             }
-            channel.force(true);
-            channel.
+
         } finally {
             mp.clear();
         }
