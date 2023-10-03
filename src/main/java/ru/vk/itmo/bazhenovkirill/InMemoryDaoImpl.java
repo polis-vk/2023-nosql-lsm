@@ -16,17 +16,16 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
                 long mismatch = ms1.mismatch(ms2);
                 if (mismatch == -1) {
                     return 0;
-                } else {
-                    if (ms2.byteSize() == mismatch) {
-                        return 1;
-                    }
-                    if (ms1.byteSize() == mismatch) {
-                        return -1;
-                    }
-                    return Byte.compare(
-                            ms1.get(ValueLayout.JAVA_BYTE, mismatch),
-                            ms2.get(ValueLayout.JAVA_BYTE, mismatch));
                 }
+                if (ms2.byteSize() == mismatch) {
+                    return 1;
+                }
+                if (ms1.byteSize() == mismatch) {
+                    return -1;
+                }
+                return Byte.compare(
+                        ms1.get(ValueLayout.JAVA_BYTE, mismatch),
+                        ms2.get(ValueLayout.JAVA_BYTE, mismatch));
             }
     );
 
@@ -37,12 +36,11 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
                 return storage.headMap(to).values().iterator();
             }
             return storage.values().iterator();
-        } else {
-            if (to == null) {
-                return storage.tailMap(from).values().iterator();
-            }
-            return storage.subMap(from, true, to, false).values().iterator();
         }
+        if (to == null) {
+            return storage.tailMap(from).values().iterator();
+        }
+        return storage.subMap(from, true, to, false).values().iterator();
     }
 
     @Override
