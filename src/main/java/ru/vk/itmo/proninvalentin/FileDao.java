@@ -16,9 +16,9 @@ import java.util.Iterator;
 
 public class FileDao {
     // Файл со значениями
-    private final String VALUES_FILENAME = "values";
+    private static final String VALUES_FILENAME = "values";
     // Файл с оффсетами для значений (нужно для бинарного поиска)
-    private final String OFFSETS_FILENAME = "offsets";
+    private static final String OFFSETS_FILENAME = "offsets";
     private final Path valuesPath;
     private final Path offsetsPath;
     private final MemorySegmentComparator comparator;
@@ -58,7 +58,7 @@ public class FileDao {
                         MemorySegment.ofArray(value.toArray(ValueLayout.JAVA_BYTE)));
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            return null;
         }
     }
 
@@ -143,28 +143,29 @@ public class FileDao {
 
     // Пары "ключ:значение" хранятся внутри файла в следующем виде:
     // |Длина ключа в байтах|Ключ|Длина значения в байтах|Значение|
-    private long writeKeyValuePair(Entry<MemorySegment> src, MemorySegment dst, long fileOffset) {
+    private long writeKeyValuePair(Entry<MemorySegment> src, MemorySegment dst, final long fileOffset) {
+        var localFileOffset = fileOffset;
         // Сначала пишем длину ключа и сам ключ
-        fileOffset = writeMemorySegment(src.key(), dst, fileOffset);
+        localFileOffset = writeMemorySegment(src.key(), dst, localFileOffset);
         // Потом пишем длину значения и само значение
-        fileOffset = writeMemorySegment(src.value(), dst, fileOffset);
-        return fileOffset;
+        localFileOffset = writeMemorySegment(src.value(), dst, localFileOffset);
+        return localFileOffset;
     }
 
     // Записать пару: |Длина значения в байтах|Значение|
-    private long writeMemorySegment(MemorySegment value, MemorySegment dst, long fileOffset) {
+    private long writeMemorySegment(MemorySegment value, MemorySegment dst, final long fileOffset) {
         long valueSize = value.byteSize();
-        dst.set(ValueLayout.JAVA_LONG_UNALIGNED, fileOffset, valueSize);
-        fileOffset += Long.BYTES;
-        MemorySegment.copy(value, 0, dst, fileOffset, valueSize);
-        fileOffset += valueSize;
-        return fileOffset;
+        long localFileOffset = fileOffset;
+        dst.set(ValueLayout.JAVA_LONG_UNALIGNED, localFileOffset, valueSize);
+        localFileOffset += Long.BYTES;
+        MemorySegment.copy(value, 0, dst, localFileOffset, valueSize);
+        localFileOffset += valueSize;
+        return localFileOffset;
     }
 
     // Записать оффсет: |Сдвиг значения в байтах от начала файла|
     private long writeOffset(long offset, MemorySegment dst, long fileOffset) {
         dst.set(ValueLayout.JAVA_LONG_UNALIGNED, fileOffset, offset);
-        fileOffset += Long.BYTES;
-        return fileOffset;
+        return fileOffset + Long.BYTES;
     }
 }
