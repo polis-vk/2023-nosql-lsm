@@ -20,8 +20,6 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static java.lang.StringTemplate.STR;
-
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String SSTABLE_NAME = "sstable";
