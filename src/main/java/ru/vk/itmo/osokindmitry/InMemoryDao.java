@@ -5,19 +5,15 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.IOException;
+import java.io.*;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
@@ -34,8 +30,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> mappedStorage
             = new ConcurrentSkipListMap<>(comparator);
 
-    private FileChannel fc = null;
-    private Path path;
+    private FileChannel fc;
+    private OutputStream outputStream;
+    private final Path path;
 
     private static int compare(MemorySegment segment1, MemorySegment segment2) {
         long offset = segment1.mismatch(segment2);
@@ -54,16 +51,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao(Config config) {
         path = config.basePath();
-//        Set<OpenOption> opts = Set.of(CREATE, READ, WRITE);
-//        try {
-//            fc = FileChannel.open(config.basePath(), opts);
-//            Arena arena = Arena.ofConfined();
-//
-//            MemorySegment mapped = fc.map(READ_WRITE, 0, 1L << 32, arena);
-//
-//        } catch (IOException ignored) {
-//
-//        }
+        Set<OpenOption> opts = Set.of(CREATE, READ, WRITE);
+        try (FileChannel fc = FileChannel.open(config.basePath(), opts)) {
+            if (fc.size() != 0) {
+                Arena arena = Arena.ofAuto();
+                MemorySegment mappedSegment = fc.map(READ_WRITE, 0, fc.size(), arena);
+                sliceSegment(mappedSegment);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -71,13 +68,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         Entry<MemorySegment> entry = storage.get(key);
         if (entry == null) {
             entry = mappedStorage.get(key);
-            if (entry == null && searchFor(key)) {
-                entry = mappedStorage.get(key);
-            }
         }
         return entry;
-
-
         // взять ключ из постоянного хранилища
         // storageP.get(key);
     }
@@ -107,43 +99,42 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void close() {
         storage.values().forEach((value) -> {
             try {
-                Files.write(path, longToBytes(value.key().byteSize()), CREATE, WRITE, APPEND);
                 Files.write(path, value.key().toArray(ValueLayout.JAVA_BYTE), CREATE, WRITE, APPEND);
-
-                Files.write(path, longToBytes(value.key().byteSize()), CREATE, WRITE, APPEND);
                 Files.write(path, value.value().toArray(ValueLayout.JAVA_BYTE), CREATE, WRITE, APPEND);
 
-
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                e.printStackTrace();
             }
         });
         // memtable -> sstable
     }
 
-    private boolean searchFor(MemorySegment key) {
-        Set<OpenOption> opts = Set.of(CREATE, READ, WRITE);
-        Arena arena = Arena.ofAuto();
-        try (FileChannel fc = FileChannel.open(path, opts)) {
-            // читаем пока файл не закончится или сколько раз указано в переменной специальной
+    private void sliceSegment(MemorySegment segment) {
+//        long n = segment.get(ValueLayout.JAVA_LONG, 0);
+//        List<Long> sizes = new ArrayList<>();
+//        for (long i = 0; i < n; i++) {
+//            sizes.add(segment.get(ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG.byteSize() * i));
+//        }
+//        for (long i = 0; i < n; i++) {
+//            mappedStorage.put(segment.asSlice(sizes.get(i * 2)))
+//        }
 
-            ByteBuffer buffer = ByteBuffer.allocate(8);
-            fc.read(buffer);
+        long offset = 0;
+        while (offset < segment.byteSize() - ValueLayout.JAVA_LONG.byteSize()) {
 
-            long size = buffer.getLong();
-            MemorySegment mappedKey = fc.map(READ_WRITE, 0, size, arena);
+            long size = segment.get(ValueLayout.JAVA_LONG, offset);
+            offset += ValueLayout.JAVA_LONG.byteSize();
+            MemorySegment key = segment.asSlice(offset, size);
+            offset += size;
 
-            buffer = ByteBuffer.allocate(8);
-            fc.read(buffer);
-            size = buffer.getLong();
-            MemorySegment mappedValue = fc.map(READ_WRITE, 0, size, arena);
+            size = segment.get(ValueLayout.JAVA_LONG, offset);
+            offset += ValueLayout.JAVA_LONG.byteSize();
+            MemorySegment value = segment.asSlice(offset, size);
+            offset += size;
 
-            mappedStorage.put(mappedKey, new BaseEntry<>(mappedKey, mappedValue));
-
-        } catch (IOException e) {
-            e.printStackTrace();
+            mappedStorage.put(key, new BaseEntry<>(key, value));
         }
-        return false;
+
     }
 
     private static byte[] longToBytes(long l) {
