@@ -38,8 +38,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             daoConfig = config;
             Path ssTablePath = config.basePath().resolve(SSTABLE_NAME);
             try (FileChannel tableFile = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
-                ssTableArena =Arena.ofConfined();
-                ssTable =tableFile.map(FileChannel.MapMode.READ_ONLY,0,Files.size(ssTablePath),ssTableArena);
+                ssTableArena = Arena.ofConfined();
+                ssTable = tableFile.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), ssTableArena);
             }
 
         } catch (IOException e) {
