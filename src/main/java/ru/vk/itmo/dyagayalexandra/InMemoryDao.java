@@ -4,32 +4,39 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
-            new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+    private final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
+
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
+
+    public InMemoryDao() {
+        storage = new ConcurrentSkipListMap<>(comparator);
+    }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        Collection<Entry<MemorySegment>> values;
         if (from == null && to == null) {
-            return storage.values().iterator();
+            values = storage.values();
+        } else if (from == null) {
+            values = storage.headMap(to).values();
+        } else if (to == null) {
+            values = storage.tailMap(from).values();
+        } else {
+            values = storage.subMap(from, to).values();
         }
 
-        if (from == null) {
-            return storage.headMap(to, false).values().iterator();
-        }
-
-        if (to == null) {
-            return storage.tailMap(from, true).values().iterator();
-        }
-
-        return storage.subMap(from, true, to, false).values().iterator();
+        return values.iterator();
     }
 
+    @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         return storage.get(key);
     }
