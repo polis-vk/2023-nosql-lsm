@@ -3,7 +3,10 @@ package ru.vk.itmo.novichkovandrew;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
@@ -18,20 +21,33 @@ import java.util.Arrays;
 import java.util.List;
 
 public class PersistentDao extends InMemoryDao {
-    private final Path path;
     /**
-     * Index file associated with its SSTable
+     * Index file path associated with its SSTable
      */
-    private final String INDEX_FILE = "index.txt";
+    private final Path indexFilePath;
     /**
-     * File with SSTable
+     * File with SSTable path
      */
-    private final String DATA_FILE = "sstable.txt";
+    private final Path dataFilePath;
 
+    private final Arena arena;
     private List<KeyPosition> indexes = null;
+    private final StandardOpenOption[] openOptions = new StandardOpenOption[]{
+            StandardOpenOption.WRITE,
+            StandardOpenOption.READ,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.TRUNCATE_EXISTING
+    };
+
 
     public PersistentDao(Path path) {
-        this.path = path;
+        try {
+            this.indexFilePath = path.resolve("index.txt");
+            this.dataFilePath = path.resolve("data.txt");
+        } catch (InvalidPathException ex) {
+            throw new RuntimeException("Error resolving path: " + ex.getMessage());
+        }
+        this.arena = Arena.ofConfined();
     }
 
     public record KeyPosition(long offset, long byteSize) {
@@ -42,32 +58,38 @@ public class PersistentDao extends InMemoryDao {
         }
     }
 
+
+    private long writeToChannel(FileChannel channel, MemorySegment segment, long offset) throws IOException {
+        int size = channel.write(ByteBuffer.wrap(segment.toArray(ValueLayout.JAVA_BYTE)), offset);
+        return offset + size;
+    }
+
     @Override
     public void flush() throws IOException {
         try {
-            Path sstPath = path.resolve(DATA_FILE);
-            Path indexPath = path.resolve(INDEX_FILE);
-            Files.deleteIfExists(sstPath);
-            Files.deleteIfExists(indexPath);
-            Files.createFile(path.resolve(DATA_FILE));
-            Files.createFile(path.resolve(INDEX_FILE));
-            try (BufferedOutputStream sstFile = new BufferedOutputStream(new FileOutputStream(sstPath.toFile()));
-                 BufferedWriter indexFile = Files.newBufferedWriter(indexPath, StandardCharsets.UTF_8)) {
+            try (FileChannel sstChannel = FileChannel.open(dataFilePath, openOptions);
+                 BufferedWriter indexFile = Files.newBufferedWriter(indexFilePath, StandardCharsets.UTF_8)
+            ) {
                 long offset = 0;
                 for (Entry<MemorySegment> entry : entriesMap.values()) {
-                    MemorySegment key = entry.key();
-                    MemorySegment value = entry.value();
-                    indexFile.write(String.format("%s:%s", offset, key.byteSize()));
+                    indexFile.write(String.format("%s:%s", offset, entry.key().byteSize()));
                     indexFile.newLine();
-                    sstFile.write(key.toArray(ValueLayout.JAVA_BYTE));
-                    sstFile.write(value.toArray(ValueLayout.JAVA_BYTE));
-                    offset += (key.byteSize() + value.byteSize());
+                    offset = writeToChannel(sstChannel, entry.key(), offset);
+                    offset = writeToChannel(sstChannel, entry.value(), offset);
                 }
                 indexFile.write(String.format("%s:%s", offset, 0));
             }
         } catch (InvalidPathException ex) {
             throw new RuntimeException("Couldn't create file by path: " + ex.getMessage());
         }
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (arena.scope().isAlive()) {
+            arena.close();
+        }
+        flush();
     }
 
     @Override
@@ -78,7 +100,7 @@ public class PersistentDao extends InMemoryDao {
         }
         if (indexes == null) {
             indexes = new ArrayList<>();
-            try (BufferedReader reader = Files.newBufferedReader(path.resolve(INDEX_FILE))) {
+            try (BufferedReader reader = Files.newBufferedReader(indexFilePath)) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     List<Integer> pair = Arrays.stream(line.split(":")).map(Integer::parseInt).toList();
@@ -89,17 +111,12 @@ public class PersistentDao extends InMemoryDao {
                 return null;
             }
         }
-        try (FileChannel sstChannel = FileChannel.open(path.resolve(DATA_FILE), StandardOpenOption.READ)) {
+        try (FileChannel sstChannel = FileChannel.open(dataFilePath, StandardOpenOption.READ)) {
             return entryBinarySearch(sstChannel, key);
         } catch (IOException e) {
-            System.err.printf("Couldn't open file %s: %s%n", DATA_FILE, e.getMessage());
+            System.err.printf("Couldn't open file %s: %s%n", dataFilePath, e.getMessage());
         }
         return null;
-    }
-
-
-    private MemorySegment getNthMemorySegment(FileChannel sstChannel, long offset, long byteSize) throws IOException {
-        return MemorySegment.ofBuffer(sstChannel.map(FileChannel.MapMode.READ_ONLY, offset, byteSize));
     }
 
     private Entry<MemorySegment> entryBinarySearch(FileChannel sstFile, MemorySegment key) throws IOException {
@@ -108,20 +125,20 @@ public class PersistentDao extends InMemoryDao {
         while (l < r) {
             int index = l + (r - l) / 2;
             KeyPosition mid = indexes.get(index);
-            MemorySegment middleSegment = getNthMemorySegment(sstFile, mid.offset, mid.byteSize);
+            MemorySegment middleSegment = sstFile.map(FileChannel.MapMode.READ_ONLY, mid.offset, mid.byteSize, arena);
             if (comparator.compare(key, middleSegment) <= 0) {
                 r = index;
             } else {
                 l = index + 1;
             }
         }
-        KeyPosition sstKeyPosition = indexes.get(l);
-        MemorySegment sstKey = getNthMemorySegment(sstFile, sstKeyPosition.offset, sstKeyPosition.byteSize);
+        KeyPosition sstInfo = indexes.get(l);
+        MemorySegment sstKey = sstFile.map(FileChannel.MapMode.READ_ONLY, sstInfo.offset, sstInfo.byteSize, arena);
         if (comparator.compare(sstKey, key) != 0) {
             return null;
         }
-        long valueOffset = sstKeyPosition.offset + sstKeyPosition.byteSize;
+        long valueOffset = sstInfo.offset + sstInfo.byteSize;
         long valueByteSize = indexes.get(l + 1).offset - valueOffset;
-        return new BaseEntry<>(sstKey, getNthMemorySegment(sstFile, valueOffset, valueByteSize));
+        return new BaseEntry<>(sstKey, sstFile.map(FileChannel.MapMode.READ_ONLY, valueOffset, valueByteSize, arena));
     }
 }
