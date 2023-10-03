@@ -12,9 +12,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.List;
 import java.util.NavigableMap;
 
 public class SSTable {
@@ -88,25 +86,14 @@ public class SSTable {
         }
     }
 
-    private static class IndexRecord {
-        public long dataOffset;
-        public long dataLength;
-        public MemorySegment key;
+    private static class Range {
+        public long offset;
+        public long length;
 
-        public IndexRecord(long dataOffset, long dataLength, MemorySegment key) {
-            this.dataOffset = dataOffset;
-            this.dataLength = dataLength;
-            this.key = key;
+        public Range(long offset, long length) {
+            this.offset = offset;
+            this.length = length;
         }
-    }
-
-    private IndexRecord findByKey(MemorySegment key, List<IndexRecord> records) {
-        for (IndexRecord curRecord : records) {
-            if (memSegComp.compare(key, curRecord.key) == 0) {
-                return curRecord;
-            }
-        }
-        return null;
     }
 
     private MemorySegment readFileData(RandomAccessFile file, long offset, long len) throws IOException {
@@ -116,26 +103,49 @@ public class SSTable {
         return MemorySegment.ofArray(data);
     }
 
-    public MemorySegment find(MemorySegment key) throws IOException {
-        ByteBuffer summaryBytes = ByteBuffer.wrap(Files.readAllBytes(summaryFile));
-        List<IndexRecord> indexRecords = new ArrayList<>();
-        Arena arena = Arena.ofAuto();
-        try (RandomAccessFile indexRAFile = new RandomAccessFile(indexFile.toString(), "r");
-             RandomAccessFile dataRAFile = new RandomAccessFile(dataFile.toString(), "r")) {
-            MemorySegment indexMappedFile = indexRAFile.getChannel().map(FileChannel.MapMode.READ_ONLY,
-                    0, indexRAFile.length(), arena);
-            while (summaryBytes.remaining() > 0) {
-                long offset = summaryBytes.getLong();
-                long len = summaryBytes.getLong();
-                MemorySegment segment = indexMappedFile.asSlice(offset, len + 2 * Long.BYTES);
-                ByteBuffer range = segment.asSlice(len, 2 * Long.BYTES).asByteBuffer();
-                long dataOffset = range.getLong();
-                long dataLen = range.getLong();
-                indexRecords.add(new IndexRecord(dataOffset, dataLen, segment.asSlice(0, len)));
+    private Range readRange(MemorySegment segment, long offset) {
+        ByteBuffer buffer = segment.asSlice(offset, 2 * Long.BYTES).asByteBuffer();
+        return new Range(buffer.getLong(), buffer.getLong());
+    }
+
+    private Range findByKey(MemorySegment key, MemorySegment indexFile, MemorySegment summaryFile) {
+        long left = 0;
+        long right = (summaryFile.byteSize() / (2 * Long.BYTES)) - 1;
+        while (right - left > 2) {
+            long middle = (right + left) / 2;
+            Range indexRange = readRange(summaryFile, middle * Long.BYTES * 2);
+            MemorySegment curKey = indexFile.asSlice(indexRange.offset, indexRange.length);
+            int compRes = memSegComp.compare(key, curKey);
+            if (compRes == 0) readRange(indexFile, indexRange.offset + indexRange.length);
+            if (compRes < 0)
+                right = middle;
+            else
+                left = middle;
+        }
+        for (long i = left; i <= right; i++) {
+            Range indexRange = readRange(summaryFile, i * Long.BYTES * 2);
+            MemorySegment curKey = indexFile.asSlice(indexRange.offset, indexRange.length);
+            if (memSegComp.compare(key, curKey) == 0) {
+                return readRange(indexFile, indexRange.offset + indexRange.length);
             }
-            IndexRecord result = findByKey(key, indexRecords);
-            if (result == null) return null;
-            return readFileData(dataRAFile, result.dataOffset, result.dataLength);
+        }
+        return null;
+    }
+
+    public MemorySegment find(MemorySegment key) throws IOException {
+        Arena arena = Arena.ofAuto();
+        MemorySegment indexMappedFile, summaryMappedFile;
+        try (RandomAccessFile indexRAFile = new RandomAccessFile(indexFile.toString(), "r");
+             RandomAccessFile summaryRAFile = new RandomAccessFile(summaryFile.toString(), "r")) {
+            indexMappedFile = indexRAFile.getChannel().map(FileChannel.MapMode.READ_ONLY,
+                    0, indexRAFile.length(), arena);
+            summaryMappedFile = summaryRAFile.getChannel().map(FileChannel.MapMode.READ_ONLY,
+                    0, summaryRAFile.length(), arena);
+        }
+        Range result = findByKey(key, indexMappedFile, summaryMappedFile);
+        if (result == null) return null;
+        try (RandomAccessFile dataRAFile = new RandomAccessFile(dataFile.toString(), "r")) {
+            return readFileData(dataRAFile, result.offset, result.length);
         }
     }
 }
