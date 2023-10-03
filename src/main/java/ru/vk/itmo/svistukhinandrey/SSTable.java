@@ -66,7 +66,7 @@ public class SSTable {
             return;
         }
 
-        MemorySegment indexesMemorySegment;
+        MemorySegment ssTableMemorySegment;
         Files.deleteIfExists(ssTablePath);
         Files.createFile(ssTablePath);
 
@@ -77,22 +77,22 @@ public class SSTable {
             dataBlockSize += KEY_MAX_LENGTH + KEY_BLOCK_SIZE + VALUE_MAX_LENGTH + fragmentation;
         }
 
-        try (FileChannel indexesFileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-            indexesMemorySegment = indexesFileChannel.map(FileChannel.MapMode.READ_WRITE, 0, dataBlockSize, Arena.global());
+        try (FileChannel ssTable = FileChannel.open(ssTablePath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            ssTableMemorySegment = ssTable.map(FileChannel.MapMode.READ_WRITE, 0, dataBlockSize, Arena.global());
 
             long pos = 0;
             for (Entry<MemorySegment> entry : entries) {
-                indexesMemorySegment.set(ValueLayout.JAVA_BYTE, pos, (byte) entry.key().byteSize());
+                ssTableMemorySegment.set(ValueLayout.JAVA_BYTE, pos, (byte) entry.key().byteSize());
                 pos += KEY_MAX_LENGTH;
-                indexesMemorySegment.asSlice(pos).copyFrom(entry.key());
+                ssTableMemorySegment.asSlice(pos).copyFrom(entry.key());
                 pos += KEY_BLOCK_SIZE;
 
                 long valueSize = entry.value().byteSize();
-                long fragmentation = ((valueSize + KEY_BLOCK_SIZE - 1) / KEY_BLOCK_SIZE) * KEY_BLOCK_SIZE;
-
-                indexesMemorySegment.set(ValueLayout.JAVA_SHORT_UNALIGNED, pos, (short) valueSize);
+                ssTableMemorySegment.set(ValueLayout.JAVA_SHORT_UNALIGNED, pos, (short) valueSize);
                 pos += VALUE_MAX_LENGTH;
-                indexesMemorySegment.asSlice(pos).copyFrom(entry.value());
+
+                ssTableMemorySegment.asSlice(pos).copyFrom(entry.value());
+                long fragmentation = ((valueSize + KEY_BLOCK_SIZE - 1) / KEY_BLOCK_SIZE) * KEY_BLOCK_SIZE;
                 pos += fragmentation;
             }
         }
