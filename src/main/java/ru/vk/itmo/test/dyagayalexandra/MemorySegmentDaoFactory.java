@@ -40,4 +40,3 @@ public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment
         return baseEntry;
     }
 }
-
