@@ -10,6 +10,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
@@ -18,6 +19,8 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import static java.lang.StringTemplate.STR;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -109,13 +112,16 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try (FileChannel channel = FileChannel.open(
                 path,
                 StandardOpenOption.READ)) {
+            if (Files.notExists(path)) {
+                return;
+            }
             offset = 0;
             MemorySegment mappedSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
             while (offset < channel.size()) {
                 upsert(new BaseEntry<>(readSegment(mappedSegment), readSegment(mappedSegment)));
             }
         } catch (IOException e) {
-            logger.log(Level.ALL, "Unable to load data: " + e.getMessage());
+            logger.log(Level.ALL, e.getMessage());
         }
     }
 
@@ -123,6 +129,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try (FileChannel channel = FileChannel.open(
                 path,
                 StandardOpenOption.READ)) {
+            if (Files.notExists(path)) {
+                return null;
+            }
             offset = 0;
             MemorySegment mappedSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
             while (offset < channel.size()) {
@@ -133,7 +142,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
         } catch (IOException e) {
-            logger.log(Level.ALL, "Unable to load data: " + e.getMessage());
+            logger.log(Level.ALL, e.getMessage());
         }
         return null;
     }
