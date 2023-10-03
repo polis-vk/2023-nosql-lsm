@@ -41,8 +41,8 @@ public class PersistentDaoImpl extends AbstractMemoryDao implements Dao<MemorySe
         try (var fcFile = FileChannel.open(pathTable, READ);
              var fcIndex = FileChannel.open(pathIndex, READ)
         ) {
-            this.mapTable = fcFile.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(pathTable), Arena.global());
-            this.mapIndex = fcIndex.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(pathIndex), Arena.global());
+            this.mapTable = fcFile.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(pathTable), Arena.ofConfined());
+            this.mapIndex = fcIndex.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(pathIndex), Arena.ofConfined());
         }
     }
 
@@ -100,8 +100,8 @@ public class PersistentDaoImpl extends AbstractMemoryDao implements Dao<MemorySe
         try (var fcTable = FileChannel.open(pathTable, TRUNCATE_EXISTING, CREATE, WRITE, READ);
              var fcIndex = FileChannel.open(pathIndex, TRUNCATE_EXISTING, CREATE, WRITE, READ)
         ) {
-            MemorySegment msTable = fcTable.map(FileChannel.MapMode.READ_WRITE, 0, tableSize, Arena.global());
-            MemorySegment msIndex = fcIndex.map(FileChannel.MapMode.READ_WRITE, 0, indexSize, Arena.global());
+            MemorySegment msTable = fcTable.map(FileChannel.MapMode.READ_WRITE, 0, tableSize, Arena.ofConfined());
+            MemorySegment msIndex = fcIndex.map(FileChannel.MapMode.READ_WRITE, 0, indexSize, Arena.ofConfined());
             long indexOffset = 0;
             long tableOffset = 0;
             for (Entry<MemorySegment> entry : db.values()) {
