@@ -5,9 +5,11 @@ import ru.vk.itmo.Entry;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -89,30 +91,22 @@ public class SSTable {
     private static class IndexRecord {
         public long dataOffset;
         public long dataLength;
-        public long indexOffset;
-        public long indexLength;
+        public MemorySegment key;
 
-        public IndexRecord(long dataOffset, long dataLength, long indexOffset, long indexLength) {
+        public IndexRecord(long dataOffset, long dataLength, MemorySegment key) {
             this.dataOffset = dataOffset;
             this.dataLength = dataLength;
-            this.indexOffset = indexOffset;
-            this.indexLength = indexLength;
+            this.key = key;
         }
     }
 
-    private IndexRecord findByKey(RandomAccessFile file, MemorySegment key, List<IndexRecord> records)
-            throws IOException {
+    private IndexRecord findByKey(MemorySegment key, List<IndexRecord> records) {
         for (IndexRecord curRecord : records) {
-            MemorySegment curKey = readIndex(file, curRecord);
-            if (memSegComp.compare(key, curKey) == 0) {
+            if (memSegComp.compare(key, curRecord.key) == 0) {
                 return curRecord;
             }
         }
         return null;
-    }
-
-    private MemorySegment readIndex(RandomAccessFile file, IndexRecord indexRecord) throws IOException {
-        return readFileData(file, indexRecord.indexOffset, indexRecord.indexLength);
     }
 
     private MemorySegment readFileData(RandomAccessFile file, long offset, long len) throws IOException {
@@ -125,17 +119,21 @@ public class SSTable {
     public MemorySegment find(MemorySegment key) throws IOException {
         ByteBuffer summaryBytes = ByteBuffer.wrap(Files.readAllBytes(summaryFile));
         List<IndexRecord> indexRecords = new ArrayList<>();
+        Arena arena = Arena.ofAuto();
         try (RandomAccessFile indexRAFile = new RandomAccessFile(indexFile.toString(), "r");
              RandomAccessFile dataRAFile = new RandomAccessFile(dataFile.toString(), "r")) {
+            MemorySegment indexMappedFile = indexRAFile.getChannel().map(FileChannel.MapMode.READ_ONLY,
+                    0, indexRAFile.length(), arena);
             while (summaryBytes.remaining() > 0) {
                 long offset = summaryBytes.getLong();
                 long len = summaryBytes.getLong();
-                indexRAFile.seek(offset + len);
-                long dataOffset = indexRAFile.readLong();
-                long dataLen = indexRAFile.readLong();
-                indexRecords.add(new IndexRecord(dataOffset, dataLen, offset, len));
+                MemorySegment segment = indexMappedFile.asSlice(offset, len + 2 * Long.BYTES);
+                ByteBuffer range = segment.asSlice(len, 2 * Long.BYTES).asByteBuffer();
+                long dataOffset = range.getLong();
+                long dataLen = range.getLong();
+                indexRecords.add(new IndexRecord(dataOffset, dataLen, segment.asSlice(0, len)));
             }
-            IndexRecord result = findByKey(indexRAFile, key, indexRecords);
+            IndexRecord result = findByKey(key, indexRecords);
             if (result == null) return null;
             return readFileData(dataRAFile, result.dataOffset, result.dataLength);
         }
