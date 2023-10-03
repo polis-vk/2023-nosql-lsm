@@ -54,6 +54,8 @@ public class PersistentDao extends AbstractDao implements Dao<MemorySegment, Ent
             return storage.get(key);
         }
 
+        MemorySegmentComparator comparator = new MemorySegmentComparator();
+
         try (FileInputStream fis = new FileInputStream(String.valueOf(path));
              BufferedInputStream reader = new BufferedInputStream(fis)) {
 
