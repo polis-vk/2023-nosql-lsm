@@ -112,7 +112,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 upsert(new BaseEntry<>(readSegment(mappedSegment), readSegment(mappedSegment)));
             }
         } catch (IOException e) {
-            System.out.println("Unable to load data: " + e.getMessage());
+            System.err.println("Unable to load data: " + e.getMessage());
         }
     }
 
@@ -130,7 +130,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
         } catch (IOException e) {
-            System.out.println("Unable to load data: " + e.getMessage());
+            System.err.println("Unable to load data: " + e.getMessage());
         }
         return null;
     }
