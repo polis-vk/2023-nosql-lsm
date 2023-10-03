@@ -38,12 +38,15 @@ public class FileDao {
         try (FileChannel valuesChannel = FileChannel.open(valuesPath, StandardOpenOption.READ);
              FileChannel offsetsChannel = FileChannel.open(offsetsPath, StandardOpenOption.READ)) {
             try (Arena arena = Arena.ofConfined()) {
-                MemorySegment valuesStorage = valuesChannel.map(FileChannel.MapMode.READ_ONLY, 0, valuesChannel.size(), arena);
-                MemorySegment offsetsStorage = offsetsChannel.map(FileChannel.MapMode.READ_ONLY, 0, offsetsChannel.size(), arena);
+                MemorySegment valuesStorage = valuesChannel.map(FileChannel.MapMode.READ_ONLY, 0,
+                        valuesChannel.size(), arena);
+                MemorySegment offsetsStorage = offsetsChannel.map(FileChannel.MapMode.READ_ONLY, 0,
+                        offsetsChannel.size(), arena);
 
                 var keyValuePairOffset = binarySearch(valuesStorage, offsetsStorage, msKey);
-                if (keyValuePairOffset == -1)
+                if (keyValuePairOffset == -1) {
                     return null;
+                }
 
                 long keySizeOffset = offsetsStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, keyValuePairOffset);
                 MemorySegment key = getBySizeOffset(valuesStorage, keySizeOffset);
@@ -67,7 +70,9 @@ public class FileDao {
 
     private long binarySearch(MemorySegment valuesStorage, MemorySegment offsetsStorage, MemorySegment desiredKey) {
         long offsetsCount = offsetsStorage.byteSize() / Long.BYTES;
-        long l = 0, r = offsetsCount - 1;
+        long l = 0;
+        long r = offsetsCount - 1;
+
         while (l <= r) {
             long m = l + (r - l) / 2;
 
