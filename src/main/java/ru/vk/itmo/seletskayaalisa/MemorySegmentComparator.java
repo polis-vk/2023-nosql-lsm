@@ -7,18 +7,18 @@ import java.util.Comparator;
 public class MemorySegmentComparator implements Comparator<MemorySegment> {
 
     @Override
-    public int compare(MemorySegment o1, MemorySegment o2) {
-        long offset = o1.mismatch(o2);
-        if (offset == o1.byteSize()) {
+    public int compare(MemorySegment ms1, MemorySegment ms2) {
+        long offset = ms1.mismatch(ms2);
+        if (offset == ms1.byteSize()) {
             return -1;
         }
-        if (offset == o2.byteSize()) {
+        if (offset == ms2.byteSize()) {
             return 1;
         }
         if (offset == -1) {
             return 0;
         }
-        return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, offset),
-                o2.get(ValueLayout.JAVA_BYTE, offset));
+        return Byte.compare(ms1.get(ValueLayout.JAVA_BYTE, offset),
+                ms2.get(ValueLayout.JAVA_BYTE, offset));
     }
 }

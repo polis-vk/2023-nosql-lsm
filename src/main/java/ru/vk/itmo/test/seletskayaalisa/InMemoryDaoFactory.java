@@ -2,17 +2,17 @@ package ru.vk.itmo.test.seletskayaalisa;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.seletskayaalisa.DaoImpl;
+import ru.vk.itmo.seletskayaalisa.InMemoryDao;
 import ru.vk.itmo.test.DaoFactory;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 @DaoFactory
-public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new DaoImpl();
+        return new InMemoryDao();
     }
 
     @Override
