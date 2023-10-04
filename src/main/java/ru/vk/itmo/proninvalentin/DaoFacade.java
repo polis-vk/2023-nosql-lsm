@@ -26,6 +26,8 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
         Entry<MemorySegment> ms = inMemoryDao.get(key);
         if (ms == null && fileDao != null) {
             ms = fileDao.read(key);
+            if (ms != null)
+                inMemoryDao.upsert(ms);
         }
         return ms;
     }
