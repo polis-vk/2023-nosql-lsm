@@ -1,29 +1,35 @@
 package ru.vk.itmo.tveritinalexandr;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
+    private final SortedMap<MemorySegment, Entry<MemorySegment>> dataBase =
+            new ConcurrentSkipListMap<>(comparator);
 
-    private final SortedMap<MemorySegment, Entry<MemorySegment>> dataBase = new ConcurrentSkipListMap<>((o1, o2) -> {
-        var offset = o1.mismatch(o2);
+    private static final MemorySegmentComparator comparator = MemorySegmentComparator.INSTANCE;
+    private final static String SSTABLE_FILE_NAME = "storage.sst";
+    private final SSTableSaver saver;
+    private final SSTableLoader loader;
 
-        if (offset == -1) return 0;
-        if (offset == o1.byteSize()) return -1;
-        if (offset == o2.byteSize()) return 1;
-        if (o1.get(JAVA_BYTE, offset) > o2.get(JAVA_BYTE, offset)) return 1;
-        else return -1;
-    });
+    public InMemoryDaoImpl(Config config) {
+        Path storagePath = config.basePath().resolve(SSTABLE_FILE_NAME);
+        saver = new SSTableSaver(storagePath, dataBase);
+        loader = new SSTableLoader(storagePath);
+    }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return dataBase.get(key);
+        var value = dataBase.get(key);
+        return value != null ? value : loader.findInSSTable(key);
     }
 
     @Override
@@ -45,5 +51,10 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
         if (entry == null) return;
 
         dataBase.put(entry.key(), entry);
+    }
+
+    @Override
+    public void close() throws IOException {
+        saver.save();
     }
 }
