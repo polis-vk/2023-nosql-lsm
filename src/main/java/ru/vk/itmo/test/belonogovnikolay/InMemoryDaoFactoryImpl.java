@@ -2,7 +2,7 @@ package ru.vk.itmo.test.belonogovnikolay;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.belonogovnikolay.TreeDao;
+import ru.vk.itmo.belonogovnikolay.InMemoryTreeDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 @DaoFactory
-public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+public class InMemoryDaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     /**
      * Creates new instance of Dao.
      *
@@ -19,8 +19,7 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
      */
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-
-        return TreeDao.newInstance();
+        return InMemoryTreeDao.newInstance();
     }
 
     /**
@@ -31,7 +30,6 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
      */
     @Override
     public String toString(MemorySegment memorySegment) {
-
         if (Objects.isNull(memorySegment)) {
             return null;
         }
@@ -46,7 +44,6 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
      */
     @Override
     public MemorySegment fromString(String data) {
-
         if (Objects.isNull(data)) {
             return null;
         }
@@ -56,7 +53,6 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
 
     @Override
     public Entry<MemorySegment> fromBaseEntry(Entry<MemorySegment> baseEntry) {
-
         return baseEntry;
     }
 }

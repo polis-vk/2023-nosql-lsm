@@ -9,35 +9,30 @@ import java.util.NavigableMap;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public final class TreeDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public final class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> arena;
 
-    private TreeDao() {
-
+    private InMemoryTreeDao() {
         this.arena = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     }
 
     public static Dao<MemorySegment, Entry<MemorySegment>> newInstance() {
-
-        return new TreeDao();
+        return new InMemoryTreeDao();
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> allFrom(MemorySegment from) {
-
         return this.arena.tailMap(from).values().iterator();
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> allTo(MemorySegment to) {
-
         return this.arena.headMap(to).values().iterator();
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-
         if (Objects.isNull(from) && Objects.isNull(to)) {
             return this.arena.values().iterator();
         } else if (Objects.isNull(from)) {
@@ -51,13 +46,11 @@ public final class TreeDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-
         return this.arena.get(key);
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-
         if (Objects.isNull(entry)) {
             return;
         }
