@@ -1,0 +1,153 @@
+package ru.vk.itmo.solonetsarseniy.helpers;
+
+import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Config;
+import ru.vk.itmo.Entry;
+
+import java.io.IOException;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.concurrent.ConcurrentSkipListMap;
+
+import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
+import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
+import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
+import static java.nio.file.StandardOpenOption.*;
+
+public class DataStorageManager {
+    private static final String DATA_FILE_NAME = "storage";
+    private static final long LONG_SIZE = 8L;
+    private static final String DATABASE_ERROR = "Возникла непредвиденная ошибка";
+    private static final StandardOpenOption[] WRITE_OPTIONS_KIT = new StandardOpenOption[] {
+        CREATE, WRITE, READ, TRUNCATE_EXISTING
+    };
+    private static final StandardOpenOption[] READ_OPTIONS_KIT = new StandardOpenOption[] {
+        READ
+    };
+
+    private final Config config;
+    private final Arena arena = Arena.global();
+    private final MemorySegmentComparator comparator = new MemorySegmentComparator();
+    private final Path path;
+
+    public DataStorageManager(Config config) {
+        this.config = config;
+        this.path = getPath();
+    }
+
+    public Entry<MemorySegment> get(MemorySegment key) {
+        if (!Files.exists(path)) return null;
+
+        try (FileChannel dataChannel = FileChannel.open(path, READ_OPTIONS_KIT)) {
+            MemorySegment data = readMemorySegment(dataChannel, path);
+            long offset = 0L;
+            long fileSize = data.byteSize();
+            while (offset <= fileSize) {
+                long keySize = data.get(JAVA_LONG_UNALIGNED, offset);
+                offset += LONG_SIZE;
+                MemorySegment storedKey = data.asSlice(offset, keySize);
+                offset += keySize;
+                long valueSize = data.get(JAVA_LONG_UNALIGNED, offset);
+                offset += LONG_SIZE;
+
+                if (comparator.compare(key, storedKey) == 0) {
+                    MemorySegment value = data.asSlice(offset, valueSize);
+                    return new BaseEntry<>(storedKey, value);
+                }
+
+                offset += valueSize;
+            }
+
+            return new BaseEntry<>(null, null);
+        } catch (IOException e) {
+            throw new RuntimeException(DATABASE_ERROR, e);
+        }
+    }
+
+    public void flush(
+        ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> database
+    ) throws IOException {
+        try (
+            FileChannel dataChannel = FileChannel.open(path, WRITE_OPTIONS_KIT)
+        ) {
+            MemorySegment data = createMemorySegment(dataChannel, countDataSize(database));
+            long dataPointer = 0L;
+            for (var entry : database.values()) {
+                dataPointer = writeEntry(data, dataPointer, entry);
+            }
+        }
+    }
+
+    private long countDataSize(ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> database) {
+        return database.values()
+            .stream()
+            .mapToLong(this::getEntrySize)
+            .sum();
+    }
+
+    private long getEntrySize(Entry<MemorySegment> entry) {
+        long keySize = entry.key().byteSize();
+        long valueSize = entry.value().byteSize();
+        return keySize
+            + valueSize
+            + (2L * LONG_SIZE);
+    }
+
+    private Path getPath() {
+        Path path = Path.of(DATA_FILE_NAME);
+        return config.basePath().resolve(path);
+    }
+
+    private MemorySegment createMemorySegment(
+        FileChannel channel,
+        long dataSize
+    ) throws IOException {
+        return channel.map(
+            READ_WRITE,
+            0,
+            dataSize,
+            arena
+        );
+    }
+
+    private MemorySegment readMemorySegment(
+        FileChannel channel,
+        Path path
+    ) throws IOException {
+        return channel.map(
+            READ_ONLY,
+            0,
+            Files.size(path),
+            arena
+        );
+    }
+
+
+    private long writeEntry(
+        MemorySegment dataMemorySegment,
+        long dataPointer,
+        Entry<MemorySegment> entry
+    ) {
+        MemorySegment key = entry.key();
+        dataPointer = writeMemorySegment(key, dataMemorySegment, dataPointer);
+        MemorySegment value = entry.value();
+        return writeMemorySegment(value, dataMemorySegment, dataPointer);
+    }
+
+    private long writeMemorySegment(
+        MemorySegment segment,
+        MemorySegment dataMemorySegment,
+        long dataPointer
+    ) {
+        long keySize = segment.byteSize();
+        dataMemorySegment.set(JAVA_LONG_UNALIGNED, dataPointer, keySize);
+        dataMemorySegment.asSlice(dataPointer + Long.BYTES, keySize)
+            .copyFrom(segment);
+        dataPointer += (keySize + LONG_SIZE);
+        return dataPointer;
+    }
+}
