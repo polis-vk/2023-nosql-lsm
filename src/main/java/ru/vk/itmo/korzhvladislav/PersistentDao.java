@@ -97,7 +97,6 @@ public class PersistentDao extends InMemoryDao {
             MemorySegment.copy(entry.value(), 0, dataSegmentWriter, offset, entry.value().byteSize());
             offset += entry.value().byteSize();
         }
-
     }
 
     @Override
