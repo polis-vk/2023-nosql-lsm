@@ -11,6 +11,8 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.SortedMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 
@@ -23,7 +25,11 @@ public class SSTableLoader {
         this.ssTableFilePath = ssTableFilePath;
         }
 
-    public Entry<MemorySegment> findInSSTable(MemorySegment key) {
+    public SortedMap<MemorySegment, Entry<MemorySegment>> load() {
+        offset = 0;
+
+        SortedMap<MemorySegment, Entry<MemorySegment>> map = new ConcurrentSkipListMap<>(comparator);
+
         if (ssTableFilePath == null || !Files.exists(ssTableFilePath)) return null;
         long fileSize;
         try {
@@ -32,22 +38,48 @@ public class SSTableLoader {
             throw new UncheckedIOException(e);
         }
 
-        long fileOffset = 0;
         MemorySegment lastMemorySegment = null;
         Arena arena = Arena.ofConfined();
+        MemorySegment keySegment = null;
 
         try (FileChannel channel = FileChannel.open(ssTableFilePath, StandardOpenOption.READ)) {
             MemorySegment fileSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
-            while (fileOffset < fileSize) {
-                MemorySegment keySegment = getMemorySegment(fileSegment);
+            while (offset < fileSize) {
+                keySegment = getMemorySegment(fileSegment);
+                lastMemorySegment = getMemorySegment(fileSegment);
+                map.put(keySegment, new BaseEntry<>(keySegment, lastMemorySegment));
+            }
+
+            return map;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    public Entry<MemorySegment> findInSSTable(MemorySegment key) {
+        offset = 0;
+        if (ssTableFilePath == null || !Files.exists(ssTableFilePath)) return null;
+        long fileSize;
+        try {
+            fileSize = Files.size(ssTableFilePath);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        MemorySegment lastMemorySegment = null;
+        Arena arena = Arena.ofConfined();
+        MemorySegment keySegment = null;
+        try (FileChannel channel = FileChannel.open(ssTableFilePath, StandardOpenOption.READ)) {
+            MemorySegment fileSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
+            while (offset < fileSize) {
+                keySegment = getMemorySegment(fileSegment);
                 if (comparator.compare(key, keySegment) == 0) {
                     lastMemorySegment = getMemorySegment(fileSegment);
                     break;
                 }
-                fileOffset += keySegment.byteSize();
             }
 
-            return lastMemorySegment == null ? null : new BaseEntry<>(key, lastMemorySegment);
+            return lastMemorySegment == null ? null : new BaseEntry<>(keySegment, lastMemorySegment);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

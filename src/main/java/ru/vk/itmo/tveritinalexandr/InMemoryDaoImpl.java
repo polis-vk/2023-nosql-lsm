@@ -23,6 +23,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
         Path storagePath = config.basePath().resolve("storage.sst");
         saver = new SSTableSaver(storagePath, dataBase);
         loader = new SSTableLoader(storagePath);
+        loader.load();
     }
 
     @Override
