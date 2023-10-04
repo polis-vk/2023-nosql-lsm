@@ -16,7 +16,7 @@ class TestDao<Data, E extends Entry<Data>> implements Dao<String, Entry<String>>
     final Config config;
     final String name;
 
-    TestDao(DaoFactory.Factory<Data, E> factory, Config config) {
+    TestDao(DaoFactory.Factory<Data, E> factory, Config config) throws IOException {
         this.factory = factory;
         this.config = config;
         delegate = factory.createDao(config);
@@ -28,7 +28,7 @@ class TestDao<Data, E extends Entry<Data>> implements Dao<String, Entry<String>>
         name = "TestDao<" + lastPackagePart + "." + delegateClass.getSimpleName() + ">";
     }
 
-    public Dao<String, Entry<String>> reopen() {
+    public Dao<String, Entry<String>> reopen() throws IOException {
         return new TestDao<>(factory, config);
     }
 
