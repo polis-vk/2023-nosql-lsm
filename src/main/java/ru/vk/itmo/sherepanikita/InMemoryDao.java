@@ -1,8 +1,10 @@
 package ru.vk.itmo.sherepanikita;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.NavigableMap;
@@ -12,8 +14,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> segments;
 
+    private SSTable ssTable;
+
     public InMemoryDao() {
         segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+    }
+
+    public InMemoryDao(Config config) {
+        segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+        ssTable = new SSTable(config);
     }
 
     @Override
@@ -30,7 +39,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return segments.get(key);
+        try {
+            Entry<MemorySegment> segment = segments.get(key);
+            if (segment == null) {
+                return ssTable.readData(key);
+            } else return segment;
+        } catch (IOException ex) {
+            ex.printStackTrace();
+            return null;
+        }
     }
 
     @Override
@@ -41,4 +58,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         segments.put(entry.key(), entry);
     }
 
+    @Override
+    public void close() throws IOException {
+        ssTable.writeGivenInMemoryData(segments);
+        Dao.super.close();
+    }
 }
