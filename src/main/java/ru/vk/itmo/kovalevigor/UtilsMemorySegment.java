@@ -3,9 +3,10 @@ package ru.vk.itmo.kovalevigor;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class UtilsMemorySegment {
+public final class UtilsMemorySegment {
 
-    private UtilsMemorySegment(){}
+    private UtilsMemorySegment() {
+    }
 
     private static byte getByte(final MemorySegment memorySegment, final long offset) {
         return memorySegment.get(ValueLayout.JAVA_BYTE, offset);
