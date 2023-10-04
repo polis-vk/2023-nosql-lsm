@@ -1,9 +1,12 @@
 package ru.vk.itmo.supriadkinadaria;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Files;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
@@ -15,6 +18,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(new InMemoryDaoComparator());
+    private final SStableManipulations sStableManipulations;
+
+    public InMemoryDao(Config config) throws IOException {
+        this.sStableManipulations = new SStableManipulations(config);
+//        read from file to storage
+        if(Files.exists(sStableManipulations.getFilePath())) {
+            sStableManipulations.readStorage(this);
+        }
+    }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
@@ -36,6 +48,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         storage.put(entry.key(), entry);
+    }
+
+    @Override
+    public void flush() {
+        throw new UnsupportedOperationException("operation not supported");
+    }
+
+    @Override
+    public void close() throws IOException {
+//        write storage to file
+        sStableManipulations.writeToFile(storage);
     }
 
     public static class InMemoryDaoComparator implements Comparator<MemorySegment> {
