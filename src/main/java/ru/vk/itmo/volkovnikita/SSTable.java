@@ -59,10 +59,10 @@ public class SSTable {
             return null;
         }
 
-        try (FileChannel fc = FileChannel.open(basePath, READ)) {
+        try (FileChannel fc = FileChannel.open(basePath, StandardOpenOption.READ)) {
             long offset = 0L;
 
-            MemorySegment readSegment = fc.map(READ_ONLY, 0, Files.size(basePath), Arena.global());
+            MemorySegment readSegment = fc.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(basePath), Arena.global());
 
             while (offset < readSegment.byteSize()) {
                 long keySize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
