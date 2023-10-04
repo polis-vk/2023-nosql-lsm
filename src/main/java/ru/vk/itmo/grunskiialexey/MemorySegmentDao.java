@@ -16,9 +16,10 @@ import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> data = new ConcurrentSkipListMap<>((o1, o2) ->
-            Arrays.compare(o1.toArray(ValueLayout.JAVA_BYTE), o2.toArray(ValueLayout.JAVA_BYTE))
-    );
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> data =
+            new ConcurrentSkipListMap<>((o1, o2) ->
+                    Arrays.compare(o1.toArray(ValueLayout.JAVA_BYTE), o2.toArray(ValueLayout.JAVA_BYTE))
+            );
     private final Path filePath;
 
     public MemorySegmentDao() {
@@ -29,7 +30,6 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         listEntries.forEach(entry -> data.put(entry.key(), entry));
         this.filePath = filePath;
     }
-
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
