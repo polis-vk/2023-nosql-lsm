@@ -8,8 +8,6 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -35,8 +33,7 @@ public class PersistentDao extends InMemoryDao {
     private final StandardOpenOption[] openOptions = new StandardOpenOption[]{
             StandardOpenOption.WRITE,
             StandardOpenOption.READ,
-            StandardOpenOption.CREATE,
-            StandardOpenOption.TRUNCATE_EXISTING
+            StandardOpenOption.CREATE
     };
 
     public PersistentDao(Path path) {
@@ -57,25 +54,30 @@ public class PersistentDao extends InMemoryDao {
         }
     }
 
-    private long writeToChannel(FileChannel channel, MemorySegment segment, long offset) throws IOException {
-        int size = channel.write(ByteBuffer.wrap(segment.toArray(ValueLayout.JAVA_BYTE)), offset);
-        return offset + size;
+    private long copyToFile(MemorySegment fileSegment, MemorySegment current, long offset) {
+        MemorySegment.copy(current, 0, fileSegment, offset, current.byteSize());
+        return current.byteSize();
     }
 
     @Override
     public void flush() throws IOException {
         try {
-            try (FileChannel sstChannel = FileChannel.open(dataFilePath, openOptions);
-                 BufferedWriter indexFile = Files.newBufferedWriter(indexFilePath, StandardCharsets.UTF_8)
+            try (FileChannel sst = FileChannel.open(dataFilePath, openOptions);
+                 BufferedWriter indexFile = Files.newBufferedWriter(indexFilePath, StandardCharsets.UTF_8);
             ) {
                 long offset = 0;
                 for (Entry<MemorySegment> entry : entriesMap.values()) {
                     indexFile.write(String.format("%s:%s", offset, entry.key().byteSize()));
                     indexFile.newLine();
-                    offset = writeToChannel(sstChannel, entry.key(), offset);
-                    offset = writeToChannel(sstChannel, entry.value(), offset);
+                    offset += (entry.key().byteSize() + entry.value().byteSize());
                 }
                 indexFile.write(String.format("%s:%s", offset, 0));
+                final MemorySegment fileSegment = sst.map(FileChannel.MapMode.READ_WRITE, 0, offset, arena);
+                offset = 0;
+                for (Entry<MemorySegment> entry : entriesMap.values()) {
+                    offset += copyToFile(fileSegment, entry.key(), offset);
+                    offset += copyToFile(fileSegment, entry.value(), offset);
+                }
             }
         } catch (InvalidPathException ex) {
             throw new RuntimeException("Couldn't create file by path: " + ex.getMessage());
@@ -84,10 +86,10 @@ public class PersistentDao extends InMemoryDao {
 
     @Override
     public void close() throws IOException {
+        flush();
         if (arena.scope().isAlive()) {
             arena.close();
         }
-        flush();
     }
 
     @Override
