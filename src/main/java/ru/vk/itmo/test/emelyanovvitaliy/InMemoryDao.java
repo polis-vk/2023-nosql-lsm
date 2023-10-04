@@ -4,19 +4,12 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final Comparator<MemorySegment> comparator = (o1, o2) -> {
-        if (o1 == o2) {
-            return 0;
-        }
-        return o1.asByteBuffer().compareTo(o2.asByteBuffer());
-    };
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> mappings = new ConcurrentSkipListMap<>(
-            comparator
+            new MemSegmentComparator()
     );
 
     @Override
