@@ -62,7 +62,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
     private final Config config;
-    private final SSTable ssTable;
+    private SSTable ssTable;
 
     public InMemoryDao() {
         this(null);
@@ -70,10 +70,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao(Config config) {
         this.config = config;
-        if (config == null) {
+        if (config == null || config.basePath() == null) {
             this.ssTable = null;
         } else {
-            this.ssTable = new SSTable(arena, config.basePath().resolve(SSTABLE_FILE));
+            try {
+                this.ssTable = new SSTable(arena, config.basePath().resolve(SSTABLE_FILE));
+            } catch (IOException e) {
+                this.ssTable = null;
+            }
         }
     }
 
@@ -188,7 +192,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         private final int countRecords;
         private final List<Long> offsets = new ArrayList<>();
 
-        public SSTable(Arena arena, Path file) {
+        public SSTable(Arena arena, Path file) throws IOException {
             try(FileChannel fileChannel = FileChannel.open(file)) {
                 this.mappedFile = fileChannel.map(
                         FileChannel.MapMode.READ_ONLY,
@@ -203,8 +207,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     offsets.add(mappedFile.get(JAVA_LONG, offset));
                     offset += JAVA_LONG.byteSize();
                 }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
             }
         }
 
