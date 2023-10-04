@@ -64,6 +64,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             try (FileChannel fileChannel = FileChannel.open(persistentStorage,
                     StandardOpenOption.READ)) {
 
+                offset = 0;
                 MemorySegment fileSegment = fileChannel.map(
                         FileChannel.MapMode.READ_ONLY,
                         0,
@@ -71,16 +72,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         daoArena
                 );
 
-                long entryCount = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                long entryCount = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN), offset);
                 offset += 8;
 
                 for (long i = 0; i < entryCount; i++) {
-                    long keySize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                    long keySize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN), offset);
                     offset += 8;
                     MemorySegment entryKey = fileSegment.asSlice(offset, keySize);
                     offset += keySize;
 
-                    long valueSize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                    long valueSize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN), offset);
                     offset += 8;
                     if (MEMORY_SEGMENT_COMPARATOR.compare(key, entryKey) == 0) {
                         MemorySegment entryValue = fileSegment.asSlice(offset, valueSize);
@@ -90,18 +91,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         offset += valueSize;
                     }
                 }
-//                ByteBuffer sizeBuffer = ByteBuffer.allocate(8);
-//                fileChannel.read(sizeBuffer);
-//                long entryCount = sizeBuffer.position(0).getLong();
-//                for (long i = 0; i < entryCount; i++) {
-//                    MemorySegment entryKey = readMemorySegment(fileChannel, sizeBuffer, daoArena);
-//                    if (MEMORY_SEGMENT_COMPARATOR.compare(key, entryKey) == 0) {
-//                        MemorySegment entryValue = readMemorySegment(fileChannel, sizeBuffer, daoArena);
-//                        return new BaseEntry<>(entryKey, entryValue);
-//                    } else {
-//                        movePosition(fileChannel, sizeBuffer);
-//                    }
-//                }
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -109,11 +98,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    private void movePosition(FileChannel fileChannel, ByteBuffer sizeBuffer) throws IOException {
-        sizeBuffer.position(0);
-        fileChannel.read(sizeBuffer);
-        fileChannel.position(fileChannel.position() + sizeBuffer.position(0).getLong());
-    }
+//    private void movePosition(FileChannel fileChannel, ByteBuffer sizeBuffer) throws IOException {
+//        sizeBuffer.position(0);
+//        fileChannel.read(sizeBuffer);
+//        fileChannel.position(fileChannel.position() + sizeBuffer.position(0).getLong());
+//    }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
