@@ -27,7 +27,7 @@ public class SSTable {
             memorySegment = null;
             return;
         }
-        try (final var fileChannel = FileChannel.open(path)) {
+        try (var fileChannel = FileChannel.open(path)) {
             Arena arena = Arena.ofConfined();
             memorySegment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, fileChannel.size(), arena);
         }
@@ -58,7 +58,7 @@ public class SSTable {
         if (cache.isEmpty()) {
             return;
         }
-        try (final var fileChannel = FileChannel.open(
+        try (var fileChannel = FileChannel.open(
                 path,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
@@ -66,7 +66,7 @@ public class SSTable {
                 StandardOpenOption.TRUNCATE_EXISTING
         )) {
             long size = 0;
-            for (final var entry : cache.values()) {
+            for (var entry : cache.values()) {
                 MemorySegment key = entry.key();
                 MemorySegment value = entry.value();
                 size += Long.BYTES + key.byteSize() + Long.BYTES + value.byteSize();
@@ -74,7 +74,7 @@ public class SSTable {
 
             MemorySegment tableSegment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, size, Arena.ofConfined());
             long offset = 0;
-            for (final var entry : cache.values()) {
+            for (var entry : cache.values()) {
                 MemorySegment key = entry.key();
                 long keySize = key.byteSize();
                 tableSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, keySize);
