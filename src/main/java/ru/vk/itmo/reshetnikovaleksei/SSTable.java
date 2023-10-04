@@ -61,6 +61,7 @@ public class SSTable {
     public void save(Collection<Entry<MemorySegment>> entries) throws IOException {
         try (FileChannel ssTableChannel = FileChannel.open(
                 ssTablePath,
+                StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.READ,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE
@@ -74,22 +75,26 @@ public class SSTable {
             MemorySegment ssTableMemorySegment = ssTableChannel.map(
                     FileChannel.MapMode.READ_WRITE, offset, size, Arena.ofConfined());
             for (Entry<MemorySegment> entry : entries) {
-                offset = setMemorySegment(offset, entry.key(), ssTableMemorySegment);
-                offset = setMemorySegment(offset, entry.value(), ssTableMemorySegment);
+                offset += setMemorySegmentSizeAndGetOffset(offset, entry.key(), ssTableMemorySegment);
+                offset += setMemorySegmentSizeAndGetOffset(offset, entry.value(), ssTableMemorySegment);
+
+                offset += copyToMemorySegmentAndGetOffset(offset, entry.key(), ssTableMemorySegment);
+                offset += copyToMemorySegmentAndGetOffset(offset, entry.value(), ssTableMemorySegment);
             }
         }
     }
 
-    private long setMemorySegment(long offset, MemorySegment entryMemorySegment, MemorySegment ssTableMemorySegment) {
-        long newOffset = offset;
-        long entryByteSize = entryMemorySegment.byteSize();
+    private long setMemorySegmentSizeAndGetOffset(long offset,
+                                                  MemorySegment entryMemorySegment,
+                                                  MemorySegment ssTableMemorySegment) {
+        ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryMemorySegment.byteSize());
+        return Long.BYTES;
+    }
 
-        ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, newOffset, entryByteSize);
-        newOffset += Long.BYTES;
-
-        ssTableMemorySegment.asSlice(newOffset, entryByteSize).copyFrom(entryMemorySegment);
-        newOffset += entryByteSize;
-
-        return newOffset;
+    private long copyToMemorySegmentAndGetOffset(long offset,
+                                                 MemorySegment entryMemorySegment,
+                                                 MemorySegment ssTableMemorySegment) {
+        ssTableMemorySegment.asSlice(offset).copyFrom(entryMemorySegment);
+        return entryMemorySegment.byteSize();
     }
 }

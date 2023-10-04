@@ -33,7 +33,8 @@ public class PersistentDao extends BaseDao {
     public void close() throws IOException {
         if (!getMemoryTable().isEmpty()) {
             ssTable.save(getMemoryTable().values());
-            getMemoryTable().clear();
         }
+
+        getMemoryTable().clear();
     }
 }
