@@ -5,8 +5,6 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import javax.imageio.stream.FileCacheImageInputStream;
-import javax.sound.midi.MetaMessage;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.FileOutputStream;
@@ -60,7 +58,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             };
     private static final String SSTABLE_FILE = "data.sst";
 
-    private final Arena arena = Arena.ofShared();
+    private final Arena arena = Arena.ofAuto();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
     private final Config config;
@@ -132,15 +130,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        arena.close();
-
         if (config != null) {
             save(config.basePath().resolve(SSTABLE_FILE));
         }
     }
 
     private void maybeLoad(MemorySegment key) {
-        if (ssTable == null || storage.containsKey(key)) {
+        if (ssTable == null) {
+            return;
+        }
+        if (key == null || storage.containsKey(key)) {
             return;
         }
 
@@ -151,7 +150,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void maybeLoad(MemorySegment from, MemorySegment to) {
-        if (ssTable == null || (storage.containsKey(from) && storage.containsKey(to))) {
+        if (ssTable == null) {
+            return;
+        }
+        if (from != null && to != null && storage.containsKey(from) && storage.containsKey(to)) {
             return;
         }
 
@@ -225,8 +227,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         public List<Entry<MemorySegment>> load(MemorySegment from, MemorySegment to) {
             List<Entry<MemorySegment>> loadedEntries = new ArrayList<>();
             boolean add = to == null;
-            int fromIndex = idsBySegment.getOrDefault(from, 0);
-            int toIndex = idsBySegment.getOrDefault(to, countRecords);
+            int fromIndex = 0;
+            int toIndex = countRecords;
+
+            if (from != null) {
+                fromIndex = idsBySegment.getOrDefault(from, fromIndex);
+            }
+            if (to != null) {
+                toIndex = idsBySegment.getOrDefault(to, toIndex);
+            }
 
             for (int i = fromIndex; i < toIndex; ++i) {
                 if (ids.contains(i)) {
