@@ -13,17 +13,17 @@ import java.util.SortedMap;
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 
 public class SSTableSaver {
-    private final Path sSTableFilePath;
+    private final Path ssTableFilePath;
     private final SortedMap<MemorySegment, Entry<MemorySegment>> memTable;
     private long offset;
 
-    public SSTableSaver(Path sSTableFilePath, SortedMap<MemorySegment, Entry<MemorySegment>> memTable) {
-        this.sSTableFilePath = sSTableFilePath;
+    public SSTableSaver(Path ssTableFilePath, SortedMap<MemorySegment, Entry<MemorySegment>> memTable) {
+        this.ssTableFilePath = ssTableFilePath;
         this.memTable = memTable;
     }
 
     public void save() throws IOException {
-        try (FileChannel channel = FileChannel.open(sSTableFilePath,
+        try (FileChannel channel = FileChannel.open(ssTableFilePath,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE);
