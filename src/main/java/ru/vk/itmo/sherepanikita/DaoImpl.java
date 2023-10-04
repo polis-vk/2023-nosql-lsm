@@ -10,20 +10,19 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> segments;
 
-    private final SSTable ssTable;
+    private SSTable ssTable;
 
-    public DaoImpl() {
+    public InMemoryDao() {
         segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-        ssTable = createSSTableOrNull(new Config(null));
     }
 
-    public DaoImpl(Config config) {
+    public InMemoryDao(Config config) {
         segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-        ssTable = createSSTableOrNull(config);
+        ssTable = new SSTable(config);
     }
 
     @Override
@@ -40,8 +39,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> segment = segments.get(key);
         try {
+            Entry<MemorySegment> segment = segments.get(key);
             if (segment == null) {
                 return ssTable.readData(key);
             } else return segment;
@@ -63,12 +62,5 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void close() throws IOException {
         ssTable.writeGivenInMemoryData(segments);
         Dao.super.close();
-    }
-
-    private SSTable createSSTableOrNull(Config config) {
-        if (config.basePath() == null) {
-            return null;
-        }
-        return new SSTable(config);
     }
 }

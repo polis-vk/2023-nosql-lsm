@@ -25,6 +25,11 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
     }
 
     @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new InMemoryDao(config);
+    }
+
+    @Override
     public String toString(MemorySegment memorySegment) {
         if (memorySegment == null) {
             return null;

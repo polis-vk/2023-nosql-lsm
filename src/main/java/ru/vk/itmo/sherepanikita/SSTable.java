@@ -18,20 +18,17 @@ import java.util.Set;
 
 public class SSTable {
 
+    private final Path filePath;
     private static final String FILE_NAME = "ssTable";
 
-    private static final Set<OpenOption> OPTIONS = Set.of(
+    private final Set<OpenOption> options = Set.of(
             StandardOpenOption.CREATE,
             StandardOpenOption.READ,
             StandardOpenOption.WRITE
     );
-    private final Path filePath;
-
-    private final Arena arena;
 
     public SSTable(Config config) {
         this.filePath = config.basePath().resolve(FILE_NAME);
-        arena = Arena.ofShared();
     }
 
     public Entry<MemorySegment> readData(MemorySegment key) throws IOException {
@@ -41,90 +38,70 @@ public class SSTable {
                     FileChannel.MapMode.READ_ONLY,
                     0L,
                     Files.size(filePath),
-                    arena
-            ).asReadOnly();
+                    Arena.global()
+            );
 
             long offset = 0L;
             while (offset < segmentToRead.byteSize()) {
                 long keySize = segmentToRead.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
+                offset += Long.BYTES + keySize;
                 long valueSize = segmentToRead.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
 
                 if (keySize != key.byteSize()) {
-                    offset += keySize + valueSize;
+                    offset += Long.BYTES + valueSize;
                     continue;
                 }
 
-                long mismatch = MemorySegment.mismatch(
-                        segmentToRead,
-                        offset,
-                        offset + key.byteSize(),
-                        key,
-                        0,
-                        key.byteSize()
-                );
-                if (mismatch == -1) {
-                    MemorySegment slice = segmentToRead.asSlice(offset + keySize, valueSize);
-                    return new BaseEntry<>(key, slice);
+                MemorySegment keySegment = segmentToRead.asSlice(offset, keySize);
+
+                if (key.mismatch(keySegment) == -1) {
+                    MemorySegment valueSegment = segmentToRead.asSlice(
+                            offset + Long.BYTES,
+                            valueSize
+                    );
+                    return new BaseEntry<>(keySegment, valueSegment);
                 }
-                offset += keySize + valueSize;
+
+                offset += Long.BYTES + valueSize;
             }
 
             return null;
         }
     }
 
-    public void writeGivenInMemoryData(NavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryData)
-            throws IOException {
-        try (FileChannel fileChannel = FileChannel.open(filePath, OPTIONS);
-             Arena writeArena = Arena.ofShared()
-        ) {
-
-            if (inMemoryData.isEmpty()) {
-                return;
-            }
-
-            if (!arena.scope().isAlive()) {
-                return;
-            }
-
-            arena.close();
-
-            long ssTableSize = 0;
+    public void writeGivenInMemoryData(NavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryData) throws IOException {
+        try (FileChannel fileChannel = FileChannel.open(filePath, options)) {
 
             for (Entry<MemorySegment> entry : inMemoryData.values()) {
-                long entryKeySize = entry.key().byteSize();
-                long entryValueSize = entry.value().byteSize();
-                ssTableSize += Long.BYTES + entryKeySize + Long.BYTES + entryValueSize;
-            }
+                long entryValueSize;
+                long entryKeySize;
+                long ssTableSize;
 
-            MemorySegment segmentToWrite = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0L,
-                    ssTableSize,
-                    writeArena
-            );
-
-            long offset = 0L;
-            for (Entry<MemorySegment> entry : inMemoryData.values()) {
-                if (entry == null) {
-                    continue;
+                if (entry != null) {
+                    entryValueSize = entry.value().byteSize();
+                    entryKeySize = entry.key().byteSize();
+                } else {
+                    entryValueSize = 0L;
+                    entryKeySize = 0L;
                 }
 
-                long entryKeySize = entry.key().byteSize();
-                segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryKeySize);
-                offset += Long.BYTES;
-                long entryValueSize = entry.value().byteSize();
-                segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryValueSize);
-                offset += Long.BYTES;
+                ssTableSize =   Long.BYTES + inMemoryData.values().size() * entryKeySize +
+                                Long.BYTES + inMemoryData.values().size() * entryValueSize;
 
-                MemorySegment.copy(entry.key(), 0, segmentToWrite, offset, entryKeySize);
-                offset += entryKeySize;
-                MemorySegment.copy(entry.value(), 0, segmentToWrite, offset, entryValueSize);
-                offset += entryValueSize;
+                if (ssTableSize != 0) {
+                    long offset = 0L;
+                    MemorySegment segmentToWrite = fileChannel.map(
+                            FileChannel.MapMode.READ_WRITE,
+                            0L,
+                            ssTableSize,
+                            Arena.global()
+                    );
+                    segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryKeySize);
+                    offset += Long.BYTES + entryKeySize;
+                    segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryValueSize);
+                    offset += Long.BYTES + entryValueSize;
+                }
             }
-
         }
     }
 }
