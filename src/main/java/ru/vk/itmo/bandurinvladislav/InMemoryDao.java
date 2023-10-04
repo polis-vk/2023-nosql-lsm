@@ -5,7 +5,8 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -58,9 +59,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return memorySegmentEntry;
         }
 
-        if (!Files.exists(persistentStorage)) {
-            return null;
-        } else {
+        if (Files.exists(persistentStorage)) {
             try (FileChannel fileChannel = FileChannel.open(persistentStorage,
                     StandardOpenOption.READ)) {
 
@@ -131,7 +130,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 StandardOpenOption.WRITE,
                 StandardOpenOption.READ,
                 StandardOpenOption.TRUNCATE_EXISTING);
-            Arena arena = Arena.ofConfined()) {
+             Arena arena = Arena.ofConfined()) {
 
             long fileSegmentSize = 8;
             for (Map.Entry<MemorySegment, Entry<MemorySegment>> e : inMemoryStorage.entrySet()) {
@@ -142,7 +141,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     FileChannel.MapMode.READ_WRITE,
                     0,
                     fileSegmentSize,
-                    arena);
+                    arena
+            );
 
             fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED
                     .withOrder(ByteOrder.BIG_ENDIAN), writeOffset, inMemoryStorage.size());
