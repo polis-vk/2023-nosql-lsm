@@ -14,7 +14,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
 
-    private final SortedMap<MemorySegment, Entry<MemorySegment>> innerConcurrentNavigableMap = new ConcurrentSkipListMap<>(memorySegmentComparator);
+    private final SortedMap<MemorySegment, Entry<MemorySegment>> innerConcurrentNavigableMap =
+            new ConcurrentSkipListMap<>(memorySegmentComparator);
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
