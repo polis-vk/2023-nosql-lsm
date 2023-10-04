@@ -38,7 +38,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         try {
-            if(storage.containsKey(key)) {
+            if (storage.containsKey(key)) {
                 return storage.get(key);
             }
             return sstableManipulations.getFromSSTable(key);

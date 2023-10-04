@@ -43,7 +43,9 @@ public class SStableManipulations {
                     }
                     offset += valueSize;
                 } else {
-                    offset += keySize + storageSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize) + Long.BYTES;
+                    offset += keySize +
+                            storageSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize) +
+                            Long.BYTES;
                 }
             }
         }
