@@ -19,11 +19,8 @@ public class MemoryTable implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private SSTable ssTable;
 
-    /**
-     *  Empty constructor for only in memory table.
-     */
     public MemoryTable() {
-
+        //Empty constructor for only in memory table.
     }
 
     public MemoryTable(Config config) {
