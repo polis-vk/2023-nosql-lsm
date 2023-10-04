@@ -112,8 +112,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        save(new DataOutputStream(new FileOutputStream(ssTablePath.toString())));
         arena.close();
+        ssTable.close();
+        save(new DataOutputStream(new FileOutputStream(ssTablePath.toString())));
     }
 
     public void maybeLoad(MemorySegment key) {
