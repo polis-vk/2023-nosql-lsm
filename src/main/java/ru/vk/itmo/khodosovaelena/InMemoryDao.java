@@ -28,7 +28,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return memorySegmentEntries.headMap(to).values().iterator();
         }
         if (to == null) {
-            return memorySegmentEntries.headMap(from).values().iterator();
+            return memorySegmentEntries.tailMap(from).values().iterator();
         }
         return memorySegmentEntries.subMap(from, to).values().iterator();
     }
