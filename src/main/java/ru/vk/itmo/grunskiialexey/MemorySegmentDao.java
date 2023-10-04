@@ -2,16 +2,18 @@ package ru.vk.itmo.grunskiialexey;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.test.grunskiialexey.MemorySegmentDaoFactory;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final MemorySegmentDaoFactory factory = new MemorySegmentDaoFactory();
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> data =
-            new ConcurrentSkipListMap<>((o1, o2) -> factory.toString(o1).compareTo(factory.toString(o2)));
+            new ConcurrentSkipListMap<>((o1, o2) ->
+                    Arrays.compare(o1.toArray(ValueLayout.JAVA_BYTE), o2.toArray(ValueLayout.JAVA_BYTE))
+            );
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
@@ -24,6 +26,11 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         } else {
             return data.subMap(from, to).values().iterator();
         }
+    }
+
+    @Override
+    public Entry<MemorySegment> get(MemorySegment key) {
+        return data.get(key);
     }
 
     @Override
