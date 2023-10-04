@@ -31,7 +31,13 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return Collections.emptyIterator();
+        if (cache.isEmpty()) {
+            return Collections.emptyIterator();
+        }
+        return cache.subMap(
+                from == null ? cache.firstKey() : from, true,
+                to == null ? cache.lastKey() : to, to == null
+        ).values().iterator();
     }
 
     @Override
