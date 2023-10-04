@@ -124,10 +124,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public final MemorySegment getReadBufferFromSsTable() {
         MemorySegment buffer;
-        FileChannel channel;
-        try {
-             channel = FileChannel.open(ssTablePath, StandardOpenOption.READ);
-            buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), Arena.ofAuto());
+        try (FileChannel channel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
+         buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), Arena.ofAuto());
         } catch (IOException e) {
             buffer = null;
         }
