@@ -18,13 +18,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(new InMemoryDaoComparator());
-    private final SStableManipulations sStableManipulations;
+    private final SStableManipulations sstableManipulations;
 
     public InMemoryDao(Config config) throws IOException {
-        this.sStableManipulations = new SStableManipulations(config);
-//        read from file to storage
-        if(Files.exists(sStableManipulations.getFilePath())) {
-            sStableManipulations.readStorage(this);
+        this.sstableManipulations = new SStableManipulations(config);
+        if (Files.exists(sstableManipulations.getFilePath())) {
+            sstableManipulations.readStorage(this);
         }
     }
 
@@ -57,8 +56,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-//        write storage to file
-        sStableManipulations.writeToFile(storage);
+        sstableManipulations.writeToFile(storage);
     }
 
     public static class InMemoryDaoComparator implements Comparator<MemorySegment> {
