@@ -16,32 +16,22 @@ import java.util.Comparator;
 import java.util.NavigableMap;
 
 public class SSTable {
-    /**
-     * Contains offset and size for every key in index file
-     */
+    // Contains offset and size for every key in index file
     private final Path summaryFile;
-    /**
-     * Contains keys and for each key contains offset and size of assigned value
-     */
+    // Contains keys and for each key contains offset and size of assigned value
     private final Path indexFile;
-    /**
-     * Contains values
-     */
+    //Contains values
     private final Path dataFile;
     private final Comparator<MemorySegment> memSegComp;
 
-    public static final class ByteUtils {
-        private static final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-
-        private ByteUtils() {
-        }
-
-        public static byte[] longToBytes(long data) {
-            buffer.putLong(data);
-            byte[] result = buffer.array();
-            buffer.rewind();
-            return result;
-        }
+    public SSTable(Path basePath, Comparator<MemorySegment> memSegComp) throws IOException {
+        summaryFile = basePath.resolve("summary");
+        this.memSegComp = memSegComp;
+        createIfNotExists(summaryFile);
+        indexFile = basePath.resolve("index");
+        createIfNotExists(indexFile);
+        dataFile = basePath.resolve("data");
+        createIfNotExists(dataFile);
     }
 
     private void createIfNotExists(Path path) throws IOException {
@@ -56,23 +46,13 @@ public class SSTable {
         Files.createFile(path);
     }
 
-    public SSTable(Path basePath, Comparator<MemorySegment> memSegComp) throws IOException {
-        summaryFile = basePath.resolve("summary");
-        this.memSegComp = memSegComp;
-        createIfNotExists(summaryFile);
-        indexFile = basePath.resolve("index");
-        createIfNotExists(indexFile);
-        dataFile = basePath.resolve("data");
-        createIfNotExists(dataFile);
-    }
-
     private void removeOldData() throws IOException {
         recreate(summaryFile);
         recreate(indexFile);
         recreate(dataFile);
     }
 
-    /** Sequentially writes every entity data in SStable keeping files data consistent */
+    // Sequentially writes every entity data in SStable keeping files data consistent
     public void write(NavigableMap<MemorySegment, Entry<MemorySegment>> memTable) throws IOException {
         removeOldData();
         long currentDataOffset = 0;
@@ -95,16 +75,6 @@ public class SSTable {
         }
     }
 
-    private static class Range {
-        public long offset;
-        public long length;
-
-        public Range(long offset, long length) {
-            this.offset = offset;
-            this.length = length;
-        }
-    }
-
     private MemorySegment readFileData(RandomAccessFile file, long offset, long len) throws IOException {
         byte[] data = new byte[(int) len];
         file.seek(offset);
@@ -117,8 +87,7 @@ public class SSTable {
         return new Range(buffer.getLong(), buffer.getLong());
     }
 
-    /** Binary search in summary and index files
-     * @return offset and size of value in data file */
+    // Binary search in summary and index files. Returns offset and size of value in data file
     private Range findByKey(MemorySegment key, MemorySegment indexFile, MemorySegment summaryFile) {
         long left = 0;
         long right = (summaryFile.byteSize() / (2 * Long.BYTES)) - 1;
@@ -159,6 +128,31 @@ public class SSTable {
         if (result == null) return null;
         try (RandomAccessFile dataRAFile = new RandomAccessFile(dataFile.toString(), "r")) {
             return readFileData(dataRAFile, result.offset, result.length);
+        }
+    }
+
+    public static final class ByteUtils {
+        private static final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+
+        private ByteUtils() {
+        }
+
+        public static byte[] longToBytes(long data) {
+            buffer.putLong(data);
+            byte[] result = buffer.array();
+            buffer.rewind();
+            return result;
+        }
+    }
+
+
+    private static class Range {
+        public long offset;
+        public long length;
+
+        public Range(long offset, long length) {
+            this.offset = offset;
+            this.length = length;
         }
     }
 }
