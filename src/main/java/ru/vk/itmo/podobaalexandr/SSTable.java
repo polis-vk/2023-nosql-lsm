@@ -35,7 +35,7 @@ public class SSTable {
 
         OpenOption[] options = {StandardOpenOption.READ, StandardOpenOption.WRITE};
 
-        try(FileChannel fileChannel = FileChannel.open(filePath.resolve(FILE_NAME), options)) {
+        try (FileChannel fileChannel = FileChannel.open(filePath.resolve(FILE_NAME), options)) {
             fileData = fileChannel
                     .map(FileChannel.MapMode.READ_WRITE, 0, fileChannel.size(), Arena.ofAuto());
 
@@ -72,7 +72,7 @@ public class SSTable {
 
         OpenOption[] options = {StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE};
 
-        try(FileChannel fileChannel = FileChannel.open(filePath.resolve(FILE_NAME), options)) {
+        try (FileChannel fileChannel = FileChannel.open(filePath.resolve(FILE_NAME), options)) {
             MemorySegment fileSegment = fileChannel
                     .map(FileChannel.MapMode.READ_WRITE, 0, size, Arena.ofAuto());
 
