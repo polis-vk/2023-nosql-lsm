@@ -57,10 +57,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 if (valueSize != -1) {
                     segmentValue = mappedSegment.asSlice(offset + Long.BYTES, valueSize);
                 }
-                offset += valueSize + Long.BYTES;
                 if (segmentKey.mismatch(key) == -1) {
                     return new BaseEntry<>(segmentKey, segmentValue);
                 }
+                offset += valueSize + Long.BYTES;
             }
             return null;
         } catch (IOException e) {
