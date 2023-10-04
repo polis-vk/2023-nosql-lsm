@@ -24,7 +24,7 @@ public class MyFactory implements DaoFactory.Factory<MemorySegment, Entry<Memory
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new InMemoryDao();
+        return new InMemoryDao(config);
     }
 
     @Override
