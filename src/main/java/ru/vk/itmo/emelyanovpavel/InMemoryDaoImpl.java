@@ -29,7 +29,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
     protected final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
 
-    {
+    public InMemoryDaoImpl() {
         storage = new ConcurrentSkipListMap<>(comparator);
     }
 

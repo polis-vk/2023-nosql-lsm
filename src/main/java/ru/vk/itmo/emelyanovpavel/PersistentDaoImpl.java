@@ -6,23 +6,27 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
-import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
-import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
-import static java.nio.file.StandardOpenOption.WRITE;
-
 
 public class PersistentDaoImpl extends InMemoryDaoImpl {
     private static final String SSTABLE_NAME = "sstable.txt";
     private static final String INDEX_NAME = "indexes.txt";
+
+    public static final Set<OpenOption> WRITE_OPTIONS = new HashSet<>(Arrays.asList(
+            StandardOpenOption.READ,
+            StandardOpenOption.WRITE,
+            StandardOpenOption.CREATE,
+            StandardOpenOption.TRUNCATE_EXISTING
+    ));
 
     private final Path dataPath;
     private final Path indexPath;
@@ -40,10 +44,10 @@ public class PersistentDaoImpl extends InMemoryDaoImpl {
             return;
         }
 
-        try (FileChannel dataChanel = FileChannel.open(dataPath, READ)) {
-            try (FileChannel indexChanel = FileChannel.open(indexPath, READ)) {
-                mappedData = dataChanel.map(READ_ONLY, 0, Files.size(dataPath), arena);
-                mappedIndex = indexChanel.map(READ_ONLY, 0, Files.size(indexPath), arena);
+        try (FileChannel dataChanel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
+            try (FileChannel indexChanel = FileChannel.open(indexPath, StandardOpenOption.READ)) {
+                mappedData = dataChanel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(dataPath), arena);
+                mappedIndex = indexChanel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
             }
         }
     }
@@ -101,22 +105,19 @@ public class PersistentDaoImpl extends InMemoryDaoImpl {
         long indexesSize = (long) storage.size() * Long.BYTES;
         long storageSize = calculateCurrentStorageSize();
 
-        try (FileChannel dataChanel = FileChannel.open(dataPath, TRUNCATE_EXISTING, CREATE, WRITE, READ)) {
-            try (FileChannel indexChanel = FileChannel.open(indexPath, TRUNCATE_EXISTING, CREATE, WRITE, READ)) {
+        try (FileChannel dataChanel = FileChannel.open(dataPath, WRITE_OPTIONS)) {
+            try (FileChannel indexChanel = FileChannel.open(indexPath, WRITE_OPTIONS)) {
                 try (Arena arenaForWriting = Arena.ofConfined()) {
-                    MemorySegment dataSegmentSaver = dataChanel.map(READ_WRITE, 0, storageSize, arenaForWriting);
-                    MemorySegment indexSegmentSaver = indexChanel.map(READ_WRITE, 0, indexesSize, arenaForWriting);
+                    MemorySegment dataSegmentSaver = dataChanel.map(FileChannel.MapMode.READ_WRITE, 0, storageSize, arenaForWriting);
+                    MemorySegment indexSegmentSaver = indexChanel.map(FileChannel.MapMode.READ_WRITE, 0, indexesSize, arenaForWriting);
                     long indexOffset = 0;
                     long dataOffset = 0;
                     for (Entry<MemorySegment> entry : storage.values()) {
-                        var key = entry.key();
-                        var value = entry.value();
-
                         indexSegmentSaver.set(JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                         indexOffset += Long.BYTES;
 
-                        dataOffset = getOffsetAfterInsertion(key, dataSegmentSaver, dataOffset);
-                        dataOffset = getOffsetAfterInsertion(value, dataSegmentSaver, dataOffset);
+                        dataOffset = getOffsetAfterInsertion(entry.key(), dataSegmentSaver, dataOffset);
+                        dataOffset = getOffsetAfterInsertion(entry.value(), dataSegmentSaver, dataOffset);
                     }
                 }
 
@@ -128,7 +129,7 @@ public class PersistentDaoImpl extends InMemoryDaoImpl {
         long resultedOffset = currentOffset;
         long dataSize = dataToInsert.byteSize();
 
-        segment.set(ValueLayout.JAVA_LONG_UNALIGNED, resultedOffset, dataSize);
+        segment.set(JAVA_LONG_UNALIGNED, resultedOffset, dataSize);
         resultedOffset += Long.BYTES;
         segment.asSlice(resultedOffset, dataSize).copyFrom(dataToInsert);
         resultedOffset += dataSize;
