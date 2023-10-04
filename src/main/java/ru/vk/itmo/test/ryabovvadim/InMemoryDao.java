@@ -262,7 +262,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             long keySize = mappedFile.get(JAVA_LONG, offset);
             long valueSize = mappedFile.get(JAVA_LONG, offset + JAVA_LONG.byteSize());
 
-            return mappedFile.asSlice(offset + 2 * JAVA_LONG.byteSize(), keySize, valueSize);
+            return mappedFile.asSlice(offset + 2 * JAVA_LONG.byteSize() + keySize, valueSize);
         }
 
         private void update(MemorySegment segment, int index) {
