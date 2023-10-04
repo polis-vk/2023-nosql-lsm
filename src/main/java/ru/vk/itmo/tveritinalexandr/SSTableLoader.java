@@ -16,18 +16,18 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 
 public class SSTableLoader {
     private static final MemorySegmentComparator comparator = MemorySegmentComparator.INSTANCE;
-    private final Path sSTableFilePath;
+    private final Path ssTableFilePath;
     private long offset;
 
-    public SSTableLoader(Path sSTableFilePath) {
-        this.sSTableFilePath = sSTableFilePath;
+    public SSTableLoader(Path ssTableFilePath) {
+        this.ssTableFilePath = ssTableFilePath;
         }
 
     public Entry<MemorySegment> findInSSTable(MemorySegment key) {
-        if (sSTableFilePath == null || !Files.exists(sSTableFilePath)) return null;
+        if (ssTableFilePath == null || !Files.exists(ssTableFilePath)) return null;
         long fileSize;
         try {
-            fileSize = Files.size(sSTableFilePath);
+            fileSize = Files.size(ssTableFilePath);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -36,7 +36,7 @@ public class SSTableLoader {
         MemorySegment lastMemorySegment = null;
         Arena arena = Arena.ofConfined();
 
-        try (FileChannel channel = FileChannel.open(sSTableFilePath, StandardOpenOption.READ)) {
+        try (FileChannel channel = FileChannel.open(ssTableFilePath, StandardOpenOption.READ)) {
             MemorySegment fileSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
             while (offset < fileSize) {
                 MemorySegment keySegment = getMemorySegment(fileSegment);
