@@ -10,6 +10,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
@@ -25,7 +26,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     );
 
     public InMemoryDao(Config config) {
-        if (config.basePath() != null) {
+        if (Files.exists(config.basePath())) {
             this.storagePath = config.basePath().resolve("output.txt");
         }
     }
