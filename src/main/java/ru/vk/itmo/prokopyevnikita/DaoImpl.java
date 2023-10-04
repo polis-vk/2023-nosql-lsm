@@ -138,9 +138,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (arena != null) {
             if (!arena.scope().isAlive()) {
                 return;
-            } else {
-                arena.close();
             }
+            arena.close();
         }
 
         lock.writeLock().lock();
