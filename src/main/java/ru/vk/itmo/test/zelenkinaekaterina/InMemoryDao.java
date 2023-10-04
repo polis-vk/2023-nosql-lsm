@@ -4,13 +4,14 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    SortedMap<MemorySegment, Entry<MemorySegment>> storage;
+    private final SortedMap<MemorySegment, Entry<MemorySegment>> storage;
 
     public InMemoryDao() {
         storage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
@@ -23,16 +24,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        SortedMap<MemorySegment, Entry<MemorySegment>> subStorage;
         if (from == null && to == null) {
-            return storage.values().iterator();
+            subStorage = storage;
+        } else if (from == null) {
+            subStorage = storage.headMap(to);
+        } else if (to == null) {
+            subStorage = storage.tailMap(from);
+        } else {
+            subStorage = storage.subMap(from, to);
         }
-        if (from == null) {
-            return storage.headMap(to).values().iterator();
-        }
-        if (to == null) {
-            return storage.tailMap(from).values().iterator();
-        }
-        return storage.subMap(from, to).values().iterator();
+        return subStorage.values().iterator();
     }
 
     @Override
@@ -43,7 +45,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static class MemorySegmentComparator implements Comparator<MemorySegment> {
         @Override
         public int compare(MemorySegment ms1, MemorySegment ms2) {
-            return ms1.asByteBuffer().compareTo(ms2.asByteBuffer());
+            long offset = ms1.mismatch(ms2);
+            if (offset == -1) {
+                return 0;
+            }
+            if (offset == ms1.byteSize()) {
+                return -1;
+            }
+            if (offset == ms2.byteSize()) {
+                return 1;
+            }
+            return Byte.compare(ms1.get(ValueLayout.JAVA_BYTE, offset), ms2.get(ValueLayout.JAVA_BYTE, offset));
         }
     }
 
