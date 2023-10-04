@@ -154,11 +154,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 data = channel.map(FileChannel.MapMode.READ_ONLY, 0, randomAccessFile.length(), Arena.global());
                 offsetsTable = (ArrayList<Offset>) objectInputStream.readObject();
             } catch (FileNotFoundException e) {
-                logger.log(Level.WARNING, "File not found: " + e);
+                logger.log(Level.WARNING, String.format("File not found: %s", e));
             } catch (IOException e) {
-                logger.log(Level.WARNING, "IOException: " + e);
+                logger.log(Level.WARNING, String.format("Some IOException: %s", e));
             } catch (Exception e) {
-                logger.log(Level.WARNING, "Some exception: " + e);
+                logger.log(Level.WARNING, String.format("Some exception: %s", e));
             }
         }
 
