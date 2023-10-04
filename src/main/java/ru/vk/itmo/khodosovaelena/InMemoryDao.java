@@ -6,6 +6,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -40,18 +41,20 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         try (FileChannel channel = FileChannel.open(basePath, StandardOpenOption.READ)) {
-            MemorySegment mappedSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(basePath), Arena.ofShared());
+            MemorySegment mappedSegment = channel.map(
+                    FileChannel.MapMode.READ_ONLY, 0, Files.size(basePath),
+                    Arena.ofShared());
 
             long offset = 0L;
             long keySize;
             long valueSize;
             while (offset < mappedSegment.byteSize()) {
                 keySize = mappedSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                MemorySegment  segmentKey = mappedSegment.asSlice(offset + Long.BYTES, keySize);
+                MemorySegment segmentKey = mappedSegment.asSlice(offset + Long.BYTES, keySize);
                 offset += keySize + Long.BYTES;
                 valueSize = mappedSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 MemorySegment segmentValue = null;
-                if (!(valueSize == -1)) {
+                if (valueSize != -1) {
                     segmentValue = mappedSegment.asSlice(offset + Long.BYTES, valueSize);
                 }
                 offset += valueSize + Long.BYTES;
@@ -67,7 +70,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
     }
-
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
@@ -89,12 +91,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void flush(){
+    public void flush() {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    public void close(){
+    public void close() {
         if (!arena.scope().isAlive()) {
             return;
         }
@@ -122,7 +124,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
             mappedSegment.load();
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -133,6 +135,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         return mapSize + Long.BYTES * memorySegmentEntries.size() * 2L;
     }
+
     public static class MemorySegmentComparator implements Comparator<MemorySegment> {
         @Override
         public int compare(MemorySegment segment1, MemorySegment segment2) {
