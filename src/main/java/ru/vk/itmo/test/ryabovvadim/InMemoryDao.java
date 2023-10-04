@@ -56,6 +56,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         secondSegment.get(JAVA_BYTE, mismatchOffset)
                 );
             };
+    private static final String SSTABLE_FILE = "data.sst";
 
     private final Arena arena = Arena.ofAuto();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
@@ -72,7 +73,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (config == null) {
             this.ssTable = null;
         } else {
-            this.ssTable = new SSTable(arena, config.basePath().resolve("data.sst"));
+            this.ssTable = new SSTable(arena, config.basePath().resolve(SSTABLE_FILE));
         }
     }
 
@@ -128,7 +129,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (config != null) {
-            save(config.basePath().resolve("data.sst"));
+            save(config.basePath().resolve(SSTABLE_FILE));
         }
     }
 
