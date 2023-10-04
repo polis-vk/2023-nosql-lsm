@@ -131,12 +131,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.READ,
-                StandardOpenOption.TRUNCATE_EXISTING)) {
+                StandardOpenOption.TRUNCATE_EXISTING);
+             Arena writeArena = Arena.ofConfined()) {
             ByteBuffer sizeBuffer = ByteBuffer.allocate(8);
             writeOffset += fileChannel.write(sizeBuffer.putLong(0, entryCount));
             for (Map.Entry<MemorySegment, Entry<MemorySegment>> memorySegmentEntry : inMemoryStorage.entrySet()) {
-                writeMemorySegment(fileChannel, sizeBuffer, memorySegmentEntry.getKey(), daoArena);
-                writeMemorySegment(fileChannel, sizeBuffer, memorySegmentEntry.getValue().value(), daoArena);
+                writeMemorySegment(fileChannel, sizeBuffer, memorySegmentEntry.getKey(), writeArena);
+                writeMemorySegment(fileChannel, sizeBuffer, memorySegmentEntry.getValue().value(), writeArena);
             }
         }
     }
