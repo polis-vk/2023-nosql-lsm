@@ -114,7 +114,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         arena.close();
-        save(new DataOutputStream(new FileOutputStream(ssTablePath.toString())));
+
+        if (config != null) {
+            save(config.basePath().resolve("data.sst"));
+        }
     }
 
     public void maybeLoad(MemorySegment key) {
@@ -136,31 +139,32 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         ssTable.load(from, to).forEach(entry -> storage.put(entry.key(), entry));
     }
 
-    public void save(DataOutput output) throws IOException {
-        if (config == null) {
-            return;
-        }
+    public void save(Path path) throws IOException {
+        try (FileOutputStream outputFile = new FileOutputStream(path.toFile())) {
+            DataOutput output = new DataOutputStream(outputFile);
+            long offset = JAVA_INT.byteSize() + storage.size() * JAVA_BYTE.byteSize();
+            Collection<Entry<MemorySegment>> segments = storage.values();
 
-        long offset = JAVA_INT.byteSize() + storage.size() * JAVA_BYTE.byteSize();
-        Collection<Entry<MemorySegment>> segments = storage.values();
+            output.writeInt(storage.size());
+            for (Entry<MemorySegment> entry : segments) {
+                MemorySegment key = entry.key();
+                MemorySegment value = entry.value();
 
-        output.writeInt(storage.size());
-        for (Entry<MemorySegment> entry : segments) {
-            MemorySegment key = entry.key();
-            MemorySegment value = entry.value();
+                output.writeLong(offset);
+                offset += 2 * JAVA_LONG.byteSize() + key.byteSize() + value.byteSize();
+            }
 
-            output.writeLong(offset);
-            offset += 2 * JAVA_LONG.byteSize() + key.byteSize() + value.byteSize();
-        }
+            for (var entry : segments) {
+                MemorySegment key = entry.key();
+                MemorySegment value = entry.value();
 
-        for (var entry : segments) {
-            MemorySegment key = entry.key();
-            MemorySegment value = entry.value();
-
-            output.writeLong(key.byteSize());
-            output.writeLong(value.byteSize());
-            output.write(key.toArray(JAVA_BYTE));
-            output.write(value.toArray(JAVA_BYTE));
+                output.writeLong(key.byteSize());
+                output.writeLong(value.byteSize());
+                output.write(key.toArray(JAVA_BYTE));
+                output.write(value.toArray(JAVA_BYTE));
+            }
+        } catch (IOException ex) {
+            // Ignored
         }
     }
 
