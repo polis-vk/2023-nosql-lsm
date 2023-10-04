@@ -27,11 +27,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path path;
     private final Arena arena;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data;
-
     private final Comparator<MemorySegment> comparator;
     private long offset;
 
-    public PersistentDao(Config config) {
+    public PersistentDao(final Config config) {
         path = config.basePath().resolve(Path.of(SSTABLE_NAME));
         offset = 0;
         arena = Arena.ofShared();
@@ -53,7 +52,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+    public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
         if (from == null && to == null) {
             return data.values().iterator();
         } else if (from == null) {
@@ -66,7 +65,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public Entry<MemorySegment> get(MemorySegment key) {
+    public Entry<MemorySegment> get(final MemorySegment key) {
         if (data.containsKey(key)) {
             return data.get(key);
         } else {
@@ -75,7 +74,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void upsert(Entry<MemorySegment> entry) {
+    public void upsert(final Entry<MemorySegment> entry) {
         data.put(entry.key(), entry);
     }
 
@@ -104,6 +103,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void close() throws IOException {
         flush();
         arena.close();
+        data.clear();
     }
 
     private void loadData() {
@@ -123,7 +123,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private Entry<MemorySegment> findValueInSSTable(MemorySegment key) {
+    private Entry<MemorySegment> findValueInSSTable(final MemorySegment key) {
         try (FileChannel channel = FileChannel.open(
                 path,
                 StandardOpenOption.READ)) {
@@ -145,7 +145,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    private void writeSegment(MemorySegment mappedSegment, MemorySegment msegment) {
+    private void writeSegment(final MemorySegment mappedSegment, final MemorySegment msegment) {
         mappedSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, msegment.byteSize());
         offset += Long.BYTES;
         for (long i = 0; i < msegment.byteSize(); ++i) {
@@ -154,7 +154,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private MemorySegment readSegment(MemorySegment mappedSegment) {
+    private MemorySegment readSegment(final MemorySegment mappedSegment) {
         long size = mappedSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
         offset += Long.BYTES;
         MemorySegment result = mappedSegment.asSlice(offset, size);
