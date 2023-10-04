@@ -87,14 +87,18 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
                 try (Arena arenaData = Arena.ofConfined()) {
                     try (Arena arenaKeys = Arena.ofConfined()) {
+
                         MemorySegment dataWriteSegment = dataChanel.map(FileChannel.MapMode.READ_WRITE,
                                 0, sizeData, arenaData);
                         MemorySegment keyWriteSegment = keyChanel.map(FileChannel.MapMode.READ_WRITE,
                                 0, sizeKeys, arenaKeys);
+
                         long offsetData = 0;
                         long offsetKeys = 0;
+
                         dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, concurrentSkipListMap.size());
                         offsetData += Long.BYTES;
+
                         for (Entry<MemorySegment> value : concurrentSkipListMap.values()) {
 
                             dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, value.value().byteSize());
@@ -135,17 +139,22 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         long dataOffset = 0;
         long keyOffset = 0;
+
         long sslTableSize = dataSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset);
         dataOffset += Long.BYTES;
+
         for (int i = 0; i < sslTableSize; i++) {
             long keySize = keySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, keyOffset);
             long dataSize = dataSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset);
+
             keyOffset += Long.BYTES;
             dataOffset += Long.BYTES;
+
             MemorySegment keySegmentSlice = keySegment.asSlice(keyOffset, keySize);
             if (memorySegmentComparator.compare(keySegmentSlice, key) == 0) {
                 return new BaseEntry<>(key, dataSegment.asSlice(dataOffset, dataSize));
             }
+
             keyOffset += keySize;
             dataOffset += dataSize;
         }
