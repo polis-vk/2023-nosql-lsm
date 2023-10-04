@@ -13,7 +13,7 @@ public abstract class AbstractDao implements Dao<MemorySegment, Entry<MemorySegm
 
     protected final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable;
 
-    public AbstractDao() {
+    protected AbstractDao() {
         memTable = new ConcurrentSkipListMap<>(AbstractDao::compare);
     }
 
@@ -40,7 +40,7 @@ public abstract class AbstractDao implements Dao<MemorySegment, Entry<MemorySegm
         memTable.put(entry.key(), entry);
     }
 
-    public static int compare(MemorySegment first, MemorySegment second) {
+    protected static int compare(MemorySegment first, MemorySegment second) {
         long offset = MemorySegment.mismatch(first, 0, first.byteSize(), second, 0, second.byteSize());
 
         // Equal segments

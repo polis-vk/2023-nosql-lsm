@@ -19,8 +19,7 @@ public class PersistentDao extends AbstractDao {
         if (memTable.containsKey(key)) {
             return memTable.get(key);
         }
-        var tst = ssTableHandler.get(key);
-        return tst;
+        return ssTableHandler.get(key);
     }
 
     @Override

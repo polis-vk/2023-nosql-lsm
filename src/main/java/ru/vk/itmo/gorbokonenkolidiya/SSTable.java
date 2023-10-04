@@ -49,8 +49,7 @@ public class SSTable {
 
                         return new BaseEntry<>(foundKey, foundValue);
                     }
-                }
-                else {
+                } else {
                     offset += keySize;
                 }
 
@@ -72,7 +71,8 @@ public class SSTable {
             size += entry.key().byteSize() + entry.value().byteSize() + 2L * Long.BYTES;
         }
 
-        try (FileChannel  ssTable = FileChannel.open(tablePath, StandardOpenOption.TRUNCATE_EXISTING,StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+        try (FileChannel ssTable = FileChannel.open(tablePath, StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
             MemorySegment memorySegment = ssTable.map(FileChannel.MapMode.READ_WRITE, 0, size, Arena.global());
 
             long offset = 0;
