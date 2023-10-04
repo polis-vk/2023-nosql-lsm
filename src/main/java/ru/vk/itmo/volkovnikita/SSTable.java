@@ -14,7 +14,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.NavigableMap;
 
-
 public class SSTable {
 
     private final Path basePath;
