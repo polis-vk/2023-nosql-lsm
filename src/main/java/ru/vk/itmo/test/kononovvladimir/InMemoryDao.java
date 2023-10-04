@@ -24,6 +24,9 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private MemorySegment dataSegment;
     private MemorySegment keySegment;
 
+    private Arena arenaData;
+    private Arena arenaKeys;
+
     private final Comparator<MemorySegment> memorySegmentComparator = (o1, o2) -> {
         long mismatch = o1.mismatch(o2);
         if (mismatch == -1) return 0;
@@ -49,69 +52,21 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         dataPath = config.basePath().resolve(dataFileName);
         keyPath = config.basePath().resolve(keyFileName);
 
-        try (var fileChanel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
-            dataSegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
-        } catch (IOException e) {
-            dataSegment = null;
-            keySegment = null;
-        }
-
-        try (var fileChanel = FileChannel.open(keyPath, StandardOpenOption.READ)) {
-            keySegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
-        } catch (IOException e) {
-            dataSegment = null;
-            keySegment = null;
-        }
-    }
-
-    @Override
-    public void close() throws IOException {
-        if (dataPath == null || keyPath == null) {
-            return;
-        }
-
-        try (var dataChanel = FileChannel.open(dataPath, StandardOpenOption.READ,
-                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.CREATE)) {
-            try (var keyChanel = FileChannel.open(keyPath, StandardOpenOption.READ,
-                    StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.CREATE)) {
-
-                long sizeData = 0;
-                long sizeKeys = 0;
-
-                for (Entry<MemorySegment> value : concurrentSkipListMap.values()) {
-                    sizeData += value.value().byteSize() + Long.BYTES;
-                    sizeKeys += value.key().byteSize() + Long.BYTES;
-                }
-
-                sizeData += Long.BYTES;
-
-                try (Arena arenaData = Arena.ofConfined()) {
-                    try (Arena arenaKeys = Arena.ofConfined()) {
-                        MemorySegment dataWriteSegment = dataChanel.map(FileChannel.MapMode.READ_WRITE,
-                                0, sizeData, arenaData);
-                        MemorySegment keyWriteSegment = keyChanel.map(FileChannel.MapMode.READ_WRITE,
-                                0, sizeKeys, arenaKeys);
-                        long offsetData = 0;
-                        long offsetKeys = 0;
-                        dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, concurrentSkipListMap.size());
-                        offsetData += Long.BYTES;
-                        for (Entry<MemorySegment> value : concurrentSkipListMap.values()) {
-
-                            dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, value.value().byteSize());
-                            keyWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeys, value.key().byteSize());
-
-                            offsetData += Long.BYTES;
-                            offsetKeys += Long.BYTES;
-
-                            dataWriteSegment.asSlice(offsetData, value.value().byteSize()).copyFrom(value.value());
-                            offsetData += value.value().byteSize();
-
-                            keyWriteSegment.asSlice(offsetKeys, value.key().byteSize()).copyFrom(value.key());
-                            offsetKeys += value.key().byteSize();
-                        }
-                    }
-                }
+        try {
+            arenaData = Arena.ofConfined();
+            arenaKeys = Arena.ofConfined();
+            try (var fileChanel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
+                dataSegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), arenaData);
             }
+
+            try (var fileChanel = FileChannel.open(keyPath, StandardOpenOption.READ)) {
+                keySegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), arenaKeys);
+            }
+        } catch (IOException e) {
+            dataSegment = null;
+            keySegment = null;
+            arenaKeys = null;
+            arenaData = null;
         }
     }
 
@@ -173,5 +128,59 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void upsert(Entry<MemorySegment> entry) {
         if (entry == null || entry.key() == null || entry.value() == null) return;
         concurrentSkipListMap.put(entry.key(), entry);
+    }
+
+    @Override
+    public void close() throws IOException {
+        try {
+            if (dataPath == null || keyPath == null || dataSegment == null || keySegment == null) {
+                return;
+            }
+
+            try (var dataChanel = FileChannel.open(dataPath, StandardOpenOption.READ,
+                    StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.CREATE)) {
+
+                try (var keyChanel = FileChannel.open(keyPath, StandardOpenOption.READ,
+                        StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.CREATE)) {
+
+                    long sizeData = 0;
+                    long sizeKeys = 0;
+
+                    for (Entry<MemorySegment> value : concurrentSkipListMap.values()) {
+                        sizeData += value.value().byteSize() + Long.BYTES;
+                        sizeKeys += value.key().byteSize() + Long.BYTES;
+                    }
+
+                    sizeData += Long.BYTES;
+
+
+                    MemorySegment dataWriteSegment = dataChanel.map(FileChannel.MapMode.READ_WRITE,
+                            0, sizeData, arenaData);
+                    MemorySegment keyWriteSegment = keyChanel.map(FileChannel.MapMode.READ_WRITE,
+                            0, sizeKeys, arenaKeys);
+                    long offsetData = 0;
+                    long offsetKeys = 0;
+                    dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, concurrentSkipListMap.size());
+                    offsetData += Long.BYTES;
+                    for (Entry<MemorySegment> value : concurrentSkipListMap.values()) {
+
+                        dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, value.value().byteSize());
+                        keyWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeys, value.key().byteSize());
+
+                        offsetData += Long.BYTES;
+                        offsetKeys += Long.BYTES;
+
+                        dataWriteSegment.asSlice(offsetData, value.value().byteSize()).copyFrom(value.value());
+                        offsetData += value.value().byteSize();
+
+                        keyWriteSegment.asSlice(offsetKeys, value.key().byteSize()).copyFrom(value.key());
+                        offsetKeys += value.key().byteSize();
+                    }
+                }
+            }
+        } finally {
+            arenaData.close();
+            arenaKeys.close();
+        }
     }
 }
