@@ -143,7 +143,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         Entry<MemorySegment> entry = ssTable.load(key);
-        if (entry != null ) {
+        if (entry != null) {
             storage.put(key, entry);
         }
     }
@@ -191,7 +191,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         private final List<Long> offsets = new ArrayList<>();
 
         public SSTable(Arena arena, Path file) throws IOException {
-            try(FileChannel fileChannel = FileChannel.open(file)) {
+            try (FileChannel fileChannel = FileChannel.open(file)) {
                 this.mappedFile = fileChannel.map(
                         FileChannel.MapMode.READ_ONLY,
                         0,
