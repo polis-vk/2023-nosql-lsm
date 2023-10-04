@@ -58,7 +58,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             };
     private static final String SSTABLE_FILE = "data.sst";
 
-    private final Arena arena = Arena.ofAuto();
+    private final Arena arena = Arena.ofShared();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
     private final Config config;
