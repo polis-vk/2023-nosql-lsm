@@ -35,7 +35,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         var entry = memory.get(key);
-        return entry != null ? entry : ssTable.readData(key);
+        return entry == null ? ssTable.readData(key) : entry;
     }
 
     @Override
@@ -55,7 +55,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
     @Override
     public void close() throws IOException {
-        if(memory.isEmpty()) {
+        if (memory.isEmpty()) {
             return;
         }
 

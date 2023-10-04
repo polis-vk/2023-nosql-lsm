@@ -17,11 +17,13 @@ import java.util.Set;
 
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
-import static java.nio.file.StandardOpenOption.*;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 public class SSTable {
 
-    private static final Set<OpenOption> openOptions= Set.of(CREATE, READ, WRITE);
+    private static final Set<OpenOption> openOptions = Set.of(CREATE, READ, WRITE);
     private final Path filePath;
     private static final String FILE_PATH = "data";
 
@@ -39,7 +41,7 @@ public class SSTable {
 
             MemorySegment writeSegment = fc.map(READ_WRITE, 0, memorySize, Arena.global());
 
-            for(Entry<MemorySegment> entry : entries) {
+            for (Entry<MemorySegment> entry : entries) {
                 writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
                 offset += Long.BYTES;
                 writeSegment.asSlice(offset).copyFrom(entry.key());
