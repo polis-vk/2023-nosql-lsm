@@ -10,6 +10,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -39,6 +40,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryStorage = new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
     private final Path persistentStorage;
 
+    private long offset;
+
     public InMemoryDao(Config config) throws IOException {
         persistentStorage = config.basePath().resolve(STORAGE_NAME);
     }
@@ -60,18 +63,45 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } else {
             try (FileChannel fileChannel = FileChannel.open(persistentStorage,
                     StandardOpenOption.READ)) {
-                ByteBuffer sizeBuffer = ByteBuffer.allocate(8);
-                fileChannel.read(sizeBuffer);
-                long entryCount = sizeBuffer.position(0).getLong();
+
+                MemorySegment fileSegment = fileChannel.map(
+                        FileChannel.MapMode.READ_ONLY,
+                        0,
+                        fileChannel.size(),
+                        daoArena
+                );
+
+                long entryCount = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                offset += 8;
+
                 for (long i = 0; i < entryCount; i++) {
-                    MemorySegment entryKey = readMemorySegment(fileChannel, sizeBuffer, daoArena);
+                    long keySize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                    offset += 8;
+                    MemorySegment entryKey = fileSegment.asSlice(offset, keySize);
+                    offset += keySize;
+
+                    long valueSize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                    offset += 8;
                     if (MEMORY_SEGMENT_COMPARATOR.compare(key, entryKey) == 0) {
-                        MemorySegment entryValue = readMemorySegment(fileChannel, sizeBuffer, daoArena);
+                        MemorySegment entryValue = fileSegment.asSlice(offset, valueSize);
+                        offset += valueSize;
                         return new BaseEntry<>(entryKey, entryValue);
                     } else {
-                        movePosition(fileChannel, sizeBuffer);
+                        offset += valueSize;
                     }
                 }
+//                ByteBuffer sizeBuffer = ByteBuffer.allocate(8);
+//                fileChannel.read(sizeBuffer);
+//                long entryCount = sizeBuffer.position(0).getLong();
+//                for (long i = 0; i < entryCount; i++) {
+//                    MemorySegment entryKey = readMemorySegment(fileChannel, sizeBuffer, daoArena);
+//                    if (MEMORY_SEGMENT_COMPARATOR.compare(key, entryKey) == 0) {
+//                        MemorySegment entryValue = readMemorySegment(fileChannel, sizeBuffer, daoArena);
+//                        return new BaseEntry<>(entryKey, entryValue);
+//                    } else {
+//                        movePosition(fileChannel, sizeBuffer);
+//                    }
+//                }
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
