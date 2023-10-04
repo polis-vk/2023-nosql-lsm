@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -161,6 +162,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public void save(Path path) throws IOException {
+        Files.deleteIfExists(path);
+
         try (FileOutputStream outputFile = new FileOutputStream(path.toFile())) {
             DataOutput output = new DataOutputStream(outputFile);
             long offset = JAVA_INT.byteSize() + storage.size() * JAVA_LONG.byteSize();
@@ -190,16 +193,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static class SSTable {
         private final Map<MemorySegment, Integer> idsBySegment = new ConcurrentHashMap<>();
         private final Set<Integer> ids = ConcurrentHashMap.newKeySet();
-        private final Arena arena;
-        private final Path path;
+        private final MemorySegment mappedFile;
         private final int countRecords;
         private final List<Long> offsets = new ArrayList<>();
 
         public SSTable(Arena arena, Path path) throws IOException {
-            this.arena = arena;
-            this.path = path;
             try (FileChannel fileChannel = FileChannel.open(path)) {
-                MemorySegment mappedFile = getMappedFile(fileChannel);
+                this.mappedFile = fileChannel.map(
+                    FileChannel.MapMode.READ_ONLY,
+                    0,
+                    fileChannel.size(),
+                    arena
+                );
 
                 this.countRecords = mappedFile.get(JAVA_INT, 0);
                 long offset = JAVA_INT.byteSize();
@@ -263,40 +268,20 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         private MemorySegment readKey(long offset) {
-            try (FileChannel fileChannel = FileChannel.open(path)) {
-                MemorySegment mappedFile = getMappedFile(fileChannel);
-                long keySize = mappedFile.get(JAVA_LONG, offset);
-                return mappedFile.asSlice(offset + 2 * JAVA_LONG.byteSize(), keySize);
-            } catch (IOException ignored) {
-                return null;
-            }
+            long keySize = mappedFile.get(JAVA_LONG, offset);
+            return mappedFile.asSlice(offset + 2 * JAVA_LONG.byteSize(), keySize);
         }
 
         private MemorySegment readValue(long offset) {
-            try (FileChannel fileChannel = FileChannel.open(path)) {
-                MemorySegment mappedFile = getMappedFile(fileChannel);
             long keySize = mappedFile.get(JAVA_LONG, offset);
             long valueSize = mappedFile.get(JAVA_LONG, offset + JAVA_LONG.byteSize());
 
             return mappedFile.asSlice(offset + 2 * JAVA_LONG.byteSize() + keySize, valueSize);
-            } catch (IOException ignored) {
-                return null;
-
-            }
         }
 
         private void update(MemorySegment segment, int index) {
             idsBySegment.put(segment, index);
             ids.add(index);
-        }
-
-        private MemorySegment getMappedFile(FileChannel fileChannel) throws IOException {
-            return fileChannel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    0,
-                    fileChannel.size(),
-                    arena
-            );
         }
     }
 }
