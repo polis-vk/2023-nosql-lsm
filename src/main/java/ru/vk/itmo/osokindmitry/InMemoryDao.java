@@ -5,18 +5,23 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.*;
+import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
-import static java.nio.file.StandardOpenOption.*;
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -32,6 +37,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path path;
     private static final String FILE_NAME = "sstable.txt";
 
+    public InMemoryDao() {
+        path = Path.of("C:\\Users\\dimit\\AppData\\Local\\Temp");
+        arena = Arena.ofConfined();
+    }
+
     public InMemoryDao(Config config) {
         path = config.basePath().resolve(FILE_NAME);
         arena = Arena.ofConfined();
@@ -45,7 +55,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             entry = cachedValues.get(key);
         }
         // if value is still null then searching in file
-        if (entry == null) {
+        if (entry == null && path.toFile().exists()) {
             try (FileChannel fc = FileChannel.open(path, Set.of(CREATE, READ))) {
                 if (fc.size() != 0) {
                     MemorySegment mappedSegment = fc.map(READ_ONLY, 0, fc.size(), arena);
@@ -121,17 +131,19 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             size = mappedSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
-            MemorySegment slicedValue = mappedSegment.asSlice(offset, size);
-            offset += size;
 
-            BaseEntry<MemorySegment> entry = new BaseEntry<>(slicedKey, slicedValue);
-            cachedValues.put(slicedKey, entry);
             if (compare(key, slicedKey) == 0) {
+                MemorySegment slicedValue = mappedSegment.asSlice(offset, size);
+                BaseEntry<MemorySegment> entry = new BaseEntry<>(slicedKey, slicedValue);
+                cachedValues.put(slicedKey, entry);
                 return entry;
             }
+            offset += size;
         }
         return null;
     }
+
+
 
     private static int compare(MemorySegment segment1, MemorySegment segment2) {
         long offset = segment1.mismatch(segment2);
