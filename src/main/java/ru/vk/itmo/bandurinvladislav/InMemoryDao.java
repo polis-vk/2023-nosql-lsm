@@ -39,9 +39,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryStorage = new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
     private final Path persistentStorage;
 
-    private long readOffset;
-    private long writeOffset;
-
     public InMemoryDao(Config config) throws IOException {
         persistentStorage = config.basePath().resolve(STORAGE_NAME);
     }
@@ -61,11 +58,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!Files.exists(persistentStorage)) {
             return null;
         } else {
-            readOffset = 0;
             try (FileChannel fileChannel = FileChannel.open(persistentStorage,
                     StandardOpenOption.READ)) {
                 ByteBuffer sizeBuffer = ByteBuffer.allocate(8);
-                readOffset += fileChannel.read(sizeBuffer);
+                fileChannel.read(sizeBuffer);
                 long entryCount = sizeBuffer.position(0).getLong();
                 for (long i = 0; i < entryCount; i++) {
                     MemorySegment entryKey = readMemorySegment(fileChannel, sizeBuffer, daoArena);
@@ -100,26 +96,23 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private void writeMemorySegment(FileChannel fileChannel, ByteBuffer sizeBuffer, MemorySegment value, Arena arena)
             throws IOException {
-        writeOffset += fileChannel.write(sizeBuffer.putLong(0, value.byteSize()).position(0));
-        MemorySegment offHeapSegment = fileChannel.map(FileChannel.MapMode.READ_WRITE,
-                writeOffset, value.byteSize(), arena);
+        fileChannel.write(sizeBuffer.putLong(0, value.byteSize()).position(0));
+        MemorySegment offHeapSegment = fileChannel.map(FileChannel.MapMode.READ_WRITE, fileChannel.position(), value.byteSize(), arena);
         offHeapSegment.copyFrom(value);
         offHeapSegment.load();
-        writeOffset += value.byteSize();
-        fileChannel.position(writeOffset);
+        fileChannel.position(fileChannel.position() + value.byteSize());
     }
 
     private MemorySegment readMemorySegment(FileChannel fileChannel, ByteBuffer sizeBuffer, Arena arena) throws IOException {
         sizeBuffer.position(0);
-        readOffset += fileChannel.read(sizeBuffer);
+        fileChannel.read(sizeBuffer);
         MemorySegment fileSegment = fileChannel.map(
                 FileChannel.MapMode.READ_ONLY,
-                readOffset,
+                fileChannel.position(),
                 sizeBuffer.position(0).getLong(),
                 arena
         );
-        readOffset += fileSegment.byteSize();
-        fileChannel.position(readOffset);
+        fileChannel.position(fileChannel.position() + fileSegment.byteSize());
         return fileSegment;
     }
 
@@ -134,7 +127,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 StandardOpenOption.TRUNCATE_EXISTING);
              Arena writeArena = Arena.ofConfined()) {
             ByteBuffer sizeBuffer = ByteBuffer.allocate(8);
-            writeOffset += fileChannel.write(sizeBuffer.putLong(0, entryCount));
+            fileChannel.write(sizeBuffer.putLong(0, entryCount));
             for (Map.Entry<MemorySegment, Entry<MemorySegment>> memorySegmentEntry : inMemoryStorage.entrySet()) {
                 writeMemorySegment(fileChannel, sizeBuffer, memorySegmentEntry.getKey(), writeArena);
                 writeMemorySegment(fileChannel, sizeBuffer, memorySegmentEntry.getValue().value(), writeArena);
