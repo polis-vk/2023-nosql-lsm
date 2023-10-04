@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public abstract class BaseDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable;
 
-    public BaseDao() {
+    protected BaseDao() {
         this.memoryTable = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     }
 
