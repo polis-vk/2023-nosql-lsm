@@ -3,6 +3,7 @@ package ru.vk.itmo.pologovnikita;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -48,22 +49,25 @@ public class SSTable {
             var fileMemorySegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
             return new MemorySegmentReader(fileMemorySegment).findFirstValue(key, fileSize);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
         }
     }
 
     private static long getFileSize(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map) {
         var size = 0L;
         for (var entry : map.values()) {
-            size = getEntrySize(size, entry);
+            size += getMemorySegmentEntrySize(entry);
         }
         return size;
     }
 
-    private static long getEntrySize(long size, Entry<MemorySegment> entry) {
-        var entrySize = entry.key().byteSize() + entry.value().byteSize();
-        size += 2 * LAYOUT_SIZE + entrySize;
-        return size;
+    private static long getMemorySegmentEntrySize(Entry<MemorySegment> entry) {
+        long entrySize = getEntrySize(entry);
+        return 2 * LAYOUT_SIZE + entrySize;
+    }
+
+    private static long getEntrySize(Entry<MemorySegment> entry) {
+        return entry.key().byteSize() + entry.value().byteSize();
     }
 
     static class MemorySegmentWriter {

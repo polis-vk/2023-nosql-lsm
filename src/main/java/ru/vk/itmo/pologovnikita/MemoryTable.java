@@ -17,7 +17,7 @@ public class MemoryTable implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> segmentToEntry =
             new ConcurrentSkipListMap<>(comparator);
 
-    private SSTable ssTable = null;
+    private SSTable ssTable;
 
     public MemoryTable() {
 
