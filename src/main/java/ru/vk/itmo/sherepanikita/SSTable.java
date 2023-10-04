@@ -44,62 +44,88 @@ public class SSTable {
             long offset = 0L;
             while (offset < segmentToRead.byteSize()) {
                 long keySize = segmentToRead.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES + keySize;
-                long valueSize = segmentToRead.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                offset += Long.BYTES;
+                long valueSize = segmentToRead.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
 
                 if (keySize != key.byteSize()) {
-                    offset += Long.BYTES + valueSize;
+                    offset += keySize + valueSize;
                     continue;
                 }
 
                 MemorySegment keySegment = segmentToRead.asSlice(offset, keySize);
+                offset += keySize + Long.BYTES;
 
                 if (key.mismatch(keySegment) == -1) {
                     MemorySegment valueSegment = segmentToRead.asSlice(
-                            offset + Long.BYTES,
+                            offset,
                             valueSize
                     );
                     return new BaseEntry<>(keySegment, valueSegment);
                 }
 
-                offset += Long.BYTES + valueSize;
+                offset += valueSize;
             }
 
             return null;
         }
     }
 
-    public void writeGivenInMemoryData(NavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryData) throws IOException {
+    public void writeGivenInMemoryData(NavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryData)
+            throws IOException {
         try (FileChannel fileChannel = FileChannel.open(filePath, options)) {
 
+            long ssTableSize = 0;
+
             for (Entry<MemorySegment> entry : inMemoryData.values()) {
-                long entryValueSize;
-                long entryKeySize;
-                long ssTableSize;
+                long entryKeySize = entry.key().byteSize();
+                long entryValueSize = entry.value().byteSize();
+                ssTableSize += Long.BYTES + entryKeySize + Long.BYTES + entryValueSize;
+            }
 
-                if (entry != null) {
-                    entryValueSize = entry.value().byteSize();
-                    entryKeySize = entry.key().byteSize();
-                } else {
-                    entryValueSize = 0L;
-                    entryKeySize = 0L;
-                }
+            if (ssTableSize != 0) {
 
-                ssTableSize =   Long.BYTES + inMemoryData.values().size() * entryKeySize +
-                                Long.BYTES + inMemoryData.values().size() * entryValueSize;
+                MemorySegment segmentToWrite = fileChannel.map(
+                        FileChannel.MapMode.READ_WRITE,
+                        0L,
+                        ssTableSize,
+                        Arena.global()
+                );
 
-                if (ssTableSize != 0) {
+                for (Entry<MemorySegment> entry : inMemoryData.values()) {
+                    long entryValueSize;
+                    long entryKeySize;
+
+                    if (entry != null) {
+                        entryValueSize = entry.value().byteSize();
+                        entryKeySize = entry.key().byteSize();
+                    } else {
+                        entryValueSize = 0L;
+                        entryKeySize = 0L;
+                    }
+
                     long offset = 0L;
-                    MemorySegment segmentToWrite = fileChannel.map(
-                            FileChannel.MapMode.READ_WRITE,
-                            0L,
-                            ssTableSize,
-                            Arena.global()
-                    );
                     segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryKeySize);
-                    offset += Long.BYTES + entryKeySize;
+                    offset += Long.BYTES;
+                    MemorySegment.copy(
+                            entry.key(),
+                            0,
+                            segmentToWrite,
+                            offset,
+                            entryKeySize
+                    );
+                    offset += entryKeySize;
+
                     segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryValueSize);
-                    offset += Long.BYTES + entryValueSize;
+                    offset += Long.BYTES;
+                    MemorySegment.copy(
+                            entry.value(),
+                            0,
+                            segmentToWrite,
+                            offset,
+                            entryValueSize
+                    );
+                    offset += entryValueSize;
+
                 }
             }
         }
