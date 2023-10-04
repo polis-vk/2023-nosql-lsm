@@ -38,26 +38,29 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (basePath == null || !Files.exists(basePath)) {
             return null;
         }
-        MemorySegment endSegment = null;
+
         try (FileChannel channel = FileChannel.open(basePath, StandardOpenOption.READ)) {
             MemorySegment mappedSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(basePath), Arena.ofShared());
 
             long offset = 0L;
-
+            long keySize;
+            long valueSize;
             while (offset < mappedSegment.byteSize()) {
-                long size = mappedSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
-                MemorySegment segmentKey = mappedSegment.asSlice(offset, size);
-                offset += size;
-                if (key.mismatch(segmentKey) == -1) {
-                    size = mappedSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                    offset += Long.BYTES;
-                    endSegment = mappedSegment.asSlice(offset, size);
-                    offset += size;
+                keySize = mappedSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                MemorySegment  segmentKey = mappedSegment.asSlice(offset + Long.BYTES, keySize);
+                offset += keySize + Long.BYTES;
+                valueSize = mappedSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                MemorySegment segmentValue = null;
+                if (!(valueSize == -1)) {
+                    segmentValue = mappedSegment.asSlice(offset + Long.BYTES, valueSize);
                 }
-            }
-            if (endSegment != null) {
-                return new BaseEntry<>(key, endSegment);
+                offset += valueSize + Long.BYTES;
+                if (keySize != key.byteSize()) {
+                    continue;
+                }
+                if (segmentKey.mismatch(key) == -1) {
+                    return new BaseEntry<>(segmentKey, segmentValue);
+                }
             }
             return null;
         } catch (IOException e) {
