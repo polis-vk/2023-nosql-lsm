@@ -4,7 +4,6 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.dyagayalexandra.InMemoryDao;
-import ru.vk.itmo.dyagayalexandra.PersistentDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
@@ -21,7 +20,7 @@ public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new PersistentDao(config);
+        return new InMemoryDao(config);
     }
 
     @Override
