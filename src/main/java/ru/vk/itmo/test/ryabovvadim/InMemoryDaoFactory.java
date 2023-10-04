@@ -41,6 +41,6 @@ public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Ent
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new InMemoryDao(config.basePath());
+        return new InMemoryDao(config);
     }
 }

@@ -1,6 +1,7 @@
 package ru.vk.itmo.test.ryabovvadim;
 
 import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
@@ -54,12 +55,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this(null);
     }
 
-    public InMemoryDao(Path sstablePath) {
-        this.ssTablePath = sstablePath;
-        if (sstablePath == null) {
+    public InMemoryDao(Config config) {
+        if (config == null) {
+            this.ssTablePath = null;
             this.ssTable = null;
         } else {
-            this.ssTable = new SSTable(arena, sstablePath);
+            this.ssTablePath = config.basePath().resolve("sstable");
+            this.ssTable = new SSTable(arena, ssTablePath);
         }
     }
 
@@ -113,7 +115,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         arena.close();
-        ssTable.close();
         save(new DataOutputStream(new FileOutputStream(ssTablePath.toString())));
     }
 
@@ -162,15 +163,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private static class SSTable implements Closeable {
+    private static class SSTable {
         private final Map<MemorySegment, Integer> idsBySegment = new ConcurrentHashMap<>();
         private final Set<Integer> ids = ConcurrentHashMap.newKeySet();
-        private final FileChannel fileChannel;
         private final MemorySegment mappedFile;
 
         public SSTable(Arena arena, Path file) {
-            try {
-                this.fileChannel = FileChannel.open(file);
+            try(FileChannel fileChannel = FileChannel.open(file)) {
                 this.mappedFile = fileChannel.map(
                         FileChannel.MapMode.READ_ONLY,
                         0,
@@ -252,11 +251,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         private void update(MemorySegment segment, int index) {
             idsBySegment.put(segment, index);
             ids.add(index);
-        }
-
-        @Override
-        public void close() throws IOException {
-            fileChannel.close();
         }
     }
 }
