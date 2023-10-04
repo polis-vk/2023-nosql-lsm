@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.LongBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,8 +19,8 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private Path dataPath;
-    private Path keyPath;
+    private final Path dataPath;
+    private final Path keyPath;
     private MemorySegment dataSegment;
     private MemorySegment keySegment;
 
@@ -39,8 +38,7 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     };
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> concurrentSkipListMap
-            = new ConcurrentSkipListMap<>(memorySegmentComparator);
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> concurrentSkipListMap = new ConcurrentSkipListMap<>(memorySegmentComparator);
 
     public InMemoryDao(Config config) {
 
@@ -50,30 +48,21 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         dataPath = config.basePath().resolve(dataFileName);
         keyPath = config.basePath().resolve(keyFileName);
 
-        if (dataPath == null || keyPath == null) {
-            return;
-        }
-
-
         try (var fileChanel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
-                dataSegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
+            dataSegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
         } catch (IOException e) {
             dataSegment = null;
             keySegment = null;
         }
 
         try (var fileChanel = FileChannel.open(keyPath, StandardOpenOption.READ)) {
-                keySegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
+            keySegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
         } catch (IOException e) {
             dataSegment = null;
             keySegment = null;
         }
 
     }
-
-    public InMemoryDao() {
-    }
-
 
     @Override
     public void close() throws IOException {
@@ -104,18 +93,12 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         for (Entry<MemorySegment> value : concurrentSkipListMap.values()) {
 
                             dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, value.value().byteSize());
-                            keyWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeys, value.key().byteSize()); // эксперимент
+                            keyWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeys, value.key().byteSize());
 
                             offsetData += Long.BYTES;
                             offsetKeys += Long.BYTES;
 
-                            dataWriteSegment.asSlice(offsetData, value.value().byteSize()).copyFrom(value.value());
-                            offsetData += value.value().byteSize();
-
-                            keyWriteSegment.asSlice(offsetKeys, value.key().byteSize()).copyFrom(value.key());
-                            offsetKeys += value.key().byteSize();
-
-/*                            for (int i = 0; i < value.value().byteSize(); i++) {
+                            for (int i = 0; i < value.value().byteSize(); i++) {
                                 dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, value.value().get(ValueLayout.JAVA_BYTE, i));
                                 offsetData += Byte.SIZE;
                             }
@@ -123,7 +106,7 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                             for (int i = 0; i < value.key().byteSize(); i++) {
                                 dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeys, value.key().get(ValueLayout.JAVA_BYTE, i));
                                 offsetKeys += Byte.SIZE;
-                            }*/
+                            }
                         }
                     }
                 }
@@ -149,7 +132,7 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             Files.deleteIfExists(keyPath);
             Files.deleteIfExists(dataPath);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            return null;
         }
 
         long dataOffset = 0;
