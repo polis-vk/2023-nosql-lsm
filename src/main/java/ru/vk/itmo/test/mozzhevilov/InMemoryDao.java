@@ -12,32 +12,32 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
+    private final MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
 
-    SortedMap<MemorySegment, Entry<MemorySegment>> innerMap = new ConcurrentSkipListMap<>(memorySegmentComparator);
+    private final SortedMap<MemorySegment, Entry<MemorySegment>> innerConcurrentNavigableMap = new ConcurrentSkipListMap<>(memorySegmentComparator);
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from != null && to != null) {
-            return innerMap.subMap(from, to).values().iterator();
+            return innerConcurrentNavigableMap.subMap(from, to).values().iterator();
         }
         if (to != null) {
-            return innerMap.headMap(to).values().iterator();
+            return innerConcurrentNavigableMap.headMap(to).values().iterator();
         }
         if (from != null) {
-            return innerMap.tailMap(from).values().iterator();
+            return innerConcurrentNavigableMap.tailMap(from).values().iterator();
         }
-        return innerMap.values().iterator();
+        return innerConcurrentNavigableMap.values().iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return innerMap.get(key);
+        return innerConcurrentNavigableMap.get(key);
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        innerMap.put(entry.key(), entry);
+        innerConcurrentNavigableMap.put(entry.key(), entry);
     }
 
     static class MemorySegmentComparator implements Comparator<MemorySegment> {
@@ -54,7 +54,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (firstMismatch == entry2.byteSize()) {
                 return 1;
             }
-            return Byte.compareUnsigned(
+            return Byte.compare(
                     entry1.getAtIndex(ValueLayout.JAVA_BYTE, firstMismatch),
                     entry2.getAtIndex(ValueLayout.JAVA_BYTE, firstMismatch)
             );
