@@ -19,7 +19,7 @@ import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private static final String fileName = "entries";
+    private static final String FILE_NAME = "entries";
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> segmentsMap;
     private Path basePath;
 
@@ -46,7 +46,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             fileSize += Long.BYTES + entry.key().byteSize() + Long.BYTES + entry.value().byteSize();
         }
 
-        Path filePath = basePath.resolve(fileName);
+        Path filePath = basePath.resolve(FILE_NAME);
 
         if (Files.notExists(filePath)) {
             Files.createFile(filePath);
@@ -59,13 +59,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         for (Entry<MemorySegment> entry : segmentsMap.values()) {
             long keySize = entry.key().byteSize();
-            long valueSize = entry.value().byteSize();
 
             mappedSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, keySize);
             offset += Long.BYTES;
             mappedSegment.asSlice(offset, keySize).copyFrom(entry.key());
             offset += keySize;
 
+            long valueSize = entry.value().byteSize();
             mappedSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, valueSize);
             offset += Long.BYTES;
             mappedSegment.asSlice(offset, valueSize).copyFrom(entry.value());
@@ -75,14 +75,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        if (!segmentsMap.containsKey(key)) {
+        if (segmentsMap.containsKey(key)) {
+            return segmentsMap.get(key);
+        } else {
             try {
                 return getFromFile(key);
             } catch (IOException e) {
                 return null;
             }
-        } else {
-            return segmentsMap.get(key);
         }
     }
 
@@ -109,7 +109,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public Entry<MemorySegment> getFromFile(MemorySegment key) throws IOException {
-        Path filePath = basePath.resolve(fileName);
+        Path filePath = basePath.resolve(FILE_NAME);
 
         if (Files.notExists(filePath)) {
             return null;
