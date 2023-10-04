@@ -97,12 +97,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public MemorySegment getWriteBufferToSsTable() throws IOException {
-        return FileChannel.open(ssTablePath, EnumSet.of(
-                        StandardOpenOption.READ,
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.TRUNCATE_EXISTING))
-                .map(FileChannel.MapMode.READ_WRITE, 0, getSsTableDataByteSize(), Arena.ofAuto());
+        MemorySegment buffer;
+        try (FileChannel channel = FileChannel.open(ssTablePath, EnumSet.of(
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING))) {
+          buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, getSsTableDataByteSize(), Arena.ofAuto());
+        }
+        return buffer;
     }
 
     public void writeMemTableDataToFile(MemorySegment buffer) {
@@ -119,11 +122,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    public MemorySegment getReadBufferFromSsTable() {
+    public final MemorySegment getReadBufferFromSsTable() {
         MemorySegment buffer;
+        FileChannel channel;
         try {
-            buffer = FileChannel.open(ssTablePath, StandardOpenOption.READ)
-                    .map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), Arena.ofAuto());
+             channel = FileChannel.open(ssTablePath, StandardOpenOption.READ);
+            buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), Arena.ofAuto());
         } catch (IOException e) {
             buffer = null;
         }
