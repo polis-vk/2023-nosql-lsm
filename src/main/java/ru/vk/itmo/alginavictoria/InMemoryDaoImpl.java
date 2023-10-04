@@ -26,5 +26,4 @@ public class InMemoryDaoImpl extends AbstractDao {
         return key == null ? null : dataMap.get(key);
     }
 
-
 }
