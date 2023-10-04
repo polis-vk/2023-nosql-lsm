@@ -5,13 +5,23 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.*;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.RandomAccessFile;
+import java.io.Serializable;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -19,7 +29,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final String FILENAME = "sstable";
 
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable;
-    private Config config = null;
+    private Config config;
     private SsTable ssTable;
 
     private static final Comparator<MemorySegment> COMPARE_SEGMENT = (o1, o2) -> {
@@ -87,37 +97,35 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        if (config != null) {
-            ArrayList<SsTable.Offset> offsets = new ArrayList<>();
-            try (FileOutputStream stream = new FileOutputStream(config.basePath().resolve(FILENAME + ".data").toFile())) {
-                for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : memTable.entrySet()) {
-                    MemorySegment key = entry.getKey();
-                    Entry<MemorySegment> val = entry.getValue();
+        if (config == null) {
+            return;
+        }
+        ArrayList<SsTable.Offset> offsets = new ArrayList<>();
+        try (FileOutputStream stream = new FileOutputStream(
+                config.basePath().resolve(FILENAME + ".data").toFile());
+             FileOutputStream outputStream = new FileOutputStream(
+                     config.basePath().resolve(FILENAME + ".meta").toFile());
+             ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream)) {
 
-                    byte[] keyBytes = toBytes(key);
-                    byte[] val1Bytes = toBytes(val.key());
-                    byte[] val2Bytes = toBytes(val.value());
+            for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : memTable.entrySet()) {
+                MemorySegment key = entry.getKey();
+                Entry<MemorySegment> val = entry.getValue();
 
-                    long prevOffset = 0;
-                    if (!offsets.isEmpty()) {
-                        var last = offsets.getLast();
-                        prevOffset = last.keyOffset + last.keySize + last.val1Size + last.val2Size;
-                    }
-
-                    stream.write(keyBytes);
-                    stream.write(val1Bytes);
-                    stream.write(val2Bytes);
-
-                    offsets.add(new SsTable.Offset(prevOffset, key.byteSize(), val.key().byteSize(), val.value().byteSize()));
+                long prevOffset = 0;
+                if (!offsets.isEmpty()) {
+                    var last = offsets.getLast();
+                    prevOffset = last.keyOffset + last.keySize + last.val1Size + last.val2Size;
                 }
+
+                stream.write(toBytes(key));
+                stream.write(toBytes(val.key()));
+                stream.write(toBytes(val.value()));
+
+                offsets.add(
+                        new SsTable.Offset(prevOffset, key.byteSize(), val.key().byteSize(), val.value().byteSize()));
             }
 
-            FileOutputStream outputStream = new FileOutputStream(config.basePath().resolve(FILENAME + ".meta").toFile());
-            ObjectOutputStream objectOutputStream = new ObjectOutputStream(outputStream);
-
             objectOutputStream.writeObject(offsets);
-        } else {
-            System.err.println("DAO don't know path to save directory");
         }
     }
 
@@ -126,8 +134,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private class SsTable {
-        MemorySegment data = null;
-        ArrayList<Offset> offsetsTable = null;
+        MemorySegment data;
+        List<Offset> offsetsTable;
 
         SsTable(String filename) {
             Path pathToSsTable = config.basePath().resolve(filename + ".data");
@@ -140,12 +148,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
                 data = channel.map(FileChannel.MapMode.READ_ONLY, 0, randomAccessFile.length(), Arena.global());
                 offsetsTable = (ArrayList<Offset>) objectInputStream.readObject();
-            } catch (FileNotFoundException e) {
-                System.err.println("File not found: " + e);
-            } catch (IOException e) {
-                System.err.println("IOException: " + e);
-            } catch (Exception e) {
-                System.err.println("Some exception: " + e);
+            } catch (Exception ignored) {
             }
         }
 
@@ -155,7 +158,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 if (COMPARE_SEGMENT.compare(currentKey, key) == 0) {
                     return new BaseEntry<>(
                             MemorySegment.ofArray(read(offset.keyOffset + offset.keySize, offset.val1Size)),
-                            MemorySegment.ofArray(read(offset.keyOffset + offset.keySize + offset.val1Size, offset.val2Size))
+                            MemorySegment.ofArray(
+                                    read(offset.keyOffset + offset.keySize + offset.val1Size, offset.val2Size))
                     );
                 }
             }
