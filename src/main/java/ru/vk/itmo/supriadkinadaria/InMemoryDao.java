@@ -6,7 +6,6 @@ import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.nio.file.Files;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
@@ -22,9 +21,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao(Config config) throws IOException {
         this.sstableManipulations = new SStableManipulations(config);
-        if (Files.exists(sstableManipulations.getFilePath())) {
-            sstableManipulations.readStorage(this);
-        }
     }
 
     @Override
@@ -41,7 +37,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return storage.get(key);
+        try {
+            if(storage.containsKey(key)) {
+                return storage.get(key);
+            }
+            return sstableManipulations.getFromSSTable(key);
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     @Override

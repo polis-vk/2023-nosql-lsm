@@ -25,11 +25,7 @@ public class SStableManipulations {
         this.filePath = config.basePath().resolve(SSTABLE);
     }
 
-    public Path getFilePath() {
-        return filePath;
-    }
-
-    public void readStorage(InMemoryDao dao) throws IOException {
+    public BaseEntry<MemorySegment> getFromSSTable(MemorySegment key) throws IOException {
         try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ)) {
             long fileSize = Files.size(filePath);
             MemorySegment storageSegment = channel.map(READ_ONLY, 0, fileSize, Arena.ofConfined());
@@ -37,14 +33,21 @@ public class SStableManipulations {
             while (offset < fileSize) {
                 long keySize = storageSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += Long.BYTES;
-                MemorySegment key = storageSegment.asSlice(offset, keySize);
-                offset += keySize;
-                long valueSize = storageSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
-                dao.upsert(new BaseEntry<>(key, storageSegment.asSlice(offset, valueSize)));
-                offset += valueSize;
+                if (keySize == key.byteSize()) {
+                    MemorySegment keyRestored = storageSegment.asSlice(offset, keySize);
+                    offset += keySize;
+                    long valueSize = storageSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                    offset += Long.BYTES;
+                    if (new InMemoryDao.InMemoryDaoComparator().compare(keyRestored, key) == 0) {
+                        return new BaseEntry<>(key, storageSegment.asSlice(offset, valueSize));
+                    }
+                    offset += valueSize;
+                } else {
+                    offset += keySize + storageSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize) + Long.BYTES;
+                }
             }
         }
+        return null;
     }
 
     public void writeToFile(Map<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
