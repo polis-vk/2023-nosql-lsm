@@ -28,7 +28,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         var value = dataBase.get(key);
-        return value != null ? value : loader.findInSSTable(key);
+        return value == null ? loader.findInSSTable(key) : value;
     }
 
     @Override

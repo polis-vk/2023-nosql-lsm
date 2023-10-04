@@ -32,22 +32,22 @@ public class SSTableLoader {
             throw new UncheckedIOException(e);
         }
 
-        long offset = 0;
+        long fileOffset = 0;
         MemorySegment lastMemorySegment = null;
         Arena arena = Arena.ofConfined();
 
         try (FileChannel channel = FileChannel.open(ssTableFilePath, StandardOpenOption.READ)) {
             MemorySegment fileSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
-            while (offset < fileSize) {
+            while (fileOffset < fileSize) {
                 MemorySegment keySegment = getMemorySegment(fileSegment);
                 if (comparator.compare(key, keySegment) == 0) {
                     lastMemorySegment = getMemorySegment(fileSegment);
                     break;
                 }
-                offset += keySegment.byteSize();
+                fileOffset += keySegment.byteSize();
             }
 
-            return lastMemorySegment != null ? new BaseEntry<>(key, lastMemorySegment) : null;
+            return lastMemorySegment == null ? null : new BaseEntry<>(key, lastMemorySegment);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
