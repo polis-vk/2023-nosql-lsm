@@ -1,8 +1,6 @@
 package ru.vk.itmo.tuzikovalexandr;
 
-import ru.vk.itmo.BaseEntry;
-import ru.vk.itmo.Config;
-import ru.vk.itmo.Entry;
+import ru.vk.itmo.*;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
