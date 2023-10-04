@@ -135,10 +135,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        if (arena != null && !arena.scope().isAlive()) {
-            return;
-        } else if (arena != null) {
-            arena.close();
+        if (arena != null) {
+            if (!arena.scope().isAlive()) {
+                return;
+            } else {
+                arena.close();
+            }
         }
 
         lock.writeLock().lock();
