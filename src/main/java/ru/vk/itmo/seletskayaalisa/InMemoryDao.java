@@ -59,15 +59,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         for (Entry<MemorySegment> entry : segmentsMap.values()) {
             long keySize = entry.key().byteSize();
+            long valueSize = entry.value().byteSize();
+
             mappedSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, keySize);
             offset += Long.BYTES;
             mappedSegment.asSlice(offset, keySize).copyFrom(entry.key());
             offset += keySize;
 
-            long valueSize = entry.value().byteSize();
             mappedSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, valueSize);
             offset += Long.BYTES;
-            mappedSegment.asSlice(offset, keySize).copyFrom(entry.value());
+            mappedSegment.asSlice(offset, valueSize).copyFrom(entry.value());
             offset += valueSize;
         }
     }
@@ -119,6 +120,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         MemorySegment mappedSegment = mapFile(filePath, fileSize,
                 FileChannel.MapMode.READ_ONLY, StandardOpenOption.READ);
 
+        MemorySegmentComparator comparator = new MemorySegmentComparator();
+
         long offset = 0;
 
         while (offset < fileSize) {
@@ -132,7 +135,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             MemorySegment entryValue = mappedSegment.asSlice(offset, valueSize);
             offset += valueSize;
 
-            if (key == entryKey) {
+            if (comparator.compare(key, entryKey) == 0) {
                 return new BaseEntry<>(entryKey, entryValue);
             }
         }
