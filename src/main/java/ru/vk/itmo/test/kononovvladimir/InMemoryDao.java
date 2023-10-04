@@ -93,20 +93,16 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         for (Entry<MemorySegment> value : concurrentSkipListMap.values()) {
 
                             dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, value.value().byteSize());
-                            keyWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeys, value.key().byteSize());
+                            keyWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeys, value.key().byteSize()); // эксперимент
 
                             offsetData += Long.BYTES;
                             offsetKeys += Long.BYTES;
 
-                            for (int i = 0; i < value.value().byteSize(); i++) {
-                                dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, value.value().get(ValueLayout.JAVA_BYTE, i));
-                                offsetData += Byte.SIZE;
-                            }
+                            dataWriteSegment.asSlice(offsetData, value.value().byteSize()).copyFrom(value.value());
+                            offsetData += value.value().byteSize();
 
-                            for (int i = 0; i < value.key().byteSize(); i++) {
-                                dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeys, value.key().get(ValueLayout.JAVA_BYTE, i));
-                                offsetKeys += Byte.SIZE;
-                            }
+                            keyWriteSegment.asSlice(offsetKeys, value.key().byteSize()).copyFrom(value.key());
+                            offsetKeys += value.key().byteSize();
                         }
                     }
                 }
