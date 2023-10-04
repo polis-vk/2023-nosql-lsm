@@ -24,8 +24,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                         segment2.get(ValueLayout.JAVA_BYTE, offset)
                 );
             });
-
-
+    
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
