@@ -95,16 +95,27 @@ public class SSTable {
                 for (Entry<MemorySegment> entry : inMemoryData.values()) {
                     if (entry != null) {
                         long entryKeySize = entry.key().byteSize();
-                        long entryValueSize = entry.value().byteSize();
-
                         segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryKeySize);
                         offset += Long.BYTES;
-                        MemorySegment.copy(entry.key(), 0, segmentToWrite, offset, entryKeySize);
+                        MemorySegment.copy(
+                                entry.key(),
+                                0,
+                                segmentToWrite,
+                                offset,
+                                entryKeySize
+                        );
                         offset += entryKeySize;
 
+                        long entryValueSize = entry.value().byteSize();
                         segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryValueSize);
                         offset += Long.BYTES;
-                        MemorySegment.copy(entry.value(), 0, segmentToWrite, offset, entryValueSize);
+                        MemorySegment.copy(
+                                entry.value(),
+                                0,
+                                segmentToWrite,
+                                offset,
+                                entryValueSize
+                        );
                         offset += entryValueSize;
                     }
 
