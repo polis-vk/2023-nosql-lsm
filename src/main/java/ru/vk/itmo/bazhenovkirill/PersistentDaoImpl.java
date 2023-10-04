@@ -11,18 +11,29 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.*;
+import java.nio.channels.FileChannel.MapMode;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
+import java.util.Set;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-import java.nio.channels.FileChannel.MapMode;
 
 public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String DATA_FILE = "sstable.db";
 
     private static final ElementSearchStrategy searchStrategy = new LinearSearchStrategy();
+
+    private static final Set<StandardOpenOption> WRITE_OPTIONS = Set.of(
+            StandardOpenOption.CREATE,
+            StandardOpenOption.READ,
+            StandardOpenOption.TRUNCATE_EXISTING,
+            StandardOpenOption.WRITE
+    );
 
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable
             = new ConcurrentSkipListMap<>(MemorySegmentComparator.getInstance());
@@ -54,7 +65,7 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
 
     @Override
     public void flush() throws IOException {
-        try (FileChannel channel = FileChannel.open(dataPath, StandardOpenOption.READ, StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
+        try (FileChannel channel = FileChannel.open(dataPath, WRITE_OPTIONS)) {
             try (Arena arena = Arena.ofConfined()) {
                 MemorySegment dataMemorySegment = channel.map(MapMode.READ_WRITE, 0, getMemTableSizeInBytes(), arena);
                 long offset = 0;

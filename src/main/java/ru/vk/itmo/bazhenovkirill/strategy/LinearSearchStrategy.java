@@ -7,13 +7,14 @@ import ru.vk.itmo.bazhenovkirill.MemorySegmentComparator;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class LinearSearchStrategy implements ElementSearchStrategy{
+public class LinearSearchStrategy implements ElementSearchStrategy {
 
     private final MemorySegmentComparator comparator = MemorySegmentComparator.getInstance();
 
     @Override
     public Entry<MemorySegment> search(MemorySegment data, MemorySegment key, long fileSize) {
-        for (long offset = 0; offset < fileSize;) {
+        long offset = 0;
+        while (offset < fileSize) {
             long keySize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
 
