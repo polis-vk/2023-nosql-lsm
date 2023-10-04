@@ -48,8 +48,8 @@ public class SSTable {
         final Path indexPath = basePath.resolve(INDEX_FILE);
         final Path tablePath = basePath.resolve(TABLE_FILE);
         if (Files.exists(indexPath) && Files.exists(tablePath)) {
-            try (final FileChannel indexChannel = FileChannel.open(indexPath, READ_OPTIONS);
-                 final FileChannel tableChannel = FileChannel.open(tablePath, READ_OPTIONS)) {
+            try (FileChannel indexChannel = FileChannel.open(indexPath, READ_OPTIONS);
+                 FileChannel tableChannel = FileChannel.open(tablePath, READ_OPTIONS)) {
                 indexFileMap = indexChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath),
                         Arena.ofConfined());
                 tableFileMap = tableChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(tablePath),
@@ -61,7 +61,7 @@ public class SSTable {
         }
     }
 
-    public Entry<MemorySegment> getEntity(final MemorySegment key) throws IOException {
+    public Entry<MemorySegment> getEntity(final MemorySegment key) {
         if (tableFileMap == null || indexFileMap == null) {
             return null;
         }
@@ -121,8 +121,8 @@ public class SSTable {
         final Path indexPath = basePath.resolve(INDEX_FILE);
         final Path tablePath = basePath.resolve(TABLE_FILE);
 
-        try (final FileChannel indexChannel = FileChannel.open(indexPath, READ_WRITE_OPTIONS);
-             final FileChannel tableChannel = FileChannel.open(tablePath, READ_WRITE_OPTIONS)) {
+        try (FileChannel indexChannel = FileChannel.open(indexPath, READ_WRITE_OPTIONS);
+             FileChannel tableChannel = FileChannel.open(tablePath, READ_WRITE_OPTIONS)) {
 
             final long indexFileSize = (long) data.size() * Long.BYTES;
             final long tableFileSize = data.values().stream().mapToLong(entry -> {

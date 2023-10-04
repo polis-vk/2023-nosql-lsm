@@ -42,11 +42,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return data.get(key);
         }
         if (ssTable != null) {
-            try {
-                return ssTable.getEntity(key);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
+            return ssTable.getEntity(key);
         }
         return null;
     }
