@@ -5,6 +5,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
 import java.util.Iterator;
@@ -14,14 +15,16 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
+    private final Arena memoryArena;
     private final SSTable ssTable;
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
     public static final String SSTABLE_NAME = "sstable";
     public static final long TABLE_SIZE_LIMIT = 1024 * 8; // TODO: От балды
 
     public DaoImpl(final Config config) throws IOException {
+        memoryArena = Arena.ofShared();
         ssTable = new SSTable(getSSTablePath(config.basePath()));
-        storage = new ConcurrentSkipListMap<>(ssTable.load(TABLE_SIZE_LIMIT));
+        storage = new ConcurrentSkipListMap<>(ssTable.load(memoryArena, TABLE_SIZE_LIMIT));
     }
 
     private static <T> Iterator<T> getValuesIterator(final ConcurrentNavigableMap<?, T> map) {
@@ -72,9 +75,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return result;
         }
         try {
-            return ssTable.get(key);
+            return ssTable.get(key, Arena.ofAuto());
         } catch (IOException e) {
-            System.err.println(e.getMessage());
             return null;
         }
     }
@@ -86,5 +88,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void close() throws IOException {
         ssTable.write(storage);
+        storage.clear();
+        memoryArena.close();
     }
 }

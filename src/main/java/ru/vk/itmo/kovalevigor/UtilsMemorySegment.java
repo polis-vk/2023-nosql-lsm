@@ -5,9 +5,12 @@ import java.lang.foreign.ValueLayout;
 
 public class UtilsMemorySegment {
 
+    private UtilsMemorySegment(){}
+
     private static byte getByte(final MemorySegment memorySegment, final long offset) {
         return memorySegment.get(ValueLayout.JAVA_BYTE, offset);
     }
+
     public static int compare(final MemorySegment lhs, final MemorySegment rhs) {
         final long mismatch = lhs.mismatch(rhs);
         final long lhsSize = lhs.byteSize();
