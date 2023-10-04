@@ -65,9 +65,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 long entryCount = sizeBuffer.position(0).getLong();
                 for (long i = 0; i < entryCount; i++) {
                     MemorySegment entryKey = readMemorySegment(fileChannel, sizeBuffer, daoArena);
-                    MemorySegment entryValue = readMemorySegment(fileChannel, sizeBuffer, daoArena);
                     if (MEMORY_SEGMENT_COMPARATOR.compare(key, entryKey) == 0) {
+                        MemorySegment entryValue = readMemorySegment(fileChannel, sizeBuffer, daoArena);
                         return new BaseEntry<>(entryKey, entryValue);
+                    } else {
+                        movePosition(fileChannel, sizeBuffer);
                     }
                 }
             } catch (IOException e) {
@@ -75,6 +77,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
         return null;
+    }
+
+    private void movePosition(FileChannel fileChannel, ByteBuffer sizeBuffer) throws IOException {
+        sizeBuffer.position(0);
+        fileChannel.read(sizeBuffer);
+        fileChannel.position(fileChannel.position() + sizeBuffer.position(0).getLong());
     }
 
     @Override
