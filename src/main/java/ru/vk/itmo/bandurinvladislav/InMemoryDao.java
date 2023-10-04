@@ -1,12 +1,22 @@
 package ru.vk.itmo.bandurinvladislav;
 
+import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.*;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -23,11 +33,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return m1.get(ValueLayout.JAVA_BYTE, mismatch) - m2.get(ValueLayout.JAVA_BYTE, mismatch);
         }
     };
+    private static final String STORAGE_NAME = "persistentStorage.txt";
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryStorage;
+    private final Arena daoArena = Arena.ofConfined();
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryStorage = new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
+    private final Path persistentStorage;
 
-    public InMemoryDao() {
-        inMemoryStorage = new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
+    private long readOffset;
+    private long writeOffset;
+
+    public InMemoryDao(Config config) throws IOException {
+        persistentStorage = config.basePath().resolve(STORAGE_NAME);
     }
 
     @Override
@@ -37,7 +53,32 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return inMemoryStorage.get(key);
+        Entry<MemorySegment> memorySegmentEntry = inMemoryStorage.get(key);
+        if (memorySegmentEntry != null) {
+            return memorySegmentEntry;
+        }
+
+        if (!Files.exists(persistentStorage)) {
+            return null;
+        } else {
+            readOffset = 0;
+            try (FileChannel fileChannel = FileChannel.open(persistentStorage,
+                    StandardOpenOption.READ)) {
+                ByteBuffer sizeBuffer = ByteBuffer.allocate(8);
+                readOffset += fileChannel.read(sizeBuffer);
+                long entryCount = sizeBuffer.position(0).getLong();
+                for (long i = 0; i < entryCount; i++) {
+                    MemorySegment entryKey = readMemorySegment(fileChannel, sizeBuffer, daoArena);
+                    MemorySegment entryValue = readMemorySegment(fileChannel, sizeBuffer, daoArena);
+                    if (MEMORY_SEGMENT_COMPARATOR.compare(key, entryKey) == 0) {
+                        return new BaseEntry<>(entryKey, entryValue);
+                    }
+                }
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+        return null;
     }
 
     @Override
@@ -54,6 +95,58 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return inMemoryStorage.tailMap(from, true).values().iterator();
         } else {
             return inMemoryStorage.subMap(from, true, to, false).values().iterator();
+        }
+    }
+
+    private void writeMemorySegment(FileChannel fileChannel, ByteBuffer sizeBuffer, MemorySegment value, Arena arena)
+            throws IOException {
+        writeOffset += fileChannel.write(sizeBuffer.putLong(0, value.byteSize()).position(0));
+        MemorySegment offHeapSegment = fileChannel.map(FileChannel.MapMode.READ_WRITE,
+                writeOffset, value.byteSize(), arena);
+        offHeapSegment.copyFrom(value);
+        offHeapSegment.load();
+        writeOffset += value.byteSize();
+        fileChannel.position(writeOffset);
+    }
+
+    private MemorySegment readMemorySegment(FileChannel fileChannel, ByteBuffer sizeBuffer, Arena arena) throws IOException {
+        sizeBuffer.position(0);
+        readOffset += fileChannel.read(sizeBuffer);
+        MemorySegment fileSegment = fileChannel.map(
+                FileChannel.MapMode.READ_ONLY,
+                readOffset,
+                sizeBuffer.position(0).getLong(),
+                arena
+        );
+        readOffset += fileSegment.byteSize();
+        fileChannel.position(readOffset);
+        return fileSegment;
+    }
+
+    @Override
+    public void flush() throws IOException {
+        int entryCount = inMemoryStorage.size();
+
+        try (FileChannel fileChannel = FileChannel.open(persistentStorage,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.READ,
+                StandardOpenOption.TRUNCATE_EXISTING)) {
+            ByteBuffer sizeBuffer = ByteBuffer.allocate(8);
+            writeOffset += fileChannel.write(sizeBuffer.putLong(0, entryCount));
+            for (Map.Entry<MemorySegment, Entry<MemorySegment>> memorySegmentEntry : inMemoryStorage.entrySet()) {
+                writeMemorySegment(fileChannel, sizeBuffer, memorySegmentEntry.getKey(), daoArena);
+                writeMemorySegment(fileChannel, sizeBuffer, memorySegmentEntry.getValue().value(), daoArena);
+            }
+        }
+    }
+
+    @Override
+    public void close() throws IOException {
+        flush();
+
+        if (daoArena.scope().isAlive()) {
+            daoArena.close();
         }
     }
 }
