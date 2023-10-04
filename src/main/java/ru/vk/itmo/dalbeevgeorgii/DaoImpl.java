@@ -25,6 +25,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 );
             });
 
+
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {

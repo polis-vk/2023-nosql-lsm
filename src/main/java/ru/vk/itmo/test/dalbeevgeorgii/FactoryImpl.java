@@ -26,6 +26,7 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
         return new String(memorySegment.toArray(JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
+    
     @Override
     public MemorySegment fromString(String data) {
         if (data == null) {
