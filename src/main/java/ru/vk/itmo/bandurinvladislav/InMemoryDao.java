@@ -144,10 +144,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        flush();
-
         if (daoArena.scope().isAlive()) {
             daoArena.close();
         }
+
+        flush();
     }
 }
