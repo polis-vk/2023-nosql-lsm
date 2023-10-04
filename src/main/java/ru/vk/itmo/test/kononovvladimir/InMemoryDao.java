@@ -38,7 +38,8 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     };
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> concurrentSkipListMap = new ConcurrentSkipListMap<>(memorySegmentComparator);
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> concurrentSkipListMap
+            = new ConcurrentSkipListMap<>(memorySegmentComparator);
 
     public InMemoryDao(Config config) {
 
@@ -61,7 +62,6 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             dataSegment = null;
             keySegment = null;
         }
-
     }
 
     @Override
@@ -70,8 +70,11 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
-        try (var dataChanel = FileChannel.open(dataPath, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.CREATE)) {
-            try (var keyChanel = FileChannel.open(keyPath, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.CREATE)) {
+        try (var dataChanel = FileChannel.open(dataPath, StandardOpenOption.READ,
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.CREATE)) {
+            try (var keyChanel = FileChannel.open(keyPath, StandardOpenOption.READ,
+                    StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.CREATE)) {
+
                 long sizeData = 0;
                 long sizeKeys = 0;
 
@@ -84,8 +87,10 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
                 try (Arena arenaData = Arena.ofConfined()) {
                     try (Arena arenaKeys = Arena.ofConfined()) {
-                        MemorySegment dataWriteSegment = dataChanel.map(FileChannel.MapMode.READ_WRITE, 0, sizeData, arenaData);
-                        MemorySegment keyWriteSegment = keyChanel.map(FileChannel.MapMode.READ_WRITE, 0, sizeKeys, arenaKeys);
+                        MemorySegment dataWriteSegment = dataChanel.map(FileChannel.MapMode.READ_WRITE,
+                                0, sizeData, arenaData);
+                        MemorySegment keyWriteSegment = keyChanel.map(FileChannel.MapMode.READ_WRITE,
+                                0, sizeKeys, arenaKeys);
                         long offsetData = 0;
                         long offsetKeys = 0;
                         dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, concurrentSkipListMap.size());
@@ -93,7 +98,7 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         for (Entry<MemorySegment> value : concurrentSkipListMap.values()) {
 
                             dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, value.value().byteSize());
-                            keyWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeys, value.key().byteSize()); // эксперимент
+                            keyWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeys, value.key().byteSize());
 
                             offsetData += Long.BYTES;
                             offsetKeys += Long.BYTES;
@@ -108,8 +113,6 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
         }
-
-
     }
 
     @Override
@@ -122,7 +125,6 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (dataSegment == null || keySegment == null) {
             return null;
         }
-
 
         try {
             Files.deleteIfExists(keyPath);
@@ -170,8 +172,6 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         if (entry == null || entry.key() == null || entry.value() == null) return;
-
-
         concurrentSkipListMap.put(entry.key(), entry);
     }
 }
