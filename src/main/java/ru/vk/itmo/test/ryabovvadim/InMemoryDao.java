@@ -159,7 +159,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void save(Path path) throws IOException {
         try (FileOutputStream outputFile = new FileOutputStream(path.toFile())) {
             DataOutput output = new DataOutputStream(outputFile);
-            long offset = JAVA_INT.byteSize() + storage.size() * JAVA_BYTE.byteSize();
+            long offset = JAVA_INT.byteSize() + storage.size() * JAVA_LONG.byteSize();
             Collection<Entry<MemorySegment>> segments = storage.values();
 
             output.writeInt(storage.size());
