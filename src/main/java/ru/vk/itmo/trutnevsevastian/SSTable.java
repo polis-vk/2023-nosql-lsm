@@ -16,7 +16,7 @@ public class SSTable {
     }
 
     public MemorySegment get(MemorySegment key) {
-        int offset = 0;
+        long offset = 0;
         while (offset < data.byteSize()) {
             long keySize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
@@ -25,11 +25,10 @@ public class SSTable {
             long valueSize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
 
-            if (comparator.compare(entryKey, key) != 0) {
-                offset += valueSize;
-                continue;
+            if (comparator.compare(entryKey, key) == 0) {
+                return data.asSlice(offset, valueSize);
             }
-            return data.asSlice(offset, valueSize);
+            offset += valueSize;
         }
         return null;
     }

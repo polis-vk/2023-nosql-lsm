@@ -19,7 +19,6 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
         return new DaoImpl(config);
     }
 
-
     @Override
     public String toString(MemorySegment data) {
         if (data == null) {

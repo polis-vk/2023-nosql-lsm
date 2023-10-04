@@ -33,12 +33,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         var filePath = path.resolve(SS_TABLE_FILE_NAME);
         if (Files.exists(filePath)) {
             lastSSTable = repository.read(filePath);
-        }else {
+        } else {
             lastSSTable = null;
         }
     }
-
-
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
@@ -72,9 +70,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         var entryInMemTable = storage.get(key);
-        if(entryInMemTable != null || lastSSTable == null) return entryInMemTable;
+        if (entryInMemTable != null || lastSSTable == null) return entryInMemTable;
         var value = lastSSTable.get(key);
-        if(value == null) return null;
+        if (value == null) return null;
         return new BaseEntry<>(key, value);
     }
 

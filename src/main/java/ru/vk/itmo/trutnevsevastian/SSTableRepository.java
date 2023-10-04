@@ -37,8 +37,8 @@ public class SSTableRepository {
             }
 
             MemorySegment writeSegment = channel.map(FileChannel.MapMode.READ_WRITE, 0, memTableSize, Arena.global());
-            int offset = 0;
-            for (var entry : memTable.values()) {
+            long offset = 0;
+            for (var entry : memTableSnapshot) {
                 long keySize = entry.key().byteSize();
                 writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, keySize);
                 offset += Long.BYTES;
