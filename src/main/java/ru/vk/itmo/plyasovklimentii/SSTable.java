@@ -36,7 +36,7 @@ public class SSTable {
         }
     }
 
-    public Entry<MemorySegment> get(MemorySegment key){
+    public Entry<MemorySegment> get(MemorySegment key) {
         if (segment == null) {
             return null;
         }
@@ -58,7 +58,6 @@ public class SSTable {
         return null;
     }
 
-
     public void save(Map<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
         try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
@@ -73,10 +72,9 @@ public class SSTable {
 
             MemorySegment ssTableSegment = channel.map(FileChannel.MapMode.READ_WRITE, 0, size, Arena.ofConfined());
             long offset = 0;
-            for (Entry<MemorySegment> entry : storage.values()){
+            for (Entry<MemorySegment> entry : storage.values()) {
                 long keySize = entry.key().byteSize();
                 long valueSize = entry.value().byteSize();
-
                 ssTableSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, keySize);
                 offset += LONG_SIZE_BYTES;
                 ssTableSegment.asSlice(offset, keySize).copyFrom(entry.key());
