@@ -1,22 +1,31 @@
 package ru.vk.itmo.test.alginavictoria;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.alginavictoria.InMemoryDao;
+import ru.vk.itmo.alginavictoria.InMemoryDaoImpl;
+import ru.vk.itmo.alginavictoria.PersistenceDaoImpl;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-@DaoFactory
-public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+@DaoFactory(stage = 2)
+public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+        return new InMemoryDaoImpl();
     }
+
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new PersistenceDaoImpl(config);
+    }
+
 
     @Override
     public String toString(MemorySegment memorySegment) {

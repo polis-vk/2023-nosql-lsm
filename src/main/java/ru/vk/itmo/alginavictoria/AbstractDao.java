@@ -10,21 +10,21 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public abstract class AbstractDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> dataMap
+    protected final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> dataMap
             = new ConcurrentSkipListMap<>((s1, s2) -> {
-                var mismatch = s1.mismatch(s2);
-                if (mismatch == -1) {
-                    return 0;
-                }
-                if (mismatch == s1.byteSize()) {
-                    return -1;
-                }
-                if (mismatch == s2.byteSize()) {
-                    return 1;
-                }
-                return Byte.compare(s1.get(JAVA_BYTE, mismatch), s2.get(JAVA_BYTE, mismatch));
+        var mismatch = s1.mismatch(s2);
+        if (mismatch == -1) {
+            return 0;
+        }
+        if (mismatch == s1.byteSize()) {
+            return -1;
+        }
+        if (mismatch == s2.byteSize()) {
+            return 1;
+        }
+        return Byte.compare(s1.get(JAVA_BYTE, mismatch), s2.get(JAVA_BYTE, mismatch));
     });
 
     @Override
@@ -42,15 +42,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public Entry<MemorySegment> get(MemorySegment key) {
-        return key == null ? null : dataMap.get(key);
-    }
-
-    @Override
     public void upsert(Entry<MemorySegment> entry) {
         if (entry == null || entry.key() == null) {
             return;
         }
         dataMap.put(entry.key(), entry);
     }
+
 }
