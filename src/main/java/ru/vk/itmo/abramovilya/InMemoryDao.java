@@ -60,21 +60,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private Entry<MemorySegment> seekForValueInFile(MemorySegment key) {
-        if (storagePath == null || !Files.exists(storagePath)) {
+        if (!Files.exists(storagePath)) {
             return null;
         }
         readOffset = 0;
-        MemorySegment lastMemorySegment = null;
         try (FileChannel fc = FileChannel.open(storagePath, StandardOpenOption.READ)) {
             MemorySegment mapped = fc.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storagePath), arena);
             while (readOffset < Files.size(storagePath)) {
                 MemorySegment keySegment = getMemorySegment(mapped);
                 if (compareMemorySegments(key, keySegment) == 0) {
-                    lastMemorySegment = getMemorySegment(mapped);
+                    return new BaseEntry<>(key, getMemorySegment(mapped));
                 }
-            }
-            if (lastMemorySegment != null) {
-                return new BaseEntry<>(key, lastMemorySegment);
             }
             return null;
         } catch (IOException e) {
