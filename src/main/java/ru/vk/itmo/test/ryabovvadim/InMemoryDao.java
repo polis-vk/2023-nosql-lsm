@@ -48,7 +48,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena = Arena.ofAuto();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
-    private final Path ssTablePath;
+    private final Config config;
     private final SSTable ssTable;
 
     public InMemoryDao() {
@@ -56,12 +56,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public InMemoryDao(Config config) {
+        this.config = config;
         if (config == null) {
-            this.ssTablePath = null;
             this.ssTable = null;
         } else {
-            this.ssTablePath = config.basePath().resolve("sstable");
-            this.ssTable = new SSTable(arena, ssTablePath);
+            this.ssTable = new SSTable(arena, config.basePath().resolve("data.sst"));
         }
     }
 
@@ -119,7 +118,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public void maybeLoad(MemorySegment key) {
-        if (ssTable == null || storage.containsKey(key)) {
+        if (config == null || storage.containsKey(key)) {
             return;
         }
 
@@ -130,7 +129,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public void maybeLoad(MemorySegment from, MemorySegment to) {
-        if (ssTable == null || (storage.containsKey(from) && storage.containsKey(to))) {
+        if (config == null || (storage.containsKey(from) && storage.containsKey(to))) {
             return;
         }
 
@@ -138,18 +137,20 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public void save(DataOutput output) throws IOException {
-        long offset = storage.size() * JAVA_BYTE.byteSize();
-        List<Entry<MemorySegment>> segments = new ArrayList<>();
+        if (config == null) {
+            return;
+        }
+
+        long offset = JAVA_INT.byteSize() + storage.size() * JAVA_BYTE.byteSize();
+        Collection<Entry<MemorySegment>> segments = storage.values();
 
         output.writeInt(storage.size());
-        for (Entry<MemorySegment> entry : storage.values()) {
+        for (Entry<MemorySegment> entry : segments) {
             MemorySegment key = entry.key();
             MemorySegment value = entry.value();
 
             output.writeLong(offset);
             offset += 2 * JAVA_LONG.byteSize() + key.byteSize() + value.byteSize();
-
-            segments.add(entry);
         }
 
         for (var entry : segments) {
@@ -167,6 +168,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         private final Map<MemorySegment, Integer> idsBySegment = new ConcurrentHashMap<>();
         private final Set<Integer> ids = ConcurrentHashMap.newKeySet();
         private final MemorySegment mappedFile;
+        private final int countRecords;
+        private final List<Long> offsets = new ArrayList<>();
 
         public SSTable(Arena arena, Path file) {
             try(FileChannel fileChannel = FileChannel.open(file)) {
@@ -176,50 +179,50 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         fileChannel.size(),
                         arena
                 );
+
+                this.countRecords = mappedFile.get(JAVA_INT, 0);
+                long offset = JAVA_INT.byteSize();
+                for (int i = 0; i < countRecords; ++i) {
+                    offsets.add(mappedFile.get(JAVA_LONG, offset));
+                    offset += JAVA_LONG.byteSize();
+                }
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         }
 
         public Entry<MemorySegment> load(MemorySegment key) {
-            int countRecords = mappedFile.get(JAVA_INT, 0);
-            long offset = JAVA_INT.byteSize();
-
             for (int i = 0; i < countRecords; ++i) {
-                long entryOffset = mappedFile.get(JAVA_LONG, offset);
+                Long entryOffset = offsets.get(i);
                 MemorySegment curKey = readKey(entryOffset);
 
                 if (MEMORY_SEGMENT_COMPARATOR.compare(key, curKey) == 0) {
                     update(key, i);
-                    return new BaseEntry<>(key, readValue(offset));
+                    return new BaseEntry<>(key, readValue(entryOffset));
                 }
-                offset += JAVA_LONG.byteSize();
             }
 
             return null;
         }
 
         public List<Entry<MemorySegment>> load(MemorySegment from, MemorySegment to) {
-            int countRecords = mappedFile.get(JAVA_INT, 0);
-
             List<Entry<MemorySegment>> loadedEntries = new ArrayList<>();
             boolean add = to == null;
             int fromIndex = idsBySegment.getOrDefault(from, 0);
             int toIndex = idsBySegment.getOrDefault(to, countRecords);
+
             for (int i = fromIndex; i < toIndex; ++i) {
                 if (ids.contains(i)) {
                     continue;
                 }
 
-                long offset = JAVA_INT.byteSize() + i * JAVA_LONG.byteSize();
-                long entryOffset = mappedFile.get(JAVA_LONG, offset);
+                Long entryOffset = offsets.get(i);
                 MemorySegment key = readKey(entryOffset);
 
                 if (MEMORY_SEGMENT_COMPARATOR.compare(to, key) == 0) {
                     update(to, i);
                     break;
                 }
-
                 if (!add && MEMORY_SEGMENT_COMPARATOR.compare(from, key) == 0) {
                     update(from, i);
                     add = true;
