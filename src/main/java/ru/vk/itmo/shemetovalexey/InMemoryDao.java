@@ -15,12 +15,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<>(comparator);
 
     private static final Comparator<MemorySegment> comparator = (left, right) -> {
-        for (long i = 0; i < left.byteSize() && i < right.byteSize(); i++) {
-            if (getByte(left, i) - getByte(right, i) != 0) {
-                return getByte(left, i) - getByte(right, i);
-            }
+        long offset = left.mismatch(right);
+        if (offset == -1) {
+            return Long.compare(left.byteSize(), right.byteSize());
+        } else if (offset == left.byteSize() || offset == right.byteSize()) {
+            return offset == left.byteSize() ? -1 : 1;
+        } else {
+            return Byte.compare(getByte(left, offset), getByte(right, offset));
         }
-        return Long.compare(left.byteSize(), right.byteSize());
     };
 
     private static byte getByte(MemorySegment memorySegment, long offset) {
@@ -29,16 +31,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> subMap;
         if (from == null && to == null) {
-            return daoMap.values().iterator();
+            subMap = daoMap;
+        } else if (from == null) {
+            subMap = daoMap.headMap(to);
+        } else if (to == null) {
+            subMap = daoMap.tailMap(from);
+        } else {
+            subMap = daoMap.subMap(from, to);
         }
-        if (from == null) {
-            return daoMap.headMap(to).values().iterator();
-        }
-        if (to == null) {
-            return daoMap.tailMap(from).values().iterator();
-        }
-        return daoMap.subMap(from, to).values().iterator();
+        return subMap.values().iterator();
     }
 
     @Override
@@ -51,6 +54,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
+        if (key == null) {
+            return null;
+        }
         return daoMap.get(key);
     }
 }
