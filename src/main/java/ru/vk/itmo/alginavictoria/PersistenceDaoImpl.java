@@ -18,11 +18,11 @@ import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 public class PersistenceDaoImpl extends AbstractDao {
 
     private final Arena arena;
-    private final String SSTABLE_NAME = "sstable";
+    private static final String DATA_FILE_NAME = "sstable";
     private final Path tablePath;
 
     public PersistenceDaoImpl(Config config) {
-        tablePath = config.basePath().resolve(SSTABLE_NAME);
+        tablePath = config.basePath().resolve(DATA_FILE_NAME);
         arena = Arena.ofConfined();
     }
 

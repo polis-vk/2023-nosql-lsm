@@ -26,7 +26,6 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
         return new PersistenceDaoImpl(config);
     }
 
-
     @Override
     public String toString(MemorySegment memorySegment) {
         return memorySegment == null ? null : new String(memorySegment.toArray(ValueLayout.OfByte.JAVA_BYTE), UTF_8);

@@ -1,14 +1,9 @@
 package ru.vk.itmo.alginavictoria;
 
-import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
-
-import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 public class InMemoryDaoImpl extends AbstractDao {
 
