@@ -3,6 +3,7 @@ package ru.vk.itmo.solonetsarseniy.helpers;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.solonetsarseniy.exception.DaoException;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -16,12 +17,15 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
-import static java.nio.file.StandardOpenOption.*;
+import static java.nio.file.StandardOpenOption.WRITE;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
+import static java.nio.file.StandardOpenOption.CREATE;
+import static ru.vk.itmo.solonetsarseniy.exception.DaoExceptions.ERROR_READING_DATA;
 
 public class DataStorageManager {
     private static final String DATA_FILE_NAME = "storage";
     private static final long LONG_SIZE = 8L;
-    private static final String DATABASE_ERROR = "Возникла непредвиденная ошибка";
     private static final StandardOpenOption[] WRITE_OPTIONS_KIT = new StandardOpenOption[] {
         CREATE, WRITE, READ, TRUNCATE_EXISTING
     };
@@ -64,7 +68,7 @@ public class DataStorageManager {
 
             return new BaseEntry<>(null, null);
         } catch (IOException e) {
-            throw new RuntimeException(DATABASE_ERROR, e);
+            throw new DaoException(ERROR_READING_DATA.getErrorString(), e);
         }
     }
 
@@ -98,8 +102,8 @@ public class DataStorageManager {
     }
 
     private Path getPath() {
-        Path path = Path.of(DATA_FILE_NAME);
-        return config.basePath().resolve(path);
+        Path pathToDataFile = Path.of(DATA_FILE_NAME);
+        return config.basePath().resolve(pathToDataFile);
     }
 
     private MemorySegment createMemorySegment(
@@ -125,7 +129,6 @@ public class DataStorageManager {
             arena
         );
     }
-
 
     private long writeEntry(
         MemorySegment dataMemorySegment,
