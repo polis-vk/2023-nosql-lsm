@@ -6,6 +6,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
@@ -24,6 +25,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final String FILENAME = "sstable";
@@ -31,6 +34,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable;
     private Config config;
     private SsTable ssTable;
+
+    private final Logger logger = Logger.getLogger(InMemoryDao.class.getName());
 
     private static final Comparator<MemorySegment> COMPARE_SEGMENT = (o1, o2) -> {
         if (o1 == null || o2 == null) {
@@ -148,7 +153,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
                 data = channel.map(FileChannel.MapMode.READ_ONLY, 0, randomAccessFile.length(), Arena.global());
                 offsetsTable = (ArrayList<Offset>) objectInputStream.readObject();
-            } catch (Exception ignored) {
+            } catch (FileNotFoundException e) {
+                logger.log(Level.WARNING, "File not found: " + e);
+            } catch (IOException e) {
+                logger.log(Level.WARNING, "IOException: " + e);
+            } catch (Exception e) {
+                logger.log(Level.WARNING, "Some exception: " + e);
             }
         }
 
