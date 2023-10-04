@@ -16,8 +16,17 @@ import java.util.Comparator;
 import java.util.NavigableMap;
 
 public class SSTable {
+    /**
+     * Contains offset and size for every key in index file
+     */
     private final Path summaryFile;
+    /**
+     * Contains keys and for each key contains offset and size of assigned value
+     */
     private final Path indexFile;
+    /**
+     * Contains values
+     */
     private final Path dataFile;
     private final Comparator<MemorySegment> memSegComp;
 
@@ -25,7 +34,6 @@ public class SSTable {
         private static final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
 
         private ByteUtils() {
-
         }
 
         public static byte[] longToBytes(long data) {
@@ -64,6 +72,7 @@ public class SSTable {
         recreate(dataFile);
     }
 
+    /** Sequentially writes every entity data in SStable keeping files data consistent */
     public void write(NavigableMap<MemorySegment, Entry<MemorySegment>> memTable) throws IOException {
         removeOldData();
         long currentDataOffset = 0;
@@ -108,6 +117,8 @@ public class SSTable {
         return new Range(buffer.getLong(), buffer.getLong());
     }
 
+    /** Binary search in summary and index files
+     * @return offset and size of value in data file */
     private Range findByKey(MemorySegment key, MemorySegment indexFile, MemorySegment summaryFile) {
         long left = 0;
         long right = (summaryFile.byteSize() / (2 * Long.BYTES)) - 1;
