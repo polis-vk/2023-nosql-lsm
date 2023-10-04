@@ -9,7 +9,7 @@ import java.lang.foreign.ValueLayout;
 
 public class LinearSearchStrategy implements ElementSearchStrategy {
 
-    private final MemorySegmentComparator comparator = MemorySegmentComparator.getInstance();
+    private final MemorySegmentComparator comparator = new MemorySegmentComparator();
 
     @Override
     public Entry<MemorySegment> search(MemorySegment data, MemorySegment key, long fileSize) {

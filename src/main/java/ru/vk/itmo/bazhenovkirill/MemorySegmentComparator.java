@@ -4,22 +4,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
-public final class MemorySegmentComparator implements Comparator<MemorySegment> {
-    private static MemorySegmentComparator instance;
-
-    private MemorySegmentComparator() {
-    }
-
-    public static MemorySegmentComparator getInstance() {
-        if (instance == null) {
-            synchronized (MemorySegmentComparator.class) {
-                if (instance == null) {
-                    instance = new MemorySegmentComparator();
-                }
-            }
-        }
-        return instance;
-    }
+public class MemorySegmentComparator implements Comparator<MemorySegment> {
 
     @Override
     public int compare(MemorySegment ms1, MemorySegment ms2) {

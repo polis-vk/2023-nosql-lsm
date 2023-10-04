@@ -12,7 +12,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -36,7 +35,7 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
     );
 
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable
-            = new ConcurrentSkipListMap<>(MemorySegmentComparator.getInstance());
+            = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
 
     private final Path dataPath;
 
