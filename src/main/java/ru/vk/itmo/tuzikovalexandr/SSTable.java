@@ -1,6 +1,8 @@
 package ru.vk.itmo.tuzikovalexandr;
 
-import ru.vk.itmo.*;
+import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Config;
+import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -15,13 +17,13 @@ import java.util.Set;
 
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.WRITE;
+import java.nio.file.StandardOpenOption;
 
 public class SSTable {
 
-    private static final Set<OpenOption> openOptions = Set.of(CREATE, READ, WRITE);
+    private static final Set<OpenOption> openOptions = Set.of(
+            StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE
+    );
     private final Path filePath;
     private static final String FILE_PATH = "data";
 
@@ -54,7 +56,7 @@ public class SSTable {
     }
 
     public Entry<MemorySegment> readData(MemorySegment key) {
-        try (FileChannel fc = FileChannel.open(filePath, READ)) {
+        try (FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
             long offset = 0L;
 
             MemorySegment readSegment = fc.map(READ_ONLY, 0, Files.size(filePath), Arena.global());
