@@ -32,7 +32,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return o1.asByteBuffer().compareTo(o2.asByteBuffer());
     };
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> mappings = new ConcurrentSkipListMap<>(
-            comparator
+            new MemSegmentComparator()
     );
 
     public InMemoryDao() {
