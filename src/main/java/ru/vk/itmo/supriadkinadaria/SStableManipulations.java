@@ -18,11 +18,11 @@ import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 
 public class SStableManipulations {
-    private static final String sstable = "sstable.db";
+    private static final String SSTABLE = "sstable.db";
     private final Path filePath;
 
     public SStableManipulations(Config config) {
-        this.filePath = config.basePath().resolve(sstable);
+        this.filePath = config.basePath().resolve(SSTABLE);
     }
 
     public Path getFilePath() {
