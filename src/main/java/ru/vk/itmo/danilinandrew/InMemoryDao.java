@@ -20,19 +20,17 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data =
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-
-    private final String SS_TABLE_FILE = "data.txt";
     private final Path ssTablePath;
     private final Arena readArena = Arena.ofConfined();
     private final MemorySegment mappedMemorySegment;
 
     public InMemoryDao(Config config) {
-        ssTablePath = config.basePath().resolve(SS_TABLE_FILE);
+        ssTablePath = config.basePath().resolve("data.txt");
 
         MemorySegment tempMemorySegment;
-        try {
+        try (FileChannel fileChannel = FileChannel.open(ssTablePath)) {
             long size = Files.size(ssTablePath);
-            tempMemorySegment = FileChannel.open(ssTablePath).map(FileChannel.MapMode.READ_ONLY, 0, size, readArena);
+            tempMemorySegment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, readArena);
         } catch (IOException e) {
             tempMemorySegment = null;
         }
@@ -118,28 +116,30 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             size += 2L * Long.BYTES * size;
 
-            MemorySegment page = FileChannel.open(
+            try (FileChannel fileChannel = FileChannel.open(
                     ssTablePath,
                     StandardOpenOption.WRITE,
                     StandardOpenOption.TRUNCATE_EXISTING,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.READ
-            ).map(FileChannel.MapMode.READ_WRITE, 0, size, writeArena);
+            )) {
+                MemorySegment page = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, size, writeArena);
 
-            long offset = 0;
+                long offset = 0;
 
-            for (Entry<MemorySegment> value : data.values()) {
-                page.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, value.key().byteSize());
-                offset += Long.BYTES;
+                for (Entry<MemorySegment> value : data.values()) {
+                    page.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, value.key().byteSize());
+                    offset += Long.BYTES;
 
-                page.asSlice(offset).copyFrom(value.key());
-                offset += value.key().byteSize();
+                    page.asSlice(offset).copyFrom(value.key());
+                    offset += value.key().byteSize();
 
-                page.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, value.value().byteSize());
-                offset += Long.BYTES;
+                    page.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, value.value().byteSize());
+                    offset += Long.BYTES;
 
-                page.asSlice(offset).copyFrom(value.value());
-                offset += value.value().byteSize();
+                    page.asSlice(offset).copyFrom(value.value());
+                    offset += value.value().byteSize();
+                }
             }
         }
     }
