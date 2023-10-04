@@ -1,7 +1,6 @@
 package ru.vk.itmo.bazhenovkirill;
 
 import ru.vk.itmo.Config;
-import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.bazhenovkirill.strategy.ElementSearchStrategy;
 import ru.vk.itmo.bazhenovkirill.strategy.LinearSearchStrategy;
@@ -15,13 +14,10 @@ import java.nio.channels.FileChannel.MapMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Iterator;
 import java.util.Set;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 
 
-public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class PersistentDaoImpl extends InMemoryDaoImpl {
 
     private static final String DATA_FILE = "sstable.db";
 
@@ -34,18 +30,10 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
             StandardOpenOption.WRITE
     );
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable
-            = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-
     private final Path dataPath;
 
     public PersistentDaoImpl(Config config) {
         dataPath = config.basePath().resolve(DATA_FILE);
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        throw new UnsupportedOperationException("Need to realize this method in future");
     }
 
     @Override
@@ -55,11 +43,6 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
             return getDataFromSSTable(key);
         }
         return value;
-    }
-
-    @Override
-    public void upsert(Entry<MemorySegment> entry) {
-        memTable.put(entry.key(), entry);
     }
 
     @Override

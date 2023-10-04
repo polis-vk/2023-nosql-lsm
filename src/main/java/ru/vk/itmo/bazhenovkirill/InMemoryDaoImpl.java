@@ -10,32 +10,32 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage
+    protected final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable
             = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (from == null) {
             if (to != null) {
-                return storage.headMap(to).values().iterator();
+                return memTable.headMap(to).values().iterator();
             }
-            return storage.values().iterator();
+            return memTable.values().iterator();
         } else {
             if (to == null) {
-                return storage.tailMap(from).values().iterator();
+                return memTable.tailMap(from).values().iterator();
             }
-            return storage.subMap(from, true, to, false).values().iterator();
+            return memTable.subMap(from, true, to, false).values().iterator();
         }
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return storage.get(key);
+        return memTable.get(key);
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        storage.put(entry.key(), entry);
+        memTable.put(entry.key(), entry);
     }
 
 }
