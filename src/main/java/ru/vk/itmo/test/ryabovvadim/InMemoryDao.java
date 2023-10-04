@@ -5,16 +5,28 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.*;
+import java.io.DataOutput;
+import java.io.DataOutputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
-import static java.lang.foreign.ValueLayout.*;
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
+import static java.lang.foreign.ValueLayout.JAVA_INT;
+import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final Comparator<MemorySegment> MEMORY_SEGMENT_COMPARATOR =
@@ -40,8 +52,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
 
                 return Byte.compare(
-                        firstSegment.get(ValueLayout.JAVA_BYTE, mismatchOffset),
-                        secondSegment.get(ValueLayout.JAVA_BYTE, mismatchOffset)
+                        firstSegment.get(JAVA_BYTE, mismatchOffset),
+                        secondSegment.get(JAVA_BYTE, mismatchOffset)
                 );
             };
 
