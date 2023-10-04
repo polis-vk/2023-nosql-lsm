@@ -6,6 +6,7 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.DaoFactory;
 import ru.vk.itmo.volkovnikita.DaoImpl;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
@@ -14,7 +15,7 @@ import java.nio.charset.StandardCharsets;
 public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
         return new DaoImpl(config);
     }
 
