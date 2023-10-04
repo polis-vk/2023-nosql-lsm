@@ -17,20 +17,19 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
-import static java.nio.file.StandardOpenOption.WRITE;
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
-import static java.nio.file.StandardOpenOption.CREATE;
 import static ru.vk.itmo.solonetsarseniy.exception.DaoExceptions.ERROR_READING_DATA;
 
 public class DataStorageManager {
     private static final String DATA_FILE_NAME = "storage";
     private static final long LONG_SIZE = 8L;
     private static final StandardOpenOption[] WRITE_OPTIONS_KIT = new StandardOpenOption[] {
-        CREATE, WRITE, READ, TRUNCATE_EXISTING
+        StandardOpenOption.CREATE,
+        StandardOpenOption.WRITE,
+        StandardOpenOption.READ,
+        StandardOpenOption.TRUNCATE_EXISTING
     };
     private static final StandardOpenOption[] READ_OPTIONS_KIT = new StandardOpenOption[] {
-        READ
+        StandardOpenOption.READ
     };
 
     private final Config config;
@@ -81,7 +80,7 @@ public class DataStorageManager {
             MemorySegment data = createMemorySegment(dataChannel, countDataSize(database));
             long dataPointer = 0L;
             for (var entry : database.values()) {
-                dataPointer = writeEntry(data, dataPointer, entry);
+                dataPointer += writeEntry(data, dataPointer, entry);
             }
         }
     }
@@ -136,9 +135,13 @@ public class DataStorageManager {
         Entry<MemorySegment> entry
     ) {
         MemorySegment key = entry.key();
-        dataPointer = writeMemorySegment(key, dataMemorySegment, dataPointer);
+        long localOffset = writeMemorySegment(key, dataMemorySegment, dataPointer);
         MemorySegment value = entry.value();
-        return writeMemorySegment(value, dataMemorySegment, dataPointer);
+        return localOffset + writeMemorySegment(
+            value,
+            dataMemorySegment,
+            dataPointer + localOffset
+        );
     }
 
     private long writeMemorySegment(
@@ -150,7 +153,6 @@ public class DataStorageManager {
         dataMemorySegment.set(JAVA_LONG_UNALIGNED, dataPointer, keySize);
         dataMemorySegment.asSlice(dataPointer + Long.BYTES, keySize)
             .copyFrom(segment);
-        dataPointer += (keySize + LONG_SIZE);
-        return dataPointer;
+        return (keySize + LONG_SIZE);
     }
 }
