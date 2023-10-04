@@ -180,8 +180,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 output.write(key.toArray(JAVA_BYTE));
                 output.write(value.toArray(JAVA_BYTE));
             }
-        } catch (IOException ex) {
-            // Ignored
         }
     }
 
