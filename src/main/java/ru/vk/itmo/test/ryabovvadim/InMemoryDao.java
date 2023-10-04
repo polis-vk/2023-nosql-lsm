@@ -138,7 +138,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public void maybeLoad(MemorySegment key) {
-        if (config == null || storage.containsKey(key)) {
+        if (ssTable == null || storage.containsKey(key)) {
             return;
         }
 
@@ -149,7 +149,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public void maybeLoad(MemorySegment from, MemorySegment to) {
-        if (config == null || (storage.containsKey(from) && storage.containsKey(to))) {
+        if (ssTable == null || (storage.containsKey(from) && storage.containsKey(to))) {
             return;
         }
 
