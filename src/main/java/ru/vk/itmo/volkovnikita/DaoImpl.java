@@ -59,6 +59,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         ssTable.saveMemoryData(memorySegmentEntries);
     }
+
     @Override
     public void flush() throws IOException {
         throw new UnsupportedOperationException("");

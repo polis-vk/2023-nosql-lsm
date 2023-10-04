@@ -11,13 +11,10 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.NavigableMap;
 
-import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
-import static java.nio.file.StandardOpenOption.WRITE;
+
 
 public class SSTable {
 
@@ -28,17 +25,18 @@ public class SSTable {
         this.basePath = config.basePath().resolve(FILE_PATH);
     }
 
-    public void saveMemoryData(NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries) throws IOException {
+    public void saveMemoryData(NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries)
+            throws IOException {
         long offset = 0L;
         long mappedMemorySize =
                 memorySegmentEntries.values().stream().mapToLong(e -> e.key().byteSize() + e.value().byteSize()).sum()
                         + Long.BYTES * memorySegmentEntries.size() * 2L;
 
         try (FileChannel fileChannel = FileChannel.open(basePath,
-                READ,
-                WRITE,
-                TRUNCATE_EXISTING,
-                CREATE);
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.CREATE);
              Arena writeArena = Arena.ofConfined()) {
             MemorySegment seg = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, mappedMemorySize, writeArena);
 
