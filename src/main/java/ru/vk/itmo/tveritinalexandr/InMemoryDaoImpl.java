@@ -16,12 +16,11 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
             new ConcurrentSkipListMap<>(comparator);
 
     private static final MemorySegmentComparator comparator = MemorySegmentComparator.INSTANCE;
-    private final static String SSTABLE_FILE_NAME = "storage.sst";
     private final SSTableSaver saver;
     private final SSTableLoader loader;
 
     public InMemoryDaoImpl(Config config) {
-        Path storagePath = config.basePath().resolve(SSTABLE_FILE_NAME);
+        Path storagePath = config.basePath().resolve("storage.sst");
         saver = new SSTableSaver(storagePath, dataBase);
         loader = new SSTableLoader(storagePath);
     }

@@ -11,24 +11,23 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.SortedMap;
 
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 
 public class SSTableLoader {
     private static final MemorySegmentComparator comparator = MemorySegmentComparator.INSTANCE;
-    private final Path SSTableFilePath;
+    private final Path sSTableFilePath;
     private long offset;
 
-    public SSTableLoader(Path SSTableFilePath) {
-        this.SSTableFilePath = SSTableFilePath;
+    public SSTableLoader(Path sSTableFilePath) {
+        this.sSTableFilePath = sSTableFilePath;
         }
 
-    public Entry<MemorySegment> findInSSTable (MemorySegment key) {
-        if (SSTableFilePath == null || !Files.exists(SSTableFilePath)) return null;
+    public Entry<MemorySegment> findInSSTable(MemorySegment key) {
+        if (sSTableFilePath == null || !Files.exists(sSTableFilePath)) return null;
         long fileSize;
         try {
-            fileSize = Files.size(SSTableFilePath);
+            fileSize = Files.size(sSTableFilePath);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -37,7 +36,7 @@ public class SSTableLoader {
         MemorySegment lastMemorySegment = null;
         Arena arena = Arena.ofConfined();
 
-        try (FileChannel channel = FileChannel.open(SSTableFilePath, StandardOpenOption.READ)) {
+        try (FileChannel channel = FileChannel.open(sSTableFilePath, StandardOpenOption.READ)) {
             MemorySegment fileSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
             while (offset < fileSize) {
                 MemorySegment keySegment = getMemorySegment(fileSegment);
