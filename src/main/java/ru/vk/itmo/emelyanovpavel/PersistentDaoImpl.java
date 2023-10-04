@@ -16,6 +16,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
+import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 
 public class PersistentDaoImpl extends InMemoryDaoImpl {
     private static final String SSTABLE_NAME = "sstable.txt";
@@ -108,8 +109,8 @@ public class PersistentDaoImpl extends InMemoryDaoImpl {
         try (FileChannel dataChanel = FileChannel.open(dataPath, WRITE_OPTIONS)) {
             try (FileChannel indexChanel = FileChannel.open(indexPath, WRITE_OPTIONS)) {
                 try (Arena arenaForWriting = Arena.ofConfined()) {
-                    MemorySegment dataSegmentSaver = dataChanel.map(FileChannel.MapMode.READ_WRITE, 0, storageSize, arenaForWriting);
-                    MemorySegment indexSegmentSaver = indexChanel.map(FileChannel.MapMode.READ_WRITE, 0, indexesSize, arenaForWriting);
+                    MemorySegment dataSegmentSaver = dataChanel.map(READ_WRITE, 0, storageSize, arenaForWriting);
+                    MemorySegment indexSegmentSaver = indexChanel.map(READ_WRITE, 0, indexesSize, arenaForWriting);
                     long indexOffset = 0;
                     long dataOffset = 0;
                     for (Entry<MemorySegment> entry : storage.values()) {
