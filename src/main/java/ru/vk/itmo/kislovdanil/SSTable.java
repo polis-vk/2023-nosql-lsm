@@ -145,7 +145,6 @@ public class SSTable {
         }
     }
 
-
     private static class Range {
         public long offset;
         public long length;
