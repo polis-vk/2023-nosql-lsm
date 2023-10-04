@@ -132,10 +132,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             MemorySegment slicedKey = mappedSegment.asSlice(offset, size);
             offset += size;
 
+            int compare = compare(key, slicedKey);
             size = mappedSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
 
-            if (compare(key, slicedKey) == 0) {
+            if (compare == 0) {
                 MemorySegment slicedValue = mappedSegment.asSlice(offset, size);
                 BaseEntry<MemorySegment> entry = new BaseEntry<>(slicedKey, slicedValue);
                 cachedValues.put(slicedKey, entry);
