@@ -74,11 +74,12 @@ public class SSTable {
             long offset = 0;
             for (Entry<MemorySegment> entry : storage.values()) {
                 long keySize = entry.key().byteSize();
-                long valueSize = entry.value().byteSize();
                 ssTableSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, keySize);
                 offset += LONG_SIZE_BYTES;
                 ssTableSegment.asSlice(offset, keySize).copyFrom(entry.key());
                 offset += keySize;
+
+                long valueSize = entry.value().byteSize();
                 ssTableSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, valueSize);
                 offset += LONG_SIZE_BYTES;
                 ssTableSegment.asSlice(offset, valueSize).copyFrom(entry.value());
