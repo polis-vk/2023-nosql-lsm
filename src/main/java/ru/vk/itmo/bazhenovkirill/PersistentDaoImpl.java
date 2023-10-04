@@ -16,7 +16,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Set;
 
-
 public class PersistentDaoImpl extends InMemoryDaoImpl {
 
     private static final String DATA_FILE = "sstable.db";
