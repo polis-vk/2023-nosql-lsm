@@ -11,17 +11,12 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListMap;
-
-import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
-import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.WRITE;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -56,9 +51,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         // if value is still null then searching in file
         if (entry == null && path.toFile().exists()) {
-            try (FileChannel fc = FileChannel.open(path, Set.of(CREATE, READ))) {
+            try (
+                    FileChannel fc = FileChannel.open(
+                            path,
+                            Set.of(StandardOpenOption.CREATE, StandardOpenOption.READ))
+            ) {
                 if (fc.size() != 0) {
-                    MemorySegment mappedSegment = fc.map(READ_ONLY, 0, fc.size(), arena);
+                    MemorySegment mappedSegment = fc.map(FileChannel.MapMode.READ_ONLY, 0, fc.size(), arena);
                     entry = searchInSlice(mappedSegment, key);
                 }
             } catch (IOException e) {
@@ -92,14 +91,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() {
-        try (FileChannel fc = FileChannel.open(path, Set.of(CREATE, READ, WRITE))) {
+        try (
+                FileChannel fc = FileChannel.open(
+                        path,
+                        Set.of(StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE))
+        ) {
 
             long ssTableSize = Long.BYTES * 2L * storage.size();
             for (Entry<MemorySegment> value : storage.values()) {
                 ssTableSize += value.key().byteSize() + value.value().byteSize();
             }
 
-            MemorySegment ssTable = fc.map(READ_WRITE, 0, ssTableSize, arena);
+            MemorySegment ssTable = fc.map(FileChannel.MapMode.READ_WRITE, 0, ssTableSize, arena);
             long offset = 0;
 
             for (Entry<MemorySegment> value : storage.values()) {
@@ -142,8 +145,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         return null;
     }
-
-
 
     private static int compare(MemorySegment segment1, MemorySegment segment2) {
         long offset = segment1.mismatch(segment2);
