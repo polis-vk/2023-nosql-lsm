@@ -6,23 +6,27 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
+import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> map =
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(InMemoryDao::compareMemorySegments);
 
     private static int compareMemorySegments(final MemorySegment ms1, final MemorySegment ms2) {
-        final long n1 = ms1.byteSize();
-        final long n2 = ms2.byteSize();
-        for (long i = 0; i < n1 && i < n2; ++i) {
-            final byte b1 = ms1.get(ValueLayout.JAVA_BYTE, i);
-            final byte b2 = ms2.get(ValueLayout.JAVA_BYTE, i);
-            if (b1 != b2) {
-                return Byte.compare(b1, b2);
-            }
+        final long mismatch = ms1.mismatch(ms2);
+        if (mismatch == -1) {
+            return 0;
         }
-        return Long.compare(n1, n2);
+        if (mismatch == ms1.byteSize()) {
+            return -1;
+        }
+        if (mismatch == ms2.byteSize()) {
+            return 1;
+        }
+        final byte b1 = ms1.get(ValueLayout.JAVA_BYTE, mismatch);
+        final byte b2 = ms2.get(ValueLayout.JAVA_BYTE, mismatch);
+        return Byte.compare(b1, b2);
     }
 
     @Override
