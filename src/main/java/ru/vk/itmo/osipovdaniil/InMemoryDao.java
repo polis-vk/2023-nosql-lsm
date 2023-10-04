@@ -6,6 +6,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -90,7 +91,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
         long offset = 0;
-        try (final FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
+        try (FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
             long ssTableFileSize = Files.size(ssTablePath);
             final MemorySegment mappedMemorySegment = fileChannel.map(
                     FileChannel.MapMode.READ_ONLY, 0, ssTableFileSize, Arena.ofShared());
@@ -116,7 +117,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
             return null;
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -140,12 +141,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        try (final FileChannel fileChannel = FileChannel.open(ssTablePath,
+        try (FileChannel fileChannel = FileChannel.open(ssTablePath,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.CREATE);
-             final Arena writeArena = Arena.ofConfined()) {
+             Arena writeArena = Arena.ofConfined()) {
             long fileSize = getSSTableFileSize();
             final MemorySegment mappedMemorySegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE, 0, fileSize, writeArena);
