@@ -12,4 +12,20 @@ public class InMemoryDaoImpl extends AbstractMemoryDao implements Dao<MemorySegm
         return db.get(key);
     }
 
+    @Override
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return db.values().iterator();
+        } else if (to == null) {
+            return db.tailMap(from).values().iterator();
+        } else if (from == null) {
+            return db.headMap(to).values().iterator();
+        }
+        return db.subMap(from, to).values().iterator();
+    }
+
+    @Override
+    public void upsert(Entry<MemorySegment> entry) {
+        db.put(entry.key(), entry);
+    }
 }
