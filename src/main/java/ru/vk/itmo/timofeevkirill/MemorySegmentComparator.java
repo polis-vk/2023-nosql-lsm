@@ -5,6 +5,7 @@ import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
 public class MemorySegmentComparator implements Comparator<MemorySegment> {
+    @Override
     public int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
         long offset = memorySegment1.mismatch(memorySegment2);
         if (offset == -1) {
