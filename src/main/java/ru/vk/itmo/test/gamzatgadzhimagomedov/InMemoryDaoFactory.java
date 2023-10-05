@@ -25,7 +25,6 @@ public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Ent
         return new PersistentDao(config);
     }
 
-
     @Override
     public String toString(MemorySegment data) {
         return data == null ? null :
