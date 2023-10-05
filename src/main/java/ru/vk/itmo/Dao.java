@@ -24,6 +24,7 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
         if (!iterator.hasNext()) {
             return null;
         }
+
         E next = iterator.next();
         if (next.key().equals(key)) {
             return next;
