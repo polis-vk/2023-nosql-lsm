@@ -15,6 +15,7 @@ public abstract class AbstractMemorySegmentDao implements Dao<MemorySegment, Ent
     protected static final SortedMap<MemorySegment, Entry<MemorySegment>> entries =
             new ConcurrentSkipListMap<>(AbstractMemorySegmentDao::compareSegments);
 
+    @Override
     public abstract Entry<MemorySegment> get(MemorySegment key);
 
     @Override
