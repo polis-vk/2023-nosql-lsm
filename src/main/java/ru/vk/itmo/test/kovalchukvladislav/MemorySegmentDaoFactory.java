@@ -17,7 +17,6 @@ public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment
     private static final Charset CHARSET = StandardCharsets.UTF_8;
     private static final ValueLayout.OfByte VALUE_LAYOUT = ValueLayout.JAVA_BYTE;
 
-
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
         return new MemorySegmentDao(config);
