@@ -4,6 +4,7 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -57,7 +58,7 @@ public class SSTable {
                 offset += valueSize;
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            return null;
         }
         return null;
     }
@@ -100,7 +101,7 @@ public class SSTable {
                 offset += entry.value().byteSize();
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            throw new UncheckedIOException(e);
         }
 
     }
