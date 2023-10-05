@@ -1,13 +1,14 @@
-package ru.vk.itmo.test.tuzikovalexandr;
+package ru.vk.itmo.test.emelyanovpavel;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.emelyanovpavel.InMemoryDaoImpl;
 import ru.vk.itmo.test.DaoFactory;
-import ru.vk.itmo.tuzikovalexandr.InMemoryDaoImpl;
 
 import java.lang.foreign.MemorySegment;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
+
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 @DaoFactory
 public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
@@ -19,19 +20,17 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
 
     @Override
     public String toString(MemorySegment memorySegment) {
-
-        ByteBuffer byteBuffer = memorySegment.asByteBuffer();
-
-        return byteBuffer == null ? null : new String(byteBuffer.array(), byteBuffer.arrayOffset(), byteBuffer.remaining(), StandardCharsets.UTF_8);
+        return memorySegment == null ? null : new String(memorySegment.toArray(JAVA_BYTE), UTF_8);
     }
 
     @Override
     public MemorySegment fromString(String data) {
-        return data == null ? null : MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
+        return data == null ? null : MemorySegment.ofArray(data.getBytes(UTF_8));
     }
 
     @Override
     public Entry<MemorySegment> fromBaseEntry(Entry<MemorySegment> baseEntry) {
         return baseEntry;
     }
+
 }
