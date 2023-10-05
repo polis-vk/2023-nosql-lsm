@@ -27,9 +27,10 @@ public class SSTable {
         this.comparator = comparator;
     }
 
-    public Entry<MemorySegment> get(MemorySegment key)  {
-        if (!Files.exists(ssTablePath))
+    public Entry<MemorySegment> get(MemorySegment key) {
+        if (!Files.exists(ssTablePath)) {
             return null;
+        }
 
         try (FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
             MemorySegment data = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, fileChannel.size(), Arena.global());
@@ -56,7 +57,7 @@ public class SSTable {
 
             return null;
         } catch (IOException e) {
-            throw new IllegalStateException();
+            return null;
         }
     }
 
@@ -68,8 +69,11 @@ public class SSTable {
             memTableSize += Long.BYTES * 2 + entry.key().byteSize() + entry.value().byteSize();
         }
 
-        try (FileChannel ssTable =
-                     FileChannel.open(ssTablePath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+        try (FileChannel ssTable = FileChannel.open(ssTablePath,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE)
+        ) {
             MemorySegment segment = ssTable.map(FileChannel.MapMode.READ_WRITE, 0, memTableSize, Arena.global());
 
             long offset = 0;

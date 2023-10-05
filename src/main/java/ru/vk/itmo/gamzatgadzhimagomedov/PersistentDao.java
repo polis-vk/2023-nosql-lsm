@@ -6,7 +6,7 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 
-public class PersistentDao extends BaseDao{
+public class PersistentDao extends BaseDao {
 
     private final SSTable ssTable;
 
