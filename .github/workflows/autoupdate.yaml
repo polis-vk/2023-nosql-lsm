@@ -6,7 +6,8 @@ on:
 jobs:
   autoupdate:
     name: autoupdate
-    runs-on: ubuntu-22.04
+    runs-on: self-hosted
+    timeout-minutes: 10
     steps:
       - uses: docker://chinthakagodawita/autoupdate-action:v1
         env:
