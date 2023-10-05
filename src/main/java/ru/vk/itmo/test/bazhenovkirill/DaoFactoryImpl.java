@@ -1,12 +1,12 @@
-package ru.vk.itmo.test.tuzikovalexandr;
+package ru.vk.itmo.test.bazhenovkirill;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.bazhenovkirill.InMemoryDaoImpl;
 import ru.vk.itmo.test.DaoFactory;
-import ru.vk.itmo.tuzikovalexandr.InMemoryDaoImpl;
 
 import java.lang.foreign.MemorySegment;
-import java.nio.ByteBuffer;
+import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 @DaoFactory
@@ -19,10 +19,9 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
 
     @Override
     public String toString(MemorySegment memorySegment) {
-
-        ByteBuffer byteBuffer = memorySegment.asByteBuffer();
-
-        return byteBuffer == null ? null : new String(byteBuffer.array(), byteBuffer.arrayOffset(), byteBuffer.remaining(), StandardCharsets.UTF_8);
+        return memorySegment == null
+                ? null
+                : new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override
