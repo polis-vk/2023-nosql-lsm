@@ -145,6 +145,7 @@ public class SSTable {
         }
     }
 
+    // Describes offset and size of any data segment
     private static class Range {
         public long offset;
         public long length;
