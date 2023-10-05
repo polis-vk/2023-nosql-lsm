@@ -1,11 +1,13 @@
-name: autoupdate
+name: Auto update branch
+
 on:
+  pull_request:
   push:
     branches:
       - main
+
 jobs:
   autoupdate:
-    name: autoupdate
     runs-on: self-hosted
     timeout-minutes: 10
     steps:
