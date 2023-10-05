@@ -13,6 +13,7 @@ java {
 repositories {
     mavenCentral()
 }
+
 dependencies {
     // Checks
     errorprone 'com.google.errorprone:error_prone_core:2.11.0'
@@ -37,9 +38,11 @@ checkstyle {
 
 compileJava {
     options.compilerArgs += ["--enable-preview"]
+
+    // Enforce errors
+    options.compilerArgs += ["-Werror"]
 }
 
 compileTestJava {
     options.compilerArgs += ["--enable-preview"]
 }
-
