@@ -14,8 +14,8 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface DaoFactory {
 
-    int stage() default 2;
-    int week() default 2;
+    int stage() default 1;
+    int week() default 1;
 
     interface Factory<Data, E extends Entry<Data>> {
 
