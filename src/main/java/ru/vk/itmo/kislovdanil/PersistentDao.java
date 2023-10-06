@@ -1,25 +1,80 @@
 package ru.vk.itmo.kislovdanil;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;
+import ru.vk.itmo.kislovdanil.iterators.MergeIterator;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    private final Config config;
+    private final List<SSTable> tables = new ArrayList<>();
+    private final Comparator<MemorySegment> comparator = new MemSegComparator();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
-            new ConcurrentSkipListMap<>(new MemSegComparator());
-    private final SSTable table;
+            new ConcurrentSkipListMap<>(comparator);
 
     public PersistentDao(Config config) throws IOException {
-        this.table = new SSTable(config.basePath(), new MemSegComparator());
+        this.config = config;
+        File basePathDirectory = new File(config.basePath().toString());
+        String[] SSTablesIds = basePathDirectory.list();
+        if (SSTablesIds == null) return;
+        for (String tableID : SSTablesIds) {
+            tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID), storage, false));
+        }
+        tables.sort(SSTable::compareTo);
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        List<DatabaseIterator> iterators = new ArrayList<>(tables.size() + 1);
+        for (SSTable table: tables) {
+            iterators.add(table.getRange(from, to));
+        }
+        iterators.add(new MemTableIterator(from, to));
+        return new MergeIterator(iterators, comparator);
+    }
+
+    @Override
+    public Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> ans = storage.get(key);
+        if (ans != null) return ans;
+        try {
+            for (SSTable table : tables) {
+                Entry<MemorySegment> data = table.find(key);
+                if (data == null) continue;
+                return data;
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        return null;
+    }
+
+    @Override
+    public void upsert(Entry<MemorySegment> entry) {
+        storage.put(entry.key(), entry);
+    }
+
+    @Override
+    public void flush() throws IOException {
+        tables.add(new SSTable(config.basePath(), comparator,
+                System.currentTimeMillis(), storage, true));
+    }
+
+    @Override
+    public void close() throws IOException {
+        flush();
     }
 
     private static class MemSegComparator implements Comparator<MemorySegment> {
@@ -36,34 +91,29 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    @Override
-    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) return storage.values().iterator();
-        if (from != null && to == null) return storage.tailMap(from).values().iterator();
-        if (from == null) return storage.headMap(to).values().iterator();
-        return storage.subMap(from, to).values().iterator();
-    }
+    private class MemTableIterator implements DatabaseIterator {
+        Iterator<Entry<MemorySegment>> innerIter;
 
-    @Override
-    public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> ans = storage.get(key);
-        if (ans != null) return ans;
-        try {
-            MemorySegment data = table.find(key);
-            if (data == null) return null;
-            return new BaseEntry<>(key, table.find(key));
-        } catch (IOException e) {
-            return null;
+        public MemTableIterator(MemorySegment from, MemorySegment to) {
+            if (from == null && to == null) innerIter = storage.values().iterator();
+            else if (from != null && to == null) innerIter = storage.tailMap(from).values().iterator();
+            else if (from == null) innerIter = storage.headMap(to).values().iterator();
+            else innerIter = storage.subMap(from, to).values().iterator();
         }
-    }
 
-    @Override
-    public void upsert(Entry<MemorySegment> entry) {
-        storage.put(entry.key(), entry);
-    }
+        @Override
+        public long getPriority() {
+            return Long.MAX_VALUE;
+        }
 
-    @Override
-    public void close() throws IOException {
-        table.write(storage);
+        @Override
+        public boolean hasNext() {
+            return innerIter.hasNext();
+        }
+
+        @Override
+        public Entry<MemorySegment> next() {
+            return innerIter.next();
+        }
     }
 }
