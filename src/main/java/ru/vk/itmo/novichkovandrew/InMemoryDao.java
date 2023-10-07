@@ -3,6 +3,7 @@ package ru.vk.itmo.novichkovandrew;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
@@ -11,7 +12,7 @@ import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    protected final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> entriesMap;
+    protected final MemTable memTable;
     protected final Comparator<MemorySegment> comparator = (first, second) -> {
         if (first == null || second == null) return -1;
         long missIndex = first.mismatch(second);
@@ -28,34 +29,26 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     };
 
     public InMemoryDao() {
-        this.entriesMap = new ConcurrentSkipListMap<>(comparator);
-    }
-
-    private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, MemorySegment to) {
-        if (from != null && to != null) {
-            return entriesMap.subMap(from, to);
-        }
-        if (from != null) {
-            return entriesMap.tailMap(from, true);
-        }
-        if (to != null) {
-            return entriesMap.headMap(to, false);
-        }
-        return entriesMap;
+        this.memTable = new MemTable(comparator);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return getSubMap(from, to).values().iterator();
+        return memTable.get(from, to);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return entriesMap.get(key);
+        return memTable.get(key);
     }
 
     @Override
-    public void upsert(Entry<MemorySegment> entry) {
-        entriesMap.put(entry.key(), entry);
+    public synchronized void upsert(Entry<MemorySegment> entry) {
+        memTable.add(entry);
+    }
+
+    @Override
+    public void close() throws IOException {
+        memTable.close();
     }
 }
