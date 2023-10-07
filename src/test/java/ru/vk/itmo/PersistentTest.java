@@ -107,7 +107,7 @@ public class PersistentTest extends BaseTest {
     }
 
     @DaoTest(stage = 2)
-    @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    @Timeout(value = 30)
     void toManyFiles(Dao<String, Entry<String>> dao) throws IOException {
         for (int i = 0; i < 30000; i++) {
             dao.close();
