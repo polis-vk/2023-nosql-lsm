@@ -61,7 +61,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     entry = searchInSlice(mappedSegment, key);
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                return null;
             }
         }
 
@@ -90,7 +90,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void close() {
+    public void close() throws IOException {
         try (
                 FileChannel fc = FileChannel.open(
                         path,
@@ -117,9 +117,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 offset += value.value().byteSize();
             }
             arena.close();
-
-        } catch (IOException e) {
-            e.printStackTrace();
         }
     }
 
