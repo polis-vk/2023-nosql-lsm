@@ -1,12 +1,15 @@
 package ru.vk.itmo;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Timeout;
+
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class PersistentTest extends BaseTest {
 
@@ -104,6 +107,7 @@ public class PersistentTest extends BaseTest {
     }
 
     @DaoTest(stage = 2)
+    @Timeout(value = 30, unit = TimeUnit.SECONDS)
     void toManyFiles(Dao<String, Entry<String>> dao) throws IOException {
         for (int i = 0; i < 30000; i++) {
             dao.close();
