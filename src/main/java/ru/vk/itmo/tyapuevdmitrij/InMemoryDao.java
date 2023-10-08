@@ -38,7 +38,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             = new ConcurrentSkipListMap<>(memorySegmentComparator);
     private final Path ssTablePath;
     private final MemorySegment ssTable;
-    private static final String ssTableFileName = "ssTable";
+    private static final String ssTableFileName = "SS_TABLE";
 
     public InMemoryDao() {
         ssTablePath = null;
