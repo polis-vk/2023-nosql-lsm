@@ -40,7 +40,7 @@ public class AlreadyNotSoInMemoryDao implements Dao<MemorySegment, Entry<MemoryS
         mappedFile = null;
     }
 
-    public AlreadyNotSoInMemoryDao(Path basePath) {
+    public AlreadyNotSoInMemoryDao(Path basePath) throws IOException {
         sstablePath = basePath.resolve(FILENAME);
         try {
             fileChannel = FileChannel.open(sstablePath, READ_OPTIONS);
@@ -48,8 +48,6 @@ public class AlreadyNotSoInMemoryDao implements Dao<MemorySegment, Entry<MemoryS
         } catch (NoSuchFileException ignored) {
             fileChannel = null;
             mappedFile = null;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
     }
 
@@ -59,11 +57,7 @@ public class AlreadyNotSoInMemoryDao implements Dao<MemorySegment, Entry<MemoryS
         if (memRes != null) {
             return memRes;
         }
-        try {
-            return getFromFile(key);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        return getFromFile(key);
     }
 
     @Override
@@ -127,12 +121,12 @@ public class AlreadyNotSoInMemoryDao implements Dao<MemorySegment, Entry<MemoryS
         }
     }
 
-    private Entry<MemorySegment> getFromFile(MemorySegment key) throws IOException {
+    private Entry<MemorySegment> getFromFile(MemorySegment key) {
         if (mappedFile == null) {
             return null;
         }
         long offset = 0;
-        while (offset < fileChannel.size()) {
+        while (offset < mappedFile.byteSize()) {
             long keySize = mappedFile.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
             long mismatch = 0;
