@@ -20,11 +20,11 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public static final String FILENAME = "sstable.save";
     private final Path sstablePath;
+    private final Arena arena = Arena.ofShared();
     private final Comparator<MemorySegment> comparator = (o1, o2) -> {
         if (o1 == o2) {
             return 0;
@@ -74,24 +74,41 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void flush() throws IOException {
         long size = 0;
         Set<StandardOpenOption> openOptions =
-                Set.of(StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+                Set.of(
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.READ,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.TRUNCATE_EXISTING
+                );
         for (Entry<MemorySegment> entry : mappings.values()) {
             size += entry.value().byteSize() + entry.key().byteSize() + 2 * Long.BYTES;
         }
-        try (FileChannel fc = FileChannel.open(sstablePath, openOptions);
-             Arena arena = Arena.ofConfined()) {
+        try (FileChannel fc = FileChannel.open(sstablePath, openOptions); Arena writeArena = Arena.ofConfined()) {
             Collection<Entry<MemorySegment>> vals = mappings.values();
-            MemorySegment mapped = fc.map(READ_WRITE, 0, size, arena);
+            MemorySegment mapped = fc.map(READ_WRITE, 0, size, writeArena);
             long offset = 0;
             for (Entry<MemorySegment> entry : vals) {
                 mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
                 offset += Long.BYTES;
                 mapped.asSlice(offset, entry.key().byteSize()).copyFrom(entry.key());
+                MemorySegment.copy(
+                        entry.key(), 0,
+                        mapped, offset,
+                        entry.key().byteSize()
+                );
                 offset += entry.key().byteSize();
                 mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.value().byteSize());
                 offset += Long.BYTES;
-                mapped.asSlice(offset, entry.value().byteSize()).copyFrom(entry.value());
+                MemorySegment.copy(
+                        entry.value(), 0,
+                        mapped, offset,
+                        entry.value().byteSize()
+                );
                 offset += entry.value().byteSize();
+            }
+        } finally {
+            if (arena.scope().isAlive()) {
+                arena.close();
             }
         }
     }
@@ -100,22 +117,21 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!Files.exists(sstablePath)) {
             return null;
         }
-        String strKey = new String(key.toArray(ValueLayout.JAVA_BYTE), UTF_8);
         Set<StandardOpenOption> openOptions = Set.of(StandardOpenOption.CREATE, StandardOpenOption.READ);
         try (FileChannel fc = FileChannel.open(sstablePath, openOptions)) {
-            MemorySegment mapped = fc.map(READ_ONLY, 0, fc.size(), Arena.ofAuto());
+            MemorySegment mapped = fc.map(READ_ONLY, 0, fc.size(), arena);
             long offset = 0;
             while (offset < fc.size()) {
-                String parsedKey = null;
                 long keySize = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += Long.BYTES;
+                long mismatch = 0;
                 if (keySize == key.byteSize()) {
-                    parsedKey = new String(mapped.asSlice(offset, keySize).toArray(ValueLayout.JAVA_BYTE), UTF_8);
+                    mismatch = MemorySegment.mismatch(mapped, offset, offset + keySize, key, 0, keySize);
                 }
                 offset += keySize;
                 long valueSize = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += Long.BYTES;
-                if (strKey.equals(parsedKey)) {
+                if (mismatch == -1) {
                     return new BaseEntry<>(
                             key, mapped.asSlice(offset, valueSize)
                     );
