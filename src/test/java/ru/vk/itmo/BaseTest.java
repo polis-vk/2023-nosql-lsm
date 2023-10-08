@@ -37,6 +37,11 @@ public class BaseTest {
         Assertions.assertEquals(expected, entry);
     }
 
+    public void assertNull(Entry<String> entry) {
+        checkInterrupted();
+        Assertions.assertNull(entry);
+    }
+
     public void assertSame(Iterator<? extends Entry<String>> iterator, Entry<?>... expected) {
         assertSame(iterator, Arrays.asList(expected));
     }
