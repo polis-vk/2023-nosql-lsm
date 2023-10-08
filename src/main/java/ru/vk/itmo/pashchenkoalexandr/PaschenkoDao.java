@@ -41,10 +41,9 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
-
         boolean created = false;
         MemorySegment pageCurrent;
-        try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.READ);) {
+        try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.READ)) {
             pageCurrent = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
             created = true;
         } catch (FileNotFoundException e) {
@@ -59,7 +58,6 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         readPage = pageCurrent;
     }
-
 
     private static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
         long mismatch = memorySegment1.mismatch(memorySegment2);
@@ -149,7 +147,11 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         try (Arena writeArena = Arena.ofConfined()) {
             MemorySegment page;
-            try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE);) {
+            try (FileChannel fileChannel = FileChannel.open(path,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.READ,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.CREATE)) {
                 page = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, size, writeArena);
             }
 
