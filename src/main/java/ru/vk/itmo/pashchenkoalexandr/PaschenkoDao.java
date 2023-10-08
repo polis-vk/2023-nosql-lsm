@@ -121,10 +121,10 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             long valueSize = readPage.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
 
-//            if (keySize != key.byteSize()) {
-//                offset += keySize + valueSize;
-//                continue;
-//            }
+            if (keySize != key.byteSize()) {
+                offset += keySize + valueSize;
+                continue;
+            }
 
             long mismatch = MemorySegment.mismatch(readPage, offset, offset + key.byteSize(), key, 0, key.byteSize());
             if (mismatch == -1) {
