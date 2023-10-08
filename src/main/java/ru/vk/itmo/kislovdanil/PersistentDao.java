@@ -8,6 +8,7 @@ import ru.vk.itmo.kislovdanil.iterators.MergeIterator;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
@@ -18,11 +19,15 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    public static final MemorySegment DELETED_VALUE = null;
     private final Config config;
     private final List<SSTable> tables = new ArrayList<>();
     private final Comparator<MemorySegment> comparator = new MemSegComparator();
+    private final Arena daoArena = Arena.ofAuto();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(comparator);
+
+    private long lastTimestamp = System.currentTimeMillis();
 
     public PersistentDao(Config config) throws IOException {
         this.config = config;
@@ -30,7 +35,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         String[] SSTablesIds = basePathDirectory.list();
         if (SSTablesIds == null) return;
         for (String tableID : SSTablesIds) {
-            tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID), storage, false));
+            tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID),
+                    storage, false, daoArena));
         }
         tables.sort(SSTable::compareTo);
     }
@@ -38,22 +44,27 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         List<DatabaseIterator> iterators = new ArrayList<>(tables.size() + 1);
-        for (SSTable table: tables) {
+        for (SSTable table : tables) {
             iterators.add(table.getRange(from, to));
         }
         iterators.add(new MemTableIterator(from, to));
         return new MergeIterator(iterators, comparator);
     }
 
+    private static Entry<MemorySegment> wrapEntryIfDeleted(Entry<MemorySegment> entry) {
+        if (entry.value() == DELETED_VALUE) return null;
+        return entry;
+    }
+
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> ans = storage.get(key);
-        if (ans != null) return ans;
+        if (ans != null) return wrapEntryIfDeleted(ans);
         try {
             for (SSTable table : tables) {
                 Entry<MemorySegment> data = table.find(key);
                 if (data == null) continue;
-                return data;
+                return wrapEntryIfDeleted(data);
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -68,8 +79,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        tables.add(new SSTable(config.basePath(), comparator,
-                System.currentTimeMillis(), storage, true));
+        if (!storage.isEmpty()) {
+            lastTimestamp = Math.max(lastTimestamp + 1, System.currentTimeMillis());
+            tables.add(new SSTable(config.basePath(), comparator,
+                    lastTimestamp, storage, true, daoArena));
+        }
     }
 
     @Override

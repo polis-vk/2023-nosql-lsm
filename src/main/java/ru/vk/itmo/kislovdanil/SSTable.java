@@ -23,14 +23,15 @@ public class SSTable implements Comparable<SSTable> {
     // Contains values
     private MemorySegment dataFile;
     private final Comparator<MemorySegment> memSegComp;
-    private final Arena filesArena = Arena.ofAuto();
+    private final Arena filesArena;
     private final long tableId;
 
     private final long size;
 
     public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
-                   NavigableMap<MemorySegment, Entry<MemorySegment>> memTable, boolean rewrite) throws IOException {
+                   NavigableMap<MemorySegment, Entry<MemorySegment>> memTable, boolean rewrite, Arena filesArena) throws IOException {
         this.tableId = tableId;
+        this.filesArena = filesArena;
         Path SSTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
         Path summaryFilePath = SSTablePath.resolve("summary");
@@ -46,7 +47,7 @@ public class SSTable implements Comparable<SSTable> {
         indexFile = indexFile.asReadOnly();
         dataFile = dataFile.asReadOnly();
 
-        size = (summaryFile.byteSize() / (2 * Long.BYTES));
+        size = (summaryFile.byteSize() / Metadata.SIZE);
     }
 
     private void readOld(Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
@@ -87,18 +88,13 @@ public class SSTable implements Comparable<SSTable> {
         }
     }
 
-    private void writeEntry(MemorySegment key, MemorySegment value,
-                            long currentSummaryOffset, long currentIndexOffset, long currentDataOffset) {
-        MemorySegment.copy(value, 0, dataFile, currentDataOffset, value.byteSize());
-        MemorySegment.copy(key, 0, indexFile, currentIndexOffset, key.byteSize());
-        indexFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                currentIndexOffset + key.byteSize(), currentDataOffset);
-        indexFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                currentIndexOffset + key.byteSize() + Long.BYTES, value.byteSize());
-        summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                currentSummaryOffset, currentIndexOffset);
-        summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                currentSummaryOffset + Long.BYTES, key.byteSize());
+    private void writeEntry(Entry<MemorySegment> entry,
+                            long summaryOffset, long indexOffset, long dataOffset) {
+        MemorySegment.copy(entry.key(), 0, indexFile, indexOffset, entry.key().byteSize());
+        if (entry.value() != null) {
+            MemorySegment.copy(entry.value(), 0, dataFile, dataOffset, entry.value().byteSize());
+        }
+        Metadata.writeEntryMetadata(entry, summaryFile, summaryOffset, indexOffset, dataOffset);
     }
 
     // Sequentially writes every entity data in SStable keeping files data consistent
@@ -113,11 +109,9 @@ public class SSTable implements Comparable<SSTable> {
         long summarySize;
         for (Entry<MemorySegment> entry : memTable.values()) {
             indexSize += entry.key().byteSize();
-            dataSize += entry.value().byteSize();
+            dataSize += entry.value() == null ? 0 : entry.value().byteSize();
         }
-        summarySize = 2L * memTable.size() * Long.BYTES;
-        indexSize += summarySize;
-
+        summarySize = memTable.size() * Metadata.SIZE;
         mapFiles(summarySize, indexSize, dataSize, summaryFilePath, indexFilePath, dataFilePath);
 
         long currentDataOffset = 0;
@@ -125,11 +119,12 @@ public class SSTable implements Comparable<SSTable> {
         long currentSummaryOffset = 0;
         for (Entry<MemorySegment> entry : memTable.values()) {
             MemorySegment value = entry.value();
+            value = value == null ? filesArena.allocate(0) : value;
             MemorySegment key = entry.key();
-            writeEntry(key, value, currentSummaryOffset, currentIndexOffset, currentDataOffset);
+            writeEntry(entry, currentSummaryOffset, currentIndexOffset, currentDataOffset);
             currentDataOffset += value.byteSize();
-            currentIndexOffset += key.byteSize() + 2 * Long.BYTES;
-            currentSummaryOffset += 2 * Long.BYTES;
+            currentIndexOffset += key.byteSize();
+            currentSummaryOffset += Metadata.SIZE;
         }
     }
 
@@ -144,8 +139,8 @@ public class SSTable implements Comparable<SSTable> {
         long right = size - 1;
         while (right - left > 2) {
             long middle = (right + left) / 2;
-            Range indexRange = readRange(summaryFile, middle * Long.BYTES * 2);
-            MemorySegment curKey = indexFile.asSlice(indexRange.offset, indexRange.length);
+            Metadata currentEntryMetadata = new Metadata(middle);
+            MemorySegment curKey = currentEntryMetadata.readKey();
             int compRes = memSegComp.compare(key, curKey);
             if (compRes <= 0) {
                 right = middle;
@@ -154,9 +149,9 @@ public class SSTable implements Comparable<SSTable> {
             }
         }
         for (long i = left; i <= right; i++) {
-            Range indexRange = readRange(summaryFile, i * Long.BYTES * 2);
-            MemorySegment curKey = indexFile.asSlice(indexRange.offset, indexRange.length);
-            if (memSegComp.compare(key, curKey) <= 0) {
+            Metadata currentEntryMetadata = new Metadata(i);
+            MemorySegment curKey = currentEntryMetadata.readKey();
+            if (memSegComp.compare(curKey, key) >= 0) {
                 return i;
             }
         }
@@ -171,10 +166,9 @@ public class SSTable implements Comparable<SSTable> {
     }
 
     private Entry<MemorySegment> readEntry(long index) {
-        Range indexRange = readRange(summaryFile, index * 2 * Long.BYTES);
-        MemorySegment key = indexFile.asSlice(indexRange.offset, indexRange.length);
-        Range dataRange = readRange(indexFile, indexRange.offset + indexRange.length);
-        MemorySegment value = dataFile.asSlice(dataRange.offset, dataRange.length);
+        Metadata metadata = new Metadata(index);
+        MemorySegment key = metadata.readKey();
+        MemorySegment value = metadata.readValue();
         return new BaseEntry<>(key, value);
     }
 
@@ -192,7 +186,7 @@ public class SSTable implements Comparable<SSTable> {
         private long curItemIndex;
         private final MemorySegment maxKey;
 
-        private Entry<MemorySegment> curEntry;
+        private Entry<MemorySegment> curEntry = null;
 
         public SSTableIterator(MemorySegment minKey, MemorySegment maxKey) {
             this.maxKey = maxKey;
@@ -201,19 +195,26 @@ public class SSTable implements Comparable<SSTable> {
             } else {
                 this.curItemIndex = findByKey(minKey);
             }
-            this.curEntry = readEntry(curItemIndex);
+            if (curItemIndex != -1) {
+                this.curEntry = readEntry(curItemIndex);
+            } else {
+                curItemIndex = Long.MAX_VALUE;
+            }
         }
 
         @Override
         public boolean hasNext() {
             if (curItemIndex >= size) return false;
-            return maxKey != null && memSegComp.compare(curEntry.key(), maxKey) < 0;
+            return maxKey == null || memSegComp.compare(curEntry.key(), maxKey) < 0;
         }
 
         @Override
         public Entry<MemorySegment> next() {
             Entry<MemorySegment> result = curEntry;
-            curEntry = readEntry(++curItemIndex);
+            curItemIndex++;
+            if (curItemIndex < size) {
+                curEntry = readEntry(curItemIndex);
+            }
             return result;
         }
 
@@ -237,6 +238,43 @@ public class SSTable implements Comparable<SSTable> {
             this.offset = offset;
             this.length = length;
         }
+    }
+
+    private class Metadata {
+        public final Range keyRange;
+        public final Range valueRange;
+        public final Boolean isDeletion;
+        public final static long SIZE = Long.BYTES * 4 + 1;
+
+        public Metadata(long index) {
+            long base = index * Metadata.SIZE;
+            keyRange = readRange(summaryFile, base);
+            valueRange = readRange(summaryFile, base + 2 * Long.BYTES);
+            isDeletion = summaryFile.get(ValueLayout.JAVA_BOOLEAN, base + 4 * Long.BYTES);
+        }
+
+        public MemorySegment readKey() {
+            return indexFile.asSlice(keyRange.offset, keyRange.length);
+        }
+
+        public MemorySegment readValue() {
+            return isDeletion ? null : dataFile.asSlice(valueRange.offset, valueRange.length);
+        }
+
+        public static void writeEntryMetadata(Entry<MemorySegment> entry, MemorySegment summaryFile,
+                                              long sumOffset, long indexOffset, long dataOffset) {
+            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
+                    sumOffset, indexOffset);
+            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
+                    sumOffset + Long.BYTES, entry.key().byteSize());
+            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
+                    sumOffset + 2 * Long.BYTES, dataOffset);
+            summaryFile.set(ValueLayout.JAVA_BOOLEAN,
+                    sumOffset + 4 * Long.BYTES, entry.value() == null);
+            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
+                    sumOffset + 3 * Long.BYTES, entry.value() == null ? 0 : entry.value().byteSize());
+        }
+
     }
 
 }

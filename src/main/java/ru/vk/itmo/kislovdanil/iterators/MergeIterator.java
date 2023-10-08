@@ -8,20 +8,40 @@ import java.util.*;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, IteratorAndValue> itemsPool;
+    private Entry<MemorySegment> currentEntry;
 
     public MergeIterator(List<DatabaseIterator> iterators, Comparator<MemorySegment> comp) {
         this.itemsPool = new TreeMap<>(comp);
         for (DatabaseIterator iter : iterators) {
-            handleEntry(iter);
+            moveIterator(iter);
         }
+        updateCurrentEntry();
     }
 
-    private void handleEntry(DatabaseIterator iter) {
+    private void updateCurrentEntry() {
+        MemorySegment value = null;
+        MemorySegment key = null;
+        while (value == null && !itemsPool.isEmpty()) {
+            key = itemsPool.firstKey();
+            IteratorAndValue iteratorAndValue = itemsPool.get(key);
+            itemsPool.remove(key);
+            moveIterator(iteratorAndValue.iterator);
+            value = iteratorAndValue.value;
+        }
+        currentEntry = (value == null) ? null : new BaseEntry<>(key, value);
+    }
+
+    private void moveIterator(DatabaseIterator iter) {
         while (iter.hasNext()) {
             Entry<MemorySegment> entry = iter.next();
-            if (itemsPool.containsKey(entry.key()) &&
-                    (iter.getPriority() < itemsPool.get(entry.key()).iterator.getPriority())) {
-                continue;
+            if (itemsPool.containsKey(entry.key())) {
+                DatabaseIterator concurrentIterator = itemsPool.get(entry.key()).iterator;
+                if (iter.getPriority() < concurrentIterator.getPriority()) {
+                    continue;
+                }
+                else {
+                    moveIterator(concurrentIterator);
+                }
             }
             itemsPool.put(entry.key(), new IteratorAndValue(iter, entry.value()));
             return;
@@ -30,16 +50,14 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public boolean hasNext() {
-        return !this.itemsPool.isEmpty();
+        return currentEntry != null;
     }
 
     @Override
     public Entry<MemorySegment> next() {
-        MemorySegment key = itemsPool.firstKey();
-        IteratorAndValue iteratorAndValue = itemsPool.get(key);
-        itemsPool.remove(key);
-        handleEntry(iteratorAndValue.iterator);
-        return new BaseEntry<>(key, iteratorAndValue.value);
+        Entry<MemorySegment> result = currentEntry;
+        updateCurrentEntry();
+        return result;
     }
 
     private static final class IteratorAndValue {
