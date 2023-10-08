@@ -23,15 +23,13 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Comparator<MemorySegment> comparator = PaschenkoDao::compare;
-
-    private final Config config;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final MemorySegment readPage;
+    private final Path path;
 
     public PaschenkoDao(Config config) throws IOException {
-        this.config = config;
-
-        Path path = getDataPath();
+        this.path = config.basePath().resolve("data.db");
 
         arena = Arena.ofShared();
 
@@ -46,7 +44,7 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         boolean created = false;
         MemorySegment pageCurrent;
-        try(FileChannel fileChannel = FileChannel.open(getDataPath(), StandardOpenOption.READ);) {
+        try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.READ);) {
             pageCurrent = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
             created = true;
         } catch (FileNotFoundException e) {
@@ -62,8 +60,6 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         readPage = pageCurrent;
     }
 
-
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
 
     private static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
         long mismatch = memorySegment1.mismatch(memorySegment2);
@@ -137,11 +133,6 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-
-    private Path getDataPath() {
-        return config.basePath().resolve("data.db");
-    }
-
     @Override
     public void close() throws IOException {
         if (!arena.scope().isAlive()) {
@@ -156,9 +147,9 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         size += 2L * storage.size() * Long.BYTES;
 
-        try(Arena writeArena = Arena.ofConfined()) {
+        try (Arena writeArena = Arena.ofConfined()) {
             MemorySegment page;
-            try (FileChannel fileChannel = FileChannel.open(getDataPath(), StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE);) {
+            try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE);) {
                 page = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, size, writeArena);
             }
 
