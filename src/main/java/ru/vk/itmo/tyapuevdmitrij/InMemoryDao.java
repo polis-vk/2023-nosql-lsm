@@ -149,6 +149,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
             offset += valueByteSize;
         }
-        return null;
+        return null; 
     }
 }
