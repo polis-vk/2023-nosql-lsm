@@ -148,6 +148,9 @@ public class PersistentTest extends BaseTest {
     @Timeout(value = 30)
     void toManyFiles(Dao<String, Entry<String>> dao) throws IOException {
         for (int i = 0; i < 30000; i++) {
+            if (i % 1000 == 0) {
+                System.out.println(i);
+            }
             dao.close();
             dao = DaoFactory.Factory.reopen(dao);
         }

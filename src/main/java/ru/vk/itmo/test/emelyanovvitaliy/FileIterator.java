@@ -3,7 +3,6 @@ package ru.vk.itmo.test.emelyanovvitaliy;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
-import java.io.Console;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -23,6 +22,8 @@ public class FileIterator {
     private final Comparator<MemorySegment> comparator;
     private long nowKeyAddressOffset = Integer.BYTES + Long.BYTES;
     private int numOfKeys = -1;
+    private long timestamp = -1;
+
     public FileIterator(Path filePath, Comparator<MemorySegment> comparator) throws IOException {
         this.filePath = filePath;
         this.fc = FileChannel.open(filePath, StandardOpenOption.READ);
@@ -73,7 +74,7 @@ public class FileIterator {
         nowKeyAddressOffset += 2L * Long.BYTES;
     }
 
-    public boolean hasNext() {
+    public boolean hasNow() {
         return nowKeyAddressOffset < getAddressOffset(getNumOfKeys());
     }
 
@@ -86,6 +87,24 @@ public class FileIterator {
             numOfKeys = mapped.get(ValueLayout.JAVA_INT_UNALIGNED, Long.BYTES);
         }
         return numOfKeys;
+    }
+
+    public long getTimestamp() {
+        if (timestamp == -1) {
+            timestamp = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        }
+        return timestamp;
+    }
+
+    public MemorySegment getNextNonDeletedKey() {
+        long keyAddrOffset = nowKeyAddressOffset;
+        if (keyAddrOffset < getAddressOffset(getNumOfKeys())) {
+            Entry<MemorySegment> entry = getEntryByAddressOffset(keyAddrOffset);
+            if (entry != null && entry.value() != null) {
+                return entry.key();
+            }
+        }
+        return null;
     }
 
     private static long getAddressOffset(int n) {
@@ -110,18 +129,9 @@ public class FileIterator {
         );
     }
 
-//    private long getNextKeyOffset(long keyAddressOffset) {
-//        long nextKeyAddressOffset = getNextKeyAddressOffset(keyAddressOffset);
-//        if (nextKeyAddressOffset >= mapped.byteSize()) {
-//            return mapped.byteSize();
-//        } else {
-//            return mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, nextKeyAddressOffset);
-//        }
-//    }
-
     private long getNextKeyOffset(long keyAddressOffset) {
         long nextKeyAddressOffset = keyAddressOffset + 2L * Long.BYTES;
-        if (nextKeyAddressOffset >= mapped.byteSize()) {
+        if (nextKeyAddressOffset >= getAddressOffset(getNumOfKeys())) {
             return mapped.byteSize();
         } else {
             return Math.min(
