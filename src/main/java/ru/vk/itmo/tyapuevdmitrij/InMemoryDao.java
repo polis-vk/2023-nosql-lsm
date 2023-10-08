@@ -38,7 +38,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             = new ConcurrentSkipListMap<>(memorySegmentComparator);
     private final Path ssTablePath;
     private final MemorySegment ssTable;
-    private static final String ssTableFileName = "SS_TABLE";
+    private static final String SS_TABLE_FILE_NAME = "ssTable";
 
     public InMemoryDao() {
         ssTablePath = null;
@@ -46,7 +46,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public InMemoryDao(Config config) {
-        ssTablePath = config.basePath().resolve(ssTableFileName);
+        ssTablePath = config.basePath().resolve(SS_TABLE_FILE_NAME);
         ssTable = getReadBufferFromSsTable();
     }
 
