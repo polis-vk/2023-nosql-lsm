@@ -12,7 +12,6 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Set;
@@ -49,7 +48,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (memRes != null) {
             return memRes;
         }
-        return getFromFile(key);
+        return getFromFile(key, sstablePath);
     }
 
     @Override
@@ -72,6 +71,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
+        try {
+            dumpToFile(sstablePath);
+        } finally {
+            if (arena.scope().isAlive()) {
+                arena.close();
+            }
+        }
+    }
+
+    private void dumpToFile(Path path) throws IOException {
         long size = 0;
         Set<StandardOpenOption> openOptions =
                 Set.of(
@@ -81,67 +90,98 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         StandardOpenOption.TRUNCATE_EXISTING
                 );
         for (Entry<MemorySegment> entry : mappings.values()) {
-            size += entry.value().byteSize() + entry.key().byteSize() + 2 * Long.BYTES;
+            size += entry.value().byteSize() + entry.key().byteSize();
         }
-        try (FileChannel fc = FileChannel.open(sstablePath, openOptions); Arena writeArena = Arena.ofConfined()) {
-            Collection<Entry<MemorySegment>> vals = mappings.values();
+        size += Integer.BYTES + 2L * Long.BYTES * mappings.size();
+        try (FileChannel fc = FileChannel.open(path, openOptions); Arena writeArena = Arena.ofConfined()) {
             MemorySegment mapped = fc.map(READ_WRITE, 0, size, writeArena);
             long offset = 0;
-            for (Entry<MemorySegment> entry : vals) {
-                mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
+            long offsetToWrite = 0;
+            mapped.set(ValueLayout.JAVA_INT_UNALIGNED, offset, mappings.size());
+            offset += Integer.BYTES;
+            offsetToWrite += Integer.BYTES + 2L * mappings.size() * Long.BYTES;
+            for (Entry<MemorySegment> entry: mappings.values()) {
+                mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, offsetToWrite);
                 offset += Long.BYTES;
-                mapped.asSlice(offset, entry.key().byteSize()).copyFrom(entry.key());
                 MemorySegment.copy(
                         entry.key(), 0,
-                        mapped, offset,
+                        mapped, offsetToWrite,
                         entry.key().byteSize()
                 );
-                offset += entry.key().byteSize();
-                mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.value().byteSize());
+                offsetToWrite += entry.key().byteSize();
+                if (entry.value() == null) {
+                    mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
+                } else {
+                    mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, offsetToWrite);
+                    MemorySegment.copy(
+                            entry.value(), 0,
+                            mapped, offsetToWrite,
+                            entry.value().byteSize()
+                    );
+                    offsetToWrite += entry.value().byteSize();
+                }
                 offset += Long.BYTES;
-                MemorySegment.copy(
-                        entry.value(), 0,
-                        mapped, offset,
-                        entry.value().byteSize()
-                );
-                offset += entry.value().byteSize();
-            }
-        } finally {
-            if (arena.scope().isAlive()) {
-                arena.close();
             }
         }
     }
 
-    private Entry<MemorySegment> getFromFile(MemorySegment key) {
-        if (!Files.exists(sstablePath)) {
+    private Entry<MemorySegment> getFromFile(MemorySegment key, Path filePath) {
+        if (!Files.exists(filePath)) {
             return null;
         }
         Set<StandardOpenOption> openOptions = Set.of(StandardOpenOption.CREATE, StandardOpenOption.READ);
-        try (FileChannel fc = FileChannel.open(sstablePath, openOptions)) {
+        try (FileChannel fc = FileChannel.open(filePath, openOptions)) {
             MemorySegment mapped = fc.map(READ_ONLY, 0, fc.size(), arena);
-            long offset = 0;
-            while (offset < fc.size()) {
-                long keySize = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
-                long mismatch = 0;
-                if (keySize == key.byteSize()) {
-                    mismatch = MemorySegment.mismatch(mapped, offset, offset + keySize, key, 0, keySize);
-                }
-                offset += keySize;
-                long valueSize = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
-                if (mismatch == -1) {
-                    return new BaseEntry<>(
-                            key, mapped.asSlice(offset, valueSize)
-                    );
+            int numOfKeys = mapped.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
+            long firstKeyOffset = Integer.BYTES + 2L * numOfKeys * Long.BYTES;
+            int left = 0;
+            int right = numOfKeys;
+            while (left < right) {
+                int m = (left + right) / 2;
+                long keyAddressOffset = Integer.BYTES + 2L * m * Long.BYTES;
+                long valueAddressOffset = keyAddressOffset + Long.BYTES;
+                long keyOffset = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyAddressOffset);
+                long valueOffset = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, valueAddressOffset);
+                long keyOffsetTo;
+                long nextKeyAddressOffset = keyAddressOffset + 2L * Long.BYTES;
+                long nextKeyOffset = mapped.byteSize();
+                if (valueOffset != -1) {
+                    keyOffsetTo = valueOffset;
+                } else if (nextKeyAddressOffset >= firstKeyOffset) {
+                    keyOffsetTo = mapped.byteSize();
                 } else {
-                    offset += valueSize;
+                    keyOffsetTo = nextKeyAddressOffset - keyAddressOffset;
+                }
+                if (nextKeyAddressOffset < firstKeyOffset) {
+                    nextKeyOffset = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, nextKeyAddressOffset);
+                }
+                long compared = comparator.compare(
+                        key,
+                        mapped.asSlice(keyOffset, keyOffsetTo - keyOffset)
+                );
+
+                if (compared == 0) {
+                    if (valueOffset != -1) {
+
+                        return new BaseEntry<>(
+                                key,
+                                mapped.asSlice(valueOffset, nextKeyOffset - valueOffset)
+                        );
+                    } else {
+                        return new BaseEntry<>(
+                                key,
+                                null
+                        );
+                    }
+                } else if (compared > 0) {
+                    left = m + 1;
+                } else {
+                    right = m;
                 }
             }
+            return null;
         } catch (IOException ignored) {
             return null;
         }
-        return null;
     }
 }
