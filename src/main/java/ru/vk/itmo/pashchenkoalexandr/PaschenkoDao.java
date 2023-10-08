@@ -48,8 +48,6 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             created = true;
         } catch (FileNotFoundException e) {
             pageCurrent = null;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         } finally {
             if (!created) {
                 arena.close();
