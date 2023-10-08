@@ -1,24 +1,23 @@
 package ru.vk.itmo.test.at;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.at.ATDao;
 import ru.vk.itmo.test.DaoFactory;
 
-/**
- * @author andrey.timofeev
- * @date 22.09.2023
- */
-@DaoFactory
+@DaoFactory(stage = 2)
 public class ATFactory implements DaoFactory.Factory<MemorySegment, BaseEntry<MemorySegment>> {
 
     @Override
-    public Dao createDao() {
-        return new ATDao();
+    public Dao createDao(Config config) throws IOException {
+        return new ATDao(config);
     }
 
     @Override
