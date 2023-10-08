@@ -19,6 +19,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 /**
@@ -35,11 +36,15 @@ public class SSTable {
 
     private static final Set<StandardOpenOption> READ_OPTIONS = Set.of(READ);
 
-    private static final Set<StandardOpenOption> READ_WRITE_OPTIONS = Set.of(READ, WRITE, CREATE);
+    private static final Set<StandardOpenOption> READ_WRITE_OPTIONS = Set.of(READ, WRITE, CREATE, TRUNCATE_EXISTING);
 
     private final MemorySegment indexFileMap;
 
     private final MemorySegment tableFileMap;
+
+    private final Arena indexReadArena;
+
+    private final Arena tableReadArena;
 
     private final Path basePath;
 
@@ -47,13 +52,15 @@ public class SSTable {
         this.basePath = config.basePath();
         final Path indexPath = basePath.resolve(INDEX_FILE);
         final Path tablePath = basePath.resolve(TABLE_FILE);
+        this.indexReadArena = Arena.ofConfined();
+        this.tableReadArena = Arena.ofConfined();
         if (Files.exists(indexPath) && Files.exists(tablePath)) {
             try (FileChannel indexChannel = FileChannel.open(indexPath, READ_OPTIONS);
                  FileChannel tableChannel = FileChannel.open(tablePath, READ_OPTIONS)) {
                 indexFileMap = indexChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath),
-                        Arena.ofConfined());
+                        indexReadArena);
                 tableFileMap = tableChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(tablePath),
-                        Arena.ofConfined());
+                        tableReadArena);
             }
         } else {
             indexFileMap = null;
@@ -79,7 +86,7 @@ public class SSTable {
     private long searchKeyPosition(final MemorySegment key) {
         final MemorySegmentComparator comparator = new MemorySegmentComparator();
         long low = 0;
-        long high = indexFileMap.byteSize() / Long.BYTES;
+        long high = indexFileMap.byteSize() / Long.BYTES - 1;
 
         while (low <= high) {
             final long mid = (low + high) >>> 1;
@@ -120,8 +127,15 @@ public class SSTable {
             throws IOException {
         final Path indexPath = basePath.resolve(INDEX_FILE);
         final Path tablePath = basePath.resolve(TABLE_FILE);
+        if (!indexReadArena.scope().isAlive() || !tableReadArena.scope().isAlive()) {
+            return;
+        }
+        indexReadArena.close();
+        tableReadArena.close();
 
-        try (FileChannel indexChannel = FileChannel.open(indexPath, READ_WRITE_OPTIONS);
+        try (Arena indexArena = Arena.ofConfined();
+             Arena tableArena = Arena.ofConfined();
+             FileChannel indexChannel = FileChannel.open(indexPath, READ_WRITE_OPTIONS);
              FileChannel tableChannel = FileChannel.open(tablePath, READ_WRITE_OPTIONS)) {
 
             final long indexFileSize = (long) data.size() * Long.BYTES;
@@ -131,9 +145,9 @@ public class SSTable {
             }).sum();
 
             final MemorySegment indexMap = indexChannel
-                    .map(FileChannel.MapMode.READ_WRITE, 0, indexFileSize, Arena.ofConfined());
+                    .map(FileChannel.MapMode.READ_WRITE, 0, indexFileSize, indexArena);
             final MemorySegment tableMap = tableChannel
-                    .map(FileChannel.MapMode.READ_WRITE, 0, tableFileSize, Arena.ofConfined());
+                    .map(FileChannel.MapMode.READ_WRITE, 0, tableFileSize, tableArena);
 
             final AtomicLong indexOffset = new AtomicLong(0);
             final AtomicLong tableOffset = new AtomicLong(0);
