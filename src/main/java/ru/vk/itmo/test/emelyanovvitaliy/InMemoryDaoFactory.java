@@ -18,12 +18,12 @@ public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Ent
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new InMemoryDao(config.basePath());
+        return new AlreadyNotSoInMemoryDao(config.basePath());
     }
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+        return new AlreadyNotSoInMemoryDao();
     }
 
     @Override
