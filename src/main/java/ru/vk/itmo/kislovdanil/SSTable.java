@@ -20,7 +20,7 @@ public class SSTable implements Comparable<SSTable> {
     private MemorySegment summaryFile;
     // Contains keys and for each key contains offset and size of assigned value
     private MemorySegment indexFile;
-    //Contains values
+    // Contains values
     private MemorySegment dataFile;
     private final Comparator<MemorySegment> memSegComp;
     private final Arena filesArena = Arena.ofAuto();
@@ -91,7 +91,7 @@ public class SSTable implements Comparable<SSTable> {
                             long currentSummaryOffset, long currentIndexOffset, long currentDataOffset) {
         MemorySegment.copy(value, 0, dataFile, currentDataOffset, value.byteSize());
         MemorySegment.copy(key, 0, indexFile, currentIndexOffset, key.byteSize());
-        indexFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
+        indexFile.set(ValueLayout.JAVA_LONG_UNALIGNED
                 currentIndexOffset + key.byteSize(), currentDataOffset);
         indexFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
                 currentIndexOffset + key.byteSize() + Long.BYTES, value.byteSize());
