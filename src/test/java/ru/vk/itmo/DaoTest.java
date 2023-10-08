@@ -135,7 +135,12 @@ public @interface DaoTest {
 
         private Dao<String, Entry<String>> createDao(ExtensionContext context, Class<?> clazz) throws IOException, InstantiationException, IllegalAccessException, InvocationTargetException, NoSuchMethodException {
             Path tmp = Files.createTempDirectory("dao");
+
+            DaoFactory.Factory<?, ?> f = (DaoFactory.Factory<?, ?>) clazz.getDeclaredConstructor().newInstance();
+            Dao<String, Entry<String>> dao = f.createStringDao(new Config(tmp));
+
             ExtensionContext.Store.CloseableResource res = () -> {
+                dao.close();
                 if (!Files.exists(tmp)) {
                     return;
                 }
@@ -153,14 +158,8 @@ public @interface DaoTest {
                     }
                 });
             };
+
             context.getStore(NAMESPACE).put(ID.incrementAndGet() + "", res);
-
-            DaoFactory.Factory<?, ?> f = (DaoFactory.Factory<?, ?>) clazz.getDeclaredConstructor().newInstance();
-
-            Dao<String, Entry<String>> dao = f.createStringDao(new Config(tmp));
-
-            ExtensionContext.Store.CloseableResource resDao = dao::close;
-            context.getStore(NAMESPACE).put(ID.incrementAndGet() + "", resDao);
 
             return dao;
         }

@@ -1,6 +1,7 @@
 package ru.vk.itmo;
 
 import org.junit.jupiter.api.Assertions;
+
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
