@@ -12,7 +12,9 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -24,7 +26,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public static final String FILENAME = "sstable.save";
     private final Path sstablePath;
     private final Arena arena = Arena.ofShared();
-    private final Comparator<MemorySegment> comparator = (o1, o2) -> {
+    public static final Comparator<MemorySegment> comparator = (o1, o2) -> {
         if (o1 == o2) {
             return 0;
         }
@@ -71,8 +73,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
+        dumpToFile(sstablePath);
+    }
+
+    @Override
+    public void close() throws IOException {
         try {
-            dumpToFile(sstablePath);
+            flush();
         } finally {
             if (arena.scope().isAlive()) {
                 arena.close();
@@ -92,14 +99,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         for (Entry<MemorySegment> entry : mappings.values()) {
             size += entry.value().byteSize() + entry.key().byteSize();
         }
-        size += Integer.BYTES + 2L * Long.BYTES * mappings.size();
+        size += Integer.BYTES + (2L * Long.BYTES + 1) * mappings.size();
         try (FileChannel fc = FileChannel.open(path, openOptions); Arena writeArena = Arena.ofConfined()) {
             MemorySegment mapped = fc.map(READ_WRITE, 0, size, writeArena);
             long offset = 0;
             long offsetToWrite = 0;
+            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, Instant.now().toEpochMilli());
+            offset += Long.BYTES;
             mapped.set(ValueLayout.JAVA_INT_UNALIGNED, offset, mappings.size());
             offset += Integer.BYTES;
-            offsetToWrite += Integer.BYTES + 2L * mappings.size() * Long.BYTES;
+            offsetToWrite += Integer.BYTES + (2L * mappings.size() + 1) * Long.BYTES;
             for (Entry<MemorySegment> entry: mappings.values()) {
                 mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, offsetToWrite);
                 offset += Long.BYTES;
@@ -133,12 +142,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try (FileChannel fc = FileChannel.open(filePath, openOptions)) {
             MemorySegment mapped = fc.map(READ_ONLY, 0, fc.size(), arena);
             int numOfKeys = mapped.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
-            long firstKeyOffset = Integer.BYTES + 2L * numOfKeys * Long.BYTES;
+            long firstKeyOffset = Integer.BYTES + Long.BYTES + 2L * numOfKeys * Long.BYTES;
             int left = 0;
             int right = numOfKeys;
             while (left < right) {
                 int m = (left + right) / 2;
-                long keyAddressOffset = Integer.BYTES + 2L * m * Long.BYTES;
+                long keyAddressOffset = Integer.BYTES + (2L * m + 1) * Long.BYTES;
                 long valueAddressOffset = keyAddressOffset + Long.BYTES;
                 long keyOffset = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyAddressOffset);
                 long valueOffset = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, valueAddressOffset);
