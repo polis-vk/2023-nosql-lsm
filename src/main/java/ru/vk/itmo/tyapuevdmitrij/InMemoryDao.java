@@ -6,7 +6,6 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -39,6 +38,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             = new ConcurrentSkipListMap<>(memorySegmentComparator);
     private final Path ssTablePath;
     private final MemorySegment ssTable;
+    private final String ssTableFileName = "ssTable";
 
     public InMemoryDao() {
         ssTablePath = null;
@@ -46,7 +46,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public InMemoryDao(Config config) {
-        ssTablePath = config.basePath().resolve("ssTable");
+        ssTablePath = config.basePath().resolve(ssTableFileName);
         ssTable = getReadBufferFromSsTable();
     }
 
@@ -64,11 +64,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        if (memTable.containsKey(key) || ssTable == null) {
-            return memTable.get(key);
+        Entry<MemorySegment> value = memTable.get(key);
+        if (value != null || ssTable == null) {
+            return value;
         }
-        putSsTableDataToMemTable();
-        return memTable.get(key);
+        return getSsTableDataByKey(key);
     }
 
     @Override
@@ -78,7 +78,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        throw new UnsupportedEncodingException("");
+        throw new UnsupportedOperationException("");
     }
 
     @Override
@@ -103,7 +103,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING))) {
-          buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, getSsTableDataByteSize(), Arena.ofAuto());
+            buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, getSsTableDataByteSize(), Arena.ofAuto());
         }
         return buffer;
     }
@@ -125,27 +125,28 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public final MemorySegment getReadBufferFromSsTable() {
         MemorySegment buffer;
         try (FileChannel channel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
-         buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), Arena.ofAuto());
+            buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), Arena.ofAuto());
         } catch (IOException e) {
             buffer = null;
         }
         return buffer;
     }
 
-    public void putSsTableDataToMemTable() {
+    public Entry<MemorySegment> getSsTableDataByKey(MemorySegment key) {
         long offset = 0;
-        MemorySegment keyFromSsTable;
         MemorySegment valueFromSsTable;
         while (offset < ssTable.byteSize()) {
             long keyByteSize = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
-            keyFromSsTable = ssTable.asSlice(offset, keyByteSize);
-            offset += keyByteSize;
+            long keysMismatch = MemorySegment.mismatch(ssTable, offset, offset += keyByteSize, key, 0, key.byteSize());
             long valueByteSize = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
             valueFromSsTable = ssTable.asSlice(offset, valueByteSize);
+            if (keysMismatch == -1) {
+                return new BaseEntry<>(key, valueFromSsTable);
+            }
             offset += valueByteSize;
-            upsert(new BaseEntry<>(keyFromSsTable, valueFromSsTable));
         }
+        return null;
     }
 }
