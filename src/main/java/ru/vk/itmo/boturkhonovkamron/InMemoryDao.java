@@ -24,7 +24,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private SSTable ssTable;
 
     public InMemoryDao() {
-        data = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+        data = new ConcurrentSkipListMap<>(MemorySegmentComparator.COMPARATOR);
     }
 
     public InMemoryDao(final Config config) throws IOException {

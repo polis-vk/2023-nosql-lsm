@@ -4,6 +4,7 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.boturkhonovkamron.MemorySegmentComparator;
+import ru.vk.itmo.boturkhonovkamron.util.Offset;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -13,9 +14,9 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Comparator;
 import java.util.NavigableMap;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.READ;
@@ -84,7 +85,7 @@ public class SSTable {
     }
 
     private long searchKeyPosition(final MemorySegment key) {
-        final MemorySegmentComparator comparator = new MemorySegmentComparator();
+        final Comparator<MemorySegment> comparator = MemorySegmentComparator.COMPARATOR;
         long low = 0;
         long high = indexFileMap.byteSize() / Long.BYTES - 1;
 
@@ -149,8 +150,8 @@ public class SSTable {
             final MemorySegment tableMap = tableChannel
                     .map(FileChannel.MapMode.READ_WRITE, 0, tableFileSize, tableArena);
 
-            final AtomicLong indexOffset = new AtomicLong(0);
-            final AtomicLong tableOffset = new AtomicLong(0);
+            final Offset indexOffset = new Offset(0);
+            final Offset tableOffset = new Offset(0);
             data.forEach((key, entry) -> {
                 final long keySize = entry.key().byteSize();
                 final long valueSize = entry.value() == null ? 0L : entry.value().byteSize();
