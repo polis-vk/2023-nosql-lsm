@@ -38,7 +38,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             = new ConcurrentSkipListMap<>(memorySegmentComparator);
     private final Path ssTablePath;
     private final MemorySegment ssTable;
-    private final String ssTableFileName = "ssTable";
+    private static final String ssTableFileName = "ssTable";
 
     public InMemoryDao() {
         ssTablePath = null;
@@ -138,7 +138,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         while (offset < ssTable.byteSize()) {
             long keyByteSize = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
-            long keysMismatch = MemorySegment.mismatch(ssTable, offset, offset += keyByteSize, key, 0, key.byteSize());
+            long keysMismatch;
+            keysMismatch = MemorySegment.mismatch(ssTable, offset, offset + keyByteSize, key, 0, key.byteSize());
+            offset += keyByteSize;
             long valueByteSize = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
             valueFromSsTable = ssTable.asSlice(offset, valueByteSize);
