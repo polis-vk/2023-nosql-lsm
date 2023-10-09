@@ -12,6 +12,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -22,14 +23,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena readArena = Arena.ofShared();
     private final List<MemorySegment> readMappedMemorySegments = new ArrayList<>(); // SSTables
     private final Path path;
-    private final long latestFile = 1;
+    private final long latestFile = 0;
     private final long pageSize = 4096;
 
     public InMemoryDao(Config config) {
         this.path = config.basePath().resolve(Constants.FILE_NAME_PEFIX);
 
-        for (long i = latestFile - 1; i >= 0; i--) {
-            Path ssTablePath = path.resolve(Long.toString(i));
+        for (long i = latestFile; i >= 0; i--) {
+            Path ssTablePath = Paths.get(path + Long.toString(i));
             MemorySegment tryReadMappedMemorySegment;
             try {
                 tryReadMappedMemorySegment = FileChannel.open(ssTablePath, Constants.READ_OPTIONS)
@@ -60,20 +61,21 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 biteCount++;
                 List<Long> offsets = new ArrayList<>();
                 
-                while (offset < pageSize * biteCount) {
+                while (offset < pageSize * biteCount && offset < readMappedMemorySegment.byteSize()) {
                     offsets.add(offset);
                     long keySize = readMappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                     offset += Long.BYTES;
                     long valueSize = readMappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
                     if (offset + keySize + Long.BYTES + valueSize > pageSize * biteCount) {
                         offset -= Long.BYTES;
+                        break;
                     } else {
                         offset += keySize + Long.BYTES + valueSize;
                     }
                 }
 
                 long keySize = readMappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offsets.getLast());
-                if (keySize != key.byteSize()) {
+                if (keySize < key.byteSize()) {
                     continue;
                 }
 
@@ -148,7 +150,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         mappedMemorySize += Long.BYTES * memTableMap.size() * 2L;
 
         // Memory segment to write
-        MemorySegment writeMappedMemorySegment = FileChannel.open(path, Constants.WRITE_OPTIONS)
+        MemorySegment writeMappedMemorySegment = FileChannel.open(Paths.get(path + "0"), Constants.WRITE_OPTIONS)
                 .map(FileChannel.MapMode.READ_WRITE, 0, mappedMemorySize, writeArena);
 
         // Write memTable
