@@ -7,7 +7,8 @@ import java.util.HashSet;
 import java.util.Set;
 
 public final class Constants {
-    public static final String FILE_NAME = "SS_TABLE";
+    public static final String FILE_NAME_PEFIX = "SS_TABLE_";
+    public static final String FILE_NAME_CONFIG = "_CONFIG";
     public static final Set<OpenOption> WRITE_OPTIONS = new HashSet<>(Arrays.asList(
             StandardOpenOption.READ,
             StandardOpenOption.WRITE,

@@ -12,31 +12,33 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.NavigableMap;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memTableMap =
             new ConcurrentSkipListMap<>(comparator);
-    private final Arena readArena = Arena.ofConfined();
-    private final MemorySegment readMappedMemorySegment; // SSTable
+    private final Arena readArena = Arena.ofShared();
+    private final List<MemorySegment> readMappedMemorySegments = new ArrayList<>(); // SSTables
     private final Path path;
+    private final long latestFile = 1;
+    private final long pageSize = 4096;
 
     public InMemoryDao(Config config) {
-        this.path = config.basePath().resolve(Constants.FILE_NAME);
+        this.path = config.basePath().resolve(Constants.FILE_NAME_PEFIX);
 
-        MemorySegment tryReadMappedMemorySegment;
-        try {
-            tryReadMappedMemorySegment = FileChannel.open(path, Constants.READ_OPTIONS)
-                    .map(FileChannel.MapMode.READ_ONLY, 0, Files.size(path), readArena);
-        } catch (IOException e) {
-            tryReadMappedMemorySegment = null;
+        for (long i = latestFile - 1; i >= 0; i--) {
+            Path ssTablePath = path.resolve(Long.toString(i));
+            MemorySegment tryReadMappedMemorySegment;
+            try {
+                tryReadMappedMemorySegment = FileChannel.open(ssTablePath, Constants.READ_OPTIONS)
+                        .map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), readArena);
+            } catch (IOException e) {
+                tryReadMappedMemorySegment = null;
+            }
+            readMappedMemorySegments.add(tryReadMappedMemorySegment);
         }
-
-        readMappedMemorySegment = tryReadMappedMemorySegment;
     }
 
     @Override
@@ -47,30 +49,72 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return entry;
         }
 
-        // Trying to return the key from SSTable
-        if (readMappedMemorySegment == null) {
-            return null;
+        // all files
+        for (MemorySegment readMappedMemorySegment: readMappedMemorySegments) {
+            if (readMappedMemorySegment == null) {
+                return null;
+            }
+            long offset = 0;
+            long biteCount = 0;
+            while(offset < readMappedMemorySegment.byteSize()) {
+                biteCount++;
+                List<Long> offsets = new ArrayList<>();
+                
+                while (offset < pageSize * biteCount) {
+                    offsets.add(offset);
+                    long keySize = readMappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                    offset += Long.BYTES;
+                    long valueSize = readMappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
+                    if (offset + keySize + Long.BYTES + valueSize > pageSize * biteCount) {
+                        offset -= Long.BYTES;
+                    } else {
+                        offset += keySize + Long.BYTES + valueSize;
+                    }
+                }
+
+                long keySize = readMappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offsets.getLast());
+                if (keySize != key.byteSize()) {
+                    continue;
+                }
+
+                BaseEntry<MemorySegment> entryFromFile = binarySearch(offsets, key, readMappedMemorySegment);
+                if (entryFromFile != null) {
+                    return entryFromFile;
+                }
+            }
         }
-        long offset = 0;
-        while (offset < readMappedMemorySegment.byteSize()) {
-            long keySize = readMappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+
+        return null;
+    }
+
+    private BaseEntry<MemorySegment> binarySearch(List<Long> offsets, MemorySegment key, MemorySegment memorySegment) {
+        int left = 0;
+        int right = offsets.size() - 1;
+
+        while (left <= right) {
+            int mid = left + (right - left) / 2;
+            long offset = offsets.get(mid);
+            long keySize = memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
-            long valueSize = readMappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
 
-            if (keySize != key.byteSize()) {
-                offset += keySize + Long.BYTES + valueSize;
-                continue;
+//            if (keySize != key.byteSize()) {
+//                biteOffset += keySize + Long.BYTES + valueSize;
+//                continue;
+//            }
+
+            MemorySegment midKey = memorySegment.asSlice(offset, keySize);
+            int compareResult = comparator.compare(key, midKey);
+            if (compareResult == 0) {
+                long valueSize = memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
+                offset += keySize;
+                offset += Long.BYTES;
+                MemorySegment midValue = memorySegment.asSlice(offset, valueSize);
+                return new BaseEntry<>(midKey, midValue);
+            } else if (compareResult > 0) {
+                left = mid + 1;
+            } else {
+                right = mid - 1;
             }
-
-            MemorySegment keyMappedMemorySegment = readMappedMemorySegment.asSlice(offset, keySize);
-            offset += keySize;
-            offset += Long.BYTES;
-            if (key.mismatch(keyMappedMemorySegment) == -1) {
-                MemorySegment valueMappedMemorySegment = readMappedMemorySegment.asSlice(offset, valueSize);
-                return new BaseEntry<>(keyMappedMemorySegment, valueMappedMemorySegment);
-            }
-
-            offset += valueSize;
         }
 
         return null;
