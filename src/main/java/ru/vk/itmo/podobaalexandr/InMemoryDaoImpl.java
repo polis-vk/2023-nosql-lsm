@@ -81,7 +81,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
             return mismatch == -1
                     ? 0
-                    : o1.get(ValueLayout.JAVA_BYTE, mismatch) - o2.get(ValueLayout.JAVA_BYTE, mismatch);
+                    : Byte.compare(o1.get(ValueLayout.JAVA_BYTE, mismatch), o2.get(ValueLayout.JAVA_BYTE, mismatch));
         }
     }
 
