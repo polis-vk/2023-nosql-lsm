@@ -125,8 +125,6 @@ public class SSTable {
         offsetK += Long.BYTES;
         offsetV += offsetK;
 
-
-
         try {
             if (!Files.exists(filePath)) {
                 Files.createDirectory(filePath);
