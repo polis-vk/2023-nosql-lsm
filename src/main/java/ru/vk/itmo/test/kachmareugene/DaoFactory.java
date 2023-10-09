@@ -20,7 +20,7 @@ public class DaoFactory implements ru.vk.itmo.test.DaoFactory.Factory<MemorySegm
         if (data == null) {
             return null;
         }
-        return Arena.ofAuto().allocateArray(ValueLayout.JAVA_BYTE, data.getBytes(StandardCharsets.UTF_8));
+        return MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
