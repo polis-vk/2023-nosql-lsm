@@ -1,9 +1,9 @@
 package ru.vk.itmo.bazhenovkirill;
 
+import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
+import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.bazhenovkirill.strategy.ElementSearchStrategy;
-import ru.vk.itmo.bazhenovkirill.strategy.LinearSearchStrategy;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -14,13 +14,14 @@ import java.nio.channels.FileChannel.MapMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
-public class PersistentDaoImpl extends InMemoryDaoImpl {
+public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String DATA_FILE = "sstable.db";
-
-    private static final ElementSearchStrategy searchStrategy = new LinearSearchStrategy();
 
     private static final Set<StandardOpenOption> WRITE_OPTIONS = Set.of(
             StandardOpenOption.CREATE,
@@ -29,19 +30,45 @@ public class PersistentDaoImpl extends InMemoryDaoImpl {
             StandardOpenOption.WRITE
     );
 
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable
+            = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+
     private final Path dataPath;
+
+    private final Arena arena;
 
     public PersistentDaoImpl(Config config) {
         dataPath = config.basePath().resolve(DATA_FILE);
+        arena = Arena.ofConfined();
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        if (from == null) {
+            if (to != null) {
+                return memTable.headMap(to).values().iterator();
+            }
+            return memTable.values().iterator();
+        } else {
+            if (to == null) {
+                return memTable.tailMap(from).values().iterator();
+            }
+            return memTable.subMap(from, true, to, false).values().iterator();
+        }
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> value = memTable.get(key);
-        if (value == null && Files.exists(dataPath)) {
+        if (value == null) {
             return getDataFromSSTable(key);
         }
         return value;
+    }
+
+    @Override
+    public void upsert(Entry<MemorySegment> entry) {
+        memTable.put(entry.key(), entry);
     }
 
     @Override
@@ -57,10 +84,25 @@ public class PersistentDaoImpl extends InMemoryDaoImpl {
         }
     }
 
+    @Override
+    public void close() throws IOException {
+        if (!arena.scope().isAlive()) {
+            return;
+        }
+        arena.close();
+
+        flush();
+    }
+
     private Entry<MemorySegment> getDataFromSSTable(MemorySegment key) {
+        if (!Files.exists(dataPath)) {
+            return null;
+        }
+
         try (FileChannel channel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
-            MemorySegment dataMemorySegment = channel.map(MapMode.READ_ONLY, 0, channel.size(), Arena.ofAuto());
-            return searchStrategy.search(dataMemorySegment, key, channel.size());
+            MemorySegment dataMemorySegment = channel.map(MapMode.READ_ONLY,
+                    0, channel.size(), arena).asReadOnly();
+            return findElement(dataMemorySegment, key, channel.size());
         } catch (IOException e) {
             return null;
         }
@@ -75,19 +117,47 @@ public class PersistentDaoImpl extends InMemoryDaoImpl {
     }
 
     private long writeEntry(Entry<MemorySegment> entry, MemorySegment destination, long offset) {
-        long updatedOffset = writeEntryKey(entry.key(), destination, offset);
-        return writeEntryKey(entry.value(), destination, updatedOffset);
+        long updatedOffset = writeDataToMemorySegment(entry.key(), destination, offset);
+        return writeDataToMemorySegment(entry.value(), destination, updatedOffset);
     }
 
-    private long writeEntryKey(MemorySegment entryPart, MemorySegment destination, long offset) {
+    private long writeDataToMemorySegment(MemorySegment entryPart, MemorySegment destination, long offset) {
         long currentOffset = offset;
 
         destination.set(ValueLayout.JAVA_LONG_UNALIGNED, currentOffset, entryPart.byteSize());
         currentOffset += Long.BYTES;
 
-        destination.asSlice(currentOffset).copyFrom(entryPart);
+        MemorySegment.copy(entryPart, 0, destination, currentOffset, entryPart.byteSize());
         currentOffset += entryPart.byteSize();
 
         return currentOffset;
+    }
+
+    public Entry<MemorySegment> findElement(MemorySegment data, MemorySegment key, long fileSize) {
+        long offset = 0;
+        long valueSize = 0;
+        while (offset < fileSize) {
+            long keySize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            offset += Long.BYTES;
+
+            if (keySize == key.byteSize()) {
+                MemorySegment possibleKey = data.asSlice(offset, keySize);
+                offset += keySize;
+
+                valueSize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                offset += Long.BYTES;
+                if (key.mismatch(possibleKey) == -1) {
+                    MemorySegment value = data.asSlice(offset, valueSize);
+                    return new BaseEntry<>(possibleKey, value);
+                }
+            } else {
+                offset += keySize;
+                valueSize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                offset += Long.BYTES;
+            }
+
+            offset += valueSize;
+        }
+        return null;
     }
 }

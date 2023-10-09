@@ -3,7 +3,6 @@ package ru.vk.itmo.test.bazhenovkirill;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.bazhenovkirill.InMemoryDaoImpl;
 import ru.vk.itmo.bazhenovkirill.PersistentDaoImpl;
 import ru.vk.itmo.test.DaoFactory;
 
@@ -14,11 +13,6 @@ import java.nio.charset.StandardCharsets;
 
 @DaoFactory(stage = 2)
 public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
-
-    @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDaoImpl();
-    }
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
