@@ -21,8 +21,8 @@ import java.util.concurrent.ConcurrentSkipListMap;
 class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path dataPath;
     private final Path keyPath;
-    private MemorySegment dataSegment;
-    private MemorySegment keySegment;
+    private final MemorySegment dataSegment;
+    private final MemorySegment keySegment;
 
     private final Comparator<MemorySegment> memorySegmentComparator = (o1, o2) -> {
         long mismatch = o1.mismatch(o2);
@@ -41,7 +41,7 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> concurrentSkipListMap
             = new ConcurrentSkipListMap<>(memorySegmentComparator);
 
-    public InMemoryDao(Config config) {
+    public InMemoryDao(Config config) throws IOException {
 
         String dataFileName = "data.txt";
         String keyFileName = "key.txt";
@@ -51,16 +51,10 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         try (var fileChanel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
             dataSegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
-        } catch (IOException e) {
-            dataSegment = null;
-            keySegment = null;
         }
 
         try (var fileChanel = FileChannel.open(keyPath, StandardOpenOption.READ)) {
             keySegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
-        } catch (IOException e) {
-            dataSegment = null;
-            keySegment = null;
         }
     }
 
@@ -70,10 +64,16 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
+        try {
+            Files.deleteIfExists(keyPath);
+        } finally {
+            Files.deleteIfExists(dataPath);
+        }
+
         try (var dataChanel = FileChannel.open(dataPath, StandardOpenOption.READ,
-                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.CREATE)) {
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
             try (var keyChanel = FileChannel.open(keyPath, StandardOpenOption.READ,
-                    StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.CREATE)) {
+                    StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
 
                 long sizeData = 0;
                 long sizeKeys = 0;
@@ -127,13 +127,6 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         if (dataSegment == null || keySegment == null) {
-            return null;
-        }
-
-        try {
-            Files.deleteIfExists(keyPath);
-            Files.deleteIfExists(dataPath);
-        } catch (IOException e) {
             return null;
         }
 

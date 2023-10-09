@@ -19,11 +19,6 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
     }
 
     @Override
-    public Dao<String, Entry<String>> createStringDao(Config config) throws IOException {
-        return DaoFactory.Factory.super.createStringDao(config);
-    }
-
-    @Override
     public MemorySegment fromString(String data) {
         return data == null ? null
                 : MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
