@@ -4,33 +4,16 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-import static java.lang.foreign.ValueLayout.JAVA_BYTE;
-
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    protected final Comparator<MemorySegment> comparator = (o1, o2) -> {
-        long offset = o1.mismatch(o2);
-        if (offset == -1) {
-            return 0;
-        }
-        if (offset == o1.byteSize()) {
-            return -1;
-        }
-        if (offset == o2.byteSize()) {
-            return 1;
-        }
-        return Byte.compare(o1.get(JAVA_BYTE, offset), o2.get(JAVA_BYTE, offset));
-    };
-
-    protected final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
 
     public InMemoryDaoImpl() {
-        storage = new ConcurrentSkipListMap<>(comparator);
+        storage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     }
 
     @Override

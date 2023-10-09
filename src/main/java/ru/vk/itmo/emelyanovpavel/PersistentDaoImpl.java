@@ -1,6 +1,7 @@
 package ru.vk.itmo.emelyanovpavel;
 
 import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
@@ -11,23 +12,28 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Arrays;
-import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Set;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 
-public class PersistentDaoImpl extends InMemoryDaoImpl {
+public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
+    private final MemorySegmentComparator comparator = new MemorySegmentComparator();
+
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
+
     private static final String SSTABLE_NAME = "sstable.txt";
     private static final String INDEX_NAME = "indexes.txt";
 
-    public static final Set<OpenOption> WRITE_OPTIONS = new HashSet<>(Arrays.asList(
+    private static final Set<OpenOption> WRITE_OPTIONS = Set.of(
             StandardOpenOption.READ,
             StandardOpenOption.WRITE,
             StandardOpenOption.CREATE,
             StandardOpenOption.TRUNCATE_EXISTING
-    ));
+    );
 
     private final Path dataPath;
     private final Path indexPath;
@@ -36,10 +42,11 @@ public class PersistentDaoImpl extends InMemoryDaoImpl {
     private final Arena arena = Arena.ofConfined();
 
     public PersistentDaoImpl(Path path) throws IOException {
+        storage = new ConcurrentSkipListMap<>(comparator);
         dataPath = path.resolve(SSTABLE_NAME);
         indexPath = path.resolve(INDEX_NAME);
 
-        if (!Files.exists(dataPath)) {
+        if (!Files.exists(dataPath) || !Files.exists(indexPath)) {
             this.mappedData = null;
             this.mappedIndex = null;
             return;
@@ -62,14 +69,56 @@ public class PersistentDaoImpl extends InMemoryDaoImpl {
     }
 
     @Override
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return all();
+        }
+        if (from == null) {
+            return allTo(to);
+        }
+        if (to == null) {
+            return allFrom(from);
+        }
+        return storage.subMap(from, to)
+                .values()
+                .iterator();
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> allFrom(MemorySegment from) {
+        return storage.tailMap(from)
+                .values()
+                .iterator();
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> allTo(MemorySegment to) {
+        return storage.headMap(to)
+                .values()
+                .iterator();
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> all() {
+        return storage.values()
+                .iterator();
+    }
+
+    @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        if (storage.containsKey(key)) {
-            return super.get(key);
+        Entry<MemorySegment> entryFromStorage = storage.get(key);
+        if (entryFromStorage != null) {
+            return entryFromStorage;
         }
         if (mappedData == null) {
             return null;
         }
         return getFromSSTable(key);
+    }
+
+    @Override
+    public void upsert(Entry<MemorySegment> entry) {
+        storage.put(entry.key(), entry);
     }
 
     private Entry<MemorySegment> getFromSSTable(MemorySegment key) {
@@ -102,7 +151,6 @@ public class PersistentDaoImpl extends InMemoryDaoImpl {
         if (storage.isEmpty()) {
             return;
         }
-
         long indexesSize = (long) storage.size() * Long.BYTES;
         long storageSize = calculateCurrentStorageSize();
 
@@ -117,31 +165,40 @@ public class PersistentDaoImpl extends InMemoryDaoImpl {
                         indexSegmentSaver.set(JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                         indexOffset += Long.BYTES;
 
-                        dataOffset = getOffsetAfterInsertion(entry.key(), dataSegmentSaver, dataOffset);
-                        dataOffset = getOffsetAfterInsertion(entry.value(), dataSegmentSaver, dataOffset);
+                        writeDataToMemorySegment(entry.key(), dataSegmentSaver, dataOffset);
+                        dataOffset = getNextOffsetAfterInsertion(entry.key(), dataOffset);
+
+                        writeDataToMemorySegment(entry.value(), dataSegmentSaver, dataOffset);
+                        dataOffset = getNextOffsetAfterInsertion(entry.value(), dataOffset);
                     }
                 }
-
             }
         }
     }
 
-    private long getOffsetAfterInsertion(MemorySegment dataToInsert, MemorySegment segment, long currentOffset) {
-        long resultedOffset = currentOffset;
+    private void writeDataToMemorySegment(MemorySegment dataToInsert, MemorySegment segment, long currentOffset) {
         long dataSize = dataToInsert.byteSize();
+        segment.set(JAVA_LONG_UNALIGNED, currentOffset, dataSize);
+        MemorySegment.copy(dataToInsert, 0, segment, currentOffset + Long.BYTES, dataSize);
+    }
 
-        segment.set(JAVA_LONG_UNALIGNED, resultedOffset, dataSize);
-        resultedOffset += Long.BYTES;
-        segment.asSlice(resultedOffset, dataSize).copyFrom(dataToInsert);
-        resultedOffset += dataSize;
-        return resultedOffset;
+    private long getNextOffsetAfterInsertion(MemorySegment dataToInsert, long currentOffset) {
+        return currentOffset + Long.BYTES + dataToInsert.byteSize();
     }
 
     private long calculateCurrentStorageSize() {
+        return getAmountOfBytesToStoreKeyAndValue() + getAmountOfBytesToStoreKeyAndValueSize();
+    }
+
+    private long getAmountOfBytesToStoreKeyAndValueSize() {
+        return 2L * storage.size() * Long.BYTES;
+    }
+
+    private long getAmountOfBytesToStoreKeyAndValue() {
         return storage.values()
                 .stream()
                 .mapToLong(entry -> entry.key().byteSize() + entry.value().byteSize())
-                .sum() + 2L * storage.size() * Long.BYTES;
+                .sum();
     }
 
     private MemorySegment getMappedData(long offset) {
