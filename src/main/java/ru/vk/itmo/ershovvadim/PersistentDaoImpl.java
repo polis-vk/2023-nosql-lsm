@@ -57,7 +57,7 @@ public class PersistentDaoImpl extends AbstractMemoryDao implements Dao<MemorySe
         }
 
         long low = 0;
-        long high = mapIndex.byteSize() / Long.BYTES;
+        long high = mapIndex.byteSize() / Long.BYTES - 1;
 
         while (low <= high) {
             long mid = low + ((high - low) / 2);
