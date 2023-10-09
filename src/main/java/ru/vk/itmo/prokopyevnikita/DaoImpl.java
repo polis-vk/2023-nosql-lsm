@@ -82,7 +82,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
 
             long start = 0;
-            long end = mappedIndex.byteSize() / Long.BYTES;
+            long end = mappedIndex.byteSize() / Long.BYTES - 1;
             while (start <= end) {
                 long mid = start + (end - start) / 2;
 
