@@ -17,12 +17,11 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
+import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 
 public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final MemorySegmentComparator comparator = new MemorySegmentComparator();
-
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
 
     private static final String SSTABLE_NAME = "sstable.txt";
@@ -42,7 +41,7 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
     private final Arena arena = Arena.ofConfined();
 
     public PersistentDaoImpl(Path path) throws IOException {
-        storage = new ConcurrentSkipListMap<>(comparator);
+        storage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
         dataPath = path.resolve(SSTABLE_NAME);
         indexPath = path.resolve(INDEX_NAME);
 
@@ -127,16 +126,28 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
 
         while (left <= right) {
             long mid = ((right - left) >>> 1) + left;
-
             long offset = mappedIndex.get(JAVA_LONG_UNALIGNED, mid * Long.BYTES);
 
-            MemorySegment currentKey = getMappedData(offset);
-            offset += currentKey.byteSize() + Long.BYTES;
+            long currentKeySize = mappedData.get(JAVA_LONG_UNALIGNED, offset);
+            offset += Long.BYTES + currentKeySize;
 
-            int diff = comparator.compare(currentKey, key);
-            if (diff == 0) {
-                return new BaseEntry<>(currentKey, getMappedData(offset));
+            long originalKeySize = key.byteSize();
+            if (currentKeySize > originalKeySize) {
+                right = mid - 1;
+                continue;
             }
+            if (currentKeySize < originalKeySize) {
+                left = mid + 1;
+                continue;
+            }
+
+            long mismatch = MemorySegment.mismatch(mappedData, offset - currentKeySize, offset, key, 0, originalKeySize);
+            if (mismatch == -1) {
+                return new BaseEntry<>(key, getMappedData(offset));
+            }
+
+            long indexOfMismatchByteInSStable = offset - currentKeySize + mismatch;
+            int diff = Byte.compare(mappedData.get(JAVA_BYTE, indexOfMismatchByteInSStable), key.get(JAVA_BYTE, mismatch));
             if (diff < 0) {
                 left = mid + 1;
             } else {
