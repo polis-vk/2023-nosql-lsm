@@ -74,8 +74,8 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
     @Override
     public void flush() throws IOException {
         try (FileChannel channel = FileChannel.open(dataPath, WRITE_OPTIONS)) {
-            try (Arena arena = Arena.ofConfined()) {
-                MemorySegment dataMemorySegment = channel.map(MapMode.READ_WRITE, 0, getMemTableSizeInBytes(), arena);
+            try (Arena confinedArena = Arena.ofConfined()) {
+                MemorySegment dataMemorySegment = channel.map(MapMode.READ_WRITE, 0, getMemTableSizeInBytes(), confinedArena);
                 long offset = 0;
                 for (var entry : memTable.values()) {
                     offset = writeEntry(entry, dataMemorySegment, offset);
@@ -143,7 +143,6 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
             if (keySize == key.byteSize()) {
                 MemorySegment possibleKey = data.asSlice(offset, keySize);
                 offset += keySize;
-
                 valueSize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += Long.BYTES;
                 if (key.mismatch(possibleKey) == -1) {
