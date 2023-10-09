@@ -22,8 +22,6 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 
 public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
-
     private static final String SSTABLE_NAME = "sstable.txt";
     private static final String INDEX_NAME = "indexes.txt";
 
@@ -39,6 +37,7 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
     private final MemorySegment mappedData;
     private final MemorySegment mappedIndex;
     private final Arena arena = Arena.ofConfined();
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
 
     public PersistentDaoImpl(Path path) throws IOException {
         storage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
