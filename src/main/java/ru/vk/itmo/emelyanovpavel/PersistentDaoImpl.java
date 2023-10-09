@@ -209,6 +209,6 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
     }
 
     private long getRightLimit() {
-        return mappedIndex.byteSize() / Long.BYTES;
+        return mappedIndex.byteSize() / Long.BYTES - 1;
     }
 }
