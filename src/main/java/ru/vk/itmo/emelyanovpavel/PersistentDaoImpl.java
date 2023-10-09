@@ -131,23 +131,24 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
             long currentKeySize = mappedData.get(JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES + currentKeySize;
 
-            long originalKeySize = key.byteSize();
-            if (currentKeySize > originalKeySize) {
+            long srcKeySize = key.byteSize();
+            if (currentKeySize > srcKeySize) {
                 right = mid - 1;
                 continue;
             }
-            if (currentKeySize < originalKeySize) {
+            if (currentKeySize < srcKeySize) {
                 left = mid + 1;
                 continue;
             }
 
-            long mismatch = MemorySegment.mismatch(mappedData, offset - currentKeySize, offset, key, 0, originalKeySize);
+            long mismatch = MemorySegment.mismatch(mappedData, offset - currentKeySize, offset, key, 0, srcKeySize);
             if (mismatch == -1) {
                 return new BaseEntry<>(key, getMappedData(offset));
             }
 
             long indexOfMismatchByteInSStable = offset - currentKeySize + mismatch;
-            int diff = Byte.compare(mappedData.get(JAVA_BYTE, indexOfMismatchByteInSStable), key.get(JAVA_BYTE, mismatch));
+            byte mismatchByteInSStable = mappedData.get(JAVA_BYTE, indexOfMismatchByteInSStable);
+            int diff = Byte.compare(mismatchByteInSStable, key.get(JAVA_BYTE, mismatch));
             if (diff < 0) {
                 left = mid + 1;
             } else {
