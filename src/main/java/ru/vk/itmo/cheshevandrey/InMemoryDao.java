@@ -14,21 +14,28 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
-import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private Path storagePath;
+    private final Path storagePath;
+    private final static String storageFileName = "output.sst";
+    private final Arena offHeapArena;
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable = new ConcurrentSkipListMap<>(
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memTable = new ConcurrentSkipListMap<>(
             this::compare
     );
 
-    public InMemoryDao(Config config) {
-        if (Files.exists(config.basePath())) {
-            this.storagePath = config.basePath().resolve("output.txt");
+    public InMemoryDao(Config config) throws IOException {
+        this.storagePath = config.basePath().resolve(storageFileName);
+
+        if (!Files.exists(storagePath)) {
+            Files.createDirectories(storagePath.getParent());
+            Files.createFile(storagePath);
         }
+
+        offHeapArena = Arena.ofConfined();
     }
 
     @Override
@@ -36,62 +43,61 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         if (from == null && to == null) {
             return memTable.values().iterator();
-        } else if (from == null) {
-            return memTable.headMap(to).values().iterator();
-        } else if (to == null) {
-            return memTable.tailMap(from).values().iterator();
-        } else {
-            return memTable.subMap(from, to).values().iterator();
         }
+        if (from == null) {
+            return memTable.headMap(to).values().iterator();
+        }
+        if (to == null) {
+            return memTable.tailMap(from).values().iterator();
+        }
+        return memTable.subMap(from, to).values().iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
 
-        if (memTable.containsKey(key)) {
-            return memTable.get(key);
-        } else if (storagePath != null) {
-
-            try (FileChannel channel = FileChannel.open(
-                    storagePath,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.READ
-            )) {
-                Arena offHeapArena = Arena.ofConfined();
-
-                MemorySegment ssTable = channel.map(
-                        FileChannel.MapMode.READ_ONLY,
-                        0,
-                        channel.size(),
-                        offHeapArena
-                );
-
-                long offset = 0;
-                while (ssTable.byteSize() > offset) {
-
-                    long keySize = readSizeFromSsTable(ssTable, offset);
-                    offset += Long.BYTES;
-                    MemorySegment keySegment = readSegmentFromSsTable(ssTable, keySize, offset);
-                    offset += keySize;
-
-                    long valueSize = readSizeFromSsTable(ssTable, offset);
-                    offset += Long.BYTES;
-
-                    if (compare(keySegment, key) == 0) {
-                        return new BaseEntry<>(
-                                keySegment,
-                                readSegmentFromSsTable(ssTable, valueSize, offset)
-                        );
-                    }
-
-                    offset += valueSize;
-                }
-
-                offHeapArena.close();
-            } catch (IOException e) {
-                return null;
-            }
+        Entry<MemorySegment> entry = memTable.get(key);
+        if (entry != null) {
+            return entry;
         }
+
+        try (FileChannel channel = FileChannel.open(
+                storagePath,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.READ
+        )) {
+            MemorySegment ssTable = channel.map(
+                    FileChannel.MapMode.READ_ONLY,
+                    0,
+                    channel.size(),
+                    offHeapArena
+            );
+
+            long offset = 0;
+            long operandSize;
+            while (offset < ssTable.byteSize()) {
+
+                operandSize = readSizeFromSsTable(ssTable, offset);
+                offset += Long.BYTES;
+
+                long mismatch = MemorySegment.mismatch(key, 0, key.byteSize(), ssTable, offset, offset + operandSize);
+                offset += operandSize;
+
+                operandSize = readSizeFromSsTable(ssTable, offset);
+                offset += Long.BYTES;
+
+                if (mismatch == -1) {
+                    return new BaseEntry<>(
+                            key,
+                            ssTable.asSlice(offset, operandSize)
+                    );
+                }
+                offset += operandSize;
+            }
+        } catch (IOException e) {
+            System.err.println("Ошибка при создании FileChannel: " + e.getMessage());
+        }
+
         return null;
     }
 
@@ -99,14 +105,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
     }
 
-    private MemorySegment readSegmentFromSsTable(MemorySegment ssTable, long size, long offset) {
-        return ssTable.asSlice(offset, size);
-    }
-
     @Override
     public void close() throws IOException {
 
-        if (storagePath == null) {
+        if (!offHeapArena.scope().isAlive()) {
+            offHeapArena.close();
             return;
         }
 
@@ -122,8 +125,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 ssTableSize += entry.value().byteSize();
             }
 
-            Arena offHeapArena = Arena.ofConfined();
-
             MemorySegment ssTable = channel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
@@ -136,14 +137,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 offset = storeAndGetOffset(ssTable, entry.key(), offset);
                 offset = storeAndGetOffset(ssTable, entry.value(), offset);
             }
-
-            offHeapArena.close();
         }
+
+        offHeapArena.close();
     }
 
-    private long storeAndGetOffset(MemorySegment ssTable,
-                                  MemorySegment value,
-                                  long offset) {
+    private long storeAndGetOffset(MemorySegment ssTable, MemorySegment value, long offset) {
         long newOffset = offset;
         long valueSize = value.byteSize();
 
@@ -166,11 +165,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (mismatch == -1) {
             return 0;
         }
-
         if (mismatch == seg1.byteSize()) {
             return -1;
         }
-
         if (mismatch == seg2.byteSize()) {
             return 1;
         }

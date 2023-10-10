@@ -6,6 +6,7 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.cheshevandrey.InMemoryDao;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
@@ -15,7 +16,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
         return new InMemoryDao(config);
     }
 
