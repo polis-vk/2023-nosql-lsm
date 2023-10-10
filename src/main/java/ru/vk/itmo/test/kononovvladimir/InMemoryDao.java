@@ -119,11 +119,13 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                             offsetKeys += Long.BYTES;
 
                             for (int i = 0; i < value.value().byteSize(); i++, offsetData++) {
-                                dataWriteSegment.set(ValueLayout.JAVA_BYTE, offsetData, value.value().get(ValueLayout.JAVA_BYTE, i));
+                                dataWriteSegment.set(ValueLayout.JAVA_BYTE, offsetData,
+                                        value.value().get(ValueLayout.JAVA_BYTE, i));
                             }
 
                             for (int i = 0; i < value.key().byteSize(); i++, offsetKeys++) {
-                                keyWriteSegment.set(ValueLayout.JAVA_BYTE, offsetKeys, value.key().get(ValueLayout.JAVA_BYTE, i));
+                                keyWriteSegment.set(ValueLayout.JAVA_BYTE, offsetKeys,
+                                        value.key().get(ValueLayout.JAVA_BYTE, i));
                             }
                         }
                     }
