@@ -1,26 +1,33 @@
 package ru.vk.itmo.test.boturkhonovkamron;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.boturkhonovkamron.InMemoryDao;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Класс представляет фабрику DAO для создания и предоставления объектов типа InMemoryDao.
+ * Realization of DaoFactory.
  *
  * @author Kamron Boturkhonov
  * @since 2023.09.26
  */
-@DaoFactory
+@DaoFactory(stage = 2)
 public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
         return new InMemoryDao();
+    }
+
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(final Config config) throws IOException {
+        return new InMemoryDao(config);
     }
 
     @Override
