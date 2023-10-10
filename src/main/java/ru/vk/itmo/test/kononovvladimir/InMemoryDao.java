@@ -21,8 +21,8 @@ import java.util.concurrent.ConcurrentSkipListMap;
 class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path dataPath;
     private final Path keyPath;
-    private final MemorySegment dataSegment;
-    private final MemorySegment keySegment;
+    private MemorySegment dataSegment;
+    private MemorySegment keySegment;
 
     private final Comparator<MemorySegment> memorySegmentComparator = (o1, o2) -> {
         long mismatch = o1.mismatch(o2);
@@ -49,12 +49,18 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         dataPath = config.basePath().resolve(dataFileName);
         keyPath = config.basePath().resolve(keyFileName);
 
-        try (var fileChanel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
-            dataSegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
+        if (Files.exists(dataPath)) {
+
+            try (var fileChanel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
+                dataSegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
+            }
         }
 
-        try (var fileChanel = FileChannel.open(keyPath, StandardOpenOption.READ)) {
-            keySegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
+        if (Files.exists(keyPath)) {
+
+            try (var fileChanel = FileChannel.open(keyPath, StandardOpenOption.READ)) {
+                keySegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
+            }
         }
     }
 
@@ -111,8 +117,8 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
         }
-        Files.deleteIfExists(keyPath);
-        Files.deleteIfExists(dataPath);
+/*        Files.deleteIfExists(keyPath);
+        Files.deleteIfExists(dataPath);*/
     }
 
     @Override
