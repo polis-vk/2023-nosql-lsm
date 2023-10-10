@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.TreeMap;
 
+// Iterates through SSTables and MemTable using N pointers algorithm. Conflicts being solved by iterator priority.
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, IteratorAndValue> itemsPool;
     private Entry<MemorySegment> currentEntry;
