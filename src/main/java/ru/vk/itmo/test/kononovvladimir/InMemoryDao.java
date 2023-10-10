@@ -117,8 +117,8 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
         }
-/*        Files.deleteIfExists(keyPath);
-        Files.deleteIfExists(dataPath);*/
+        Files.deleteIfExists(keyPath);
+        Files.deleteIfExists(dataPath);
     }
 
     @Override
