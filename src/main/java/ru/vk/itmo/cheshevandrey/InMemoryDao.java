@@ -1,5 +1,6 @@
 package ru.vk.itmo.cheshevandrey;
 
+import org.w3c.dom.ls.LSOutput;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
@@ -16,19 +17,20 @@ import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.logging.Logger;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final Path storagePath;
-    private final static String storageFileName = "output.sst";
     private final Arena offHeapArena;
-
+    private final Path storagePath;
+    private static final String STORAGE_FILE_NAME = "output.sst";
+    private static final Logger logger = Logger.getLogger(InMemoryDao.class.getName());
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memTable = new ConcurrentSkipListMap<>(
             this::compare
     );
 
     public InMemoryDao(Config config) throws IOException {
-        this.storagePath = config.basePath().resolve(storageFileName);
+        this.storagePath = config.basePath().resolve(STORAGE_FILE_NAME);
 
         if (!Files.exists(storagePath)) {
             Files.createDirectories(storagePath.getParent());
@@ -73,14 +75,20 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     offHeapArena
             );
 
-            long offset = 0;
+            if (ssTable.byteSize() == 0) {
+                return null;
+            }
+
+            long offset = Long.BYTES;
+            long mismatch;
             long operandSize;
-            while (offset < ssTable.byteSize()) {
+            long tableSize = readSizeFromSsTable(ssTable, 0);
+            while (offset < tableSize) {
 
                 operandSize = readSizeFromSsTable(ssTable, offset);
                 offset += Long.BYTES;
 
-                long mismatch = MemorySegment.mismatch(key, 0, key.byteSize(), ssTable, offset, offset + operandSize);
+                mismatch = MemorySegment.mismatch(ssTable, offset, offset + operandSize, key, 0, key.byteSize());
                 offset += operandSize;
 
                 operandSize = readSizeFromSsTable(ssTable, offset);
@@ -95,7 +103,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 offset += operandSize;
             }
         } catch (IOException e) {
-            System.err.println("Ошибка при создании FileChannel: " + e.getMessage());
+            logger.severe("Ошибка при создании FileChannel: " + e.getMessage());
         }
 
         return null;
@@ -108,18 +116,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void close() throws IOException {
 
-        if (!offHeapArena.scope().isAlive()) {
-            offHeapArena.close();
-            return;
-        }
-
-        try (FileChannel channel = FileChannel.open(
-                storagePath,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.READ,
-                StandardOpenOption.WRITE
-        )) {
-            long ssTableSize = 2L * Long.BYTES * memTable.size();
+        try (
+                FileChannel channel = FileChannel.open(
+                        storagePath,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.READ,
+                        StandardOpenOption.WRITE
+                );
+                Arena closeArena = Arena.ofConfined();
+        ) {
+            long ssTableSize = 2L * Long.BYTES * memTable.size() + Long.BYTES;
             for (Entry<MemorySegment> entry : memTable.values()) {
                 ssTableSize += entry.key().byteSize();
                 ssTableSize += entry.value().byteSize();
@@ -129,17 +135,19 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     FileChannel.MapMode.READ_WRITE,
                     0,
                     ssTableSize,
-                    offHeapArena
+                    closeArena
             );
 
-            long offset = 0;
+            ssTable.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, ssTableSize);
+
+            long offset = Long.BYTES;
             for (Entry<MemorySegment> entry : memTable.values()) {
                 offset = storeAndGetOffset(ssTable, entry.key(), offset);
                 offset = storeAndGetOffset(ssTable, entry.value(), offset);
             }
+        } finally {
+            offHeapArena.close();
         }
-
-        offHeapArena.close();
     }
 
     private long storeAndGetOffset(MemorySegment ssTable, MemorySegment value, long offset) {
