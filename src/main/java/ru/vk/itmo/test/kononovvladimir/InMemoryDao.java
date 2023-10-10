@@ -21,8 +21,10 @@ import java.util.concurrent.ConcurrentSkipListMap;
 class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path dataPath;
     private final Path keyPath;
-    private MemorySegment dataSegment;
-    private MemorySegment keySegment;
+    private final MemorySegment dataSegment;
+    private final MemorySegment keySegment;
+    private final Arena dataArena;
+    private final Arena keyArena;
 
     private final Comparator<MemorySegment> memorySegmentComparator = (o1, o2) -> {
         long mismatch = o1.mismatch(o2);
@@ -50,17 +52,23 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         keyPath = config.basePath().resolve(keyFileName);
 
         if (Files.exists(dataPath)) {
-
             try (var fileChanel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
-                dataSegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
+                dataArena = Arena.ofConfined();
+                dataSegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), dataArena);
             }
+        } else {
+            dataArena = null;
+            dataSegment = null;
         }
 
         if (Files.exists(keyPath)) {
-
             try (var fileChanel = FileChannel.open(keyPath, StandardOpenOption.READ)) {
-                keySegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), Arena.ofConfined());
+                keyArena = Arena.ofConfined();
+                keySegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), keyArena);
             }
+        } else {
+            keyArena = null;
+            keySegment = null;
         }
     }
 
@@ -110,14 +118,23 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                             offsetData += Long.BYTES;
                             offsetKeys += Long.BYTES;
 
-                            dataWriteSegment.asSlice(offsetData, value.value().byteSize()).copyFrom(value.value());
-                            offsetData += value.value().byteSize();
+                            for (int i = 0; i < value.value().byteSize(); i++, offsetData++) {
+                                dataWriteSegment.set(ValueLayout.JAVA_BYTE, offsetData, value.value().get(ValueLayout.JAVA_BYTE, i));
+                            }
 
-                            keyWriteSegment.asSlice(offsetKeys, value.key().byteSize()).copyFrom(value.key());
-                            offsetKeys += value.key().byteSize();
+                            for (int i = 0; i < value.key().byteSize(); i++, offsetKeys++) {
+                                keyWriteSegment.set(ValueLayout.JAVA_BYTE, offsetKeys, value.key().get(ValueLayout.JAVA_BYTE, i));
+                            }
                         }
                     }
                 }
+            }
+        } finally {
+            if (dataArena != null) {
+                dataArena.close();
+            }
+            if (keyArena != null) {
+                keyArena.close();
             }
         }
     }
@@ -147,7 +164,7 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             dataOffset += Long.BYTES;
 
             MemorySegment keySegmentSlice = keySegment.asSlice(keyOffset, keySize);
-            if (memorySegmentComparator.compare(keySegmentSlice, key) == 0) {
+            if (segmentsEquals(keySegmentSlice, key)) {
                 return new BaseEntry<>(key, dataSegment.asSlice(dataOffset, dataSize));
             }
 
@@ -155,6 +172,10 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             dataOffset += dataSize;
         }
         return null;
+    }
+
+    private boolean segmentsEquals(MemorySegment memorySegment1, MemorySegment memorySegment2) {
+        return memorySegment1.mismatch(memorySegment2) == -1;
     }
 
     @Override
