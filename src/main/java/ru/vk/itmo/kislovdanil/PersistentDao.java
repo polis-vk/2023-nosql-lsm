@@ -33,9 +33,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public PersistentDao(Config config) throws IOException {
         this.config = config;
         File basePathDirectory = new File(config.basePath().toString());
-        String[] sSTablesIds = basePathDirectory.list();
-        if (sSTablesIds == null) return;
-        for (String tableID : sSTablesIds) {
+        String[] ssTablesIds = basePathDirectory.list();
+        if (ssTablesIds == null) return;
+        for (String tableID : ssTablesIds) {
             tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID),
                     storage, false, daoArena));
         }

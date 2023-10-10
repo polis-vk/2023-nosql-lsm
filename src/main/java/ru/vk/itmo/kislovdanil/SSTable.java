@@ -33,11 +33,11 @@ public class SSTable implements Comparable<SSTable> {
                    boolean rewrite, Arena filesArena) throws IOException {
         this.tableId = tableId;
         this.filesArena = filesArena;
-        Path sSTablePath = basePath.resolve(Long.toString(tableId));
+        Path ssTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
-        Path summaryFilePath = sSTablePath.resolve("summary");
-        Path indexFilePath = sSTablePath.resolve("index");
-        Path dataFilePath = sSTablePath.resolve("data");
+        Path summaryFilePath = ssTablePath.resolve("summary");
+        Path indexFilePath = ssTablePath.resolve("index");
+        Path dataFilePath = ssTablePath.resolve("data");
         if (rewrite) {
             write(memTable, summaryFilePath, indexFilePath, dataFilePath);
         } else {
@@ -55,8 +55,9 @@ public class SSTable implements Comparable<SSTable> {
         createIfNotExist(summaryFilePath);
         createIfNotExist(indexFilePath);
         createIfNotExist(dataFilePath);
-        mapFiles(Files.size(summaryFilePath), Files.size(indexFilePath), Files.size(dataFilePath),
-                summaryFilePath, indexFilePath, dataFilePath);
+        summaryFile = mapFile(Files.size(summaryFilePath), summaryFilePath);
+        indexFile = mapFile(Files.size(indexFilePath), indexFilePath);
+        dataFile = mapFile(Files.size(dataFilePath), dataFilePath);
     }
 
     private void createIfNotExist(Path file) throws IOException {
@@ -75,17 +76,9 @@ public class SSTable implements Comparable<SSTable> {
 
     }
 
-    private void mapFiles(long summarySize, long indexSize, long dataSize,
-                          Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
-        try (RandomAccessFile summaryRAFile = new RandomAccessFile(summaryFilePath.toString(), "rw");
-             RandomAccessFile indexRAFile = new RandomAccessFile(indexFilePath.toString(), "rw");
-             RandomAccessFile dataRAFile = new RandomAccessFile(dataFilePath.toString(), "rw")) {
-            summaryFile = summaryRAFile.getChannel().map(FileChannel.MapMode.READ_WRITE,
-                    0, summarySize, filesArena);
-            indexFile = indexRAFile.getChannel().map(FileChannel.MapMode.READ_WRITE,
-                    0, indexSize, filesArena);
-            dataFile = dataRAFile.getChannel().map(FileChannel.MapMode.READ_WRITE,
-                    0, dataSize, filesArena);
+    private MemorySegment mapFile(long size, Path filePath) throws IOException {
+        try (RandomAccessFile raFile = new RandomAccessFile(filePath.toString(), "rw")) {
+            return raFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, size, filesArena);
         }
     }
 
@@ -99,7 +92,7 @@ public class SSTable implements Comparable<SSTable> {
     }
 
     // Sequentially writes every entity data in SStable keeping files data consistent
-    public void write(NavigableMap<MemorySegment, Entry<MemorySegment>> memTable,
+    private void write(NavigableMap<MemorySegment, Entry<MemorySegment>> memTable,
                       Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
         prepareForWriting(summaryFilePath);
         prepareForWriting(indexFilePath);
@@ -113,7 +106,10 @@ public class SSTable implements Comparable<SSTable> {
             dataSize += entry.value() == null ? 0 : entry.value().byteSize();
         }
         summarySize = memTable.size() * Metadata.SIZE;
-        mapFiles(summarySize, indexSize, dataSize, summaryFilePath, indexFilePath, dataFilePath);
+
+        summaryFile = mapFile(summarySize, summaryFilePath);
+        indexFile = mapFile(indexSize, indexFilePath);
+        dataFile = mapFile(dataSize, dataFilePath);
 
         long currentDataOffset = 0;
         long currentIndexOffset = 0;

@@ -4,11 +4,7 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NavigableMap;
-import java.util.TreeMap;
+import java.util.*;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, IteratorAndValue> itemsPool;
@@ -38,16 +34,20 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private void moveIterator(DatabaseIterator iter) {
         while (iter.hasNext()) {
             Entry<MemorySegment> entry = iter.next();
+            boolean hasConcurrentKey = itemsPool.containsKey(entry.key());
+            boolean winPriorityConflict = false;
+            DatabaseIterator concurrentIterator = null;
             if (itemsPool.containsKey(entry.key())) {
-                DatabaseIterator concurrentIterator = itemsPool.get(entry.key()).iterator;
-                if (iter.getPriority() < concurrentIterator.getPriority()) {
-                    continue;
-                } else {
-                    moveIterator(concurrentIterator);
-                }
+                concurrentIterator = itemsPool.get(entry.key()).iterator;
+                winPriorityConflict = iter.getPriority() > concurrentIterator.getPriority();
             }
-            itemsPool.put(entry.key(), new IteratorAndValue(iter, entry.value()));
-            break;
+            if (winPriorityConflict) {
+                moveIterator(concurrentIterator);
+            }
+            if (!hasConcurrentKey || winPriorityConflict) {
+                itemsPool.put(entry.key(), new IteratorAndValue(iter, entry.value()));
+                break;
+            }
         }
     }
 
