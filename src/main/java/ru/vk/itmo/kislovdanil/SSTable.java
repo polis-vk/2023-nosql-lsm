@@ -29,14 +29,15 @@ public class SSTable implements Comparable<SSTable> {
     private final long size;
 
     public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
-                   NavigableMap<MemorySegment, Entry<MemorySegment>> memTable, boolean rewrite, Arena filesArena) throws IOException {
+                   NavigableMap<MemorySegment, Entry<MemorySegment>> memTable,
+                   boolean rewrite, Arena filesArena) throws IOException {
         this.tableId = tableId;
         this.filesArena = filesArena;
-        Path SSTablePath = basePath.resolve(Long.toString(tableId));
+        Path sSTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
-        Path summaryFilePath = SSTablePath.resolve("summary");
-        Path indexFilePath = SSTablePath.resolve("index");
-        Path dataFilePath = SSTablePath.resolve("data");
+        Path summaryFilePath = sSTablePath.resolve("summary");
+        Path indexFilePath = sSTablePath.resolve("index");
+        Path dataFilePath = sSTablePath.resolve("data");
         if (rewrite) {
             write(memTable, summaryFilePath, indexFilePath, dataFilePath);
         } else {
@@ -186,7 +187,7 @@ public class SSTable implements Comparable<SSTable> {
         private long curItemIndex;
         private final MemorySegment maxKey;
 
-        private Entry<MemorySegment> curEntry = null;
+        private Entry<MemorySegment> curEntry;
 
         public SSTableIterator(MemorySegment minKey, MemorySegment maxKey) {
             this.maxKey = maxKey;
@@ -195,10 +196,10 @@ public class SSTable implements Comparable<SSTable> {
             } else {
                 this.curItemIndex = findByKey(minKey);
             }
-            if (curItemIndex != -1) {
-                this.curEntry = readEntry(curItemIndex);
-            } else {
+            if (curItemIndex == -1) {
                 curItemIndex = Long.MAX_VALUE;
+            } else {
+                this.curEntry = readEntry(curItemIndex);
             }
         }
 
@@ -241,10 +242,10 @@ public class SSTable implements Comparable<SSTable> {
     }
 
     private class Metadata {
-        public final Range keyRange;
-        public final Range valueRange;
-        public final Boolean isDeletion;
-        public final static long SIZE = Long.BYTES * 4 + 1;
+        private final Range keyRange;
+        private final Range valueRange;
+        private final Boolean isDeletion;
+        public static final long SIZE = Long.BYTES * 4 + 1;
 
         public Metadata(long index) {
             long base = index * Metadata.SIZE;

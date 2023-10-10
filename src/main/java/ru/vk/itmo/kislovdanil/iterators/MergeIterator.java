@@ -4,7 +4,11 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.*;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, IteratorAndValue> itemsPool;
@@ -38,13 +42,12 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
                 DatabaseIterator concurrentIterator = itemsPool.get(entry.key()).iterator;
                 if (iter.getPriority() < concurrentIterator.getPriority()) {
                     continue;
-                }
-                else {
+                } else {
                     moveIterator(concurrentIterator);
                 }
             }
             itemsPool.put(entry.key(), new IteratorAndValue(iter, entry.value()));
-            return;
+            break;
         }
     }
 

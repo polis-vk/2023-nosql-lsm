@@ -3,6 +3,7 @@ package ru.vk.itmo.kislovdanil;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.kislovdanil.exceptions.DBException;
 import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;
 import ru.vk.itmo.kislovdanil.iterators.MergeIterator;
 
@@ -32,9 +33,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public PersistentDao(Config config) throws IOException {
         this.config = config;
         File basePathDirectory = new File(config.basePath().toString());
-        String[] SSTablesIds = basePathDirectory.list();
-        if (SSTablesIds == null) return;
-        for (String tableID : SSTablesIds) {
+        String[] sSTablesIds = basePathDirectory.list();
+        if (sSTablesIds == null) return;
+        for (String tableID : sSTablesIds) {
             tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID),
                     storage, false, daoArena));
         }
@@ -63,11 +64,12 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             for (SSTable table : tables) {
                 Entry<MemorySegment> data = table.find(key);
-                if (data == null) continue;
-                return wrapEntryIfDeleted(data);
+                if (data != null) {
+                    return wrapEntryIfDeleted(data);
+                }
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new DBException(e);
         }
         return null;
     }
@@ -109,10 +111,15 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         Iterator<Entry<MemorySegment>> innerIter;
 
         public MemTableIterator(MemorySegment from, MemorySegment to) {
-            if (from == null && to == null) innerIter = storage.values().iterator();
-            else if (from != null && to == null) innerIter = storage.tailMap(from).values().iterator();
-            else if (from == null) innerIter = storage.headMap(to).values().iterator();
-            else innerIter = storage.subMap(from, to).values().iterator();
+            if (from == null && to == null) {
+                innerIter = storage.values().iterator();
+            } else if (from != null && to == null) {
+                innerIter = storage.tailMap(from).values().iterator();
+            } else if (from == null) {
+                innerIter = storage.headMap(to).values().iterator();
+            } else {
+                innerIter = storage.subMap(from, to).values().iterator();
+            }
         }
 
         @Override
