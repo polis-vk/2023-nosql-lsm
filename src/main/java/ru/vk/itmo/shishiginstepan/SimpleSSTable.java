@@ -47,7 +47,12 @@ public class SimpleSSTable {
 
     public void writeEntries(Iterator<Entry<MemorySegment>> entries, long dataSize) {
         this.size = dataSize;
-        try (var fileChannel = FileChannel.open(sstPath, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
+        try (var fileChannel = FileChannel.open(
+                sstPath,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        )) {
             var file = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, dataSize, Arena.ofConfined());
             long offset = 0;
             while (entries.hasNext()) {
