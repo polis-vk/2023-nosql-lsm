@@ -64,12 +64,6 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
-        try {
-            Files.deleteIfExists(keyPath);
-        } finally {
-            Files.deleteIfExists(dataPath);
-        }
-
         try (var dataChanel = FileChannel.open(dataPath, StandardOpenOption.READ,
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
             try (var keyChanel = FileChannel.open(keyPath, StandardOpenOption.READ,
@@ -117,6 +111,8 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
         }
+        Files.deleteIfExists(keyPath);
+        Files.deleteIfExists(dataPath);
     }
 
     @Override
