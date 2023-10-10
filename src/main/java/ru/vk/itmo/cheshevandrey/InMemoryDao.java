@@ -1,6 +1,5 @@
 package ru.vk.itmo.cheshevandrey;
 
-import org.w3c.dom.ls.LSOutput;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
@@ -123,7 +122,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         StandardOpenOption.READ,
                         StandardOpenOption.WRITE
                 );
-                Arena closeArena = Arena.ofConfined();
+                Arena closeArena = Arena.ofConfined()
         ) {
             long ssTableSize = 2L * Long.BYTES * memTable.size() + Long.BYTES;
             for (Entry<MemorySegment> entry : memTable.values()) {
