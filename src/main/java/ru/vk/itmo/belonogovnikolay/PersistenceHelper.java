@@ -2,7 +2,6 @@ package ru.vk.itmo.belonogovnikolay;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.belonogovnikolay.exceptions.PathNotFoundException;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -44,11 +43,11 @@ public final class PersistenceHelper {
      *
      * @param basePath directory for storing snapshots.
      * @return PersistentHelper instance.
-     * @throws PathNotFoundException is thrown when the path to the directory with snapshot files is not specified.
+     * @throws NullPointerException is thrown when the path to the directory with snapshot files is not specified.
      */
-    public static PersistenceHelper newInstance(Path basePath) throws PathNotFoundException {
+    public static PersistenceHelper newInstance(Path basePath) throws NullPointerException {
         if (basePath == null) {
-            throw new PathNotFoundException("The directory to the "
+            throw new NullPointerException("The directory to the "
                     + " files was not specified in the config file.");
         }
         return new PersistenceHelper(basePath);
@@ -140,8 +139,8 @@ public final class PersistenceHelper {
     /**
      * Function of mapping MemorySegment and file in READ-ONLY mode.
      *
-     * @param filePath       file path.
-     * @param byteSize       file size (offset).
+     * @param filePath file path.
+     * @param byteSize file size (offset).
      * @return {@link MemorySegment} which map with file.
      * @throws IOException is thrown when exceptions occur while working with a file.
      */
@@ -154,12 +153,12 @@ public final class PersistenceHelper {
     /**
      * Function of mapping MemorySegment and file in READ-WRITE mode.
      *
-     * @param filePath       file path.
-     * @param byteSize       file size (offset).
+     * @param filePath file path.
+     * @param byteSize file size (offset).
      * @return {@link MemorySegment} which map with file.
      * @throws IOException is thrown when exceptions occur while working with a file.
      */
-    private  MemorySegment mapFileWriteRead(Path filePath, long byteSize) throws IOException {
+    private MemorySegment mapFileWriteRead(Path filePath, long byteSize) throws IOException {
         try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
             return channel.map(FileChannel.MapMode.READ_WRITE, 0, byteSize, Arena.ofConfined());
         }
