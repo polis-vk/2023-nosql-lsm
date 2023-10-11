@@ -3,7 +3,7 @@ package ru.vk.itmo.test.sherepanikita;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.sherepanikita.InMemoryDao;
+import ru.vk.itmo.sherepanikita.DaoImpl;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -16,12 +16,12 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+        return new DaoImpl();
     }
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new InMemoryDao(config);
+        return new DaoImpl(config);
     }
 
     @Override

@@ -18,52 +18,52 @@ import java.util.Set;
 
 public class SSTable {
 
-    private final Path filePath;
     private static final String FILE_NAME = "ssTable";
 
-    private final Set<OpenOption> options = Set.of(
+    private static final Set<OpenOption> OPTIONS = Set.of(
             StandardOpenOption.CREATE,
             StandardOpenOption.READ,
             StandardOpenOption.WRITE
     );
+    private final Path filePath;
+
+    private final Arena arena;
 
     public SSTable(Config config) {
         this.filePath = config.basePath().resolve(FILE_NAME);
+        arena = Arena.ofShared();
     }
 
     public Entry<MemorySegment> readData(MemorySegment key) throws IOException {
-        try (FileChannel fileChannel = FileChannel.open(filePath, StandardOpenOption.READ)) {
+        try (   FileChannel fileChannel = FileChannel.open(filePath, StandardOpenOption.READ);
+
+        ) {
 
             MemorySegment segmentToRead = fileChannel.map(
                     FileChannel.MapMode.READ_ONLY,
                     0L,
                     Files.size(filePath),
-                    Arena.global()
-            );
+                    arena
+            ).asReadOnly();
 
             long offset = 0L;
             while (offset < segmentToRead.byteSize()) {
                 long keySize = segmentToRead.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += Long.BYTES;
-                long valueSize = segmentToRead.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
+                long valueSize = segmentToRead.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                offset += Long.BYTES;
 
                 if (keySize != key.byteSize()) {
-                    offset += keySize + Long.BYTES + valueSize;
+                    offset += keySize + valueSize;
                     continue;
                 }
 
-                MemorySegment keySegment = segmentToRead.asSlice(offset, keySize);
-                offset += keySize + Long.BYTES;
-
-                if (key.mismatch(keySegment) == -1) {
-                    MemorySegment valueSegment = segmentToRead.asSlice(
-                            offset,
-                            valueSize
-                    );
-                    return new BaseEntry<>(keySegment, valueSegment);
+                long mismatch = MemorySegment.mismatch(segmentToRead, offset, offset + key.byteSize(), key, 0, key.byteSize());
+                if (mismatch == -1) {
+                    MemorySegment slice = segmentToRead.asSlice(offset + keySize, valueSize);
+                    return new BaseEntry<>(key, slice);
                 }
-
-                offset += valueSize;
+                offset += keySize + valueSize;
             }
 
             return null;
@@ -72,10 +72,21 @@ public class SSTable {
 
     public void writeGivenInMemoryData(NavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryData)
             throws IOException {
-        try (FileChannel fileChannel = FileChannel.open(filePath, options)) {
+        try (FileChannel fileChannel = FileChannel.open(filePath, OPTIONS);
+             Arena writeArena = Arena.ofShared()
+        ) {
+
+            if (inMemoryData.isEmpty()) {
+                return;
+            }
+
+            if (!arena.scope().isAlive()) {
+                return;
+            }
+
+            arena.close();
 
             long ssTableSize = 0;
-            long offset = 0L;
 
             for (Entry<MemorySegment> entry : inMemoryData.values()) {
                 long entryKeySize = entry.key().byteSize();
@@ -83,44 +94,34 @@ public class SSTable {
                 ssTableSize += Long.BYTES + entryKeySize + Long.BYTES + entryValueSize;
             }
 
-            if (ssTableSize != 0) {
+            MemorySegment segmentToWrite = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0L,
+                    ssTableSize,
+                    writeArena
+            );
 
-                MemorySegment segmentToWrite = fileChannel.map(
-                        FileChannel.MapMode.READ_WRITE,
-                        0L,
-                        ssTableSize,
-                        Arena.global()
-                );
-
-                for (Entry<MemorySegment> entry : inMemoryData.values()) {
-                    if (entry != null) {
-                        long entryKeySize = entry.key().byteSize();
-                        segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryKeySize);
-                        offset += Long.BYTES;
-                        MemorySegment.copy(
-                                entry.key(),
-                                0,
-                                segmentToWrite,
-                                offset,
-                                entryKeySize
-                        );
-                        offset += entryKeySize;
-
-                        long entryValueSize = entry.value().byteSize();
-                        segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryValueSize);
-                        offset += Long.BYTES;
-                        MemorySegment.copy(
-                                entry.value(),
-                                0,
-                                segmentToWrite,
-                                offset,
-                                entryValueSize
-                        );
-                        offset += entryValueSize;
-                    }
-
+            long offset = 0L;
+            for (Entry<MemorySegment> entry : inMemoryData.values()) {
+                if (entry == null) {
+                    continue;
                 }
+
+                long entryKeySize = entry.key().byteSize();
+                segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryKeySize);
+                offset += Long.BYTES;
+                long entryValueSize = entry.value().byteSize();
+                segmentToWrite.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entryValueSize);
+                offset += Long.BYTES;
+
+                MemorySegment.copy(entry.key(), 0, segmentToWrite, offset, entryKeySize);
+                offset += entryKeySize;
+                MemorySegment.copy(entry.value(), 0, segmentToWrite, offset, entryValueSize);
+                offset += entryValueSize;
+
+
             }
+
         }
     }
 }
