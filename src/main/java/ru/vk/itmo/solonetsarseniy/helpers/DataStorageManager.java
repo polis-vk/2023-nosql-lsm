@@ -32,43 +32,50 @@ public class DataStorageManager {
         StandardOpenOption.READ
     };
 
+    private MemorySegment data;
     private final Config config;
-    private final Arena arena = Arena.global();
+    private final Arena arena = Arena.ofShared();
     private final MemorySegmentComparator comparator = new MemorySegmentComparator();
     private final Path path;
 
     public DataStorageManager(Config config) {
         this.config = config;
         this.path = getPath();
+
+        if (Files.exists(path)) {
+            try (FileChannel dataChannel = FileChannel.open(path, READ_OPTIONS_KIT)) {
+                data = readMemorySegment(dataChannel, path);
+            } catch (IOException e) {
+                throw new DaoException(ERROR_READING_DATA.getErrorString(), e);
+            }
+        }
+
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-        if (!Files.exists(path)) return null;
+        if (data == null) {
+            return null;
+        }
 
-        try (FileChannel dataChannel = FileChannel.open(path, READ_OPTIONS_KIT)) {
-            MemorySegment data = readMemorySegment(dataChannel, path);
-            long offset = 0L;
-            long fileSize = data.byteSize();
-            while (offset <= fileSize) {
-                long keySize = data.get(JAVA_LONG_UNALIGNED, offset);
-                offset += LONG_SIZE;
-                MemorySegment storedKey = data.asSlice(offset, keySize);
-                offset += keySize;
-                long valueSize = data.get(JAVA_LONG_UNALIGNED, offset);
-                offset += LONG_SIZE;
+        long offset = 0L;
+        long fileSize = data.byteSize();
+        while (offset <= fileSize) {
+            long keySize = data.get(JAVA_LONG_UNALIGNED, offset);
+            offset += LONG_SIZE;
+            MemorySegment storedKey = data.asSlice(offset, keySize);
+            offset += keySize;
+            long valueSize = data.get(JAVA_LONG_UNALIGNED, offset);
+            offset += LONG_SIZE;
 
-                if (comparator.compare(key, storedKey) == 0) {
-                    MemorySegment value = data.asSlice(offset, valueSize);
-                    return new BaseEntry<>(storedKey, value);
-                }
-
-                offset += valueSize;
+            if (comparator.compare(key, storedKey) == 0) {
+                MemorySegment value = data.asSlice(offset, valueSize);
+                return new BaseEntry<>(storedKey, value);
             }
 
-            return new BaseEntry<>(null, null);
-        } catch (IOException e) {
-            throw new DaoException(ERROR_READING_DATA.getErrorString(), e);
+            offset += valueSize;
         }
+
+        return new BaseEntry<>(null, null);
     }
 
     public void flush(

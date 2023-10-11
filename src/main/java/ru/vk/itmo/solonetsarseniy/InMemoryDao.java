@@ -50,10 +50,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             DaoException.throwException(DaoExceptions.NULL_KEY_GET);
         }
 
-        boolean databaseContainsKey = database.containsKey(key);
-        return databaseContainsKey
-            ? database.get(key)
-            : dataStorageManager.get(key);
+        Entry<MemorySegment> entry = database.get(key);
+        if (entry != null) {
+            return entry;
+        }
+        return dataStorageManager.get(key);
     }
 
     @Override
