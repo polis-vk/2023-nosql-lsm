@@ -19,12 +19,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public DaoImpl() {
         segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-        ssTable = new SSTable(new Config(Path.of("")));
+        ssTable = createSSTableOfNull(new Config(null));
     }
 
     public DaoImpl(Config config) {
         segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-        ssTable = new SSTable(config);
+        ssTable = createSSTableOfNull(config);
     }
 
     @Override
@@ -64,5 +64,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void close() throws IOException {
         ssTable.writeGivenInMemoryData(segments);
         Dao.super.close();
+    }
+
+    private SSTable createSSTableOfNull(Config config) {
+        if (config.basePath() == null) {
+            return null;
+        }
+        return new SSTable(config);
     }
 }
