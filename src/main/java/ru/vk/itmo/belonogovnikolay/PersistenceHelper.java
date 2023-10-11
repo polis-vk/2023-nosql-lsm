@@ -31,6 +31,7 @@ public final class PersistenceHelper {
     private long offsetFileSize;
     private final Path basePath;
     private final MemorySegmentComparator segmentComparator;
+    private boolean isReadingPrepared = false;
 
     private PersistenceHelper(Path basePath) {
         this.basePath = basePath;
@@ -81,6 +82,7 @@ public final class PersistenceHelper {
             Files.createFile(pathToOffsetFile);
         }
 
+        isReadingPrepared = false;
         this.dataMappedSegment = mapFileWriteRead(pathToDataFile, fileSize);
         this.offsetMappedSegment = mapFileWriteRead(pathToOffsetFile,
                 (long) Long.BYTES * positionOffsets.length);
@@ -113,8 +115,10 @@ public final class PersistenceHelper {
             return null;
         }
 
-        readingPreparation();
-
+        if (!isReadingPrepared) {
+            readingPreparation();
+            isReadingPrepared = true;
+        }
 
         long index = 0;
         long beginLong;
