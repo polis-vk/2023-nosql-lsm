@@ -63,14 +63,12 @@ public class SSTable {
             for (Entry<MemorySegment> entry : entries) {
                 writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
                 offset += Long.BYTES;
-                writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.value().byteSize());
-                offset += Long.BYTES;
-
-
-                MemorySegment.copy(entry.key(), 0, writeSegment, offset, entry.key().byteSize());
+                writeSegment.asSlice(offset).copyFrom(entry.key());
                 offset += entry.key().byteSize();
 
-                MemorySegment.copy(entry.value(), 0, writeSegment, offset, entry.value().byteSize());
+                writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.value().byteSize());
+                offset += Long.BYTES;
+                writeSegment.asSlice(offset).copyFrom(entry.value());
                 offset += entry.value().byteSize();
             }
         }
@@ -87,22 +85,22 @@ public class SSTable {
             long keySize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
 
-            long valueSize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
+            long valueSize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
 
             if (keySize != key.byteSize()) {
-                offset += keySize + valueSize;
+                offset += keySize + valueSize + Long.BYTES;
                 continue;
             }
 
             MemorySegment keySegment = readSegment.asSlice(offset, keySize);
+            offset += keySize + Long.BYTES;
 
             if (key.mismatch(keySegment) == -1) {
                 MemorySegment valueSegment = readSegment.asSlice(offset, valueSize);
                 return new BaseEntry<>(keySegment, valueSegment);
             }
 
-            offset += keySize + valueSize;
+            offset += valueSize;
         }
 
         return null;
