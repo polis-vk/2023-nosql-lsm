@@ -61,14 +61,26 @@ public class DataStorageManager {
 
         long offset = 0L;
         long fileSize = data.byteSize();
+        if (fileSize < JAVA_LONG_UNALIGNED.byteSize()) {
+            return null;
+        }
         while (offset < fileSize) {
             long keySize = data.get(JAVA_LONG_UNALIGNED, offset);
             offset += LONG_SIZE;
+            if (fileSize < offset) {
+                return null;
+            }
             MemorySegment storedKey = data.asSlice(offset, keySize);
             offset += keySize;
+            if (fileSize < offset) {
+                return null;
+            }
             long valueSize = data.get(JAVA_LONG_UNALIGNED, offset);
             offset += LONG_SIZE;
 
+            if (fileSize < offset) {
+                return null;
+            }
             if (comparator.compare(key, storedKey) == 0) {
                 MemorySegment value = data.asSlice(offset, valueSize);
                 return new BaseEntry<>(storedKey, value);
@@ -77,7 +89,7 @@ public class DataStorageManager {
             offset += valueSize;
         }
 
-        return new BaseEntry<>(null, null);
+        return null;
     }
 
     public void flush(
