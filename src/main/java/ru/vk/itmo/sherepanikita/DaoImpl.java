@@ -6,21 +6,23 @@ import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> segments;
 
-    private SSTable ssTable;
+    private final SSTable ssTable;
 
-    public InMemoryDao() {
+    public DaoImpl() {
         segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+        ssTable = new SSTable(new Config(Path.of("")));
     }
 
-    public InMemoryDao(Config config) {
+    public DaoImpl(Config config) {
         segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
         ssTable = new SSTable(config);
     }
@@ -39,14 +41,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> segment = segments.get(key);
         try {
-            Entry<MemorySegment> segment = segments.get(key);
             if (segment == null) {
                 return ssTable.readData(key);
             } else return segment;
         } catch (IOException ex) {
-            ex.printStackTrace();
-            return null;
+            throw new RuntimeException(ex);
         }
     }
 
