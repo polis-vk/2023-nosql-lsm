@@ -58,8 +58,7 @@ public final class PersistenceHelper {
      * @param entries data to be written to disk.
      * @throws IOException is thrown when exceptions occur while working with a file.
      */
-    public void writeEntries(NavigableMap<MemorySegment,
-            Entry<MemorySegment>> entries) throws IOException, PathNotFoundException {
+    public void writeEntries(NavigableMap<MemorySegment, Entry<MemorySegment>> entries) throws IOException {
 
         int size = entries.size();
 
