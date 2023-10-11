@@ -12,14 +12,14 @@ public enum FileType {
 
     OFFSET("offset-file");
 
-    private final String name;
+    private final String fileName;
 
     FileType(String name) {
-        this.name = name;
+        this.fileName = name;
     }
 
     @Override
     public String toString() {
-        return this.name;
+        return this.fileName;
     }
 }
