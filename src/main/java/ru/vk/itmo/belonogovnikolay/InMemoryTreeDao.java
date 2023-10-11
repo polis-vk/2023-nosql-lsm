@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.NavigableMap;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 /**
@@ -50,11 +49,11 @@ public final class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySeg
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (Objects.isNull(from) && Objects.isNull(to)) {
+        if (from == null && to == null) {
             return this.memTable.values().iterator();
-        } else if (Objects.isNull(from)) {
+        } else if (from == null) {
             return allTo(to);
-        } else if (Objects.isNull(to)) {
+        } else if (to == null) {
             return allFrom(from);
         }
 
@@ -64,7 +63,7 @@ public final class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySeg
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> entry = this.memTable.get(key);
-        if (Objects.isNull(entry)) {
+        if (entry == null) {
             try {
                 entry = persistenceHelper.readEntry(key);
             } catch (IOException e) {
@@ -76,7 +75,7 @@ public final class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySeg
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (Objects.isNull(entry)) {
+        if (entry == null) {
             return;
         }
         this.memTable.put(entry.key(), entry);

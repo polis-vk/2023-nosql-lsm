@@ -14,7 +14,6 @@ import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.NavigableMap;
-import java.util.Objects;
 
 /**
  * Util class for write, read, and persistence recovery operations when the {@link InMemoryTreeDao DAO} is restarted.
@@ -46,7 +45,7 @@ public final class PersistenceHelper {
      * @throws PathNotFoundException is thrown when the path to the directory with snapshot files is not specified.
      */
     public static PersistenceHelper newInstance(Path basePath) throws PathNotFoundException {
-        if (Objects.isNull(basePath)) {
+        if (basePath == null) {
             throw new PathNotFoundException("The directory to the "
                     + " files was not specified in the config file.");
         }
