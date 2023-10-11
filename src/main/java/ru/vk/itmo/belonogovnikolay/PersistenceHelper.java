@@ -62,9 +62,6 @@ public final class PersistenceHelper {
 
         int size = entries.size();
 
-        if (size == 0) {
-            return;
-        }
         positionOffsets = new long[size * 2 + 1];
 
         long fileSize = 0;
@@ -72,13 +69,11 @@ public final class PersistenceHelper {
             fileSize += entry.getKey().byteSize() + entry.getValue().value().byteSize();
         }
 
-        if (Files.notExists(pathToDataFile) || Files.notExists(pathToOffsetFile)) {
-            Files.deleteIfExists(pathToDataFile);
-            Files.createFile(pathToDataFile);
+        Files.deleteIfExists(pathToDataFile);
+        Files.deleteIfExists(pathToOffsetFile);
 
-            Files.deleteIfExists(pathToOffsetFile);
-            Files.createFile(pathToOffsetFile);
-        }
+        Files.createFile(pathToDataFile);
+        Files.createFile(pathToOffsetFile);
 
         try (Arena dataArena = Arena.ofConfined()) {
             try (Arena offsetArena = Arena.ofConfined()) {
