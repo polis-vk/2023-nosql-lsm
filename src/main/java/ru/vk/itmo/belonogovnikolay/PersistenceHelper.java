@@ -32,9 +32,11 @@ public final class PersistenceHelper {
     private long dataFileSize;
     private long offsetFileSize;
     private final Path basePath;
+    private final MemorySegmentComparator segmentComparator;
 
     private PersistenceHelper(Path basePath) {
         this.basePath = basePath;
+        this.segmentComparator = new MemorySegmentComparator();
         resolvePaths();
     }
 
@@ -116,7 +118,7 @@ public final class PersistenceHelper {
         }
 
         readingPreparation();
-        MemorySegmentComparator segmentComparator = new MemorySegmentComparator();
+
 
         long index = 0;
         long beginLong;
@@ -129,7 +131,7 @@ public final class PersistenceHelper {
             endLong = offsetMappedSegment.getAtIndex(ValueLayout.JAVA_LONG, index + 1);
             keyValueSize = endLong - beginLong;
             MemorySegment keySegment = dataMappedSegment.asSlice(beginLong, keyValueSize);
-            if (segmentComparator.compare(keySegment, key) == 0) {
+            if (this.segmentComparator.compare(keySegment, key) == 0) {
                 keyValueSize = offsetMappedSegment.getAtIndex(ValueLayout.JAVA_LONG, index + 2) - endLong;
                 return new BaseEntry<>(keySegment, dataMappedSegment.asSlice(endLong, keyValueSize));
             }
