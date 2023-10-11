@@ -34,7 +34,7 @@ public class DataStorageManager {
 
     private MemorySegment data;
     private final Config config;
-    private final Arena arena = Arena.ofShared();
+    private final Arena arena = Arena.ofConfined();
     private final MemorySegmentComparator comparator = new MemorySegmentComparator();
     private final Path path;
 
@@ -48,6 +48,8 @@ public class DataStorageManager {
             } catch (IOException e) {
                 throw new DaoException(ERROR_READING_DATA.getErrorString(), e);
             }
+        } else {
+            data = null;
         }
 
     }
