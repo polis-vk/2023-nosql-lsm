@@ -74,12 +74,16 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
+        if (dataPath != null) {
+            Files.deleteIfExists(dataPath);
+        }
+        if (keyPath != null) {
+            Files.deleteIfExists(keyPath);
+        }
+
         if (dataPath == null || keyPath == null) {
             return;
         }
-
-        Files.deleteIfExists(keyPath);
-        Files.deleteIfExists(dataPath);
 
         try (var dataChanel = FileChannel.open(dataPath, StandardOpenOption.READ,
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
@@ -118,15 +122,11 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                             offsetData += Long.BYTES;
                             offsetKeys += Long.BYTES;
 
-                            for (int i = 0; i < value.value().byteSize(); i++, offsetData++) {
-                                dataWriteSegment.set(ValueLayout.JAVA_BYTE, offsetData,
-                                        value.value().get(ValueLayout.JAVA_BYTE, i));
-                            }
+                            MemorySegment.copy(value.value(), 0, dataWriteSegment, offsetData, value.value().byteSize());
+                            MemorySegment.copy(value.key(), 0, keyWriteSegment, offsetKeys, value.key().byteSize());
 
-                            for (int i = 0; i < value.key().byteSize(); i++, offsetKeys++) {
-                                keyWriteSegment.set(ValueLayout.JAVA_BYTE, offsetKeys,
-                                        value.key().get(ValueLayout.JAVA_BYTE, i));
-                            }
+                            offsetData += value.value().byteSize();
+                            offsetKeys += value.key().byteSize();
                         }
                     }
                 }
