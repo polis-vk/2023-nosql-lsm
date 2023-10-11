@@ -84,7 +84,7 @@ public class DataStorageManager {
         try (
             FileChannel dataChannel = FileChannel.open(path, WRITE_OPTIONS_KIT)
         ) {
-            MemorySegment data = createMemorySegment(dataChannel, countDataSize(database));
+            data = createMemorySegment(dataChannel, countDataSize(database));
             long dataPointer = 0L;
             for (var entry : database.values()) {
                 dataPointer += writeEntry(data, dataPointer, entry);
