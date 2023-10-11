@@ -87,7 +87,7 @@ public class SSTable implements Closeable {
                 ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, pos, entry.key().byteSize());
                 pos += BLOCK_SIZE;
 
-                MemorySegment.copy(entry.key(), 0, ssTableMemorySegment, pos, BLOCK_SIZE);
+                MemorySegment.copy(entry.key(), 0, ssTableMemorySegment, pos, entry.key().byteSize());
                 pos += entry.key().byteSize();
 
                 long valueSize = entry.value().byteSize();
