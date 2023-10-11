@@ -34,6 +34,11 @@ public class SSTable {
 
         readArena = Arena.ofConfined();
 
+        if (Files.notExists(filePath)) {
+            readSegment = null;
+            return;
+        }
+
         try (FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
             readSegment = fc.map(READ_ONLY, 0, Files.size(filePath), readArena);
         }
