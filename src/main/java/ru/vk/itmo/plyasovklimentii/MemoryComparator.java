@@ -12,18 +12,18 @@ public class MemoryComparator implements Comparator<MemorySegment> {
         Objects.requireNonNull(s1);
         Objects.requireNonNull(s2);
 
-        long mismatchCount = s1.mismatch(s2);
+        long mismatchOffset = s1.mismatch(s2);
 
-        if (mismatchCount < 0) {
+        if (mismatchOffset < 0) {
             return 0;
         }
-        if (mismatchCount == s1.byteSize()) {
+        if (mismatchOffset == s1.byteSize()) {
             return -1;
         }
-        if (mismatchCount == s2.byteSize()) {
+        if (mismatchOffset == s2.byteSize()) {
             return 1;
         }
 
-        return Byte.compare(s1.get(JAVA_BYTE, mismatchCount), s2.get(JAVA_BYTE, mismatchCount));
+        return Byte.compare(s1.get(JAVA_BYTE, mismatchOffset), s2.get(JAVA_BYTE, mismatchOffset));
     }
 }
