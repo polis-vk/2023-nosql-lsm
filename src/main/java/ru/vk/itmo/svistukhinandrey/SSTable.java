@@ -54,11 +54,10 @@ public class SSTable implements Closeable {
 
             long valueSize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, pos);
             pos += BLOCK_SIZE;
-            MemorySegment value = data.asSlice(pos, valueSize);
             if (memorySegmentComparator.compare(key, foundKey) == 0) {
-                return new BaseEntry<>(foundKey, value);
+                return new BaseEntry<>(foundKey, data.asSlice(pos, valueSize));
             }
-            pos += value.byteSize();
+            pos += valueSize;
         }
 
         return null;
