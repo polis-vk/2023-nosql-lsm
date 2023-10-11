@@ -70,7 +70,7 @@ public class DataStorageManager {
             if (fileSize < offset) {
                 return null;
             }
-            MemorySegment storedKey = data.asSlice(offset, keySize);
+            long keyOffset = offset;
             offset += keySize;
             if (fileSize < offset) {
                 return null;
@@ -81,6 +81,7 @@ public class DataStorageManager {
             if (fileSize < offset) {
                 return null;
             }
+            MemorySegment storedKey = data.asSlice(keyOffset, keySize);
             if (comparator.compare(key, storedKey) == 0) {
                 MemorySegment value = data.asSlice(offset, valueSize);
                 return new BaseEntry<>(storedKey, value);
