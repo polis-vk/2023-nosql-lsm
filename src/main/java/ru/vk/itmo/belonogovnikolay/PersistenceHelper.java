@@ -15,7 +15,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.NavigableMap;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentSkipListMap;
 
 /**
  * Util class for write, read, and persistence recovery operations when the {@link InMemoryTreeDao DAO} is restarted.
@@ -135,42 +134,6 @@ public final class PersistenceHelper {
             index++;
         }
         return null;
-    }
-
-    /**
-     * Reads all data in the snapshot file before creating DAO.
-     *
-     * @return arena in which records from the snapshot file are stored.
-     * @throws IOException is thrown when exceptions occur while working with a file.
-     */
-    public NavigableMap<MemorySegment, Entry<MemorySegment>> readEntries() throws IOException {
-        NavigableMap<MemorySegment, Entry<MemorySegment>> arena =
-                new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-
-        if (Files.notExists(pathsToFile[0]) || Files.notExists(pathsToFile[1])) {
-            return arena;
-        }
-
-        readingPreparation();
-
-        long index = 0;
-        long beginLong;
-        long endLong;
-        long keyValueSize;
-
-        while (index < (this.fileSizes[1] - Long.BYTES) / 8 - 1) {
-            beginLong = offsetMappedSegment.getAtIndex(ValueLayout.JAVA_LONG, index);
-            endLong = offsetMappedSegment.getAtIndex(ValueLayout.JAVA_LONG, index + 1);
-
-            keyValueSize = endLong - beginLong;
-
-            MemorySegment keySegment = dataMappedSegment.asSlice(beginLong, keyValueSize);
-            keyValueSize = offsetMappedSegment.getAtIndex(ValueLayout.JAVA_LONG, index + 2) - endLong;
-            MemorySegment value = dataMappedSegment.asSlice(endLong, keyValueSize);
-            arena.put(keySegment, new BaseEntry<>(keySegment, value));
-            index++;
-        }
-        return arena;
     }
 
     /**

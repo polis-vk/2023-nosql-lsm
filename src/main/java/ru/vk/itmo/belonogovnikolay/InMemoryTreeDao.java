@@ -26,10 +26,8 @@ public final class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySeg
     }
 
     private InMemoryTreeDao(Config config) {
-        this(); // commented in PR.
+        this();
         this.persistenceHelper = PersistenceHelper.newInstance(config.basePath());
-        //this.arena = persistenceHelper.readEntries(); commented in PR too.
-        // will be using with logging.
     }
 
     public static Dao<MemorySegment, Entry<MemorySegment>> newInstance() {
@@ -69,7 +67,7 @@ public final class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySeg
         if (Objects.isNull(entry)) {
             try {
                 entry = persistenceHelper.readEntry(key);
-            } catch (IOException e) { // will be using with logging.
+            } catch (IOException e) {
                 return null;
             }
         }
@@ -86,6 +84,6 @@ public final class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySeg
 
     @Override
     public void flush() throws IOException {
-        persistenceHelper.writeEntries(this.memTable);// will be using with logging.
+        persistenceHelper.writeEntries(this.memTable);
     }
 }
