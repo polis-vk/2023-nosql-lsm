@@ -44,7 +44,6 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
         dataPath = config.basePath().resolve(DATA_FILE);
         arena = Arena.ofShared();
 
-
         if (!Files.exists(dataPath)) {
             mappedMS = MemorySegment.NULL;
             if (!arena.scope().isAlive()) {
@@ -54,7 +53,7 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
         }
 
         boolean segmentMapped = false;
-        try (FileChannel channel = FileChannel.open(dataPath, StandardOpenOption.CREATE, StandardOpenOption.READ)) {
+        try (FileChannel channel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
             mappedMS = channel.map(MapMode.READ_ONLY,
                     0, channel.size(), arena).asReadOnly();
             segmentMapped = true;
