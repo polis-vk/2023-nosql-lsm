@@ -122,8 +122,9 @@ public final class PersistenceHelper {
         long beginLong;
         long endLong;
         long keyValueSize;
+        long offsetFileOffsetCount = (this.offsetFileSize - Long.BYTES) / 8 - 1;
 
-        while (index < (this.offsetFileSize - Long.BYTES) / 8 - 1) {
+        while (index < offsetFileOffsetCount) {
             beginLong = offsetMappedSegment.getAtIndex(ValueLayout.JAVA_LONG, index);
             endLong = offsetMappedSegment.getAtIndex(ValueLayout.JAVA_LONG, index + 1);
             keyValueSize = endLong - beginLong;
