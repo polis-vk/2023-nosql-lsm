@@ -122,8 +122,10 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                             offsetData += Long.BYTES;
                             offsetKeys += Long.BYTES;
 
-                            MemorySegment.copy(value.value(), 0, dataWriteSegment, offsetData, value.value().byteSize());
-                            MemorySegment.copy(value.key(), 0, keyWriteSegment, offsetKeys, value.key().byteSize());
+                            MemorySegment.copy(value.value(), 0, dataWriteSegment,
+                                    offsetData, value.value().byteSize());
+                            MemorySegment.copy(value.key(), 0, keyWriteSegment,
+                                    offsetKeys, value.key().byteSize());
 
                             offsetData += value.value().byteSize();
                             offsetKeys += value.key().byteSize();
