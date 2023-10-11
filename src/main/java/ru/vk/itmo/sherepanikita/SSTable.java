@@ -35,9 +35,7 @@ public class SSTable {
     }
 
     public Entry<MemorySegment> readData(MemorySegment key) throws IOException {
-        try (   FileChannel fileChannel = FileChannel.open(filePath, StandardOpenOption.READ);
-
-        ) {
+        try (FileChannel fileChannel = FileChannel.open(filePath, StandardOpenOption.READ)) {
 
             MemorySegment segmentToRead = fileChannel.map(
                     FileChannel.MapMode.READ_ONLY,
@@ -58,7 +56,14 @@ public class SSTable {
                     continue;
                 }
 
-                long mismatch = MemorySegment.mismatch(segmentToRead, offset, offset + key.byteSize(), key, 0, key.byteSize());
+                long mismatch = MemorySegment.mismatch(
+                        segmentToRead,
+                        offset,
+                        offset + key.byteSize(),
+                        key,
+                        0,
+                        key.byteSize()
+                );
                 if (mismatch == -1) {
                     MemorySegment slice = segmentToRead.asSlice(offset + keySize, valueSize);
                     return new BaseEntry<>(key, slice);
@@ -118,8 +123,6 @@ public class SSTable {
                 offset += entryKeySize;
                 MemorySegment.copy(entry.value(), 0, segmentToWrite, offset, entryValueSize);
                 offset += entryValueSize;
-
-
             }
 
         }

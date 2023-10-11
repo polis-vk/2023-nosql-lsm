@@ -47,7 +47,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 return ssTable.readData(key);
             } else return segment;
         } catch (IOException ex) {
-            throw new RuntimeException(ex);
+            ex.printStackTrace();
+            return null;
         }
     }
 
