@@ -10,7 +10,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
-import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Map;
@@ -83,11 +82,9 @@ public final class PersistenceHelper {
             Files.createFile(pathToOffsetFile);
         }
 
-        this.dataMappedSegment = map(pathToDataFile, fileSize,
-                FileChannel.MapMode.READ_WRITE, StandardOpenOption.WRITE, StandardOpenOption.READ);
-        this.offsetMappedSegment = map(pathToOffsetFile,
-                (long) Long.BYTES * positionOffsets.length,
-                FileChannel.MapMode.READ_WRITE, StandardOpenOption.WRITE, StandardOpenOption.READ);
+        this.dataMappedSegment = mapFileWriteRead(pathToDataFile, fileSize);
+        this.offsetMappedSegment = mapFileWriteRead(pathToOffsetFile,
+                (long) Long.BYTES * positionOffsets.length);
 
         entries.values().forEach(entry -> {
             long keySize = entry.key().byteSize();
@@ -141,19 +138,30 @@ public final class PersistenceHelper {
     }
 
     /**
-     * Function of mapping MemorySegment and file.
+     * Function of mapping MemorySegment and file in READ-ONLY mode.
      *
      * @param filePath       file path.
      * @param byteSize       file size (offset).
-     * @param mode           {@link FileChannel.MapMode} mode.
-     * @param channelOptions {@link OpenOption} option.
      * @return {@link MemorySegment} which map with file.
      * @throws IOException is thrown when exceptions occur while working with a file.
      */
-    private MemorySegment map(Path filePath, long byteSize, FileChannel.MapMode mode,
-                              OpenOption... channelOptions) throws IOException {
-        try (FileChannel channel = FileChannel.open(filePath, channelOptions)) {
-            return channel.map(mode, 0, byteSize, Arena.ofConfined());
+    private MemorySegment mapFileReadOnly(Path filePath, long byteSize) throws IOException {
+        try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ)) {
+            return channel.map(FileChannel.MapMode.READ_ONLY, 0, byteSize, Arena.ofConfined());
+        }
+    }
+
+    /**
+     * Function of mapping MemorySegment and file in READ-WRITE mode.
+     *
+     * @param filePath       file path.
+     * @param byteSize       file size (offset).
+     * @return {@link MemorySegment} which map with file.
+     * @throws IOException is thrown when exceptions occur while working with a file.
+     */
+    private  MemorySegment mapFileWriteRead(Path filePath, long byteSize) throws IOException {
+        try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            return channel.map(FileChannel.MapMode.READ_WRITE, 0, byteSize, Arena.ofConfined());
         }
     }
 
@@ -174,9 +182,7 @@ public final class PersistenceHelper {
         this.offsetFileSize = Files.size(pathToOffsetFile);
         this.dataFileSize = Files.size(pathToDataFile);
 
-        this.dataMappedSegment = map(pathToDataFile, this.dataFileSize,
-                FileChannel.MapMode.READ_ONLY, StandardOpenOption.READ);
-        this.offsetMappedSegment = map(pathToOffsetFile, this.offsetFileSize,
-                FileChannel.MapMode.READ_ONLY, StandardOpenOption.READ);
+        this.dataMappedSegment = mapFileReadOnly(pathToDataFile, this.dataFileSize);
+        this.offsetMappedSegment = mapFileReadOnly(pathToOffsetFile, this.offsetFileSize);
     }
 }
