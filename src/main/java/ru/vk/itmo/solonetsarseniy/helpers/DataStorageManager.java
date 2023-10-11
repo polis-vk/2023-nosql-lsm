@@ -61,7 +61,7 @@ public class DataStorageManager {
 
         long offset = 0L;
         long fileSize = data.byteSize();
-        while (offset <= fileSize) {
+        while (offset < fileSize) {
             long keySize = data.get(JAVA_LONG_UNALIGNED, offset);
             offset += LONG_SIZE;
             MemorySegment storedKey = data.asSlice(offset, keySize);
