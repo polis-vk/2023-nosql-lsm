@@ -27,13 +27,13 @@ public final class PersistenceHelper {
     private MemorySegment offsetMappedSegment;
     private long[] positionOffsets;
     private int position;
-    private final Path[] pathsToFile;
-    private final long[] fileSizes;
+    private Path pathToDataFile;
+    private Path pathToOffsetFile;
+    private long dataFileSize;
+    private long offsetFileSize;
     private final Path basePath;
 
     private PersistenceHelper(Path basePath) {
-        this.pathsToFile = new Path[2];
-        this.fileSizes = new long[2];
         this.basePath = basePath;
         resolvePaths();
     }
@@ -70,20 +70,20 @@ public final class PersistenceHelper {
 
         long fileSize = 0;
         for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : entries.entrySet()) {
-                    fileSize += entry.getKey().byteSize() + entry.getValue().value().byteSize();
+            fileSize += entry.getKey().byteSize() + entry.getValue().value().byteSize();
         }
 
-        if (Files.notExists(pathsToFile[0]) || Files.notExists(pathsToFile[1])) {
-            Files.deleteIfExists(pathsToFile[0]);
-            Files.createFile(pathsToFile[0]);
+        if (Files.notExists(pathToDataFile) || Files.notExists(pathToOffsetFile)) {
+            Files.deleteIfExists(pathToDataFile);
+            Files.createFile(pathToDataFile);
 
-            Files.deleteIfExists(pathsToFile[1]);
-            Files.createFile(pathsToFile[1]);
+            Files.deleteIfExists(pathToOffsetFile);
+            Files.createFile(pathToOffsetFile);
         }
 
-        this.dataMappedSegment = map(pathsToFile[0], fileSize,
+        this.dataMappedSegment = map(pathToDataFile, fileSize,
                 FileChannel.MapMode.READ_WRITE, StandardOpenOption.WRITE, StandardOpenOption.READ);
-        this.offsetMappedSegment = map(pathsToFile[1],
+        this.offsetMappedSegment = map(pathToOffsetFile,
                 (long) Long.BYTES * positionOffsets.length,
                 FileChannel.MapMode.READ_WRITE, StandardOpenOption.WRITE, StandardOpenOption.READ);
 
@@ -111,7 +111,7 @@ public final class PersistenceHelper {
      */
     public Entry<MemorySegment> readEntry(MemorySegment key) throws IOException {
 
-        if (Files.notExists(pathsToFile[0]) || Files.notExists(pathsToFile[1])) {
+        if (Files.notExists(pathToDataFile) || Files.notExists(pathToOffsetFile)) {
             return null;
         }
 
@@ -123,7 +123,7 @@ public final class PersistenceHelper {
         long endLong;
         long keyValueSize;
 
-        while (index < (this.fileSizes[1] - Long.BYTES) / 8 - 1) {
+        while (index < (this.offsetFileSize - Long.BYTES) / 8 - 1) {
             beginLong = offsetMappedSegment.getAtIndex(ValueLayout.JAVA_LONG, index);
             endLong = offsetMappedSegment.getAtIndex(ValueLayout.JAVA_LONG, index + 1);
             keyValueSize = endLong - beginLong;
@@ -155,11 +155,11 @@ public final class PersistenceHelper {
     }
 
     /**
-     * Function resolves {@link #basePath} to file {@link #pathsToFile paths}.
+     * Function resolves {@link #basePath} to file {@link #pathToDataFile}, {@link #pathToOffsetFile} paths.
      */
     private void resolvePaths() {
-        this.pathsToFile[0] = this.basePath.resolve(FileType.DATA.toString());
-        this.pathsToFile[1] = this.basePath.resolve(FileType.OFFSET.toString());
+        this.pathToDataFile = this.basePath.resolve(FileType.DATA.toString());
+        this.pathToOffsetFile = this.basePath.resolve(FileType.OFFSET.toString());
     }
 
     /**
@@ -168,12 +168,12 @@ public final class PersistenceHelper {
      * @throws IOException is thrown when exceptions occur while working with a file.
      */
     private void readingPreparation() throws IOException {
-        this.fileSizes[1] = Files.size(pathsToFile[1]);
-        this.fileSizes[0] = Files.size(pathsToFile[0]);
+        this.offsetFileSize = Files.size(pathToOffsetFile);
+        this.dataFileSize = Files.size(pathToDataFile);
 
-        this.dataMappedSegment = map(pathsToFile[0], this.fileSizes[0],
+        this.dataMappedSegment = map(pathToDataFile, this.dataFileSize,
                 FileChannel.MapMode.READ_ONLY, StandardOpenOption.READ);
-        this.offsetMappedSegment = map(pathsToFile[1], this.fileSizes[1],
+        this.offsetMappedSegment = map(pathToOffsetFile, this.offsetFileSize,
                 FileChannel.MapMode.READ_ONLY, StandardOpenOption.READ);
     }
 }
