@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Map;
 import java.util.NavigableMap;
 
 /**
@@ -67,8 +68,10 @@ public final class PersistenceHelper {
         }
         positionOffsets = new long[size * 2 + 1];
 
-        long fileSize = entries.values().stream()
-                .mapToLong(entry -> entry.key().byteSize() + entry.value().byteSize()).sum();
+        long fileSize = 0;
+        for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : entries.entrySet()) {
+                    fileSize += entry.getKey().byteSize() + entry.getValue().value().byteSize();
+        }
 
         if (Files.notExists(pathsToFile[0]) || Files.notExists(pathsToFile[1])) {
             Files.deleteIfExists(pathsToFile[0]);
