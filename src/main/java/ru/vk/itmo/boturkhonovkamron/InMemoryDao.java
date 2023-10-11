@@ -1,30 +1,50 @@
 package ru.vk.itmo.boturkhonovkamron;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.boturkhonovkamron.io.SSTable;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 /**
- * Реализация интерфейса Dao для работы с объектами типа MemorySegment в памяти.
+ * Implementation of Dao interface for in-memory storage of MemorySegment objects.
  *
  * @author Kamron Boturkhonov
  * @since 2023.09.26
  */
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data;
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data;
+
+    private SSTable ssTable;
 
     public InMemoryDao() {
         data = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     }
 
+    public InMemoryDao(final Config config) throws IOException {
+        this();
+        this.ssTable = new SSTable(config);
+    }
+
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
-        return data.get(key);
+        return getSafe(key);
+    }
+
+    private Entry<MemorySegment> getSafe(final MemorySegment key) {
+        if (data.containsKey(key)) {
+            return data.get(key);
+        }
+        if (ssTable != null) {
+            return ssTable.getEntity(key);
+        }
+        return null;
     }
 
     @Override
@@ -44,6 +64,21 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(final Entry<MemorySegment> entry) {
-        data.merge(entry.key(), entry, (oldValue, newValue) -> newValue);
+        data.put(entry.key(), entry);
+    }
+
+    @Override
+    public void flush() throws IOException {
+        if (data.size() > 0) {
+            ssTable.saveData(data);
+            data.clear();
+        }
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (ssTable != null) {
+            flush();
+        }
     }
 }
