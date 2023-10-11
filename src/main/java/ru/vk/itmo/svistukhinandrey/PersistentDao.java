@@ -22,9 +22,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        if (storage.containsKey(key)) {
-            return storage.get(key);
+        Entry<MemorySegment> storageEntry = storage.get(key);
+        if (storageEntry != null) {
+            return storageEntry;
         }
+
         return ssTable.get(key);
     }
 

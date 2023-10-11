@@ -4,6 +4,7 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -14,17 +15,17 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Collection;
 
-public class SSTable {
+public class SSTable implements Closeable {
 
-    private static final long KEY_BLOCK_SIZE = ValueLayout.JAVA_BYTE.byteSize() * 64L;
-    private static final long KEY_MAX_LENGTH = ValueLayout.JAVA_BYTE.byteSize();
-    private static final long VALUE_MAX_LENGTH = ValueLayout.JAVA_SHORT_UNALIGNED.byteSize();
+    private static final long BLOCK_SIZE = ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
     private static final String SS_TABLE_FILENAME = "sstable.db";
     private final Path ssTablePath;
     private final MemorySegment data;
+    private final Arena arena;
     private final MemorySegmentComparator memorySegmentComparator;
 
     public SSTable(Config config) throws IOException {
+        arena = Arena.ofConfined();
         ssTablePath = config.basePath().resolve(SS_TABLE_FILENAME);
         if (!Files.exists(ssTablePath)) {
             data = null;
@@ -35,7 +36,7 @@ public class SSTable {
         memorySegmentComparator = new MemorySegmentComparator();
 
         try (FileChannel dataFileChannel = FileChannel.open(ssTablePath)) {
-            data = dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataFileChannel.size(), Arena.global());
+            data = dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataFileChannel.size(), arena);
         }
     }
 
@@ -46,16 +47,18 @@ public class SSTable {
 
         long pos = 0L;
         while (pos < data.byteSize()) {
-            byte keySize = data.get(ValueLayout.JAVA_BYTE, pos++);
+            long keySize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, pos);
+            pos += BLOCK_SIZE;
             MemorySegment foundKey = data.asSlice(pos, keySize);
-            pos += KEY_BLOCK_SIZE;
-            short valueSize = data.get(ValueLayout.JAVA_SHORT_UNALIGNED, pos);
-            pos += VALUE_MAX_LENGTH;
-            long fragmentation = ((valueSize + KEY_BLOCK_SIZE - 1) / KEY_BLOCK_SIZE) * KEY_BLOCK_SIZE;
+            pos += foundKey.byteSize();
+
+            long valueSize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, pos);
+            pos += BLOCK_SIZE;
+            MemorySegment value = data.asSlice(pos, valueSize);
             if (memorySegmentComparator.compare(key, foundKey) == 0) {
-                return new BaseEntry<>(foundKey, data.asSlice(pos, valueSize));
+                return new BaseEntry<>(foundKey, value);
             }
-            pos += fragmentation;
+            pos += value.byteSize();
         }
 
         return null;
@@ -73,28 +76,32 @@ public class SSTable {
         long dataBlockSize = 0L;
 
         for (Entry<MemorySegment> entry : entries) {
-            long fragmentation = ((entry.value().byteSize() + KEY_BLOCK_SIZE - 1) / KEY_BLOCK_SIZE) * KEY_BLOCK_SIZE;
-            dataBlockSize += KEY_MAX_LENGTH + KEY_BLOCK_SIZE + VALUE_MAX_LENGTH + fragmentation;
+            dataBlockSize += BLOCK_SIZE + entry.key().byteSize() + BLOCK_SIZE + entry.value().byteSize();
         }
 
         try (FileChannel ssTable = FileChannel.open(ssTablePath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-            ssTableMemorySegment = ssTable.map(FileChannel.MapMode.READ_WRITE, 0, dataBlockSize, Arena.global());
+            ssTableMemorySegment = ssTable.map(FileChannel.MapMode.READ_WRITE, 0, dataBlockSize, arena);
 
             long pos = 0;
             for (Entry<MemorySegment> entry : entries) {
-                ssTableMemorySegment.set(ValueLayout.JAVA_BYTE, pos, (byte) entry.key().byteSize());
-                pos += KEY_MAX_LENGTH;
-                ssTableMemorySegment.asSlice(pos).copyFrom(entry.key());
-                pos += KEY_BLOCK_SIZE;
+                ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, pos, entry.key().byteSize());
+                pos += BLOCK_SIZE;
+
+                MemorySegment.copy(entry.key(), 0, ssTableMemorySegment, pos, BLOCK_SIZE);
+                pos += entry.key().byteSize();
 
                 long valueSize = entry.value().byteSize();
-                ssTableMemorySegment.set(ValueLayout.JAVA_SHORT_UNALIGNED, pos, (short) valueSize);
-                pos += VALUE_MAX_LENGTH;
+                ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, pos, valueSize);
+                pos += BLOCK_SIZE;
 
-                ssTableMemorySegment.asSlice(pos).copyFrom(entry.value());
-                long fragmentation = ((valueSize + KEY_BLOCK_SIZE - 1) / KEY_BLOCK_SIZE) * KEY_BLOCK_SIZE;
-                pos += fragmentation;
+                MemorySegment.copy(entry.value(), 0, ssTableMemorySegment, pos, valueSize);
+                pos += entry.value().byteSize();
             }
         }
+    }
+
+    @Override
+    public void close() {
+        arena.close();
     }
 }
