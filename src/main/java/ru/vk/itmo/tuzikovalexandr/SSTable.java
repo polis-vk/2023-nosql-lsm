@@ -37,7 +37,7 @@ public class SSTable {
 
         MemorySegment currentPage;
 
-        try(FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
+        try (FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
             currentPage = fc.map(READ_ONLY, 0, Files.size(filePath), readArena);
             created = true;
         } finally {
