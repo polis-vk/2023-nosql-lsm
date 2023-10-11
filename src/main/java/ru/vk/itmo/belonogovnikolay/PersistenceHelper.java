@@ -21,6 +21,9 @@ import java.util.NavigableMap;
  */
 public final class PersistenceHelper {
 
+    private final Path basePath;
+    private final MemorySegmentComparator segmentComparator;
+
     private MemorySegment dataMappedSegment;
     private MemorySegment offsetMappedSegment;
     private long[] positionOffsets;
@@ -29,9 +32,9 @@ public final class PersistenceHelper {
     private Path pathToOffsetFile;
     private long dataFileSize;
     private long offsetFileSize;
-    private final Path basePath;
-    private final MemorySegmentComparator segmentComparator;
-    private boolean isReadingPrepared = false;
+    private boolean isReadingPrepared;
+    private Arena readingDataArena;
+    private Arena readingOffsetArena;
 
     private PersistenceHelper(Path basePath) {
         this.basePath = basePath;
@@ -82,24 +85,38 @@ public final class PersistenceHelper {
             Files.createFile(pathToOffsetFile);
         }
 
-        isReadingPrepared = false;
-        this.dataMappedSegment = mapFileWriteRead(pathToDataFile, fileSize);
-        this.offsetMappedSegment = mapFileWriteRead(pathToOffsetFile,
-                (long) Long.BYTES * positionOffsets.length);
+        try (Arena dataArena = Arena.ofConfined()) {
+            try (Arena offsetArena = Arena.ofConfined()) {
 
-        entries.values().forEach(entry -> {
-            long keySize = entry.key().byteSize();
-            long valueSize = entry.value().byteSize();
-            positionOffsets[position + 1] = positionOffsets[position] + keySize;
-            positionOffsets[position + 2] = positionOffsets[position + 1] + valueSize;
-            this.dataMappedSegment.asSlice(positionOffsets[position], keySize).copyFrom(entry.key());
-            this.dataMappedSegment.asSlice(positionOffsets[position + 1], valueSize).copyFrom(entry.value());
-            position = position + 2;
-        });
+                this.dataMappedSegment = mapFilesWriteRead(pathToDataFile, fileSize, dataArena);
+                this.offsetMappedSegment = mapFilesWriteRead(pathToOffsetFile,
+                        (long) Long.BYTES * positionOffsets.length, offsetArena);
 
-        offsetMappedSegment
-                .asSlice(0L, (long) Long.BYTES * positionOffsets.length)
-                .copyFrom(MemorySegment.ofArray(positionOffsets));
+                entries.values().forEach(entry -> {
+                    long keySize = entry.key().byteSize();
+                    long valueSize = entry.value().byteSize();
+                    positionOffsets[position + 1] = positionOffsets[position] + keySize;
+                    positionOffsets[position + 2] = positionOffsets[position + 1] + valueSize;
+                    this.dataMappedSegment.asSlice(positionOffsets[position], keySize).copyFrom(entry.key());
+                    this.dataMappedSegment.asSlice(positionOffsets[position + 1], valueSize).copyFrom(entry.value());
+                    position = position + 2;
+                });
+
+                offsetMappedSegment
+                        .asSlice(0L, (long) Long.BYTES * positionOffsets.length)
+                        .copyFrom(MemorySegment.ofArray(positionOffsets));
+            }
+        } finally {
+            if (this.readingDataArena != null) {
+                this.readingDataArena.close();
+                this.readingDataArena = null;
+            }
+
+            if (this.readingOffsetArena != null) {
+                this.readingOffsetArena.close();
+                this.readingOffsetArena = null;
+            }
+        }
     }
 
     /**
@@ -117,7 +134,7 @@ public final class PersistenceHelper {
 
         if (!isReadingPrepared) {
             readingPreparation();
-            isReadingPrepared = true;
+            this.isReadingPrepared = true;
         }
 
         long index = 0;
@@ -141,16 +158,32 @@ public final class PersistenceHelper {
     }
 
     /**
-     * Function of mapping MemorySegment and file in READ-ONLY mode.
+     * Function of mapping MemorySegment and data file in READ-ONLY mode.
      *
      * @param filePath file path.
      * @param byteSize file size (offset).
      * @return {@link MemorySegment} which map with file.
      * @throws IOException is thrown when exceptions occur while working with a file.
      */
-    private MemorySegment mapFileReadOnly(Path filePath, long byteSize) throws IOException {
+    private MemorySegment mapDataFileReadOnly(Path filePath, long byteSize) throws IOException {
         try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ)) {
-            return channel.map(FileChannel.MapMode.READ_ONLY, 0, byteSize, Arena.ofConfined());
+            this.readingDataArena = Arena.ofConfined();
+            return channel.map(FileChannel.MapMode.READ_ONLY, 0, byteSize, this.readingDataArena);
+        }
+    }
+
+    /**
+     * Function of mapping MemorySegment and offset file in READ-ONLY mode.
+     *
+     * @param filePath file path.
+     * @param byteSize file size (offset).
+     * @return {@link MemorySegment} which map with file.
+     * @throws IOException is thrown when exceptions occur while working with a file.
+     */
+    private MemorySegment mapOffsetFileReadOnly(Path filePath, long byteSize) throws IOException {
+        try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ)) {
+            this.readingOffsetArena = Arena.ofConfined();
+            return channel.map(FileChannel.MapMode.READ_ONLY, 0, byteSize, this.readingOffsetArena);
         }
     }
 
@@ -162,9 +195,9 @@ public final class PersistenceHelper {
      * @return {@link MemorySegment} which map with file.
      * @throws IOException is thrown when exceptions occur while working with a file.
      */
-    private MemorySegment mapFileWriteRead(Path filePath, long byteSize) throws IOException {
+    private MemorySegment mapFilesWriteRead(Path filePath, long byteSize, Arena arena) throws IOException {
         try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-            return channel.map(FileChannel.MapMode.READ_WRITE, 0, byteSize, Arena.ofConfined());
+            return channel.map(FileChannel.MapMode.READ_WRITE, 0, byteSize, arena);
         }
     }
 
@@ -185,7 +218,7 @@ public final class PersistenceHelper {
         this.offsetFileSize = Files.size(pathToOffsetFile);
         this.dataFileSize = Files.size(pathToDataFile);
 
-        this.dataMappedSegment = mapFileReadOnly(pathToDataFile, this.dataFileSize);
-        this.offsetMappedSegment = mapFileReadOnly(pathToOffsetFile, this.offsetFileSize);
+        this.dataMappedSegment = mapDataFileReadOnly(pathToDataFile, this.dataFileSize);
+        this.offsetMappedSegment = mapOffsetFileReadOnly(pathToOffsetFile, this.offsetFileSize);
     }
 }
