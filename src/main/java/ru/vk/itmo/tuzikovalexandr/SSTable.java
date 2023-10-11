@@ -4,7 +4,6 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -27,7 +26,7 @@ public class SSTable {
     );
     private final Path filePath;
     private final Arena readArena;
-    MemorySegment readSegment;
+    private final MemorySegment readSegment;
     private static final String FILE_PATH = "data";
 
     public SSTable(Config config) throws IOException {
@@ -41,10 +40,6 @@ public class SSTable {
         try(FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
             currentPage = fc.map(READ_ONLY, 0, Files.size(filePath), readArena);
             created = true;
-        } catch (FileNotFoundException e) {
-            currentPage = null;
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         } finally {
             if (!created) {
                 readArena.close();
