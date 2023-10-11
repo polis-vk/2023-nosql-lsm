@@ -30,7 +30,6 @@ public final class PersistenceHelper {
     private int position;
     private Path pathToDataFile;
     private Path pathToOffsetFile;
-    private long dataFileSize;
     private long offsetFileSize;
     private boolean isReadingPrepared;
     private Arena readingDataArena;
@@ -49,11 +48,7 @@ public final class PersistenceHelper {
      * @return PersistentHelper instance.
      * @throws NullPointerException is thrown when the path to the directory with snapshot files is not specified.
      */
-    public static PersistenceHelper newInstance(Path basePath) throws NullPointerException {
-        if (basePath == null) {
-            throw new NullPointerException("The directory to the "
-                    + " files was not specified in the config file.");
-        }
+    public static PersistenceHelper newInstance(Path basePath) {
         return new PersistenceHelper(basePath);
     }
 
@@ -216,9 +211,9 @@ public final class PersistenceHelper {
      */
     private void readingPreparation() throws IOException {
         this.offsetFileSize = Files.size(pathToOffsetFile);
-        this.dataFileSize = Files.size(pathToDataFile);
+        long dataFileSize = Files.size(pathToDataFile);
 
-        this.dataMappedSegment = mapDataFileReadOnly(pathToDataFile, this.dataFileSize);
+        this.dataMappedSegment = mapDataFileReadOnly(pathToDataFile, dataFileSize);
         this.offsetMappedSegment = mapOffsetFileReadOnly(pathToOffsetFile, this.offsetFileSize);
     }
 }
