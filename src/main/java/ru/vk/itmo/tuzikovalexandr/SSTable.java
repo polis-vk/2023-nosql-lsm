@@ -4,6 +4,7 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -25,13 +26,40 @@ public class SSTable {
             StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE
     );
     private final Path filePath;
+    private final Arena readArena;
+    MemorySegment readSegment;
     private static final String FILE_PATH = "data";
 
     public SSTable(Config config) throws IOException {
         this.filePath = config.basePath().resolve(FILE_PATH);
+
+        readArena = Arena.ofConfined();
+        boolean created = false;
+
+        MemorySegment currentPage;
+
+        try(FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
+            currentPage = fc.map(READ_ONLY, 0, Files.size(filePath), readArena);
+            created = true;
+        } catch (FileNotFoundException e) {
+            currentPage = null;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } finally {
+            if (!created) {
+                readArena.close();
+            }
+        }
+        readSegment = currentPage;
     }
 
     public void saveMemData(Collection<Entry<MemorySegment>> entries) throws IOException {
+        if (!readArena.scope().isAlive()) {
+            return;
+        }
+
+        readArena.close();
+
         long offset = 0L;
         long memorySize = entries.stream().mapToLong(
                 entry -> entry.key().byteSize() + entry.value().byteSize()
@@ -39,7 +67,7 @@ public class SSTable {
 
         try (FileChannel fc = FileChannel.open(filePath, openOptions)) {
 
-            MemorySegment writeSegment = fc.map(READ_WRITE, 0, memorySize, Arena.global());
+            MemorySegment writeSegment = fc.map(READ_WRITE, 0, memorySize, Arena.ofConfined());
 
             for (Entry<MemorySegment> entry : entries) {
                 writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
@@ -56,37 +84,30 @@ public class SSTable {
     }
 
     public Entry<MemorySegment> readData(MemorySegment key) {
-        try (FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
-            long offset = 0L;
+        long offset = 0L;
 
-            MemorySegment readSegment = fc.map(READ_ONLY, 0, Files.size(filePath), Arena.global());
+        while (offset < readSegment.byteSize()) {
+            long keySize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            offset += Long.BYTES;
 
-            while (offset < readSegment.byteSize()) {
-                long keySize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
+            long valueSize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
 
-                long valueSize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
-
-                if (keySize != key.byteSize()) {
-                    offset += keySize + valueSize + Long.BYTES;
-                    continue;
-                }
-
-                MemorySegment keySegment = readSegment.asSlice(offset, keySize);
-                offset += keySize + Long.BYTES;
-
-                if (key.mismatch(keySegment) == -1) {
-                    MemorySegment valueSegment = readSegment.asSlice(offset, valueSize);
-                    return new BaseEntry<>(keySegment, valueSegment);
-                }
-
-                offset += valueSize;
+            if (keySize != key.byteSize()) {
+                offset += keySize + valueSize + Long.BYTES;
+                continue;
             }
 
-            return null;
+            MemorySegment keySegment = readSegment.asSlice(offset, keySize);
+            offset += keySize + Long.BYTES;
 
-        } catch (IOException e) {
-            return null;
+            if (key.mismatch(keySegment) == -1) {
+                MemorySegment valueSegment = readSegment.asSlice(offset, valueSize);
+                return new BaseEntry<>(keySegment, valueSegment);
+            }
+
+            offset += valueSize;
         }
+
+        return null;
     }
 }
