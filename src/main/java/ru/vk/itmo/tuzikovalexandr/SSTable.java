@@ -33,19 +33,10 @@ public class SSTable {
         this.filePath = config.basePath().resolve(FILE_PATH);
 
         readArena = Arena.ofConfined();
-        boolean created = false;
-
-        MemorySegment currentPage;
 
         try (FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
-            currentPage = fc.map(READ_ONLY, 0, Files.size(filePath), readArena);
-            created = true;
-        } finally {
-            if (!created) {
-                readArena.close();
-            }
+            readSegment = fc.map(READ_ONLY, 0, Files.size(filePath), readArena);
         }
-        readSegment = currentPage;
     }
 
     public void saveMemData(Collection<Entry<MemorySegment>> entries) throws IOException {
@@ -79,6 +70,10 @@ public class SSTable {
     }
 
     public Entry<MemorySegment> readData(MemorySegment key) {
+        if (readSegment == null) {
+            return null;
+        }
+
         long offset = 0L;
 
         while (offset < readSegment.byteSize()) {
