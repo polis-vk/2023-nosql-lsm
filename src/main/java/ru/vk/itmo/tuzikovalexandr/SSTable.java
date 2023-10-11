@@ -22,7 +22,8 @@ import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 public class SSTable {
 
     private static final Set<OpenOption> openOptions = Set.of(
-            StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE
+            StandardOpenOption.CREATE, StandardOpenOption.READ,
+            StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING
     );
     private final Path filePath;
     private final Arena readArena;
