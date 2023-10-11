@@ -16,7 +16,7 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
         inMemoryDao = new InMemoryDao();
     }
 
-    public DaoFacade(Config config) {
+    public DaoFacade(Config config) throws IOException {
         fileDao = new FileDao(config);
         inMemoryDao = new InMemoryDao();
     }
@@ -26,9 +26,6 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
         Entry<MemorySegment> ms = inMemoryDao.get(key);
         if (ms == null && fileDao != null) {
             ms = fileDao.read(key);
-            if (ms != null) {
-                inMemoryDao.upsert(ms);
-            }
         }
         return ms;
     }
@@ -47,6 +44,7 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void close() throws IOException {
         if (fileDao != null) {
             fileDao.write(inMemoryDao);
+            fileDao.close();
         }
     }
 }

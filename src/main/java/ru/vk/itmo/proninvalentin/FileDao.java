@@ -4,6 +4,7 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -14,7 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 
-public class FileDao {
+public class FileDao implements Closeable {
     // Файл со значениями
     private static final String VALUES_FILENAME = "values";
     // Файл с оффсетами для значений (нужно для бинарного поиска)
@@ -22,44 +23,51 @@ public class FileDao {
     private final Path valuesPath;
     private final Path offsetsPath;
     private final MemorySegmentComparator comparator;
+    private final MemorySegment readValuesMS;
+    private final MemorySegment readOffsetsMS;
+    private final Arena readArena;
     private long countOfMemorySegments;
 
-    public FileDao(Config config) {
+    public FileDao(Config config) throws IOException {
         valuesPath = config.basePath().resolve(VALUES_FILENAME);
         offsetsPath = config.basePath().resolve(OFFSETS_FILENAME);
         comparator = new MemorySegmentComparator();
+
+        if (Files.notExists(valuesPath) || Files.notExists(offsetsPath)) {
+            readValuesMS = null;
+            readOffsetsMS = null;
+            readArena = null;
+            return;
+        }
+
+        readArena = Arena.ofShared();
+        try (FileChannel valuesChannel = FileChannel.open(valuesPath, StandardOpenOption.READ);
+             FileChannel offsetsChannel = FileChannel.open(offsetsPath, StandardOpenOption.READ)) {
+            readValuesMS = valuesChannel.map(FileChannel.MapMode.READ_ONLY, 0,
+                    valuesChannel.size(), readArena);
+            readOffsetsMS = offsetsChannel.map(FileChannel.MapMode.READ_ONLY, 0,
+                    offsetsChannel.size(), readArena);
+        }
     }
 
     Entry<MemorySegment> read(MemorySegment msKey) {
-        if (Files.notExists(valuesPath) || Files.notExists(offsetsPath)) {
+        if (readValuesMS == null || readOffsetsMS == null) {
             return null;
         }
 
-        try (FileChannel valuesChannel = FileChannel.open(valuesPath, StandardOpenOption.READ);
-             FileChannel offsetsChannel = FileChannel.open(offsetsPath, StandardOpenOption.READ)) {
-            try (Arena arena = Arena.ofConfined()) {
-                MemorySegment valuesStorage = valuesChannel.map(FileChannel.MapMode.READ_ONLY, 0,
-                        valuesChannel.size(), arena);
-                MemorySegment offsetsStorage = offsetsChannel.map(FileChannel.MapMode.READ_ONLY, 0,
-                        offsetsChannel.size(), arena);
-
-                var keyValuePairOffset = binarySearch(valuesStorage, offsetsStorage, msKey);
-                if (keyValuePairOffset == -1) {
-                    return null;
-                }
-
-                long keySizeOffset = offsetsStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, keyValuePairOffset);
-                MemorySegment key = getBySizeOffset(valuesStorage, keySizeOffset);
-                long valueSizeOffset = keySizeOffset + Long.BYTES + key.byteSize();
-                MemorySegment value = getBySizeOffset(valuesStorage, valueSizeOffset);
-
-                return new BaseEntry<>(
-                        MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)),
-                        MemorySegment.ofArray(value.toArray(ValueLayout.JAVA_BYTE)));
-            }
-        } catch (IOException e) {
+        var keyValuePairOffset = binarySearch(readValuesMS, readOffsetsMS, msKey);
+        if (keyValuePairOffset == -1) {
             return null;
         }
+
+        long keySizeOffset = readOffsetsMS.get(ValueLayout.JAVA_LONG_UNALIGNED, keyValuePairOffset);
+        MemorySegment key = getBySizeOffset(readValuesMS, keySizeOffset);
+        long valueSizeOffset = keySizeOffset + Long.BYTES + key.byteSize();
+        MemorySegment value = getBySizeOffset(readValuesMS, valueSizeOffset);
+
+        return new BaseEntry<>(
+                MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)),
+                MemorySegment.ofArray(value.toArray(ValueLayout.JAVA_BYTE)));
     }
 
     private MemorySegment getBySizeOffset(MemorySegment valuesStorage, long sizeOffset) {
@@ -96,12 +104,14 @@ public class FileDao {
                 valuesPath,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.READ,
-                StandardOpenOption.WRITE);
+                StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING);
              FileChannel offsetsChannel = FileChannel.open(
                      offsetsPath,
                      StandardOpenOption.CREATE,
                      StandardOpenOption.READ,
-                     StandardOpenOption.WRITE)) {
+                     StandardOpenOption.WRITE,
+                     StandardOpenOption.TRUNCATE_EXISTING)) {
             try (Arena arena = Arena.ofConfined()) {
                 long valuesFileOffset = 0L;
                 long offsetsFileOffset = 0L;
@@ -167,5 +177,12 @@ public class FileDao {
     private long writeOffset(long offset, MemorySegment dst, long fileOffset) {
         dst.set(ValueLayout.JAVA_LONG_UNALIGNED, fileOffset, offset);
         return fileOffset + Long.BYTES;
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (readArena != null) {
+            readArena.close();
+        }
     }
 }
