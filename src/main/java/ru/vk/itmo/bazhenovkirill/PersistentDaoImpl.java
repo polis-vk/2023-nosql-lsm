@@ -5,6 +5,7 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -37,9 +38,34 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
 
     private final Arena arena;
 
-    public PersistentDaoImpl(Config config) {
+    private MemorySegment mappedMS;
+
+    public PersistentDaoImpl(Config config) throws IOException {
         dataPath = config.basePath().resolve(DATA_FILE);
-        arena = Arena.ofConfined();
+        arena = Arena.ofShared();
+
+
+        if (!Files.exists(dataPath)) {
+            mappedMS = MemorySegment.NULL;
+            if (!arena.scope().isAlive()) {
+                arena.close();
+            }
+            return;
+        }
+
+        boolean segmentMapped = false;
+        try (FileChannel channel = FileChannel.open(dataPath, StandardOpenOption.CREATE, StandardOpenOption.READ)) {
+            mappedMS = channel.map(MapMode.READ_ONLY,
+                    0, channel.size(), arena).asReadOnly();
+            segmentMapped = true;
+        } catch (FileNotFoundException e) {
+            mappedMS = MemorySegment.NULL;
+        } finally {
+            if (!segmentMapped) {
+                arena.close();
+            }
+        }
+
     }
 
     @Override
@@ -96,17 +122,30 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
     }
 
     private Entry<MemorySegment> getDataFromSSTable(MemorySegment key) {
-        if (!Files.exists(dataPath)) {
-            return null;
-        }
+        long offset = 0;
+        long valueSize = 0;
+        while (offset < mappedMS.byteSize()) {
+            long keySize = mappedMS.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            offset += Long.BYTES;
 
-        try (FileChannel channel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
-            MemorySegment dataMemorySegment = channel.map(MapMode.READ_ONLY,
-                    0, channel.size(), arena).asReadOnly();
-            return findElement(dataMemorySegment, key, channel.size());
-        } catch (IOException e) {
-            return null;
+            if (keySize == key.byteSize()) {
+                MemorySegment possibleKey = mappedMS.asSlice(offset, keySize);
+
+                valueSize = mappedMS.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
+                offset += (keySize + Long.BYTES);
+                if (key.mismatch(possibleKey) == -1) {
+                    MemorySegment value = mappedMS.asSlice(offset, valueSize);
+                    return new BaseEntry<>(possibleKey, value);
+                }
+            } else {
+                offset += keySize;
+                valueSize = mappedMS.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                offset += Long.BYTES;
+            }
+
+            offset += valueSize;
         }
+        return null;
     }
 
     private long getMemTableSizeInBytes() {
@@ -132,32 +171,5 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
         currentOffset += entryPart.byteSize();
 
         return currentOffset;
-    }
-
-    public Entry<MemorySegment> findElement(MemorySegment data, MemorySegment key, long fileSize) {
-        long offset = 0;
-        long valueSize = 0;
-        while (offset < fileSize) {
-            long keySize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
-
-            if (keySize == key.byteSize()) {
-                MemorySegment possibleKey = data.asSlice(offset, keySize);
-
-                valueSize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
-                offset += (keySize + Long.BYTES);
-                if (key.mismatch(possibleKey) == -1) {
-                    MemorySegment value = data.asSlice(offset, valueSize);
-                    return new BaseEntry<>(possibleKey, value);
-                }
-            } else {
-                offset += keySize;
-                valueSize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
-            }
-
-            offset += valueSize;
-        }
-        return null;
     }
 }
