@@ -3,7 +3,7 @@ package ru.vk.itmo.test.bandurinvladislav;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.bandurinvladislav.InMemoryDao;
+import ru.vk.itmo.bandurinvladislav.PersistentDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -16,7 +16,7 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new InMemoryDao(config);
+        return new PersistentDao(config);
     }
 
     @Override
