@@ -39,9 +39,22 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryStorage =
             new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
     private final Path persistentStorage;
+    private final MemorySegment fileSegment;
 
     public PersistentDao(Config config) {
         persistentStorage = config.basePath().resolve(STORAGE_NAME);
+        try (FileChannel fileChannel = FileChannel.open(persistentStorage,
+                StandardOpenOption.READ)) {
+            fileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_ONLY,
+                    0,
+                    fileChannel.size(),
+                    daoArena
+            );
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
     }
 
     @Override
@@ -59,42 +72,30 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
 
-        try (FileChannel fileChannel = FileChannel.open(persistentStorage,
-                StandardOpenOption.READ)) {
-            MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    0,
-                    fileChannel.size(),
-                    daoArena
-            );
+        long offset = 0;
+        long entryCount = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+        offset += Long.BYTES;
 
-            long offset = 0;
-            long entryCount = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
-
-            for (long i = 0; i < entryCount; i++) {
-                long keySize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                if (keySize != key.byteSize()) {
-                    offset += Long.BYTES + keySize;
-                    offset += Long.BYTES + fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                    continue;
-                }
-
-                offset += Long.BYTES;
-                MemorySegment entryKey = fileSegment.asSlice(offset, keySize);
-                offset += keySize;
-
-                long valueSize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
-                if (key.mismatch(entryKey) == -1) {
-                    MemorySegment entryValue = fileSegment.asSlice(offset, valueSize);
-                    return new BaseEntry<>(entryKey, entryValue);
-                } else {
-                    offset += valueSize;
-                }
+        for (long i = 0; i < entryCount; i++) {
+            long keySize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            if (keySize != key.byteSize()) {
+                offset += Long.BYTES + keySize;
+                offset += Long.BYTES + fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                continue;
             }
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+
+            offset += Long.BYTES;
+            MemorySegment entryKey = fileSegment.asSlice(offset, keySize);
+            offset += keySize;
+
+            long valueSize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            offset += Long.BYTES;
+            if (key.mismatch(entryKey) == -1) {
+                MemorySegment entryValue = fileSegment.asSlice(offset, valueSize);
+                return new BaseEntry<>(entryKey, entryValue);
+            } else {
+                offset += valueSize;
+            }
         }
         return null;
     }
