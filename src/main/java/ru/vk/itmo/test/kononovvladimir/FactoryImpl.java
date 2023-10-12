@@ -5,11 +5,12 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory
+@DaoFactory(stage = 2)
 public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public String toString(MemorySegment memorySegment) {
@@ -24,8 +25,8 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
     }
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new InMemoryDao();
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new InMemoryDao(config);
     }
 
     @Override
