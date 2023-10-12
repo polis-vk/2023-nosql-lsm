@@ -15,13 +15,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 
+// TODO: метод read должен уметь искать сразу по всем values файлам
 public class FileDao implements Closeable {
     // Файл со значениями
-    private static final String VALUES_FILENAME = "values";
-    // Файл с оффсетами для значений (нужно для бинарного поиска)
-    private static final String OFFSETS_FILENAME = "offsets";
-    private final Path valuesPath;
-    private final Path offsetsPath;
+    private static final String VALUES_FILENAME_PREFIX = "values";
+    // Файл с метаданными для значений (нужно для бинарного поиска), а также для хранения tombstone
+    private static final String OFFSETS_FILENAME_PREFIX = "metadata";
+    private final Path writeValuesFilePath;
+    private final Path writeOffsetsFilePath;
     private final MemorySegmentComparator comparator;
     private final MemorySegment readValuesMS;
     private final MemorySegment readOffsetsMS;
@@ -29,22 +30,27 @@ public class FileDao implements Closeable {
     private long countOfMemorySegments;
 
     public FileDao(Config config) throws IOException {
-        var valuesFileName = FileHelper.getNewFileName(config.basePath(), VALUES_FILENAME);
-        var offsetsFileName = FileHelper.getNewFileName(config.basePath(), OFFSETS_FILENAME);
-        valuesPath = config.basePath().resolve(valuesFileName);
-        offsetsPath = config.basePath().resolve(offsetsFileName);
-        comparator = new MemorySegmentComparator();
+        String writeValuesFileName = FileUtils.getNewFileName(config.basePath(), VALUES_FILENAME_PREFIX);
+        String writeOffsetsFileName = FileUtils.getNewFileName(config.basePath(), OFFSETS_FILENAME_PREFIX);
+        writeValuesFilePath = config.basePath().resolve(writeValuesFileName);
+        writeOffsetsFilePath = config.basePath().resolve(writeOffsetsFileName);
 
-        if (Files.notExists(valuesPath) || Files.notExists(offsetsPath)) {
+        if (Files.notExists(writeValuesFilePath) || Files.notExists(writeOffsetsFilePath)) {
+            comparator = null;
+            readArena = null;
             readValuesMS = null;
             readOffsetsMS = null;
-            readArena = null;
             return;
         }
 
+        comparator = new MemorySegmentComparator();
         readArena = Arena.ofShared();
-        try (FileChannel valuesChannel = FileChannel.open(valuesPath, StandardOpenOption.READ);
-             FileChannel offsetsChannel = FileChannel.open(offsetsPath, StandardOpenOption.READ)) {
+
+        // Iterator<MemorySegment> valuesIterators = FileIterator.createMany(config.basePath(), VALUES_FILENAME_PREFIX);
+        // Iterator<MemorySegment> offsetsIterators = FileIterator.createMany(config.basePath(), OFFSETS_FILENAME_PREFIX);
+
+        try (FileChannel valuesChannel = FileChannel.open(writeValuesFilePath, StandardOpenOption.READ);
+             FileChannel offsetsChannel = FileChannel.open(writeOffsetsFilePath, StandardOpenOption.READ)) {
             readValuesMS = valuesChannel.map(FileChannel.MapMode.READ_ONLY, 0,
                     valuesChannel.size(), readArena);
             readOffsetsMS = offsetsChannel.map(FileChannel.MapMode.READ_ONLY, 0,
@@ -57,67 +63,30 @@ public class FileDao implements Closeable {
             return null;
         }
 
-        var keyValuePairOffset = leftBinarySearch(readValuesMS, readOffsetsMS, msKey);
+        long keyValuePairOffset = Utils.binarySearch(readValuesMS, readOffsetsMS, msKey, comparator);
         if (keyValuePairOffset == -1) {
             return null;
         }
 
         long keySizeOffset = readOffsetsMS.get(ValueLayout.JAVA_LONG_UNALIGNED, keyValuePairOffset);
-        MemorySegment key = getBySizeOffset(readValuesMS, keySizeOffset);
+        MemorySegment key = Utils.getBySizeOffset(readValuesMS, keySizeOffset);
         long valueSizeOffset = keySizeOffset + Long.BYTES + key.byteSize();
-        MemorySegment value = getBySizeOffset(readValuesMS, valueSizeOffset);
+        MemorySegment value = Utils.getBySizeOffset(readValuesMS, valueSizeOffset);
 
         return new BaseEntry<>(
                 MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)),
                 MemorySegment.ofArray(value.toArray(ValueLayout.JAVA_BYTE)));
     }
 
-    private MemorySegment getBySizeOffset(MemorySegment valuesStorage, long sizeOffset) {
-        long valueSize = valuesStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, sizeOffset);
-        long valueOffset = sizeOffset + Long.BYTES;
-        return valuesStorage.asSlice(valueOffset, valueSize);
-    }
-
-    // Данный бинарный поиск нужен для нахождения первого ключа в файле, который больше либо равен нужному ключу
-    private long leftBinarySearch(MemorySegment valuesStorage, MemorySegment offsetsStorage, MemorySegment desiredKey) {
-        long offsetsCount = offsetsStorage.byteSize() / Long.BYTES;
-        long l = 0;
-        long r = offsetsCount - 1;
-
-        while (l < r) {
-            long m = l + (r - l) / 2;
-
-            long keySizeOffset = offsetsStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES);
-            MemorySegment key = getBySizeOffset(valuesStorage, keySizeOffset);
-
-            if (comparator.compare(key, desiredKey) == 0) {
-                return m * Long.BYTES;
-            } else if (comparator.compare(key, desiredKey) < 0) {
-                l = m + 1;
-            } else {
-                r = m;
-            }
-        }
-
-        // Если найденный ключ оказался меньше нужного, то мы говорим, что ничего не нашли
-        long keySizeOffset = offsetsStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, l * Long.BYTES);
-        MemorySegment key = getBySizeOffset(valuesStorage, keySizeOffset);
-        if (key != null && comparator.compare(key, desiredKey) < 0) {
-            return -1;
-        }
-
-        return l * Long.BYTES;
-    }
-
     void write(InMemoryDao inMemoryDao) throws IOException {
         try (FileChannel valuesChannel = FileChannel.open(
-                valuesPath,
+                writeValuesFilePath,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.TRUNCATE_EXISTING);
              FileChannel offsetsChannel = FileChannel.open(
-                     offsetsPath,
+                     writeOffsetsFilePath,
                      StandardOpenOption.CREATE,
                      StandardOpenOption.READ,
                      StandardOpenOption.WRITE,
@@ -128,11 +97,11 @@ public class FileDao implements Closeable {
                 MemorySegment valuesStorage = getValuesStorage(inMemoryDao.all(), valuesChannel, arena);
                 MemorySegment offsetsStorage = getOffsetsStorage(offsetsChannel, arena);
 
-                var it = inMemoryDao.all();
+                Iterator<Entry<MemorySegment>> it = inMemoryDao.all();
                 while (it.hasNext()) {
                     Entry<MemorySegment> keyValuePair = it.next();
-                    offsetsFileOffset = writeOffset(valuesFileOffset, offsetsStorage, offsetsFileOffset);
-                    valuesFileOffset = writeKeyValuePair(keyValuePair, valuesStorage, valuesFileOffset);
+                    offsetsFileOffset = Utils.writeOffset(valuesFileOffset, offsetsStorage, offsetsFileOffset);
+                    valuesFileOffset = Utils.writeKeyValuePair(keyValuePair, valuesStorage, valuesFileOffset);
                 }
             }
         }
@@ -159,34 +128,6 @@ public class FileDao implements Closeable {
                                             Arena arena) throws IOException {
         long inMemoryDataSize = (long) Long.BYTES * countOfMemorySegments;
         return offsetsChannel.map(FileChannel.MapMode.READ_WRITE, 0, inMemoryDataSize, arena);
-    }
-
-    // Пары "ключ:значение" хранятся внутри файла в следующем виде:
-    // |Длина ключа в байтах|Ключ|Длина значения в байтах|Значение|
-    private long writeKeyValuePair(Entry<MemorySegment> src, MemorySegment dst, final long fileOffset) {
-        var localFileOffset = fileOffset;
-        // Сначала пишем длину ключа и сам ключ
-        localFileOffset = writeMemorySegment(src.key(), dst, localFileOffset);
-        // Потом пишем длину значения и само значение
-        localFileOffset = writeMemorySegment(src.value(), dst, localFileOffset);
-        return localFileOffset;
-    }
-
-    // Записать пару: |Длина значения в байтах|Значение|
-    private long writeMemorySegment(MemorySegment value, MemorySegment dst, final long fileOffset) {
-        long valueSize = value.byteSize();
-        long localFileOffset = fileOffset;
-        dst.set(ValueLayout.JAVA_LONG_UNALIGNED, localFileOffset, valueSize);
-        localFileOffset += Long.BYTES;
-        MemorySegment.copy(value, 0, dst, localFileOffset, valueSize);
-        localFileOffset += valueSize;
-        return localFileOffset;
-    }
-
-    // Записать оффсет: |Сдвиг значения в байтах от начала файла|
-    private long writeOffset(long offset, MemorySegment dst, long fileOffset) {
-        dst.set(ValueLayout.JAVA_LONG_UNALIGNED, fileOffset, offset);
-        return fileOffset + Long.BYTES;
     }
 
     @Override
