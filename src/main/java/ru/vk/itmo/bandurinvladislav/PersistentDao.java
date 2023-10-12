@@ -137,20 +137,20 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 fileSegmentSize += e.getKey().byteSize() + e.getValue().value().byteSize() + 2 * Long.BYTES;
             }
 
-            MemorySegment fileSegment = fileChannel.map(
+            MemorySegment fileWriteSegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
                     fileSegmentSize,
                     arena
             );
 
-            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, writeOffset, inMemoryStorage.size());
+            fileWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, writeOffset, inMemoryStorage.size());
             writeOffset += 8;
 
             for (Map.Entry<MemorySegment, Entry<MemorySegment>> e : inMemoryStorage.entrySet()) {
-                writeMemorySegment(fileSegment, e.getKey(), writeOffset);
+                writeMemorySegment(fileWriteSegment, e.getKey(), writeOffset);
                 writeOffset += Long.BYTES + e.getKey().byteSize();
-                writeMemorySegment(fileSegment, e.getValue().value(), writeOffset);
+                writeMemorySegment(fileWriteSegment, e.getValue().value(), writeOffset);
                 writeOffset += Long.BYTES + e.getValue().value().byteSize();
             }
         }
