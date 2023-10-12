@@ -18,12 +18,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public DaoImpl() {
         segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-        ssTable = createSSTableOfNull(new Config(null));
+        ssTable = createSSTableOrNull(new Config(null));
     }
 
     public DaoImpl(Config config) {
         segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-        ssTable = createSSTableOfNull(config);
+        ssTable = createSSTableOrNull(config);
     }
 
     @Override
@@ -65,7 +65,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         Dao.super.close();
     }
 
-    private SSTable createSSTableOfNull(Config config) {
+    private SSTable createSSTableOrNull(Config config) {
         if (config.basePath() == null) {
             return null;
         }
