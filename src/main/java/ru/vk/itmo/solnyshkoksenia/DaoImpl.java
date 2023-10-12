@@ -20,24 +20,18 @@ import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final Comparator<MemorySegment> comparator = DaoImpl::compare;
+    private static final Comparator<MemorySegment> comparator = DaoImpl::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> persistentStorage =
-            new ConcurrentSkipListMap<>(comparator);
-    private Path pathToSSTable;
+    private Config config;
     private Arena arena;
-    private static final int SIZE_BYTE = Long.BYTES;
 
     public DaoImpl() {
         // Empty constructor
     }
 
-    public DaoImpl(Config config) throws IOException {
-        pathToSSTable = config.basePath().resolve("SSTable");
+    public DaoImpl(Config config) {
+        this.config = config;
         arena = Arena.ofShared();
-        if (Files.exists(pathToSSTable)) {
-            restoreStorage();
-        }
     }
 
     @Override
@@ -57,7 +51,32 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> entry = storage.get(key);
-        return entry == null ? persistentStorage.get(key) : entry;
+        if (entry != null) {
+            return entry;
+        }
+
+        MemorySegment mappedSSTable;
+        try {
+            mappedSSTable = mapFileToSegment(Files.size(getPathToSSTable()), FileChannel.MapMode.READ_ONLY, arena,
+                    StandardOpenOption.READ);
+        } catch (IOException e) {
+            return null;
+        }
+
+
+        long offset = 0;
+
+        while (offset < mappedSSTable.byteSize()) {
+            MemorySegment persistent_key = getSegment(mappedSSTable, offset);
+            offset += Long.BYTES + persistent_key.byteSize();
+            MemorySegment persistent_value = getSegment(mappedSSTable, offset);
+            offset += Long.BYTES + persistent_value.byteSize();
+
+            if (persistent_key.byteSize() == key.byteSize() && compare(key, persistent_key) == 0) {
+                return new BaseEntry<>(persistent_key, persistent_value);
+            }
+        }
+        return null;
     }
 
     @Override
@@ -67,56 +86,45 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        if (!Files.exists(pathToSSTable)) {
-            Files.createFile(pathToSSTable);
-        }
+        arena.close();
 
         long storageSize = 0;
         for (Entry<MemorySegment> entry : storage.values()) {
-            storageSize += SIZE_BYTE + entry.key().byteSize() + SIZE_BYTE + entry.value().byteSize();
+            storageSize += Long.BYTES + entry.key().byteSize() + Long.BYTES + entry.value().byteSize();
         }
 
-        MemorySegment mappedSSTable = mapFileToSegment(storageSize, FileChannel.MapMode.READ_WRITE,
-                StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
+        try (Arena writeArena = Arena.ofConfined()) {
+            MemorySegment mappedSSTable = mapFileToSegment(storageSize, FileChannel.MapMode.READ_WRITE, writeArena,
+                    StandardOpenOption.READ, StandardOpenOption.WRITE,
+                    StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE);
 
-        long offset = 0;
-        for (Entry<MemorySegment> entry : storage.values()) {
-            storeSegment(entry.key(), mappedSSTable, offset);
-            offset += SIZE_BYTE + entry.key().byteSize();
-            storeSegment(entry.value(), mappedSSTable, offset);
-            offset += SIZE_BYTE + entry.value().byteSize();
+            long offset = 0;
+            for (Entry<MemorySegment> entry : storage.values()) {
+                storeSegment(entry.key(), mappedSSTable, offset);
+                offset += Long.BYTES + entry.key().byteSize();
+                storeSegment(entry.value(), mappedSSTable, offset);
+                offset += Long.BYTES + entry.value().byteSize();
+            }
         }
+    }
+
+    private Path getPathToSSTable() {
+        return config.basePath().resolve("SSTable");
     }
 
     private MemorySegment getSegment(MemorySegment mappedSSTable, long offset) {
         long size = mappedSSTable.get(ValueLayout.OfLong.JAVA_LONG_UNALIGNED, offset);
-        return mappedSSTable.asSlice(offset + SIZE_BYTE, size);
+        return mappedSSTable.asSlice(offset + Long.BYTES, size);
     }
 
     private void storeSegment(MemorySegment segment, MemorySegment mappedSSTable, long offset) {
         mappedSSTable.set(ValueLayout.OfLong.JAVA_LONG_UNALIGNED, offset, segment.byteSize());
-        MemorySegment.copy(segment, 0, mappedSSTable, offset + SIZE_BYTE, segment.byteSize());
+        MemorySegment.copy(segment, 0, mappedSSTable, offset + Long.BYTES, segment.byteSize());
     }
 
-    private void restoreStorage() throws IOException {
-        MemorySegment mappedSSTable = mapFileToSegment(Files.size(pathToSSTable), FileChannel.MapMode.READ_ONLY,
-                StandardOpenOption.READ);
-
-        long offset = 0;
-        while (offset < mappedSSTable.byteSize()) {
-            MemorySegment key = getSegment(mappedSSTable, offset);
-            offset += SIZE_BYTE + key.byteSize();
-
-            MemorySegment value = getSegment(mappedSSTable, offset);
-            offset += SIZE_BYTE + value.byteSize();
-
-            persistentStorage.put(key, new BaseEntry<>(key, value));
-        }
-    }
-
-    private MemorySegment mapFileToSegment(long size, FileChannel.MapMode mapMode, OpenOption... options)
+    private MemorySegment mapFileToSegment(long size, FileChannel.MapMode mapMode, Arena arena, OpenOption... options)
             throws IOException {
-        try (FileChannel fileChannel = FileChannel.open(pathToSSTable, options)) {
+        try (FileChannel fileChannel = FileChannel.open(getPathToSSTable(), options)) {
             return fileChannel.map(mapMode, 0, size, arena);
         }
     }
