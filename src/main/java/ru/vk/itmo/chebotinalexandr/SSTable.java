@@ -22,12 +22,11 @@ public class SSTable {
     private final Path path;
     private static final long OFFSET_FOR_SIZE = 0;
     private MemorySegment readSegment;
-    private final Arena arena;
 
     public SSTable(Config config) {
         path = config.basePath().resolve(SSTABLE_NAME);
 
-        arena = Arena.ofConfined();
+        Arena arena = Arena.ofConfined();
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
             readSegment = channel.map(
                     FileChannel.MapMode.READ_ONLY,
