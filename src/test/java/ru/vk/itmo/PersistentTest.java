@@ -105,7 +105,7 @@ public class PersistentTest extends BaseTest {
         }
     }
 
-    @DaoTest(stage = 2)
+    @DaoTest(stage = 2, maxStage = 2)
     void differentKeyValues(Dao<String, Entry<String>> dao) throws IOException {
         String key1 = "long key";
         String key2 = "short key";
@@ -142,7 +142,6 @@ public class PersistentTest extends BaseTest {
             assertNull(dao3.get(key3));
         }
     }
-
 
     @DaoTest(stage = 2)
     @Timeout(value = 30)
