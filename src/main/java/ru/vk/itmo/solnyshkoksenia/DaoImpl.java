@@ -77,7 +77,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         MemorySegment mappedSSTable = mapFileToSegment(storageSize, FileChannel.MapMode.READ_WRITE,
-                StandardOpenOption.READ, StandardOpenOption.WRITE);
+                StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
 
         long offset = 0;
         for (Entry<MemorySegment> entry : storage.values()) {
