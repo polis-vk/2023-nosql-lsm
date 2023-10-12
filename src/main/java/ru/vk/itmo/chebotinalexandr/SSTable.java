@@ -4,6 +4,7 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
@@ -11,27 +12,40 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.SortedMap;
 
 public class SSTable {
-    public static final String SSTABLE_NAME = "sstable";
+    private static final String SSTABLE_NAME = "sstable";
     private final Path path;
     private static final long OFFSET_FOR_SIZE = 0;
+    private MemorySegment readSegment;
+    private final Arena arena;
 
     public SSTable(Config config) {
         path = config.basePath().resolve(SSTABLE_NAME);
 
+        arena = Arena.ofConfined();
+        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+            readSegment = channel.map(
+                    FileChannel.MapMode.READ_ONLY,
+                    0,
+                    channel.size(),
+                    arena);
+        } catch (FileNotFoundException | NoSuchFileException e) {
+            arena.close();
+            readSegment = null;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-
         if (Files.notExists(path)) {
             return null;
         }
-
-        MemorySegment readSegment = readMappedSegment();
 
         long low = -1;
         long high = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE);
@@ -72,22 +86,26 @@ public class SSTable {
         size += 2L * Long.BYTES * dataToFlush.size();
         size += Long.BYTES + Long.BYTES * dataToFlush.size();
 
-        MemorySegment writeSegment = writeMappedSegment(size);
+        MemorySegment memorySegment;
+        try (Arena arena = Arena.ofConfined()) {
+            memorySegment = writeMappedSegment(size, arena);
 
-        long offset = 0;
-        writeSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE, dataToFlush.size());
-        offset += Long.BYTES + Long.BYTES * dataToFlush.size();
+            long offset = 0;
+            memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE, dataToFlush.size());
+            offset += Long.BYTES + Long.BYTES * dataToFlush.size();
 
-        long i = 0;
-        for (Entry<MemorySegment> entry : dataToFlush.values()) {
-            writeSegment.set(
-                    ValueLayout.JAVA_LONG_UNALIGNED,
-                    Long.BYTES + i * Byte.SIZE, offset
-            );
-            offset = writeSegment(entry.key(), writeSegment, offset);
-            offset = writeSegment(entry.value(), writeSegment, offset);
-            i++;
+            long i = 0;
+            for (Entry<MemorySegment> entry : dataToFlush.values()) {
+                memorySegment.set(
+                        ValueLayout.JAVA_LONG_UNALIGNED,
+                        Long.BYTES + i * Byte.SIZE, offset
+                );
+                offset = writeSegment(entry.key(), memorySegment, offset);
+                offset = writeSegment(entry.value(), memorySegment, offset);
+                i++;
+            }
         }
+
     }
 
     private long writeSegment(MemorySegment src, MemorySegment dst, long offset) {
@@ -102,21 +120,7 @@ public class SSTable {
         return newOffset;
     }
 
-    private MemorySegment readMappedSegment() {
-
-        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
-            return channel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    0,
-                    channel.size(),
-                    Arena.ofConfined());
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
-    private MemorySegment writeMappedSegment(long size) throws IOException {
-
+    private MemorySegment writeMappedSegment(long size, Arena arena) throws IOException {
         try (FileChannel channel = FileChannel.open(path,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
@@ -127,7 +131,7 @@ public class SSTable {
                     FileChannel.MapMode.READ_WRITE,
                     0,
                     size,
-                    Arena.ofConfined());
+                    arena);
         }
     }
 

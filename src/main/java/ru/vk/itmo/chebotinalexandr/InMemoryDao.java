@@ -92,11 +92,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-
         if (entries.isEmpty()) {
             return;
         }
-
         sortedStringTable.write(entries);
     }
 }
