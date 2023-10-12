@@ -63,12 +63,12 @@ public class FileDao implements Closeable {
             return null;
         }
 
-        long keyValuePairOffset = Utils.binarySearch(readValuesMS, readOffsetsMS, msKey, comparator);
-        if (keyValuePairOffset == -1) {
+        long entryOffset = Utils.binarySearch(readValuesMS, readOffsetsMS, msKey, comparator);
+        if (entryOffset == -1) {
             return null;
         }
 
-        long keySizeOffset = readOffsetsMS.get(ValueLayout.JAVA_LONG_UNALIGNED, keyValuePairOffset);
+        long keySizeOffset = readOffsetsMS.get(ValueLayout.JAVA_LONG_UNALIGNED, entryOffset);
         MemorySegment key = Utils.getBySizeOffset(readValuesMS, keySizeOffset);
         long valueSizeOffset = keySizeOffset + Long.BYTES + key.byteSize();
         MemorySegment value = Utils.getBySizeOffset(readValuesMS, valueSizeOffset);
@@ -76,6 +76,37 @@ public class FileDao implements Closeable {
         return new BaseEntry<>(
                 MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)),
                 MemorySegment.ofArray(value.toArray(ValueLayout.JAVA_BYTE)));
+    }
+
+    // TODO: убрать public
+    public Iterator<Entry<MemorySegment>> read(MemorySegment from, MemorySegment to) throws IOException {
+        if (readValuesMS == null || readOffsetsMS == null) {
+            return null;
+        }
+
+        long entryOffset = Utils.leftBinarySearch(readValuesMS, readOffsetsMS, from, comparator);
+        if (entryOffset == -1) {
+            return null;
+        }
+
+        Iterator<Entry<MemorySegment>> offsetIterator = FileIterator.createIteratorForFile(
+                writeValuesFilePath,
+                writeOffsetsFilePath,
+                readArena,
+                entryOffset,
+                Long.BYTES);
+
+        return new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                return offsetIterator.hasNext();
+            }
+
+            @Override
+            public Entry<MemorySegment> next() {
+                return offsetIterator.next();
+            }
+        };
     }
 
     void write(InMemoryDao inMemoryDao) throws IOException {
@@ -99,9 +130,9 @@ public class FileDao implements Closeable {
 
                 Iterator<Entry<MemorySegment>> it = inMemoryDao.all();
                 while (it.hasNext()) {
-                    Entry<MemorySegment> keyValuePair = it.next();
-                    offsetsFileOffset = Utils.writeOffset(valuesFileOffset, offsetsStorage, offsetsFileOffset);
-                    valuesFileOffset = Utils.writeKeyValuePair(keyValuePair, valuesStorage, valuesFileOffset);
+                    Entry<MemorySegment> entry = it.next();
+                    offsetsFileOffset = Utils.writeEntryOffset(valuesFileOffset, offsetsStorage, offsetsFileOffset);
+                    valuesFileOffset = Utils.writeEntry(entry, valuesStorage, valuesFileOffset);
                 }
             }
         }

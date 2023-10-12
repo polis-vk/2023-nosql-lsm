@@ -7,9 +7,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public class FileHelper {
-    public static String getNewFileName(Path path, String filePrefix) {
-        var filesWithPrefix = getAllFilesWithPrefix(path, filePrefix);
+public class FileUtils {
+    public static String getNewFileName(Path filePath, String filePrefix) {
+        var filesWithPrefix = getAllFilesWithPrefix(filePath, filePrefix);
 
         // Если файлов в директории с таким префиксом нету, значит новый файл будет с индексом 1;
         var fileIndex = 1;
@@ -17,12 +17,13 @@ public class FileHelper {
             return filePrefix + fileIndex;
         }
 
-        var fileWithMaxIndex = Collections.max(filesWithPrefix);
-        fileIndex = parseIndexFromFileName(fileWithMaxIndex, filePrefix) + 1;
+        var fileNames = filesWithPrefix.stream().map(File::getName).toList();
+        var fileWithMaxIndex = Collections.max(fileNames);
+        fileIndex = parseIndexFromFileName(fileWithMaxIndex, filePrefix)/* + 1*/;
         return filePrefix + fileIndex;
     }
 
-    private static List<String> getAllFilesWithPrefix(Path path, String filePrefix) {
+    public static List<File> getAllFilesWithPrefix(Path path, String filePrefix) {
         if (Files.notExists(path)) {
             return new ArrayList<>();
         }
@@ -33,14 +34,14 @@ public class FileHelper {
             return new ArrayList<>();
         }
 
-        List<String> fileNames = new ArrayList<>();
+        List<File> filesWithPrefix = new ArrayList<>();
         for (File file : listOfFiles) {
             if (file.isFile() && file.getName().startsWith(filePrefix)) {
-                fileNames.add(file.getName());
+                filesWithPrefix.add(file);
             }
         }
 
-        return fileNames;
+        return filesWithPrefix;
     }
 
     private static int parseIndexFromFileName(String fileName, String prefix) {
