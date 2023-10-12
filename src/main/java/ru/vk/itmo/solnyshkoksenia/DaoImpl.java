@@ -63,17 +63,15 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
 
-
         long offset = 0;
-
         while (offset < mappedSSTable.byteSize()) {
-            MemorySegment persistent_key = getSegment(mappedSSTable, offset);
-            offset += Long.BYTES + persistent_key.byteSize();
-            MemorySegment persistent_value = getSegment(mappedSSTable, offset);
-            offset += Long.BYTES + persistent_value.byteSize();
+            MemorySegment persistentKey = getSegment(mappedSSTable, offset);
+            offset += Long.BYTES + persistentKey.byteSize();
+            MemorySegment persistentValue = getSegment(mappedSSTable, offset);
+            offset += Long.BYTES + persistentValue.byteSize();
 
-            if (persistent_key.byteSize() == key.byteSize() && compare(key, persistent_key) == 0) {
-                return new BaseEntry<>(persistent_key, persistent_value);
+            if (persistentKey.byteSize() == key.byteSize() && compare(key, persistentKey) == 0) {
+                return new BaseEntry<>(persistentKey, persistentValue);
             }
         }
         return null;
