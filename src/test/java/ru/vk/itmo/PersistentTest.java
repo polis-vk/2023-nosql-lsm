@@ -43,6 +43,7 @@ public class PersistentTest extends BaseTest {
         for (final Entry<String> entry : entries) {
             assertSame(dao.get(entry.key()), entry);
         }
+        dao.close();
     }
 
     @DaoTest(stage = 2)

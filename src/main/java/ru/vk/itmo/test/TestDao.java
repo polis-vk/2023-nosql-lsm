@@ -28,8 +28,9 @@ class TestDao<Data, E extends Entry<Data>> implements Dao<String, Entry<String>>
         name = "TestDao<" + lastPackagePart + "." + delegateClass.getSimpleName() + ">";
     }
 
-    public Dao<String, Entry<String>> reopen() throws IOException {
-        return new TestDao<>(factory, config);
+    public TestDao<Data, E> reopen() throws IOException {
+        delegate = factory.createDao(config);
+        return this;
     }
 
     @Override
