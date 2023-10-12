@@ -29,8 +29,10 @@ public class FileDao implements Closeable {
     private long countOfMemorySegments;
 
     public FileDao(Config config) throws IOException {
-        valuesPath = config.basePath().resolve(VALUES_FILENAME);
-        offsetsPath = config.basePath().resolve(OFFSETS_FILENAME);
+        var valuesFileName = FileHelper.getNewFileName(config.basePath(), VALUES_FILENAME);
+        var offsetsFileName = FileHelper.getNewFileName(config.basePath(), OFFSETS_FILENAME);
+        valuesPath = config.basePath().resolve(valuesFileName);
+        offsetsPath = config.basePath().resolve(offsetsFileName);
         comparator = new MemorySegmentComparator();
 
         if (Files.notExists(valuesPath) || Files.notExists(offsetsPath)) {
@@ -55,7 +57,7 @@ public class FileDao implements Closeable {
             return null;
         }
 
-        var keyValuePairOffset = binarySearch(readValuesMS, readOffsetsMS, msKey);
+        var keyValuePairOffset = leftBinarySearch(readValuesMS, readOffsetsMS, msKey);
         if (keyValuePairOffset == -1) {
             return null;
         }
@@ -76,12 +78,13 @@ public class FileDao implements Closeable {
         return valuesStorage.asSlice(valueOffset, valueSize);
     }
 
-    private long binarySearch(MemorySegment valuesStorage, MemorySegment offsetsStorage, MemorySegment desiredKey) {
+    // Данный бинарный поиск нужен для нахождения первого ключа в файле, который больше либо равен нужному ключу
+    private long leftBinarySearch(MemorySegment valuesStorage, MemorySegment offsetsStorage, MemorySegment desiredKey) {
         long offsetsCount = offsetsStorage.byteSize() / Long.BYTES;
         long l = 0;
         long r = offsetsCount - 1;
 
-        while (l <= r) {
+        while (l < r) {
             long m = l + (r - l) / 2;
 
             long keySizeOffset = offsetsStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES);
@@ -92,11 +95,18 @@ public class FileDao implements Closeable {
             } else if (comparator.compare(key, desiredKey) < 0) {
                 l = m + 1;
             } else {
-                r = m - 1;
+                r = m;
             }
         }
 
-        return -1;
+        // Если найденный ключ оказался меньше нужного, то мы говорим, что ничего не нашли
+        long keySizeOffset = offsetsStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, l * Long.BYTES);
+        MemorySegment key = getBySizeOffset(valuesStorage, keySizeOffset);
+        if (key != null && comparator.compare(key, desiredKey) < 0) {
+            return -1;
+        }
+
+        return l * Long.BYTES;
     }
 
     void write(InMemoryDao inMemoryDao) throws IOException {
@@ -185,4 +195,75 @@ public class FileDao implements Closeable {
             readArena.close();
         }
     }
+
+    /*
+     Пример: у нас есть три файла со следующим содержимым
+     |k1 k2| |k0 k2 k4| |k1 k3|
+     И данные в буфере
+     |k2 k5|
+
+     Создаем 4 итератора, по одному на каждый файл и один на буфер
+     Теперь двигаем каждый итератор к максимальному элементу больше from или ровно на from в файле
+     Шаг алгоритма:
+     1)
+     Номер итератора в файле: ключ
+     1: k1
+     2: k2
+     3: k1
+     4: k2
+
+     Сортируем значения итераторов между собой по значению, а потом по номеру итератора
+     Сортированные значения:
+     (3)k1 (1)k1 (4)k2 (2)k2
+     Возвращаем первый минимальный ключ у максимального итератора
+     Результирующий итератор: (3)k1
+     2)
+     Двигаем итераторы c найденным значением вправо
+     1: k1 -> k2
+     2: k2
+     3: k1 -> k3
+     4: k2
+     Опять сортируем по значению и находим итератор более свежего файла
+     (4)k2 (2)k2 (1)k2 (3)k3
+     Понимаем, что нам нужен (4)k2
+     Результирующий итератор: (3)k1 (4)k2
+     3)
+     Двигаем итераторы c найденным значением вправо
+     1: k2 -> end
+     2: k2 -> k4
+     3: k3
+     4: k2 -> k5
+     Опять сортируем по значению и находим итератор более свежего файла
+     (3)k3 (2)k4 (4)k5
+     Понимаем, что нам нужен (3)k3
+     Результирующий итератор: (3)k1 (4)k2 (3)k3
+     4)
+     Двигаем итераторы c найденным значением вправо
+     1: end
+     2: k4
+     3: k3 -> end
+     4: k5
+     Опять сортируем по значению и находим итератор более свежего файла
+     (2)k4 (4)k5
+     Понимаем, что нам нужен (2)k4
+     Результирующий итератор: (3)k1 (4)k2 (3)k3 (2)k4
+     5)
+     Двигаем итераторы c найденным значением вправо
+     1: end
+     2: k4 -> end
+     3: end
+     4: k5
+     Опять сортируем по значению и находим итератор более свежего файла
+     (4)k5
+     Понимаем, что нам нужен (4)k5
+     Результирующий итератор: (3)k1 (4)k2 (3)k3 (2)k4 (4)k5
+     6)
+     Двигаем итераторы c найденным значением вправо
+     1: end
+     2: end
+     3: end
+     4: k5 -> end
+     Понимаем, что все итераторы дошли до конца, ничего не возвращаем
+     Результирующий итератор: (3)k1 (4)k2 (3)k3 (2)k4 (4)k5
+    */
 }
