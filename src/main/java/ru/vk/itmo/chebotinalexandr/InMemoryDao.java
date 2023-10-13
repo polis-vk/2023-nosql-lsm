@@ -42,36 +42,20 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-
         if (from == null && to == null) {
-            return all();
+            return entries.values().iterator();
         } else if (from == null) {
-            return allTo(to);
+            return entries.headMap(to).values().iterator();
         } else if (to == null) {
-            return allFrom(from);
+            return entries.tailMap(from).values().iterator();
         } else {
             return entries.subMap(from, to).values().iterator();
         }
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> allFrom(MemorySegment from) {
-        return entries.tailMap(from).values().iterator();
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> allTo(MemorySegment to) {
-        return entries.headMap(to).values().iterator();
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> all() {
-        return entries.values().iterator();
-    }
-
-    @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry result = entries.get(key);
+        Entry<MemorySegment> result = entries.get(key);
 
         if (result == null) {
             result = sortedStringTable.get(key);
