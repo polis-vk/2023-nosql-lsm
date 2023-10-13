@@ -58,7 +58,7 @@ public class Storage {
                     }
                 });
         } catch (NoSuchFileException e) {
-            System.out.println("Can't find the file");
+            System.err.println("Can't find the file");
         } catch (IOException e) {
             throw new ApplicationException("Can't access the file", e);
         }
