@@ -1,5 +1,6 @@
 package ru.vk.itmo.test.tyapuevdmitrij;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.DaoFactory;
@@ -9,12 +10,17 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory
+@DaoFactory(stage = 2)
 public class DaoFactoryImplementation implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
         return new InMemoryDao();
+    }
+
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
+        return new InMemoryDao(config);
     }
 
     @Override
