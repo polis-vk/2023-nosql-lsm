@@ -26,6 +26,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final Logger logger = Logger.getLogger(PersistentDao.class.getName());
     private final Path path;
     private final Arena arena;
+    private final MemorySegment mappedData;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data;
     private final Comparator<MemorySegment> comparator;
     private long offset;
@@ -48,7 +49,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     o2.get(ValueLayout.JAVA_BYTE, mismatch));
         };
         data = new ConcurrentSkipListMap<>(comparator);
-        loadData();
+        mappedData = loadData();
     }
 
     @Override
@@ -106,24 +107,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         data.clear();
     }
 
-    private void loadData() {
-        try (FileChannel channel = FileChannel.open(
-                path,
-                StandardOpenOption.READ)) {
-            if (Files.notExists(path)) {
-                return;
-            }
-            offset = 0;
-            MemorySegment mappedSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
-            while (offset < channel.size()) {
-                upsert(new BaseEntry<>(readSegment(mappedSegment), readSegment(mappedSegment)));
-            }
-        } catch (IOException e) {
-            logger.log(Level.ALL, e.getMessage());
-        }
-    }
-
-    private Entry<MemorySegment> findValueInSSTable(final MemorySegment key) {
+    private MemorySegment loadData() {
         try (FileChannel channel = FileChannel.open(
                 path,
                 StandardOpenOption.READ)) {
@@ -131,16 +115,22 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 return null;
             }
             offset = 0;
-            MemorySegment mappedSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
-            while (offset < channel.size()) {
-                MemorySegment mkey = readSegment(mappedSegment);
-                MemorySegment mvalue = readSegment(mappedSegment);
+            return channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
+        } catch (IOException e) {
+            logger.log(Level.ALL, e.getMessage());
+        }
+        return null;
+    }
+
+    private Entry<MemorySegment> findValueInSSTable(final MemorySegment key) {
+        if (mappedData != null) {
+            while (offset < mappedData.byteSize()) {
+                MemorySegment mkey = readSegment(mappedData);
+                MemorySegment mvalue = readSegment(mappedData);
                 if (comparator.compare(mkey, key) == 0) {
                     return new BaseEntry<>(mkey, mvalue);
                 }
             }
-        } catch (IOException e) {
-            logger.log(Level.ALL, e.getMessage());
         }
         return null;
     }
