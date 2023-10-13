@@ -23,11 +23,22 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<>(InMemoryDao::compareMemorySegments);
     private final Path storagePath;
     private final Arena arena = Arena.ofConfined();
-    private long readOffset;
-    private long writeOffset;
+    private final MemorySegment mappedStorageFile;
+    private final FileChannel fileChannel;
 
     public InMemoryDao(Config config) {
         storagePath = config.basePath().resolve("storage");
+        if (Files.exists(storagePath)) {
+            try {
+                fileChannel = FileChannel.open(storagePath, StandardOpenOption.READ);
+                mappedStorageFile = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storagePath), arena);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        } else {
+            fileChannel = null;
+            mappedStorageFile = null;
+        }
     }
 
     @Override
@@ -60,30 +71,24 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private Entry<MemorySegment> seekForValueInFile(MemorySegment key) {
-        if (!Files.exists(storagePath)) {
+        if (mappedStorageFile == null || !Files.exists(storagePath)) {
             return null;
         }
-        readOffset = 0;
-        try (FileChannel fc = FileChannel.open(storagePath, StandardOpenOption.READ)) {
-            MemorySegment mapped = fc.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storagePath), arena);
+        long readOffset = 0;
+        try {
             while (readOffset < Files.size(storagePath)) {
-                MemorySegment keySegment = getMemorySegment(mapped);
+                long size = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
+                readOffset += Long.BYTES;
+                readOffset += size;
+                MemorySegment keySegment = mappedStorageFile.asSlice(readOffset, size);
                 if (compareMemorySegments(key, keySegment) == 0) {
-                    return new BaseEntry<>(key, getMemorySegment(mapped));
+                    return new BaseEntry<>(key, mappedStorageFile.asSlice(readOffset, size));
                 }
             }
             return null;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
-    }
-
-    private MemorySegment getMemorySegment(MemorySegment mappedMemory) throws IOException {
-        long size = mappedMemory.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
-        readOffset += Long.BYTES;
-        MemorySegment memorySegment = mappedMemory.asSlice(readOffset, size);
-        readOffset += size;
-        return memorySegment;
     }
 
     @Override
@@ -96,11 +101,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (arena.scope().isAlive()) {
             arena.close();
         }
+        if (fileChannel != null && fileChannel.isOpen()) {
+            fileChannel.close();
+        }
         writeMapIntoFile();
     }
 
     private void writeMapIntoFile() throws IOException {
-        writeOffset = 0;
+        long writeOffset = 0;
         try (var channel = FileChannel.open(storagePath,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
@@ -109,8 +117,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
              var writeArena = Arena.ofConfined()) {
             MemorySegment mapped = channel.map(FileChannel.MapMode.READ_WRITE, 0, calcMapByteSizeInFile(), writeArena);
             for (var entry : map.values()) {
-                writeMemorySegment(entry.key(), mapped);
-                writeMemorySegment(entry.value(), mapped);
+                writeOffset += 2 * Long.BYTES;
+                writeOffset += entry.key().byteSize();
+                writeOffset += entry.value().byteSize();
+                writeMemorySegment(entry.key(), mapped, writeOffset);
+                writeMemorySegment(entry.value(), mapped, writeOffset);
             }
             mapped.load();
         }
@@ -128,12 +139,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     // Every memorySegment in file has the following structure:
     // 8 bytes - size, <size> bytes - value
-    private void writeMemorySegment(MemorySegment memorySegment, MemorySegment mapped) {
+    private void writeMemorySegment(MemorySegment memorySegment, MemorySegment mapped, long writeOffset) {
         long msSize = memorySegment.byteSize();
         mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, writeOffset, msSize);
-        writeOffset += Long.BYTES;
         MemorySegment.copy(memorySegment, 0, mapped, writeOffset, msSize);
-        writeOffset += msSize;
     }
 
     private static int compareMemorySegments(MemorySegment segment1, MemorySegment segment2) {
