@@ -1,33 +1,39 @@
 package ru.vk.itmo.proninvalentin;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
 import java.io.Closeable;
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
 
 // TODO: метод read должен уметь искать сразу по всем values файлам
+// TODO: убрать public у read(from, to)
 public class FileDao implements Closeable {
     // Файл со значениями
     private static final String VALUES_FILENAME_PREFIX = "values";
     // Файл с метаданными для значений (нужно для бинарного поиска), а также для хранения tombstone
-    private static final String OFFSETS_FILENAME_PREFIX = "metadata";
+    private static final String OFFSETS_FILENAME_PREFIX = "offsets";
     private final Path writeValuesFilePath;
     private final Path writeOffsetsFilePath;
     private final MemorySegmentComparator comparator;
-    private final MemorySegment readValuesMS;
-    private final MemorySegment readOffsetsMS;
+    private final List<MemorySegment> readValuesMSList;
+    private final List<MemorySegment> readOffsetsMSList;
     private final Arena readArena;
     private long countOfMemorySegments;
+    private final List<File> offsetFiles;
 
     public FileDao(Config config) throws IOException {
         String writeValuesFileName = FileUtils.getNewFileName(config.basePath(), VALUES_FILENAME_PREFIX);
@@ -38,28 +44,56 @@ public class FileDao implements Closeable {
         if (Files.notExists(writeValuesFilePath) || Files.notExists(writeOffsetsFilePath)) {
             comparator = null;
             readArena = null;
-            readValuesMS = null;
-            readOffsetsMS = null;
+            readValuesMSList = Collections.emptyList();
+            readOffsetsMSList = Collections.emptyList();
+            offsetFiles = Collections.emptyList();
             return;
         }
 
         comparator = new MemorySegmentComparator();
         readArena = Arena.ofShared();
+        readValuesMSList = new ArrayList<>();
+        readOffsetsMSList = new ArrayList<>();
+        offsetFiles = new ArrayList<>();
+        initReadMSLists(config);
+    }
 
-        // Iterator<MemorySegment> valuesIterators = FileIterator.createMany(config.basePath(), VALUES_FILENAME_PREFIX);
-        // Iterator<MemorySegment> offsetsIterators = FileIterator.createMany(config.basePath(), OFFSETS_FILENAME_PREFIX);
+    private void initReadMSLists(Config config) throws IOException {
+        File folder = new File(config.basePath().toUri());
+        File[] listOfFiles = folder.listFiles();
+        if (listOfFiles == null) {
+            return;
+        }
 
-        try (FileChannel valuesChannel = FileChannel.open(writeValuesFilePath, StandardOpenOption.READ);
-             FileChannel offsetsChannel = FileChannel.open(writeOffsetsFilePath, StandardOpenOption.READ)) {
-            readValuesMS = valuesChannel.map(FileChannel.MapMode.READ_ONLY, 0,
-                    valuesChannel.size(), readArena);
-            readOffsetsMS = offsetsChannel.map(FileChannel.MapMode.READ_ONLY, 0,
-                    offsetsChannel.size(), readArena);
+        for (File file : Arrays.stream(listOfFiles)
+                .filter(File::isFile)
+                .sorted(Comparator.comparing(File::getName))
+                .toList()) {
+            if (file.getName().startsWith(VALUES_FILENAME_PREFIX)) {
+                readValuesMSList.add(getMappedMemory(file));
+            } else {
+                offsetFiles.add(file);
+                readOffsetsMSList.add(getMappedMemory(file));
+            }
+        }
+
+        if (readValuesMSList.size() != readOffsetsMSList.size()) {
+            throw new IllegalArgumentException(
+                    "Directory in config must contain same number of files with name: \"%s\" and \"%s\""
+                            .formatted(VALUES_FILENAME_PREFIX, OFFSETS_FILENAME_PREFIX));
+        }
+    }
+
+    private MemorySegment getMappedMemory(File file) throws IOException {
+        try (FileChannel offsetsChannel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
+            return offsetsChannel.map(FileChannel.MapMode.READ_ONLY, 0, offsetsChannel.size(), readArena);
         }
     }
 
     Entry<MemorySegment> read(MemorySegment msKey) {
-        if (readValuesMS == null || readOffsetsMS == null) {
+        // TODO: нужно поискать бинарным поиском по всем файлам, начиная с памяти, далее по файлам на диске (с самого старого)
+        return null;
+        /*if (readValuesMS == null || readOffsetsMS == null) {
             return null;
         }
 
@@ -75,38 +109,24 @@ public class FileDao implements Closeable {
 
         return new BaseEntry<>(
                 MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)),
-                MemorySegment.ofArray(value.toArray(ValueLayout.JAVA_BYTE)));
+                MemorySegment.ofArray(value.toArray(ValueLayout.JAVA_BYTE)));*/
     }
 
-    // TODO: убрать public
-    public Iterator<Entry<MemorySegment>> read(MemorySegment from, MemorySegment to) throws IOException {
-        if (readValuesMS == null || readOffsetsMS == null) {
-            return null;
+    public List<Iterator<Entry<MemorySegment>>> getFilesIterators(MemorySegment from,
+                                                                  MemorySegment to) throws IOException {
+        List<Iterator<Entry<MemorySegment>>> filesIterators = new ArrayList<>();
+
+        for (int i = 0; i < readValuesMSList.size(); i++) {
+            filesIterators.add(FileIterator.create(
+                    readValuesMSList.get(i),
+                    readOffsetsMSList.get(i),
+                    from,
+                    to,
+                    comparator,
+                    offsetFiles.get(i).length()));
         }
 
-        long entryOffset = Utils.leftBinarySearch(readValuesMS, readOffsetsMS, from, comparator);
-        if (entryOffset == -1) {
-            return null;
-        }
-
-        Iterator<Entry<MemorySegment>> offsetIterator = FileIterator.createIteratorForFile(
-                writeValuesFilePath,
-                writeOffsetsFilePath,
-                readArena,
-                entryOffset,
-                Long.BYTES);
-
-        return new Iterator<>() {
-            @Override
-            public boolean hasNext() {
-                return offsetIterator.hasNext();
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                return offsetIterator.next();
-            }
-        };
+        return filesIterators;
     }
 
     void write(InMemoryDao inMemoryDao) throws IOException {
@@ -167,75 +187,4 @@ public class FileDao implements Closeable {
             readArena.close();
         }
     }
-
-    /*
-     Пример: у нас есть три файла со следующим содержимым
-     |k1 k2| |k0 k2 k4| |k1 k3|
-     И данные в буфере
-     |k2 k5|
-
-     Создаем 4 итератора, по одному на каждый файл и один на буфер
-     Теперь двигаем каждый итератор к максимальному элементу больше from или ровно на from в файле
-     Шаг алгоритма:
-     1)
-     Номер итератора в файле: ключ
-     1: k1
-     2: k2
-     3: k1
-     4: k2
-
-     Сортируем значения итераторов между собой по значению, а потом по номеру итератора
-     Сортированные значения:
-     (3)k1 (1)k1 (4)k2 (2)k2
-     Возвращаем первый минимальный ключ у максимального итератора
-     Результирующий итератор: (3)k1
-     2)
-     Двигаем итераторы c найденным значением вправо
-     1: k1 -> k2
-     2: k2
-     3: k1 -> k3
-     4: k2
-     Опять сортируем по значению и находим итератор более свежего файла
-     (4)k2 (2)k2 (1)k2 (3)k3
-     Понимаем, что нам нужен (4)k2
-     Результирующий итератор: (3)k1 (4)k2
-     3)
-     Двигаем итераторы c найденным значением вправо
-     1: k2 -> end
-     2: k2 -> k4
-     3: k3
-     4: k2 -> k5
-     Опять сортируем по значению и находим итератор более свежего файла
-     (3)k3 (2)k4 (4)k5
-     Понимаем, что нам нужен (3)k3
-     Результирующий итератор: (3)k1 (4)k2 (3)k3
-     4)
-     Двигаем итераторы c найденным значением вправо
-     1: end
-     2: k4
-     3: k3 -> end
-     4: k5
-     Опять сортируем по значению и находим итератор более свежего файла
-     (2)k4 (4)k5
-     Понимаем, что нам нужен (2)k4
-     Результирующий итератор: (3)k1 (4)k2 (3)k3 (2)k4
-     5)
-     Двигаем итераторы c найденным значением вправо
-     1: end
-     2: k4 -> end
-     3: end
-     4: k5
-     Опять сортируем по значению и находим итератор более свежего файла
-     (4)k5
-     Понимаем, что нам нужен (4)k5
-     Результирующий итератор: (3)k1 (4)k2 (3)k3 (2)k4 (4)k5
-     6)
-     Двигаем итераторы c найденным значением вправо
-     1: end
-     2: end
-     3: end
-     4: k5 -> end
-     Понимаем, что все итераторы дошли до конца, ничего не возвращаем
-     Результирующий итератор: (3)k1 (4)k2 (3)k3 (2)k4 (4)k5
-    */
 }

@@ -3,6 +3,8 @@ package ru.vk.itmo.proninvalentin;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.proninvalentin.iterators.MergeIterator;
+
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
@@ -32,7 +34,15 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return inMemoryDao.get(from, to);
+        if (fileDao != null) {
+            try {
+                return MergeIterator.create(inMemoryDao.get(from, to), fileDao.getFilesIterators(from, to));
+            } catch (IOException e) {
+                return inMemoryDao.get(from, to);
+            }
+        } else {
+            return inMemoryDao.get(from, to);
+        }
     }
 
     @Override
