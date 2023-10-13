@@ -1,8 +1,10 @@
 package ru.vk.itmo.chebotinalexandr;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
@@ -11,28 +13,32 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final SortedMap<MemorySegment, Entry<MemorySegment>> entries = new ConcurrentSkipListMap<>(
-            (o1, o2) -> {
-                long offset = o1.mismatch(o2);
+    private final SSTable sortedStringTable;
+    private final SortedMap<MemorySegment, Entry<MemorySegment>> entries =
+            new ConcurrentSkipListMap<>(InMemoryDao::comparator);
 
-                if (offset == -1) {
-                    return 0;
-                }
-                if (offset == o1.byteSize()) {
-                    return -1;
-                }
-                if (offset == o2.byteSize()) {
-                    return 1;
-                }
+    public static int comparator(MemorySegment segment1, MemorySegment segment2) {
+        long offset = segment1.mismatch(segment2);
 
+        if (offset == -1) {
+            return 0;
+        }
+        if (offset == segment1.byteSize()) {
+            return -1;
+        }
+        if (offset == segment2.byteSize()) {
+            return 1;
+        }
 
-                return Byte.compare(
-                            o1.get(ValueLayout.JAVA_BYTE, offset),
-                            o2.get(ValueLayout.JAVA_BYTE, offset)
-                );
+        return Byte.compare(
+                segment1.get(ValueLayout.JAVA_BYTE, offset),
+                segment2.get(ValueLayout.JAVA_BYTE, offset)
+        );
+    }
 
-            }
-    );
+    public InMemoryDao(Config config) {
+        sortedStringTable = new SSTable(config);
+    }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
@@ -65,11 +71,30 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return entries.get(key);
+        Entry result = entries.get(key);
+
+        if (result == null) {
+            result = sortedStringTable.get(key);
+        }
+
+        return result;
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         entries.put(entry.key(), entry);
+    }
+
+    @Override
+    public void flush() throws IOException {
+        Dao.super.flush();
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (entries.isEmpty()) {
+            return;
+        }
+        sortedStringTable.write(entries);
     }
 }
