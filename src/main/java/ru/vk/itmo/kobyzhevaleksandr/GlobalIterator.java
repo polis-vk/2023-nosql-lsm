@@ -11,13 +11,13 @@ public class GlobalIterator {
 
     private static final MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
 
-    public static Iterator<Entry<MemorySegment>> merge(List<Iterator<Entry<MemorySegment>>> iterators) {
+    public static PeekIterator<Entry<MemorySegment>> merge(List<Iterator<Entry<MemorySegment>>> iterators) {
         switch (iterators.size()) {
             case 0 -> {
-                return Collections.emptyIterator();
+                return new DefaultPeekIterator(Collections.emptyIterator());
             }
             case 1 -> {
-                return iterators.getFirst();
+                return new DefaultPeekIterator(iterators.getFirst());
             }
             default -> {
                 MergePeekIterator mergePeekIterator = new MergePeekIterator(

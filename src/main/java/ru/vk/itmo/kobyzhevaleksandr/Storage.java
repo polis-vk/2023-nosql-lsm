@@ -10,11 +10,13 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -44,8 +46,8 @@ public class Storage {
 
         try (Stream<Path> files = Files.list(tablesDir)) {
             files
-                .filter(path -> path.endsWith(TABLE_EXTENSION))
-                .sorted()
+                .filter(path -> path.toString().endsWith(TABLE_EXTENSION))
+                .sorted(Collections.reverseOrder())
                 .forEach(tablePath -> {
                     try {
                         long size = Files.size(tablePath);
@@ -55,16 +57,28 @@ public class Storage {
                         throw new RuntimeException(e);
                     }
                 });
+        } catch (NoSuchFileException e) {
+            // do nothing
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+        mappedSsTables.reversed();
     }
 
     public Iterator<Entry<MemorySegment>> iterator(MemorySegment from, MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(mappedSsTables.size());
         for (MemorySegment mappedSsTable: mappedSsTables) {
-            long fromPos = binarySearchIndex(mappedSsTable, from);
-            long toPos = binarySearchIndex(mappedSsTable, to);
+            long fromPos, toPos;
+            if (from == null) {
+                fromPos = 0;
+            } else {
+                fromPos = binarySearchIndex(mappedSsTable, from);
+            }
+            if (to == null) {
+                toPos = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+            } else {
+                toPos = binarySearchIndex(mappedSsTable, to);
+            }
             iterators.add(
                 new Iterator<>() {
                     long pos = fromPos;
@@ -97,8 +111,12 @@ public class Storage {
         }
         arena.close();
 
+        if (entries.isEmpty()) {
+            return;
+        }
+
         try (Arena writeArena = Arena.ofConfined()) {
-            long ssTablesCount = mappedSsTables.size();
+            String tableIndex = String.format("%010d", mappedSsTables.size());
             long entriesCount = entries.size();
             long entriesStartIndex = Long.BYTES + Long.BYTES * entriesCount;
             long ssTableSize = 0;
@@ -109,7 +127,7 @@ public class Storage {
                 ssTableSize += Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize;
             }
 
-            Path tablePath = config.basePath().resolve(TABLE_FILENAME + ssTablesCount + TABLE_EXTENSION);
+            Path tablePath = config.basePath().resolve(TABLE_FILENAME + tableIndex + TABLE_EXTENSION);
             MemorySegment mappedSsTableFile = mapFile(tablePath, ssTableSize + entriesStartIndex,
                 FileChannel.MapMode.READ_WRITE, writeArena,
                 StandardOpenOption.READ, StandardOpenOption.WRITE,
@@ -118,7 +136,7 @@ public class Storage {
             long offset = 0;
             long index = 0;
             mappedSsTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entriesCount);
-            offset += Long.BYTES;
+            offset += Long.BYTES + Long.BYTES * entriesCount;
             for (Entry<MemorySegment> entry : entries) {
                 mappedSsTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + Long.BYTES * index, offset);
                 index++;

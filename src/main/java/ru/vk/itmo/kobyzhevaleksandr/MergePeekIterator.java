@@ -6,6 +6,14 @@ import java.lang.foreign.MemorySegment;
 import java.util.Comparator;
 import java.util.NoSuchElementException;
 
+/**
+ * A union iterator that contains two {@link PeekIterator} with priorities.
+ * The first iterator has higher priority when comparing values.
+ * <p>
+ * When the next element is retrieved, the keys from the two iterators are compared.
+ * If the keys are not equal, then the {@link Entry} of the smaller key is returned,
+ * otherwise the {@link Entry} of the priority iterator is returned.
+ */
 public class MergePeekIterator implements PeekIterator<Entry<MemorySegment>> {
 
     private final PeekIterator<Entry<MemorySegment>> priorityIterator;
@@ -32,14 +40,14 @@ public class MergePeekIterator implements PeekIterator<Entry<MemorySegment>> {
         if (!hasNext()) {
             throw new NoSuchElementException();
         }
-        if (!priorityIterator.hasNext()) {
-            return nonPriorityIterator.next();
-        }
-        if (!nonPriorityIterator.hasNext()) {
-            return priorityIterator.next();
+        if (!isPeeked) {
+            return getNextEntry();
         }
 
-        return getNextEntry();
+        Entry<MemorySegment> entry = peekedEntry;
+        isPeeked = false;
+        peekedEntry = null;
+        return entry;
     }
 
     @Override
@@ -55,6 +63,13 @@ public class MergePeekIterator implements PeekIterator<Entry<MemorySegment>> {
     }
 
     private Entry<MemorySegment> getNextEntry() {
+        if (!priorityIterator.hasNext()) {
+            return nonPriorityIterator.next();
+        }
+        if (!nonPriorityIterator.hasNext()) {
+            return priorityIterator.next();
+        }
+
         Entry<MemorySegment> priorityEntry = priorityIterator.peek();
         Entry<MemorySegment> nonPriorityEntry = nonPriorityIterator.peek();
 

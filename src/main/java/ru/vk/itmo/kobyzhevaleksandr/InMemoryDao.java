@@ -31,7 +31,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         Iterator<Entry<MemorySegment>> memoryIterator = getMemoryIterator(from, to);
         Iterator<Entry<MemorySegment>> storageIterator = storage.iterator(from, to);
-        return GlobalIterator.merge(List.of(memoryIterator, storageIterator));
+        return new SkipNullIterator(GlobalIterator.merge(List.of(memoryIterator, storageIterator)));
     }
 
     @Override
