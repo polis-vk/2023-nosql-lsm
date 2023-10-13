@@ -124,6 +124,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private Entry<MemorySegment> findValueInSSTable(final MemorySegment key) {
         if (mappedData != null) {
+            offset = 0;
             while (offset < mappedData.byteSize()) {
                 MemorySegment mkey = readSegment(mappedData);
                 MemorySegment mvalue = readSegment(mappedData);
