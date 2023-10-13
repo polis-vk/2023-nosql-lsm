@@ -28,6 +28,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao(Config config) {
         storagePath = config.basePath().resolve("storage");
+
         if (Files.exists(storagePath)) {
             try {
                 fileChannel = FileChannel.open(storagePath, StandardOpenOption.READ);
