@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.logging.Logger;
 import java.util.stream.Stream;
 
 public class Storage {
@@ -58,7 +59,8 @@ public class Storage {
                     }
                 });
         } catch (NoSuchFileException e) {
-            System.err.println("Can't find the file");
+            Logger logger = Logger.getLogger(this.getClass().getPackage().getName());
+            logger.warning("Can't find the file");
         } catch (IOException e) {
             throw new ApplicationException("Can't access the file", e);
         }
