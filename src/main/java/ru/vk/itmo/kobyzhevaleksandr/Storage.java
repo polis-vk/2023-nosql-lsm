@@ -54,13 +54,13 @@ public class Storage {
                         mappedSsTables.add(mapFile(tablePath, size, FileChannel.MapMode.READ_ONLY, arena,
                             StandardOpenOption.READ));
                     } catch (IOException e) {
-                        throw new RuntimeException(e);
+                        throw new ApplicationException("Can't access the file", e);
                     }
                 });
         } catch (NoSuchFileException e) {
-            // do nothing
+            System.out.println("Can't find the file");
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new ApplicationException("Can't access the file", e);
         }
         mappedSsTables.reversed();
     }
@@ -68,7 +68,8 @@ public class Storage {
     public Iterator<Entry<MemorySegment>> iterator(MemorySegment from, MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(mappedSsTables.size());
         for (MemorySegment mappedSsTable: mappedSsTables) {
-            long fromPos, toPos;
+            long fromPos;
+            long toPos;
             if (from == null) {
                 fromPos = 0;
             } else {
@@ -94,9 +95,7 @@ public class Storage {
                             throw new NoSuchElementException();
                         }
 
-                        Entry<MemorySegment> entry = getEntryByIndex(mappedSsTable, pos);
-                        pos++;
-                        return entry;
+                        return getEntryByIndex(mappedSsTable, pos++);
                     }
                 }
             );

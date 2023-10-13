@@ -9,8 +9,8 @@ import java.util.NoSuchElementException;
 /**
  * A union iterator that contains two {@link PeekIterator} with priorities.
  * The first iterator has higher priority when comparing values.
- * <p>
- * When the next element is retrieved, the keys from the two iterators are compared.
+ *
+ * <p>When the next element is retrieved, the keys from the two iterators are compared.
  * If the keys are not equal, then the {@link Entry} of the smaller key is returned,
  * otherwise the {@link Entry} of the priority iterator is returned.
  */
