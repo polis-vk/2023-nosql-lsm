@@ -23,6 +23,9 @@ public class BinaryMinHeap<T> implements MinHeap<T> {
 
     @Override
     public T removeMin() {
+        if (list.isEmpty()) {
+            return null;
+        }
         final T result = list.get(0);
         list.set(0, list.get(list.size() - 1));
         list.removeLast();
@@ -36,6 +39,11 @@ public class BinaryMinHeap<T> implements MinHeap<T> {
         siftUp();
     }
 
+    @Override
+    public boolean isEmpty() {
+        return list.isEmpty();
+    }
+
     public void siftDown() {
         int index = 0;
         final int size = list.size();
@@ -46,15 +54,18 @@ public class BinaryMinHeap<T> implements MinHeap<T> {
             }
             final int rightIndex = index * 2 + 2;
             final int nextIndex;
-            if (rightIndex >= size || comparator.compare(list.get(leftIndex), list.get(rightIndex)) >= 0) {
+            if (rightIndex >= size || comparator.compare(list.get(leftIndex), list.get(rightIndex)) <= 0) {
                 nextIndex = leftIndex;
             } else {
                 nextIndex = rightIndex;
             }
             final T cur = list.get(index);
-            index = nextIndex;
+            if (comparator.compare(cur, list.get(nextIndex)) <= 0) {
+                break;
+            }
             list.set(index, list.get(nextIndex));
             list.set(nextIndex, cur);
+            index = nextIndex;
         }
     }
 

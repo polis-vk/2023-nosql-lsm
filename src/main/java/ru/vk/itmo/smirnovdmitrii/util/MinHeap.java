@@ -16,4 +16,6 @@ public interface MinHeap<T> {
         }
     }
 
+    boolean isEmpty();
+
 }

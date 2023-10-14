@@ -14,7 +14,6 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     private final SortedMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(MemorySegmentComparator.getInstance());
 
-
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
         final Map<MemorySegment, Entry<MemorySegment>> map;
@@ -29,9 +28,6 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
         }
         return map.values().iterator();
     }
-
-
-
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {

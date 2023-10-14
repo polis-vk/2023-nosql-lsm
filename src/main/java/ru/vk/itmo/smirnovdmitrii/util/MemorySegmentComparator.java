@@ -24,10 +24,6 @@ public final class MemorySegmentComparator implements Comparator<MemorySegment> 
         return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, offset), o2.get(ValueLayout.JAVA_BYTE, offset));
     }
 
-    public boolean equals(final MemorySegment o1, final MemorySegment o2) {
-        return o1.mismatch(o2) == -1;
-    }
-
     public static MemorySegmentComparator getInstance() {
         if (comparator == null) {
             comparator = new MemorySegmentComparator();
