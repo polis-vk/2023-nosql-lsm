@@ -67,7 +67,10 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         }
     }
 
-    public static class SSTableIterator implements Iterator<Entry<MemorySegment>> {
+    /**
+     * Iterator for sstable.
+     */
+    private static class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         private final MemorySegment ssTable;
         private final long upperBoundOffset;
         private long offset;
@@ -101,13 +104,13 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         for (int i = mappedSsTables.size() - 1; i >= 0; i--) {
             final MemorySegment storage = mappedSsTables.get(i);
             final MemorySegment offsets = mappedSsTableOffsets.get(i);
-            final long offset = binarySearch(key, storage, offsets, true);
-            if (offset == -1) {
+            final long offset = upperBound(key, storage, offsets);
+            if (offset == storage.byteSize()) {
                 continue;
             }
             final Entry<MemorySegment> entry = readBlock(storage, offset);
-            if (entry.value() == null) {
-                return null;
+            if (!comparator.equals(key, entry.key())) {
+                continue;
             }
             return entry;
         }
@@ -118,15 +121,6 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
             final MemorySegment key,
             final MemorySegment storage,
             final MemorySegment offsets
-    ) {
-        return binarySearch(key, storage, offsets, false);
-    }
-
-    private long binarySearch(
-            final MemorySegment key,
-            final MemorySegment storage,
-            final MemorySegment offsets,
-            final boolean accurate
     ) {
         final long offsetsSize = offsets.byteSize();
         long left = -1;
@@ -145,9 +139,6 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
                 right = midst;
             }
         }
-        if (accurate) {
-            return -1;
-        }
         return right == offsetsSize / Long.BYTES
                 ? storage.byteSize()
                 : offsets.get(ValueLayout.JAVA_LONG_UNALIGNED, right * Long.BYTES);
@@ -155,7 +146,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
 
     /*
         Saves storage with one byte block per element. One block is
-        JAVA_LONG_UNALIGNED] key_size [bytes] key [JAVA_LONG_UNALIGNED] value_size [bytes] value (without spaces).
+        JAVA_LONG_UNALIGNED] key_size [JAVA_LONG_UNALIGNED] value_size [bytes] key [bytes] value (without spaces).
 
         Also saves offsets in same order.
      */

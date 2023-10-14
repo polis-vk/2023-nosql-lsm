@@ -2,7 +2,6 @@ package ru.vk.itmo.smirnovdmitrii;
 
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
-import ru.vk.itmo.smirnovdmitrii.util.PeekingIterator;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;

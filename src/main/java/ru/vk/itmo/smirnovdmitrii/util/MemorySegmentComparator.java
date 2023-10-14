@@ -3,7 +3,6 @@ package ru.vk.itmo.smirnovdmitrii.util;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
-import java.util.Objects;
 
 public final class MemorySegmentComparator implements Comparator<MemorySegment> {
     private static MemorySegmentComparator comparator;
@@ -22,6 +21,10 @@ public final class MemorySegmentComparator implements Comparator<MemorySegment> 
             return 1;
         }
         return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, offset), o2.get(ValueLayout.JAVA_BYTE, offset));
+    }
+
+    public boolean equals(final MemorySegment o1, final MemorySegment o2) {
+        return o1.mismatch(o2) == -1;
     }
 
     public static MemorySegmentComparator getInstance() {

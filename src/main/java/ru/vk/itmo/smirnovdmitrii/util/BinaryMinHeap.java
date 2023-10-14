@@ -1,7 +1,6 @@
 package ru.vk.itmo.smirnovdmitrii.util;
 
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
@@ -44,7 +43,7 @@ public class BinaryMinHeap<T> implements MinHeap<T> {
         return list.isEmpty();
     }
 
-    public void siftDown() {
+    private void siftDown() {
         int index = 0;
         final int size = list.size();
         while (true) {

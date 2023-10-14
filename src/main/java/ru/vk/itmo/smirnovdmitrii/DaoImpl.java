@@ -11,13 +11,13 @@ import ru.vk.itmo.smirnovdmitrii.util.WrappedIterator;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.util.Comparator;
 import java.util.Iterator;
+import java.util.Objects;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     final InMemoryDao<MemorySegment, Entry<MemorySegment>> inMemoryDao;
     final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
-    final Comparator<MemorySegment> comparator = MemorySegmentComparator.getInstance();
+    final MemorySegmentComparator comparator = MemorySegmentComparator.getInstance();
 
     private class DaoIterator implements Iterator<Entry<MemorySegment>> {
 
@@ -56,7 +56,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             final MemorySegment key = result.key();
             while (!heap.isEmpty()) {
                 final PeekingIterator<Entry<MemorySegment>> currentIterator = heap.min();
-                if (!equals(currentIterator.peek().key(), key)) {
+                if (!comparator.equals(currentIterator.peek().key(), key)) {
                     break;
                 }
                 skip();
@@ -73,7 +73,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 final PeekingIterator<Entry<MemorySegment>> iterator = heap.min();
                 final Entry<MemorySegment> entry = iterator.peek();
                 final MemorySegment currentKey = entry.key();
-                if (entry.value() == null || equals(deletedKey, currentKey)) {
+                if (entry.value() == null || (deletedKey != null && comparator.equals(deletedKey, currentKey))) {
                     deletedKey = currentKey;
                     skip();
                     continue;
@@ -86,17 +86,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             final PeekingIterator<Entry<MemorySegment>> iterator = heap.removeMin();
             iterator.next();
             add(iterator);
-        }
-
-        private static boolean equals(final MemorySegment m1, final MemorySegment m2) {
-            if (m1 == null && m2 == null) {
-                return true;
-            }
-
-            if (m1 == null || m2 == null) {
-                return false;
-            }
-            return m1.mismatch(m2) == -1;
         }
 
     }
@@ -126,6 +115,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
+        Objects.requireNonNull(key);
         Entry<MemorySegment> result = inMemoryDao.get(key);
         if (result == null) {
             result = outMemoryDao.get(key);
