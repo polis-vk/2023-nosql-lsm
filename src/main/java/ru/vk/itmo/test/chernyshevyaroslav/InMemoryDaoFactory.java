@@ -25,7 +25,7 @@ public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Ent
         if (data == null) {
             return null;
         }
-        return MemorySegment.ofArray(data.getBytes());
+        return MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
