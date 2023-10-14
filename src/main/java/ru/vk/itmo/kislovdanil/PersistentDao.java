@@ -1,6 +1,5 @@
 package ru.vk.itmo.kislovdanil;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
@@ -17,9 +16,12 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(new MemSegComparator());
     private final SSTable table;
+    private final Config config;
+    private final Comparator<MemorySegment> comp = new MemSegComparator();
 
     public PersistentDao(Config config) throws IOException {
-        this.table = new SSTable(config.basePath(), new MemSegComparator());
+        this.config = config;
+        this.table = new SSTable(config.basePath(), comp, 0L, storage, false);
     }
 
     private static class MemSegComparator implements Comparator<MemorySegment> {
@@ -49,9 +51,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         Entry<MemorySegment> ans = storage.get(key);
         if (ans != null) return ans;
         try {
-            MemorySegment data = table.find(key);
-            if (data == null) return null;
-            return new BaseEntry<>(key, table.find(key));
+            return table.find(key);
         } catch (IOException e) {
             return null;
         }
@@ -64,6 +64,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        table.write(storage);
+        if (!storage.isEmpty()) {
+            new SSTable(config.basePath(), comp, 0L, storage, true);
+        }
     }
 }

@@ -1,148 +1,181 @@
 package ru.vk.itmo.kislovdanil;
 
+import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.NavigableMap;
 
-public class SSTable {
-    // Contains offset and size for every key in index file
-    private final Path summaryFile;
-    // Contains keys and for each key contains offset and size of assigned value
-    private final Path indexFile;
-    //Contains values
-    private final Path dataFile;
+public class SSTable implements Comparable<SSTable> {
+    // Contains offset and size for every key in index file and every value in data file
+    private MemorySegment summaryFile;
+    // Contains keys
+    private MemorySegment indexFile;
+    // Contains values
+    private MemorySegment dataFile;
     private final Comparator<MemorySegment> memSegComp;
+    private final Arena filesArena = Arena.ofAuto();
+    private final long tableId;
 
-    public SSTable(Path basePath, Comparator<MemorySegment> memSegComp) throws IOException {
-        summaryFile = basePath.resolve("summary");
+    private final long size;
+
+    public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
+                   NavigableMap<MemorySegment, Entry<MemorySegment>> memTable,
+                   boolean rewrite) throws IOException {
+        this.tableId = tableId;
+        Path ssTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
-        createIfNotExists(summaryFile);
-        indexFile = basePath.resolve("index");
-        createIfNotExists(indexFile);
-        dataFile = basePath.resolve("data");
-        createIfNotExists(dataFile);
+        Path summaryFilePath = ssTablePath.resolve("summary");
+        Path indexFilePath = ssTablePath.resolve("index");
+        Path dataFilePath = ssTablePath.resolve("data");
+        if (rewrite) {
+            write(memTable, summaryFilePath, indexFilePath, dataFilePath);
+        } else {
+            readOld(summaryFilePath, indexFilePath, dataFilePath);
+        }
+
+        summaryFile = summaryFile.asReadOnly();
+        indexFile = indexFile.asReadOnly();
+        dataFile = dataFile.asReadOnly();
+
+        size = (summaryFile.byteSize() / Metadata.SIZE);
     }
 
-    private void createIfNotExists(Path path) throws IOException {
-        if (Files.notExists(path)) {
-            Files.createDirectories(path.getParent());
-            Files.createFile(path);
+    private void readOld(Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
+        createIfNotExist(summaryFilePath);
+        createIfNotExist(indexFilePath);
+        createIfNotExist(dataFilePath);
+        summaryFile = mapFile(Files.size(summaryFilePath), summaryFilePath);
+        indexFile = mapFile(Files.size(indexFilePath), indexFilePath);
+        dataFile = mapFile(Files.size(dataFilePath), dataFilePath);
+    }
+
+    private void createIfNotExist(Path file) throws IOException {
+        if (Files.notExists(file)) {
+            Files.createDirectories(file.getParent());
+            Files.createFile(file);
         }
     }
 
-    private void recreate(Path path) throws IOException {
-        Files.delete(path);
-        Files.createFile(path);
+    private void prepareForWriting(Path file) throws IOException {
+        if (Files.exists(file)) {
+            Files.delete(file);
+        }
+        Files.createDirectories(file.getParent());
+        Files.createFile(file);
+
     }
 
-    private void removeOldData() throws IOException {
-        recreate(summaryFile);
-        recreate(indexFile);
-        recreate(dataFile);
+    private MemorySegment mapFile(long size, Path filePath) throws IOException {
+        try (RandomAccessFile raFile = new RandomAccessFile(filePath.toString(), "rw")) {
+            return raFile.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, size, filesArena);
+        }
+    }
+
+    private void writeEntry(Entry<MemorySegment> entry,
+                            long summaryOffset, long indexOffset, long dataOffset) {
+        MemorySegment.copy(entry.key(), 0, indexFile, indexOffset, entry.key().byteSize());
+        if (entry.value() != null) {
+            MemorySegment.copy(entry.value(), 0, dataFile, dataOffset, entry.value().byteSize());
+        }
+        Metadata.writeEntryMetadata(entry, summaryFile, summaryOffset, indexOffset, dataOffset);
     }
 
     // Sequentially writes every entity data in SStable keeping files data consistent
-    public void write(NavigableMap<MemorySegment, Entry<MemorySegment>> memTable) throws IOException {
-        removeOldData();
+    private void write(NavigableMap<MemorySegment, Entry<MemorySegment>> memTable,
+                       Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
+        prepareForWriting(summaryFilePath);
+        prepareForWriting(indexFilePath);
+        prepareForWriting(dataFilePath);
+
+        long indexSize = 0;
+        long dataSize = 0;
+        long summarySize;
+        for (Entry<MemorySegment> entry : memTable.values()) {
+            indexSize += entry.key().byteSize();
+            dataSize += entry.value() == null ? 0 : entry.value().byteSize();
+        }
+        summarySize = memTable.size() * Metadata.SIZE;
+
+        summaryFile = mapFile(summarySize, summaryFilePath);
+        indexFile = mapFile(indexSize, indexFilePath);
+        dataFile = mapFile(dataSize, dataFilePath);
+
         long currentDataOffset = 0;
         long currentIndexOffset = 0;
-        try (FileOutputStream summaryOutput = new FileOutputStream(summaryFile.toString());
-             FileOutputStream indexOutput = new FileOutputStream(indexFile.toString());
-             FileOutputStream dataOutput = new FileOutputStream(dataFile.toString())) {
-            for (Entry<MemorySegment> entry : memTable.values()) {
-                MemorySegment value = entry.value();
-                MemorySegment key = entry.key();
-                dataOutput.write(value.toArray(ValueLayout.JAVA_BYTE));
-                indexOutput.write(key.toArray(ValueLayout.JAVA_BYTE));
-                indexOutput.write(ByteUtils.longToBytes(currentDataOffset));
-                indexOutput.write(ByteUtils.longToBytes(value.byteSize()));
-                summaryOutput.write(ByteUtils.longToBytes(currentIndexOffset));
-                summaryOutput.write(ByteUtils.longToBytes(key.byteSize()));
-                currentDataOffset += value.byteSize();
-                currentIndexOffset += key.byteSize() + 2 * Long.BYTES;
-            }
+        long currentSummaryOffset = 0;
+        for (Entry<MemorySegment> entry : memTable.values()) {
+            MemorySegment value = entry.value();
+            value = value == null ? filesArena.allocate(0) : value;
+            MemorySegment key = entry.key();
+            writeEntry(entry, currentSummaryOffset, currentIndexOffset, currentDataOffset);
+            currentDataOffset += value.byteSize();
+            currentIndexOffset += key.byteSize();
+            currentSummaryOffset += Metadata.SIZE;
         }
     }
 
-    private MemorySegment readFileData(RandomAccessFile file, long offset, long len) throws IOException {
-        byte[] data = new byte[(int) len];
-        file.seek(offset);
-        file.readFully(data);
-        return MemorySegment.ofArray(data);
-    }
-
     private Range readRange(MemorySegment segment, long offset) {
-        ByteBuffer buffer = segment.asSlice(offset, 2 * Long.BYTES).asByteBuffer();
-        return new Range(buffer.getLong(), buffer.getLong());
+        return new Range(segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset),
+                segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + Long.BYTES));
     }
 
-    // Binary search in summary and index files. Returns offset and size of value in data file
-    private Range findByKey(MemorySegment key, MemorySegment indexFile, MemorySegment summaryFile) {
+    // Binary search in summary and index files. Returns index of least record greater than key
+    private long findByKey(MemorySegment key) {
         long left = 0;
-        long right = (summaryFile.byteSize() / (2 * Long.BYTES)) - 1;
+        long right = size - 1;
         while (right - left > 2) {
             long middle = (right + left) / 2;
-            Range indexRange = readRange(summaryFile, middle * Long.BYTES * 2);
-            MemorySegment curKey = indexFile.asSlice(indexRange.offset, indexRange.length);
+            Metadata currentEntryMetadata = new Metadata(middle);
+            MemorySegment curKey = currentEntryMetadata.readKey();
             int compRes = memSegComp.compare(key, curKey);
-            if (compRes == 0) readRange(indexFile, indexRange.offset + indexRange.length);
-            if (compRes < 0) {
+            if (compRes <= 0) {
                 right = middle;
             } else {
                 left = middle;
             }
         }
         for (long i = left; i <= right; i++) {
-            Range indexRange = readRange(summaryFile, i * Long.BYTES * 2);
-            MemorySegment curKey = indexFile.asSlice(indexRange.offset, indexRange.length);
-            if (memSegComp.compare(key, curKey) == 0) {
-                return readRange(indexFile, indexRange.offset + indexRange.length);
+            Metadata currentEntryMetadata = new Metadata(i);
+            MemorySegment curKey = currentEntryMetadata.readKey();
+            if (memSegComp.compare(curKey, key) >= 0) {
+                return i;
             }
         }
-        return null;
+        return -1;
     }
 
-    public MemorySegment find(MemorySegment key) throws IOException {
-        Arena arena = Arena.ofAuto();
-        MemorySegment indexMappedFile;
-        MemorySegment summaryMappedFile;
-        try (RandomAccessFile indexRAFile = new RandomAccessFile(indexFile.toString(), "r");
-             RandomAccessFile summaryRAFile = new RandomAccessFile(summaryFile.toString(), "r")) {
-            indexMappedFile = indexRAFile.getChannel().map(FileChannel.MapMode.READ_ONLY,
-                    0, indexRAFile.length(), arena);
-            summaryMappedFile = summaryRAFile.getChannel().map(FileChannel.MapMode.READ_ONLY,
-                    0, summaryRAFile.length(), arena);
-        }
-        Range result = findByKey(key, indexMappedFile, summaryMappedFile);
-        if (result == null) return null;
-        try (RandomAccessFile dataRAFile = new RandomAccessFile(dataFile.toString(), "r")) {
-            return readFileData(dataRAFile, result.offset, result.length);
-        }
+    private long findByKeyExact(MemorySegment key) {
+        long goe = findByKey(key);
+        if (goe == -1) return -1;
+        if (memSegComp.compare(readEntry(goe).key(), key) == 0) return goe;
+        return -1;
     }
 
-    public static final class ByteUtils {
-        private static final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+    private Entry<MemorySegment> readEntry(long index) {
+        Metadata metadata = new Metadata(index);
+        MemorySegment key = metadata.readKey();
+        MemorySegment value = metadata.readValue();
+        return new BaseEntry<>(key, value);
+    }
 
-        private ByteUtils() {
-        }
+    public Entry<MemorySegment> find(MemorySegment key) throws IOException {
+        long entryId = findByKeyExact(key);
+        if (entryId == -1) return null;
+        return readEntry(entryId);
+    }
 
-        public static byte[] longToBytes(long data) {
-            buffer.putLong(data);
-            byte[] result = buffer.array();
-            buffer.rewind();
-            return result;
-        }
+    @Override
+    public int compareTo(SSTable o) {
+        return Long.compare(o.tableId, this.tableId);
     }
 
     // Describes offset and size of any data segment
@@ -155,4 +188,42 @@ public class SSTable {
             this.length = length;
         }
     }
+
+    private class Metadata {
+        private final Range keyRange;
+        private final Range valueRange;
+        private final Boolean isDeletion;
+        public static final long SIZE = Long.BYTES * 4 + 1;
+
+        public Metadata(long index) {
+            long base = index * Metadata.SIZE;
+            keyRange = readRange(summaryFile, base);
+            valueRange = readRange(summaryFile, base + 2 * Long.BYTES);
+            isDeletion = summaryFile.get(ValueLayout.JAVA_BOOLEAN, base + 4 * Long.BYTES);
+        }
+
+        public MemorySegment readKey() {
+            return indexFile.asSlice(keyRange.offset, keyRange.length);
+        }
+
+        public MemorySegment readValue() {
+            return isDeletion ? null : dataFile.asSlice(valueRange.offset, valueRange.length);
+        }
+
+        public static void writeEntryMetadata(Entry<MemorySegment> entry, MemorySegment summaryFile,
+                                              long sumOffset, long indexOffset, long dataOffset) {
+            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
+                    sumOffset, indexOffset);
+            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
+                    sumOffset + Long.BYTES, entry.key().byteSize());
+            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
+                    sumOffset + 2 * Long.BYTES, dataOffset);
+            summaryFile.set(ValueLayout.JAVA_BOOLEAN,
+                    sumOffset + 4 * Long.BYTES, entry.value() == null);
+            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
+                    sumOffset + 3 * Long.BYTES, entry.value() == null ? 0 : entry.value().byteSize());
+        }
+
+    }
+
 }
