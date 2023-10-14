@@ -121,9 +121,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void flush() throws IOException {
         Path filePath = sstablesPath.resolve(
                 Path.of(
-                    Long.toString(System.currentTimeMillis(), Character.MAX_RADIX) +
-                    Long.toString(System.nanoTime(), Character.MAX_RADIX)   +
-                    ".sstable"
+                    Long.toString(System.currentTimeMillis(), Character.MAX_RADIX)
+                        + Long.toString(System.nanoTime(), Character.MAX_RADIX)
+                        + ".sstable"
                 )
         );
         dumpToFile(filePath);
@@ -142,7 +142,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
     }
-
 
     // dumps mappings to file in format
     // timestamp in millis (long), numOfKeys (int)
@@ -167,14 +166,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try (FileChannel fc = FileChannel.open(path, openOptions); Arena writeArena = Arena.ofConfined()) {
             MemorySegment mapped = fc.map(READ_WRITE, 0, size, writeArena);
             long offset = 0;
-            long offsetToWrite = 0;
             mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, System.currentTimeMillis());
             offset += Long.BYTES;
             mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, System.nanoTime());
             offset += Long.BYTES;
             mapped.set(ValueLayout.JAVA_INT_UNALIGNED, offset, mappings.size());
             offset += Integer.BYTES;
-            offsetToWrite += Integer.BYTES + (2L * mappings.size() + 2) * Long.BYTES;
+            long offsetToWrite = Integer.BYTES + (2L * mappings.size() + 2) * Long.BYTES;
             for (Entry<MemorySegment> entry: mappings.values()) {
                 mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, offsetToWrite);
                 offset += Long.BYTES;

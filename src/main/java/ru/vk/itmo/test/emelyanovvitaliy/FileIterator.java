@@ -17,23 +17,23 @@ import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 public class FileIterator {
     private final MemorySegment mapped;
     private final Comparator<MemorySegment> comparator;
-    private long nowKeyAddressOffset = Integer.BYTES + 2*Long.BYTES;
+    private long nowKeyAddressOffset = Integer.BYTES + 2 * Long.BYTES;
     private int numOfKeys = -1;
     private long timestamp = -1;
     private long runtimeTimestamp = -1;
 
     public FileIterator(Path filePath, Comparator<MemorySegment> comparator) throws IOException {
-        FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ);
-        Arena arena = Arena.ofShared();
-        this.mapped = fc.map(READ_ONLY, 0, fc.size(), arena);
-        this.comparator = comparator;
+        try (FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
+            Arena arena = Arena.ofShared();
+            this.mapped = fc.map(READ_ONLY, 0, fc.size(), arena);
+            this.comparator = comparator;
+        }
     }
 
     public void positionate(MemorySegment key) {
-        int numOfKeys = getNumOfKeys();
-        long firstKeyOffset = getAddressOffset(numOfKeys);
+        long firstKeyOffset = getAddressOffset(getNumOfKeys());
         int left = 0;
-        int right = numOfKeys;
+        int right = getNumOfKeys();
         while (left < right) {
             int m = (left + right) / 2;
             long keyAddressOffset = getAddressOffset(m);
@@ -61,7 +61,6 @@ public class FileIterator {
         }
         nowKeyAddressOffset = Math.min(getAddressOffset(left), firstKeyOffset);
     }
-
 
     public Entry<MemorySegment> getNow() {
         return getEntryByAddressOffset(nowKeyAddressOffset);

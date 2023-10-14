@@ -8,12 +8,13 @@ import java.util.Iterator;
 import java.util.Queue;
 
 public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
+    private static final Comparator<FileIterator> fileIteratorComparator = new FileIteratorComparator();
     private final Comparator<MemorySegment> memorySegmentComparator;
     private final Queue<FileIterator> fileIteratorQueue;
     private final Iterator<Entry<MemorySegment>> memoryIterator;
 
-    private Entry<MemorySegment> nowMemorySegment = null;
-    private Entry<MemorySegment> storedEntry = null;
+    private Entry<MemorySegment> nowMemorySegment;
+    private Entry<MemorySegment> storedEntry;
     private final MemorySegment keyTo;
 
     public FileMergeIterator(
@@ -25,10 +26,12 @@ public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
         this.memorySegmentComparator = memorySegmentComparator;
         this.fileIteratorQueue = fileIteratorQueue;
         this.memoryIterator = memoryIterator;
+        nowMemorySegment = null;
         if (memoryIterator.hasNext()) {
             nowMemorySegment = memoryIterator.next();
         }
         this.keyTo = keyTo;
+        storedEntry = null;
     }
 
     @Override
@@ -47,11 +50,11 @@ public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> next() {
         Entry<MemorySegment> ans;
-        if (storedEntry != null) {
+        if (storedEntry == null) {
+            ans = requireNext();
+        } else {
             ans = storedEntry;
             storedEntry = null;
-        } else {
-            ans = requireNext();
         }
         return ans;
     }
@@ -65,37 +68,10 @@ public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private Entry<MemorySegment> privateNext() {
-        FileIterator bestFileIterator = null;
+        FileIterator bestFileIterator = findBestFileIterator();
         Entry<MemorySegment> bestEntry = null;
-        for (FileIterator fileIterator: fileIteratorQueue) {
-            if (!fileIterator.hasNow()) {
-                continue;
-            }
-            Entry<MemorySegment> entry = fileIterator.getNow();
-            if (keyTo != null && memorySegmentComparator.compare(entry.key(), keyTo) >= 0) {
-                continue;
-            }
-            if (bestEntry == null) {
-                bestEntry = entry;
-                bestFileIterator = fileIterator;
-                continue;
-            }
-            int compared = memorySegmentComparator.compare(entry.key(), bestEntry.key());
-            if (compared < 0) {
-                bestEntry = entry;
-                bestFileIterator = fileIterator;
-            } else if (compared == 0) {
-                if (fileIterator.getTimestamp() > bestFileIterator.getTimestamp() ||
-                        (fileIterator.getTimestamp() == bestFileIterator.getTimestamp() &&
-                                fileIterator.getRuntimeTimestamp() > bestFileIterator.getRuntimeTimestamp())
-                ) {
-                    bestEntry = entry;
-                    bestFileIterator.next();
-                    bestFileIterator = fileIterator;
-                } else {
-                    fileIterator.next();
-                }
-            }
+        if (bestFileIterator != null) {
+            bestEntry = bestFileIterator.getNow();
         }
         if (nowMemorySegment != null && bestEntry != null) {
             int compared = memorySegmentComparator.compare(nowMemorySegment.key(), bestEntry.key());
@@ -124,5 +100,38 @@ public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
             }
             return ans;
         }
+    }
+
+    private FileIterator findBestFileIterator() {
+        Entry<MemorySegment> bestEntry = null;
+        FileIterator bestFileIterator = null;
+        for (FileIterator fileIterator: fileIteratorQueue) {
+            if (!fileIterator.hasNow()) {
+                continue;
+            }
+            Entry<MemorySegment> entry = fileIterator.getNow();
+            if (keyTo != null && memorySegmentComparator.compare(entry.key(), keyTo) >= 0) {
+                continue;
+            }
+            if (bestEntry == null) {
+                bestEntry = entry;
+                bestFileIterator = fileIterator;
+                continue;
+            }
+            int compared = memorySegmentComparator.compare(entry.key(), bestEntry.key());
+            if (compared < 0) {
+                bestEntry = entry;
+                bestFileIterator = fileIterator;
+            } else if (compared == 0) {
+                if (fileIteratorComparator.compare(bestFileIterator, fileIterator) < 0) {
+                    bestEntry = entry;
+                    bestFileIterator.next();
+                    bestFileIterator = fileIterator;
+                } else {
+                    fileIterator.next();
+                }
+            }
+        }
+        return bestFileIterator;
     }
 }
