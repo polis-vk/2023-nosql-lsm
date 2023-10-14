@@ -1,13 +1,10 @@
 package ru.vk.itmo.test.emelyanovvitaliy;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
-import javax.xml.stream.events.EntityReference;
 import java.lang.foreign.MemorySegment;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.NoSuchElementException;
 import java.util.Queue;
 
 public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
@@ -17,7 +14,7 @@ public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
 
     private Entry<MemorySegment> nowMemorySegment = null;
     private Entry<MemorySegment> storedEntry = null;
-    private MemorySegment keyTo = null;
+    private final MemorySegment keyTo;
 
     public FileMergeIterator(
             Comparator<MemorySegment> memorySegmentComparator,
@@ -49,11 +46,10 @@ public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> next() {
-        Entry<MemorySegment> ans = null;
+        Entry<MemorySegment> ans;
         if (storedEntry != null) {
             ans = storedEntry;
             storedEntry = null;
-            return ans;
         } else {
             ans = requireNext();
         }
@@ -61,7 +57,7 @@ public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private Entry<MemorySegment> requireNext() {
-        Entry<MemorySegment> entry = null;
+        Entry<MemorySegment> entry;
         do {
             entry = privateNext();
         } while (entry != null && entry.value() == null);
@@ -89,7 +85,10 @@ public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
                 bestEntry = entry;
                 bestFileIterator = fileIterator;
             } else if (compared == 0) {
-                if (fileIterator.getTimestamp() > bestFileIterator.getTimestamp()) {
+                if (fileIterator.getTimestamp() > bestFileIterator.getTimestamp() ||
+                        (fileIterator.getTimestamp() == bestFileIterator.getTimestamp() &&
+                                fileIterator.getRuntimeTimestamp() > bestFileIterator.getRuntimeTimestamp())
+                ) {
                     bestEntry = entry;
                     bestFileIterator.next();
                     bestFileIterator = fileIterator;

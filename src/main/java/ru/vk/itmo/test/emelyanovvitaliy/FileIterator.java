@@ -15,19 +15,16 @@ import java.util.Comparator;
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 
 public class FileIterator {
-    private final Path filePath;
-    private final FileChannel fc;
     private final MemorySegment mapped;
-    private final Arena arena;
     private final Comparator<MemorySegment> comparator;
-    private long nowKeyAddressOffset = Integer.BYTES + Long.BYTES;
+    private long nowKeyAddressOffset = Integer.BYTES + 2*Long.BYTES;
     private int numOfKeys = -1;
     private long timestamp = -1;
+    private long runtimeTimestamp = -1;
 
     public FileIterator(Path filePath, Comparator<MemorySegment> comparator) throws IOException {
-        this.filePath = filePath;
-        this.fc = FileChannel.open(filePath, StandardOpenOption.READ);
-        this.arena = Arena.ofShared();
+        FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ);
+        Arena arena = Arena.ofShared();
         this.mapped = fc.map(READ_ONLY, 0, fc.size(), arena);
         this.comparator = comparator;
     }
@@ -78,13 +75,9 @@ public class FileIterator {
         return nowKeyAddressOffset < getAddressOffset(getNumOfKeys());
     }
 
-    public Path getFilePath() {
-        return filePath;
-    }
-
     public int getNumOfKeys() {
         if (numOfKeys == -1) {
-            numOfKeys = mapped.get(ValueLayout.JAVA_INT_UNALIGNED, Long.BYTES);
+            numOfKeys = mapped.get(ValueLayout.JAVA_INT_UNALIGNED, 2*Long.BYTES);
         }
         return numOfKeys;
     }
@@ -96,19 +89,15 @@ public class FileIterator {
         return timestamp;
     }
 
-    public MemorySegment getNextNonDeletedKey() {
-        long keyAddrOffset = nowKeyAddressOffset;
-        if (keyAddrOffset < getAddressOffset(getNumOfKeys())) {
-            Entry<MemorySegment> entry = getEntryByAddressOffset(keyAddrOffset);
-            if (entry != null && entry.value() != null) {
-                return entry.key();
-            }
+    public long getRuntimeTimestamp() {
+        if (runtimeTimestamp == -1) {
+            runtimeTimestamp = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES);
         }
-        return null;
+        return runtimeTimestamp;
     }
 
     private static long getAddressOffset(int n) {
-        return Integer.BYTES + (2L * n + 1) * Long.BYTES;
+        return Integer.BYTES + (2L * n + 2) * Long.BYTES;
     }
 
 
@@ -140,9 +129,4 @@ public class FileIterator {
             );
         }
     }
-
-    public static void main(String[] args) {
-        System.out.println("Hello, world!");
-    }
-
 }

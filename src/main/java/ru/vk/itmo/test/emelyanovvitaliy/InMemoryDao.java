@@ -10,8 +10,10 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.time.Instant;
-import java.util.*;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
@@ -19,7 +21,6 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    public static final String FILENAME = "sstable.save";
     private final Path sstablesPath;
     private final Arena arena = Arena.ofShared();
     private final Set<Path> filesSet = new ConcurrentSkipListSet<>();
@@ -50,20 +51,22 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao(Path basePath) throws IOException {
         sstablesPath = basePath;
-        Files.walkFileTree(
-                basePath,
-                Set.of(),
-                1,
-                new SimpleFileVisitor<>() {
-                    @Override
-                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                        if (file.toString().endsWith(".sstable")) {
-                            filesSet.add(file);
+        if (Files.exists(basePath)) {
+            Files.walkFileTree(
+                    basePath,
+                    Set.of(),
+                    1,
+                    new SimpleFileVisitor<>() {
+                        @Override
+                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                            if (file.toString().endsWith(".sstable")) {
+                                filesSet.add(file);
+                            }
+                            return FileVisitResult.CONTINUE;
                         }
-                        return FileVisitResult.CONTINUE;
                     }
-                }
-        );
+            );
+        }
     }
 
     @Override
@@ -117,7 +120,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         Path filePath = sstablesPath.resolve(
-                Path.of(Long.toString(new Random().nextLong(), Character.MAX_RADIX) + ".sstable")
+                Path.of(
+                    Long.toString(System.currentTimeMillis(), Character.MAX_RADIX) +
+                    Long.toString(System.nanoTime(), Character.MAX_RADIX)   +
+                    ".sstable"
+                )
         );
         dumpToFile(filePath);
         filesSet.add(filePath);
@@ -151,22 +158,23 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 Set.of(
                         StandardOpenOption.CREATE,
                         StandardOpenOption.READ,
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.TRUNCATE_EXISTING
+                        StandardOpenOption.WRITE
                 );
         for (Entry<MemorySegment> entry : mappings.values()) {
             size += (entry.value() == null ? 0 : entry.value().byteSize()) + entry.key().byteSize();
         }
-        size += Integer.BYTES + (2L * mappings.size() + 1) * Long.BYTES;
+        size += Integer.BYTES + (2L * mappings.size() + 2) * Long.BYTES;
         try (FileChannel fc = FileChannel.open(path, openOptions); Arena writeArena = Arena.ofConfined()) {
             MemorySegment mapped = fc.map(READ_WRITE, 0, size, writeArena);
             long offset = 0;
             long offsetToWrite = 0;
-            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, Instant.now().toEpochMilli());
+            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, System.currentTimeMillis());
+            offset += Long.BYTES;
+            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, System.nanoTime());
             offset += Long.BYTES;
             mapped.set(ValueLayout.JAVA_INT_UNALIGNED, offset, mappings.size());
             offset += Integer.BYTES;
-            offsetToWrite += Integer.BYTES + (2L * mappings.size() + 1) * Long.BYTES;
+            offsetToWrite += Integer.BYTES + (2L * mappings.size() + 2) * Long.BYTES;
             for (Entry<MemorySegment> entry: mappings.values()) {
                 mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, offsetToWrite);
                 offset += Long.BYTES;
