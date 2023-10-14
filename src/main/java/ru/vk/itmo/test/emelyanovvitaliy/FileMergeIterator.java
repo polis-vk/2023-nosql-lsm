@@ -80,25 +80,25 @@ public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
                     bestFileIterator.next();
                 }
                 Entry<MemorySegment> ans = nowMemorySegment;
-                if (memoryIterator.hasNext()) {
-                    nowMemorySegment = memoryIterator.next();
-                } else {
-                    nowMemorySegment = null;
-                }
+                moveInMemorySegment();
                 return ans;
             }
         }
-        if (bestFileIterator != null) {
+        if (bestFileIterator == null) {
+            Entry<MemorySegment> ans = nowMemorySegment;
+            moveInMemorySegment();
+            return ans;
+        } else {
             bestFileIterator.next();
             return bestEntry;
+        }
+    }
+
+    private void moveInMemorySegment() {
+        if (memoryIterator.hasNext()) {
+            nowMemorySegment = memoryIterator.next();
         } else {
-            Entry<MemorySegment> ans = nowMemorySegment;
-            if (memoryIterator.hasNext()) {
-                nowMemorySegment = memoryIterator.next();
-            } else {
-                nowMemorySegment = null;
-            }
-            return ans;
+            nowMemorySegment = null;
         }
     }
 

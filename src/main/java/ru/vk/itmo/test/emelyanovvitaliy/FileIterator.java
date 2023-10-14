@@ -76,7 +76,7 @@ public class FileIterator {
 
     public int getNumOfKeys() {
         if (numOfKeys == -1) {
-            numOfKeys = mapped.get(ValueLayout.JAVA_INT_UNALIGNED, 2*Long.BYTES);
+            numOfKeys = mapped.get(ValueLayout.JAVA_INT_UNALIGNED, 2 * Long.BYTES);
         }
         return numOfKeys;
     }
@@ -98,7 +98,6 @@ public class FileIterator {
     private static long getAddressOffset(int n) {
         return Integer.BYTES + (2L * n + 2) * Long.BYTES;
     }
-
 
     private Entry<MemorySegment> getEntryByAddressOffset(long keyAddressOffset) {
         long keyOffset = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyAddressOffset);
