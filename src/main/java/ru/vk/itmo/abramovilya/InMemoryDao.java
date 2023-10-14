@@ -78,12 +78,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         long readOffset = 0;
         try {
             while (readOffset < Files.size(storagePath)) {
-                long size = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
+                long keySize = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
                 readOffset += Long.BYTES;
-                readOffset += size;
-                MemorySegment keySegment = mappedStorageFile.asSlice(readOffset, size);
+                MemorySegment keySegment = mappedStorageFile.asSlice(readOffset, keySize);
+                readOffset += keySize;
                 if (compareMemorySegments(key, keySegment) == 0) {
-                    return new BaseEntry<>(key, mappedStorageFile.asSlice(readOffset, size));
+                    long valueSize = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
+                    readOffset += Long.BYTES;
+                    return new BaseEntry<>(key, mappedStorageFile.asSlice(readOffset, valueSize));
                 }
             }
             return null;
