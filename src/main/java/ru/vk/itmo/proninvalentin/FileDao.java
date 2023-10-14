@@ -3,6 +3,8 @@ package ru.vk.itmo.proninvalentin;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.proninvalentin.iterators.FileIterator;
+import ru.vk.itmo.proninvalentin.utils.FileUtils;
+import ru.vk.itmo.proninvalentin.utils.MemorySegmentUtils;
 
 import java.io.Closeable;
 import java.io.File;
@@ -14,11 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 
 // TODO: проверить, чтобы у всех методов был package-private или другой любой минимальный модификатор доступа
 // TODO: переназвать все offsets на metadata
@@ -34,9 +32,9 @@ public class FileDao implements Closeable {
     // Tombstone бит служит для указания информации о том удалена ли запись или нет
     public static final String OFFSETS_FILENAME_PREFIX = "offsets";
     private final MemorySegmentComparator comparator;
-    // Список замапленных MS для чтения файлов со значениями
+    // Список замапленных MS для чтения файлов со значениями, начиная с самых новых файлов и заканчивая самыми старыми
     private final List<MemorySegment> readValuesStorages;
-    // Список замапленных MS для чтения файлов с метаданными
+    // Список замапленных MS для чтения файлов с метаданными, начиная с самых новых файлов и заканчивая самыми старыми
     private final List<MemorySegment> readOffsetsStorages;
     private final Arena readArena;
     private final Path basePath;
@@ -74,6 +72,8 @@ public class FileDao implements Closeable {
 
         for (File file : Arrays.stream(listOfFiles)
                 .filter(File::isFile)
+                .sorted(Comparator.comparing(File::getName))
+                .sorted(Collections.reverseOrder())
                 .toList()) {
             if (file.getName().startsWith(VALUES_FILENAME_PREFIX)) {
                 readValuesStorages.add(getReadOnlyMappedMemory(file));
@@ -148,6 +148,7 @@ public class FileDao implements Closeable {
         }
     }
 
+    // Получить список итераторов по файлам. Ближе к началу находятся итераторы с более свежими данными
     public List<Iterator<Entry<MemorySegment>>> getFilesIterators(MemorySegment from,
                                                                   MemorySegment to) throws IOException {
         List<Iterator<Entry<MemorySegment>>> filesIterators = new ArrayList<>(readValuesStorages.size());

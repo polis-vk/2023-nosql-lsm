@@ -1,4 +1,4 @@
-package ru.vk.itmo.proninvalentin;
+package ru.vk.itmo.proninvalentin.utils;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -19,7 +19,7 @@ public class FileUtils {
 
         List<String> fileNames = filesWithPrefix.stream().map(File::getName).toList();
         String fileWithMaxIndex = Collections.max(fileNames);
-        fileIndex = parseIndexFromFileName(fileWithMaxIndex, filePrefix)/* + 1*/;
+        fileIndex = parseIndexFromFileName(fileWithMaxIndex, filePrefix) + 1;
         return filePrefix + fileIndex;
     }
 

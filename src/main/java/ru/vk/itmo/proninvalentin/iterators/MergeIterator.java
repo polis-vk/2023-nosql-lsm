@@ -1,52 +1,93 @@
 package ru.vk.itmo.proninvalentin.iterators;
 
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.test.proninvalentin.DaoFactoryImpl;
 
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.Stream;
 
 public class MergeIterator {
+    static class Pair {
+        public final int index;
+        public Entry<MemorySegment> value;
+
+        public Pair(int index, Entry<MemorySegment> value) {
+            this.index = index;
+            this.value = value;
+        }
+    }
+
     public static Iterator<Entry<MemorySegment>> create(Iterator<Entry<MemorySegment>> memoryIterator,
                                                         List<Iterator<Entry<MemorySegment>>> filesIterators,
                                                         Comparator<MemorySegment> comparator) {
-        return new Iterator<>() {
+        List<Iterator<Entry<MemorySegment>>> iterators = Stream
+                .concat(Stream.of(memoryIterator), filesIterators.stream())
+                .filter(Iterator::hasNext)
+                .toList();
 
-            Entry<MemorySegment> lastEntry;
-            // Последнее Entry итератора для памяти
-            Entry<MemorySegment> lastMemoryItEntry;
-            // Список последних Entry у каждолго итератора для файла
-            final List<Entry<MemorySegment>> lastFilesItEntry = new ArrayList<>(filesIterators.size());
+        Comparator<Pair> pairComparator = Comparator.comparing(p -> p.value == null ? null : p.value.key(), comparator);
+        pairComparator = pairComparator.thenComparing(p -> p.index);
+
+        // Инициализируем текущий Entry у каждого итератора как null
+        List<Pair> curItEntries = new ArrayList<>(iterators.size());
+        for (int i = 0; i < iterators.size(); i++) {
+            curItEntries.add(new Pair(i, null));
+        }
+
+        Comparator<Pair> finalPairComparator = pairComparator;
+        return new Iterator<>() {
+            // Последнее отданное Entry
+            Entry<MemorySegment> lastGivenEntry;
 
             @Override
             public boolean hasNext() {
-                // Проверяем есть ли хотя бы один итератор с hasNext
-
-                return memoryIterator.hasNext() /*|| filesIterators.stream().anyMatch(Iterator::hasNext)*/;
+                // Проверяем есть ли хотя бы один итератор с hasNext или значение, которое мы не обработали
+                return iterators.stream().anyMatch(Iterator::hasNext)
+                        || curItEntries.stream().anyMatch(e -> e.value != null);
             }
 
             @Override
             public Entry<MemorySegment> next() {
-                /*if (memoryIterator.hasNext()) {
-                    lastMemoryItEntry = memoryIterator.next();
+                // Двигаем вперед если hasNext == true и текущее значение равно последнему найденному
+                for (int i = 0; i < iterators.size(); i++) {
+                    Iterator<Entry<MemorySegment>> it = iterators.get(i);
+                    var curItEntry = curItEntries.get(i);
+                    var curItEntryEqualWithLastGivenEntry = curItEntry.value != null
+                            && comparator.compare(curItEntry.value.key(), lastGivenEntry.key()) == 0;
+                    if (lastGivenEntry == null || curItEntryEqualWithLastGivenEntry) {
+                        curItEntry.value = !it.hasNext() ? null : it.next();
+                    }
                 }
-
-                for (int i = 0; i < lastFilesItEntry.size(); i++) {
-                    if (comparator.compare(lastFilesItEntry.get(i).key(), lastMemoryItEntry.key()) == 0) {
-                        if (filesIterators.get(i).hasNext()) {
-                            lastFilesItEntry.set(i, filesIterators.get(i).next());
+                var t = curItEntries.stream().map(c -> {
+                    if (c.value == null) {
+                        return "Empty";
+                    }
+                    return new DaoFactoryImpl().toString(c.value.key());
+                }).toList();
+                System.out.println(t);
+                lastGivenEntry = curItEntries.stream().sorted(finalPairComparator).toList().getFirst().value;
+                if (lastGivenEntry != null) {
+                    for (var curItEntry : curItEntries) {
+                        if (curItEntry != null && curItEntry.value != null
+                                && comparator.compare(curItEntry.value.key(), lastGivenEntry.key()) == 0) {
+                            curItEntry.value = null;
                         }
                     }
-                }*/
-                // По алгоритму берем нужный нам итератор
-                return memoryIterator.next();
+                }
+
+                var lastGivenEntryOutput = lastGivenEntry == null || lastGivenEntry.key() == null ? "Empty" : new DaoFactoryImpl().toString(lastGivenEntry.key());
+                System.out.println("Last given entry: " + lastGivenEntryOutput);
+
+                return lastGivenEntry;
             }
         };
     }
-
     /*
+     get(k2, k6)
      Пример: у нас есть три файла со следующим содержимым
      |k1 k2| |k0 k2 k4| |k1 k3|
      И данные в буфере

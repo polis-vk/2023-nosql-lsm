@@ -1,7 +1,8 @@
-package ru.vk.itmo.proninvalentin;
+package ru.vk.itmo.proninvalentin.utils;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.proninvalentin.Metadata;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -99,7 +100,7 @@ public class MemorySegmentUtils {
         }
 
         // Если найденный ключ оказался меньше нужного, то мы говорим, что ничего не нашли
-        long keySizeOffset = offsetsStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, l * Long.BYTES);
+        long keySizeOffset = offsetsStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, l * Metadata.SIZE);
         MemorySegment key = getBySizeOffset(valuesStorage, keySizeOffset);
         if (key != null && comparator.compare(key, desiredKey) < 0) {
             return -1;

@@ -1,7 +1,8 @@
 package ru.vk.itmo.proninvalentin.iterators;
 
+import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.proninvalentin.MemorySegmentUtils;
+import ru.vk.itmo.proninvalentin.utils.MemorySegmentUtils;
 import ru.vk.itmo.proninvalentin.Metadata;
 
 import java.lang.foreign.MemorySegment;
@@ -28,16 +29,18 @@ public class FileIterator {
         return new Iterator<>() {
             private long curIndex = finalEntryOffset == 0 ? 0 : finalEntryOffset / Metadata.SIZE;
             private final long valuesCount = metadataFileSize / Metadata.SIZE;
-            private final MemorySegment toKey = to.asSlice(0, Metadata.SIZE);
+            private final MemorySegment toKey = to == null ? null : to.asSlice(0, Metadata.SIZE);
 
             @Override
             public boolean hasNext() {
                 // Смотрим не дошли ли мы до конца, либо не является ли текущая запись последней перед toKey
                 if (curIndex + 1 < valuesCount) {
-                    var key = MemorySegmentUtils.getKeyByIndex(readValuesMS,
-                            readOffsetsMS,
-                            curIndex + 1);
-                    return comparator.compare(key, toKey) < 0;
+                    var key = MemorySegmentUtils.getKeyByIndex(readValuesMS, readOffsetsMS, curIndex + 1);
+                    if (toKey == null) {
+                        return true;
+                    } else {
+                        return comparator.compare(key, toKey) < 0;
+                    }
                 } else {
                     return false;
                 }
@@ -45,8 +48,15 @@ public class FileIterator {
 
             @Override
             public Entry<MemorySegment> next() {
-                curIndex++;
-                return MemorySegmentUtils.getEntryByIndex(readValuesMS, readOffsetsMS, curIndex + 1);
+                if (!hasNext()) {
+                    return null;
+                }
+
+                Metadata metadata = MemorySegmentUtils.getMetadataByIndex(readValuesMS, ++curIndex);
+                BaseEntry<MemorySegment> entry = MemorySegmentUtils.getEntryByIndex(
+                        readValuesMS,
+                        readOffsetsMS, curIndex);
+                return metadata.isDeleted ? null : entry;
             }
         };
     }
