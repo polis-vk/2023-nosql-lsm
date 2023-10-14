@@ -1,8 +1,8 @@
 package ru.vk.itmo.proninvalentin.iterators;
 
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.proninvalentin.Constants;
 import ru.vk.itmo.proninvalentin.MemorySegmentUtils;
+import ru.vk.itmo.proninvalentin.Metadata;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Collections;
@@ -26,9 +26,9 @@ public class FileIterator {
 
         long finalEntryOffset = entryOffset;
         return new Iterator<>() {
-            private long curIndex = finalEntryOffset == 0 ? 0 : finalEntryOffset / Constants.METADATA_SIZE;
-            private final long valuesCount = metadataFileSize / Constants.METADATA_SIZE;
-            private final MemorySegment toKey = to.asSlice(0, Constants.METADATA_SIZE);
+            private long curIndex = finalEntryOffset == 0 ? 0 : finalEntryOffset / Metadata.SIZE;
+            private final long valuesCount = metadataFileSize / Metadata.SIZE;
+            private final MemorySegment toKey = to.asSlice(0, Metadata.SIZE);
 
             @Override
             public boolean hasNext() {

@@ -4,25 +4,42 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 
 public class MergeIterator {
     public static Iterator<Entry<MemorySegment>> create(Iterator<Entry<MemorySegment>> memoryIterator,
-                                                        List<Iterator<Entry<MemorySegment>>> filesIterators) {
+                                                        List<Iterator<Entry<MemorySegment>>> filesIterators,
+                                                        Comparator<MemorySegment> comparator) {
         return new Iterator<>() {
-            Entry<MemorySegment> curMemoryItValue;
-            // List<Entry<MemorySegment>> curFilesItValues = new ArrayList<>(filesIterators.size());
+
+            Entry<MemorySegment> lastEntry;
+            // Последнее Entry итератора для памяти
+            Entry<MemorySegment> lastMemoryItEntry;
+            // Список последних Entry у каждолго итератора для файла
+            final List<Entry<MemorySegment>> lastFilesItEntry = new ArrayList<>(filesIterators.size());
 
             @Override
             public boolean hasNext() {
                 // Проверяем есть ли хотя бы один итератор с hasNext
+
                 return memoryIterator.hasNext() /*|| filesIterators.stream().anyMatch(Iterator::hasNext)*/;
             }
 
             @Override
             public Entry<MemorySegment> next() {
-//                curMemoryItValue = memoryIterator.next();
+                /*if (memoryIterator.hasNext()) {
+                    lastMemoryItEntry = memoryIterator.next();
+                }
+
+                for (int i = 0; i < lastFilesItEntry.size(); i++) {
+                    if (comparator.compare(lastFilesItEntry.get(i).key(), lastMemoryItEntry.key()) == 0) {
+                        if (filesIterators.get(i).hasNext()) {
+                            lastFilesItEntry.set(i, filesIterators.get(i).next());
+                        }
+                    }
+                }*/
                 // По алгоритму берем нужный нам итератор
                 return memoryIterator.next();
             }

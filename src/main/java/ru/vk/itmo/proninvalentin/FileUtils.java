@@ -1,16 +1,14 @@
 package ru.vk.itmo.proninvalentin;
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.stream.Stream;
 
 public class FileUtils {
-    public static String getNewFileName(Path filePath, String filePrefix) throws IOException {
+    public static String getNewFileName(Path filePath, String filePrefix) {
         List<File> filesWithPrefix = getAllFilesWithPrefix(filePath, filePrefix);
 
         // Если файлов в директории с таким префиксом нету, значит новый файл будет с индексом 1;
@@ -25,17 +23,25 @@ public class FileUtils {
         return filePrefix + fileIndex;
     }
 
-    public static List<File> getAllFilesWithPrefix(Path path, String filePrefix) throws IOException {
+    public static List<File> getAllFilesWithPrefix(Path path, String filePrefix) {
         if (Files.notExists(path)) {
             return new ArrayList<>();
         }
 
-        try (Stream<Path> stream = Files.list(path)) {
-            return stream
-                    .filter(filePath -> !Files.isDirectory(filePath) && filePath.getFileName().startsWith(filePrefix))
-                    .map(Path::toFile)
-                    .toList();
+        File folder = new File(path.toUri());
+        File[] listOfFiles = folder.listFiles();
+        if (listOfFiles == null) {
+            return new ArrayList<>();
         }
+
+        List<File> filesWithPrefix = new ArrayList<>();
+        for (File file : listOfFiles) {
+            if (file.isFile() && file.getName().startsWith(filePrefix)) {
+                filesWithPrefix.add(file);
+            }
+        }
+
+        return filesWithPrefix;
     }
 
     public static int parseIndexFromFileName(String fileName, String prefix) {

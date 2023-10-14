@@ -36,7 +36,10 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (fileDao != null) {
             try {
-                return MergeIterator.create(inMemoryDao.get(from, to), fileDao.getFilesIterators(from, to));
+                return MergeIterator.create(
+                        inMemoryDao.get(from, to),
+                        fileDao.getFilesIterators(from, to),
+                        new MemorySegmentComparator());
             } catch (IOException e) {
                 return inMemoryDao.get(from, to);
             }
