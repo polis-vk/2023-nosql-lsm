@@ -17,18 +17,16 @@ import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.stream.Collectors;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(InMemoryDao::compareMemorySegments);
     private final Path storagePath;
     private final Arena arena = Arena.ofShared();
-    private long readOffset;
-    private long writeOffset;
     private final String sstableBaseName = "storage";
     private final String indexBaseName = "index";
     private final Path metaFilePath;
+
 
     public InMemoryDao(Config config) {
         storagePath = config.basePath();
@@ -90,13 +88,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!Files.exists(filePath)) {
             return null;
         }
-        readOffset = 0;
+        long readOffset = 0;
         try (FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
             MemorySegment mapped = fc.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(filePath), arena);
             while (readOffset < Files.size(filePath)) {
-                MemorySegment keySegment = getMemorySegment(mapped);
+                long size = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
+                readOffset += Long.BYTES;
+                MemorySegment keySegment = mapped.asSlice(readOffset, size);;
+                readOffset += size;
                 if (compareMemorySegments(key, keySegment) == 0) {
-                    return new BaseEntry<>(key, getMemorySegment(mapped));
+                    size = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
+                    readOffset += Long.BYTES;
+                    return new BaseEntry<>(key, mapped.asSlice(readOffset, size));
                 }
             }
             return null;
@@ -105,13 +108,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private MemorySegment getMemorySegment(MemorySegment mappedMemory) throws IOException {
-        long size = mappedMemory.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
-        readOffset += Long.BYTES;
-        MemorySegment memorySegment = mappedMemory.asSlice(readOffset, size);
-        readOffset += size;
-        return memorySegment;
-    }
 
     @Override
     public void flush() throws IOException {
@@ -135,13 +131,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private void writeMapIntoFile() throws IOException {
         int currSStableNum = getTotalSStables() + 1;
         Path sstablePath = storagePath.resolve(sstableBaseName + currSStableNum);
+        Path indexPath = sstablePath.resolve(indexBaseName + currSStableNum);
 
         writeOffset = 0;
         try (var storageChannel = FileChannel.open(sstablePath,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE);
-             var indexChannel = FileChannel.open(sstablePath,
+             var indexChannel = FileChannel.open(indexPath,
                      StandardOpenOption.READ,
                      StandardOpenOption.WRITE,
                      StandardOpenOption.CREATE);
@@ -162,6 +159,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return Integer.parseInt(Files.readString(metaFilePath));
 //        return 0;
     }
+
     private long calcIndexByteSizeInFile() {
         return map.keySet().stream().mapToLong(k -> k.byteSize() + Long.BYTES).sum();
     }
