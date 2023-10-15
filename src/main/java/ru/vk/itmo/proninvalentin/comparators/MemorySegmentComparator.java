@@ -1,4 +1,4 @@
-package ru.vk.itmo.proninvalentin;
+package ru.vk.itmo.proninvalentin.comparators;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;

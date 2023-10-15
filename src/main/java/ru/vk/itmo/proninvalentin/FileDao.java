@@ -2,9 +2,12 @@ package ru.vk.itmo.proninvalentin;
 
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.proninvalentin.comparators.CreateAtTimeComparator;
+import ru.vk.itmo.proninvalentin.comparators.MemorySegmentComparator;
 import ru.vk.itmo.proninvalentin.iterators.FileIterator;
 import ru.vk.itmo.proninvalentin.utils.FileUtils;
 import ru.vk.itmo.proninvalentin.utils.MemorySegmentUtils;
+import ru.vk.itmo.test.proninvalentin.DaoFactoryImpl;
 
 import java.io.Closeable;
 import java.io.File;
@@ -73,6 +76,7 @@ public class FileDao implements Closeable {
 
         for (File file : Arrays.stream(listOfFiles)
                 .filter(File::isFile)
+                .sorted(Comparator.comparing(x -> FileUtils.parseIndexFromFileName(x.getName())))
                 .toList()) {
             if (file.getName().startsWith(VALUES_FILENAME_PREFIX)) {
                 readValuesStorages.add(getReadOnlyMappedMemory(file));
@@ -98,16 +102,26 @@ public class FileDao implements Closeable {
 
     // Найти указанный ключ во всех файлах со значениями
     Entry<MemorySegment> read(MemorySegment msKey) {
+        List<EnrichedEntry> entries = new ArrayList<>();
         for (int i = 0; i < readValuesStorages.size(); i++) {
-            var readValuesMS = readValuesStorages.get(i);
-            var readOffsetsMS = readOffsetsStorages.get(i);
+            MemorySegment readValuesMS = readValuesStorages.get(i);
+            MemorySegment readOffsetsMS = readOffsetsStorages.get(i);
+
             long valueIndex = MemorySegmentUtils.binarySearch(readValuesMS, readOffsetsMS, msKey, comparator);
             if (valueIndex != -1) {
-                return MemorySegmentUtils.getEntryByIndex(readValuesMS, readOffsetsMS, valueIndex);
+                entries.add(new EnrichedEntry(
+                        MemorySegmentUtils.getMetadataByIndex(readOffsetsMS, valueIndex),
+                        MemorySegmentUtils.getEntryByIndex(readValuesMS, readOffsetsMS, valueIndex)));
             }
         }
 
-        return null;
+        if (entries.isEmpty()) {
+            return null;
+        } else {
+            Comparator<EnrichedEntry> comparator = Comparator.comparing(x ->
+                    x.metadata.createdAt, new CreateAtTimeComparator());
+            return entries.stream().sorted(comparator).toList().getFirst().entry;
+        }
     }
 
     // Пройтись по всем парам замапленных MS и создать для каждого итератор
@@ -143,6 +157,9 @@ public class FileDao implements Closeable {
                             valueOffset, entry.value() == null, createdAt,
                             offsetsStorage, metadataOffset);
                     valueOffset = MemorySegmentUtils.writeEntry(entry, valuesStorage, valueOffset);
+                    System.out.println(createdAt);
+                    System.out.println(new DaoFactoryImpl().toString(entry.key()) + ":" + new DaoFactoryImpl().toString(entry.value()));
+                    System.out.println("-----");
                 }
             }
         }
@@ -154,6 +171,11 @@ public class FileDao implements Closeable {
         List<Iterator<EnrichedEntry>> filesIterators = new ArrayList<>(readValuesStorages.size());
 
         for (int i = 0; i < readValuesStorages.size(); i++) {
+            var entry = MemorySegmentUtils.getEntryByIndex(readValuesStorages.get(i), readOffsetsStorages.get(i), 0);
+            var firstValue = new DaoFactoryImpl().toString(entry.value());
+            var createdAt = MemorySegmentUtils.getMetadataByIndex(readOffsetsStorages.get(i), 0).createdAt;
+            var fileName = metadataFiles.get(i).getName();
+            System.out.println("Entry: " + firstValue + "|CreatedAt: " + createdAt + "|Filename: " + fileName);
             filesIterators.add(FileIterator.create(
                     readValuesStorages.get(i),
                     readOffsetsStorages.get(i),

@@ -4,23 +4,18 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 public class FileUtils {
     public static String getNewFileName(Path filePath, String filePrefix) {
-        List<File> filesWithPrefix = getAllFilesWithPrefix(filePath, filePrefix);
-
-        // Если файлов в директории с таким префиксом нету, значит новый файл будет с индексом 1;
-        int fileIndex = 1;
-        if (filesWithPrefix.isEmpty()) {
-            return filePrefix + fileIndex;
+        // Если файлов в директории с таким префиксом нету, значит новый файл будет с индексом 0;
+        int fileIndex = -1;
+        for (File file : getAllFilesWithPrefix(filePath, filePrefix)) {
+            String fileName = file.getName();
+            fileIndex = Math.max(parseIndexFromFileName(fileName), fileIndex);
         }
 
-        List<String> fileNames = filesWithPrefix.stream().map(File::getName).toList();
-        String fileWithMaxIndex = Collections.max(fileNames);
-        fileIndex = parseIndexFromFileName(fileWithMaxIndex, filePrefix) + 1;
-        return filePrefix + fileIndex;
+        return filePrefix + (fileIndex + 1);
     }
 
     public static List<File> getAllFilesWithPrefix(Path path, String filePrefix) {
@@ -44,12 +39,11 @@ public class FileUtils {
         return filesWithPrefix;
     }
 
-    public static int parseIndexFromFileName(String fileName, String prefix) {
-        int startIndex = prefix.length();
-        String indexString = fileName.substring(startIndex);
-        if (indexString.isEmpty()) {
-            indexString = "0";
+    public static int parseIndexFromFileName(String fileName) {
+        int i = fileName.length();
+        while (i > 0 && Character.isDigit(fileName.charAt(i - 1))) {
+            i--;
         }
-        return Integer.parseInt(indexString);
+        return Integer.parseInt(fileName.substring(i));
     }
 }

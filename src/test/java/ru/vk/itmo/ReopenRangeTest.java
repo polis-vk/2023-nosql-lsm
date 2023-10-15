@@ -149,8 +149,8 @@ public class ReopenRangeTest extends BaseTest {
 
     @DaoTest(stage = 3)
     void testManyFiles(Dao<String, Entry<String>> dao) throws IOException {
-        int entriesPerFile = 1;
-        int numberOfFiles = 10;
+        int entriesPerFile = 1000;
+        int numberOfFiles = 20;
         List<Entry<String>> entries;
         for (int i = 0; i < numberOfFiles / 2; i++) {
             entries = entries("k", "old", entriesPerFile, i * entriesPerFile);

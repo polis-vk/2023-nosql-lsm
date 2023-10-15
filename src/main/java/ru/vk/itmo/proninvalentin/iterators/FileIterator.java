@@ -13,33 +13,43 @@ import java.util.Iterator;
 
 public class FileIterator {
     public static Iterator<EnrichedEntry> create(MemorySegment readValuesMS,
-                                                  MemorySegment readOffsetsMS,
-                                                  MemorySegment from,
-                                                  MemorySegment to,
-                                                  Comparator<MemorySegment> comparator,
-                                                  long metadataFileSize) {
-        long entryIndex = 0;
+                                                 MemorySegment readOffsetsMS,
+                                                 MemorySegment from,
+                                                 MemorySegment to,
+                                                 Comparator<MemorySegment> comparator,
+                                                 long metadataFileSize) {
+        long startIndex = 0;
         if (from != null) {
-            entryIndex = MemorySegmentUtils.leftBinarySearch(readValuesMS, readOffsetsMS, from, comparator);
-            if (entryIndex == -1) {
+            startIndex = MemorySegmentUtils.leftBinarySearch(readValuesMS, readOffsetsMS, from, comparator);
+            if (startIndex == -1) {
                 return Collections.emptyIterator();
             }
         }
 
-        long finalEntryIndex = entryIndex;
+        long endIndex;
+        if (to != null) {
+            endIndex = MemorySegmentUtils.leftBinarySearch(readValuesMS, readOffsetsMS, to, comparator);
+            if (endIndex == -1) {
+                endIndex = metadataFileSize / Metadata.SIZE;
+            }
+        } else {
+            endIndex = metadataFileSize / Metadata.SIZE;
+        }
+
+        long finalStartIndex = startIndex;
+        long finalEndIndex = endIndex;
         return new Iterator<>() {
-            private long curIndex = finalEntryIndex;
-            private final long valuesCount = metadataFileSize / Metadata.SIZE;
+            private long curIndex = finalStartIndex;
 
             @Override
             public boolean hasNext() {
-                // Смотрим не дошли ли мы до конца, либо не является ли текущая запись последней перед toKey
-                if (curIndex < valuesCount) {
-                    var key = MemorySegmentUtils.getKeyByIndex(readValuesMS, readOffsetsMS, curIndex);
-                    return comparator.compare(key, to) < 0;
-                } else {
-                    return false;
+                /*// Пропускаем все удаленные Entry
+                while (curIndex < finalEndIndex
+                        && MemorySegmentUtils.getMetadataByIndex(readOffsetsMS, curIndex).isDeleted) {
+                    curIndex++;
                 }
+                // Смотрим не дошли ли мы до конца, либо не является ли текущая запись последней перед toKey*/
+                return curIndex < finalEndIndex;
             }
 
             @Override

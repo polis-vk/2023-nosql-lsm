@@ -39,7 +39,6 @@ public class MemorySegmentUtils {
         return getBySizeOffset(readValuesMS, keySizeOffset);
     }
 
-    // Возвращает значение Tombstone бита
     public static Metadata getMetadataByIndex(MemorySegment readOffsetsMS,
                                               long index) {
         long entryOffset = index * Metadata.SIZE;
@@ -94,7 +93,7 @@ public class MemorySegmentUtils {
             long keySizeOffset = offsetsStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Metadata.SIZE);
             MemorySegment key = getBySizeOffset(valuesStorage, keySizeOffset);
 
-            if (comparator.compare(key, desiredKey) == 0) {
+            if (comparator.compare(key, desiredKey) == 0 && !getMetadataByIndex(offsetsStorage, m).isDeleted) {
                 return m;
             } else if (comparator.compare(key, desiredKey) < 0) {
                 l = m + 1;

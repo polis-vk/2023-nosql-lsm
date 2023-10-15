@@ -2,6 +2,7 @@ package ru.vk.itmo.proninvalentin.iterators;
 
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.proninvalentin.EnrichedEntry;
+import ru.vk.itmo.proninvalentin.comparators.CreateAtTimeComparator;
 import ru.vk.itmo.test.proninvalentin.DaoFactoryImpl;
 
 import java.lang.foreign.MemorySegment;
@@ -25,17 +26,8 @@ public class MergeIterator {
 
         // Наш компаратор сначало сортирует значения итераторов по ключу Entry
         Comparator<EnrichedEntry> pairComparator = Comparator.comparing(p -> p.entry.key(), comparator);
-        Comparator<Long> createdAtTimeComparator = Comparator.comparing(p -> p, (num1, num2) -> {
-            var subtraction = num2 - num1;
-            if (subtraction < 0) {
-                return -1;
-            } else if (subtraction > 0) {
-                return 1;
-            } else {
-                return 0;
-            }
-        });
         // Затем по времени создания Entry
+        Comparator<Long> createdAtTimeComparator = Comparator.comparing(p -> p, new CreateAtTimeComparator());
         pairComparator = pairComparator.thenComparing(p -> p.metadata.createdAt, createdAtTimeComparator);
         Comparator<EnrichedEntry> finalPairComparator = pairComparator;
         return new Iterator<>() {
@@ -53,7 +45,7 @@ public class MergeIterator {
             public Entry<MemorySegment> next() {
                 boolean writeToConsole = false;
                 if (writeToConsole) {
-                    var t = curItEntries.stream().map(c -> {
+                    var t = curItEntries.stream().filter(Objects::nonNull).sorted(finalPairComparator).map(c -> {
                         if (c == null || c.entry == null) {
                             return "Empty";
                         }
@@ -68,15 +60,15 @@ public class MergeIterator {
                         return ckey + ":" + cvalue;
                     }).toList();
                     System.out.println(t);
-                    var bb = curItEntries.stream().filter(Objects::nonNull).sorted(finalPairComparator).toList();
-                    System.out.println(bb);
+//                    var bb = curItEntries.stream().filter(Objects::nonNull).sorted(finalPairComparator).toList();
+//                    System.out.println(bb == null ? "--" : "__");
                 }
                 lastGivenEntry = curItEntries.stream().filter(Objects::nonNull).sorted(finalPairComparator).toList().getFirst().entry;
                 if (writeToConsole) {
                     var lastGivenEntryKeyOutput = lastGivenEntry == null || lastGivenEntry.key() == null ? "Empty" : new DaoFactoryImpl().toString(lastGivenEntry.key());
                     System.out.println("Last given entry key: " + lastGivenEntryKeyOutput);
                     var lastGivenEntryValueOutput = lastGivenEntry == null || lastGivenEntry.value() == null ? "Empty" : new DaoFactoryImpl().toString(lastGivenEntry.value());
-                    System.out.println("Last given entry key: " + lastGivenEntryValueOutput);
+                    System.out.println("Last given entry value: " + lastGivenEntryValueOutput);
                 }
                 // Двигаем вперед если hasNext == true и текущее значение равно последнему найденному
                 for (int i = 0; i < iterators.size(); i++) {

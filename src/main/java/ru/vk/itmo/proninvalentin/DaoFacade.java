@@ -3,6 +3,7 @@ package ru.vk.itmo.proninvalentin;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.proninvalentin.comparators.MemorySegmentComparator;
 import ru.vk.itmo.proninvalentin.iterators.MergeIterator;
 
 import java.io.IOException;
