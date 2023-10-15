@@ -1,7 +1,7 @@
 package ru.vk.itmo.novichkovandrew.table;
 
-import ru.vk.itmo.BaseEntry;
-import ru.vk.itmo.Entry;
+import ru.vk.itmo.novichkovandrew.Cell;
+import ru.vk.itmo.novichkovandrew.MemorySegmentCell;
 import ru.vk.itmo.novichkovandrew.Utils;
 import ru.vk.itmo.novichkovandrew.iterator.PeekTableIterator;
 
@@ -62,23 +62,14 @@ public class SortedStringTableMap implements TableMap<MemorySegment, MemorySegme
 
 
     @Override
-    public Entry<MemorySegment> getEntry(MemorySegment key) {
+    public Cell<MemorySegment> getCell(MemorySegment key) {
         int index = binarySearch(key);
-        long valueOffset = getValueOffset(index);
-        long nextKeyOffset = getKeyOffset(index + 1);
-        FileChannel.MapMode mode = FileChannel.MapMode.READ_ONLY;
-        try {
-            MemorySegment rawKey = getKeyByIndex(index);
-            if (comparator.compare(rawKey, key) != 0) {
-                return null;
-            }
-            MemorySegment value = sstChannel.map(mode, valueOffset, nextKeyOffset - valueOffset, arena);
-            return new BaseEntry<>(rawKey, value);
-        } catch (IOException ex) {
-            throw new RuntimeException(
-                    String.format("Couldn't map file from channel %s: %s", sstChannel, ex.getMessage())
-            );
+        MemorySegment rawKey = getKeyByIndex(index);
+        if (comparator.compare(rawKey, key) != 0) {
+            return null;
         }
+        MemorySegment value = getValueByIndex(index);
+        return new MemorySegmentCell(rawKey, value);
     }
 
 
@@ -88,7 +79,7 @@ public class SortedStringTableMap implements TableMap<MemorySegment, MemorySegme
     }
 
     @Override
-    public PeekTableIterator<MemorySegment> iterator(MemorySegment from, MemorySegment to) {
+    public PeekTableIterator<MemorySegment> keyIterator(MemorySegment from, MemorySegment to) {
         Iterator<MemorySegment> iterator = new Iterator<>() {
             int index = binarySearch(from);
             MemorySegment current = getIfRanged(index);
@@ -106,10 +97,10 @@ public class SortedStringTableMap implements TableMap<MemorySegment, MemorySegme
 
             @Override
             public MemorySegment next() {
-                MemorySegment value = current;
+                MemorySegment key = current;
                 index++;
                 current = getIfRanged(index);
-                return value;
+                return key;
             }
         };
         return new PeekTableIterator<>(iterator, sstNumber);
@@ -119,9 +110,25 @@ public class SortedStringTableMap implements TableMap<MemorySegment, MemorySegme
     private MemorySegment getKeyByIndex(int index) {
         Objects.checkIndex(index, size);
         long keyOffset = getKeyOffset(index);
-        long valueOffset = getValueOffset(index);
+        long valueOffset = Math.abs(getValueOffset(index));
         try {
             return sstChannel.map(FileChannel.MapMode.READ_ONLY, keyOffset, valueOffset - keyOffset, arena);
+        } catch (IOException ex) {
+            throw new RuntimeException(
+                    String.format("Couldn't map file from channel %s: %s", sstChannel, ex.getMessage())
+            );
+        }
+    }
+
+    private MemorySegment getValueByIndex(int index) {
+        Objects.checkIndex(index, size);
+        long valueOffset = getValueOffset(index);
+        if (valueOffset < 0) {
+            return null;
+        }
+        long nextKeyOffset = getKeyOffset(index + 1);
+        try {
+            return sstChannel.map(FileChannel.MapMode.READ_ONLY, valueOffset, nextKeyOffset - valueOffset, arena);
         } catch (IOException ex) {
             throw new RuntimeException(
                     String.format("Couldn't map file from channel %s: %s", sstChannel, ex.getMessage())

@@ -2,11 +2,8 @@ package ru.vk.itmo.novichkovandrew;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.stream.Stream;
@@ -33,8 +30,9 @@ public class Utils {
      * Copy from one MemorySegment to another and return new offset of two segments.
      */
     public static long copyToSegment(MemorySegment to, MemorySegment from, long offset) {
-        MemorySegment.copy(from, 0, to, offset, from.byteSize());
-        return offset + from.byteSize();
+        MemorySegment source = from == null ? MemorySegment.NULL : from;
+        MemorySegment.copy(source, 0, to, offset, source.byteSize());
+        return offset + source.byteSize();
     }
 
     /**

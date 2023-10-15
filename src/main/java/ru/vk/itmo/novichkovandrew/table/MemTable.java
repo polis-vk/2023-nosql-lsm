@@ -1,6 +1,6 @@
 package ru.vk.itmo.novichkovandrew.table;
 
-import ru.vk.itmo.Entry;
+import ru.vk.itmo.novichkovandrew.Cell;
 import ru.vk.itmo.novichkovandrew.iterator.PeekTableIterator;
 
 import java.lang.foreign.MemorySegment;
@@ -8,24 +8,25 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 
-public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterable<Entry<MemorySegment>> {
+public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterable<Cell<MemorySegment>> {
 
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> entriesMap;
-    private long byteSize;
+    private final ConcurrentSkipListMap<MemorySegment, Cell<MemorySegment>> entriesMap;
+    private final AtomicLong byteSize;
 
     public MemTable(Comparator<MemorySegment> comparator) {
         this.entriesMap = new ConcurrentSkipListMap<>(comparator);
-        this.byteSize = 0;
+        this.byteSize = new AtomicLong(0);
     }
 
-    public void upsert(Entry<MemorySegment> entry) {
-        byteSize += (entry.key().byteSize() + entry.value().byteSize());
-        entriesMap.put(entry.key(), entry);
+    public void upsert(Cell<MemorySegment> cell) {
+        byteSize.addAndGet(cell.key().byteSize() + cell.valueSize());
+        entriesMap.put(cell.key(), cell);
     }
 
     @Override
-    public Entry<MemorySegment> getEntry(MemorySegment key) {
+    public Cell<MemorySegment> getCell(MemorySegment key) {
         return entriesMap.get(key);
     }
 
@@ -40,12 +41,12 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
     }
 
     @Override
-    public PeekTableIterator<MemorySegment> iterator(MemorySegment from, MemorySegment to) {
+    public PeekTableIterator<MemorySegment> keyIterator(MemorySegment from, MemorySegment to) {
         return new PeekTableIterator<>(getSubMap(from, to).keySet().iterator(), Integer.MAX_VALUE);
     }
 
     public long byteSize() {
-        return this.byteSize;
+        return this.byteSize.get();
     }
 
     /**
@@ -60,7 +61,7 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
     }
 
 
-    private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, MemorySegment to) {
+    private NavigableMap<MemorySegment, Cell<MemorySegment>> getSubMap(MemorySegment from, MemorySegment to) {
         if (from != null && to != null) {
             return entriesMap.subMap(from, to);
         }
@@ -76,7 +77,7 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
     @Override
     public void close() {
         entriesMap.clear();
-        byteSize = 0;
+        byteSize.set(0);
     }
 
     public boolean isEmpty() {
@@ -84,7 +85,7 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> iterator() {
+    public Iterator<Cell<MemorySegment>> iterator() {
         return entriesMap.values().iterator();
     }
 }

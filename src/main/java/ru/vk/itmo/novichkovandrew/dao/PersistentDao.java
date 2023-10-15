@@ -1,6 +1,7 @@
 package ru.vk.itmo.novichkovandrew.dao;
 
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.novichkovandrew.Cell;
 import ru.vk.itmo.novichkovandrew.table.SortedStringTableMap;
 import ru.vk.itmo.novichkovandrew.table.TableMap;
 import ru.vk.itmo.novichkovandrew.Utils;
@@ -59,12 +60,15 @@ public class PersistentDao extends InMemoryDao {
                 long sstOffset = 0L;
                 long indexOffset = Utils.writeLong(sst, 0L, memTable.size());
                 MemorySegment sstMap = sst.map(FileChannel.MapMode.READ_WRITE, metaSize, memTable.byteSize(), arena);
-                for (Entry<MemorySegment> entry : memTable) {
+                for (Cell<MemorySegment> cell : memTable) {
                     long keyOffset = sstOffset + metaSize;
-                    long valueOffset = keyOffset + entry.key().byteSize();
+                    long valueOffset = keyOffset + cell.key().byteSize();
+                    if (cell.isTombstone()) {
+                        valueOffset *= -1;
+                    }
                     indexOffset = writePosToFile(sst, indexOffset, keyOffset, valueOffset);
-                    sstOffset = copyToSegment(sstMap, entry.key(), sstOffset);
-                    sstOffset = copyToSegment(sstMap, entry.value(), sstOffset);
+                    sstOffset = copyToSegment(sstMap, cell.key(), sstOffset);
+                    sstOffset = copyToSegment(sstMap, cell.value(), sstOffset);
                 }
                 writePosToFile(sst, indexOffset, sstOffset + metaSize, 0L);
             }
@@ -97,18 +101,18 @@ public class PersistentDao extends InMemoryDao {
             final Comparator<PeekTableIterator<MemorySegment>> iterComparator = (o1, o2) -> {
                 int memoryComparison = comparator.compare(o1.peek(), o2.peek());
                 if (memoryComparison == 0) {
-                    return (-1) * Integer.compare(o1.getTableNumber(), o2.getTableNumber());
+                    return -1 * Integer.compare(o1.getTableNumber(), o2.getTableNumber());
                 }
                 return memoryComparison;
             };
             private final TreeSet<PeekTableIterator<MemorySegment>> set = maps.stream()
-                    .map(map -> map.iterator(from, to))
+                    .map(map -> map.keyIterator(from, to))
                     .filter(Iterator::hasNext)
                     .collect(Collectors.toCollection(() -> new TreeSet<>(iterComparator)));
-            private MemorySegment minKey;
-            private Entry<MemorySegment> minEntry = getNextEntry();
+            private MemorySegment minKey; //TODO: Maybe unused
+            private Cell<MemorySegment> minCell = getNextCell();
 
-            private Entry<MemorySegment> getNextEntry() {
+            private Cell<MemorySegment> getNextCell() {
                 while (!set.isEmpty()) {
                     var iterator = set.pollFirst();
                     if (iterator == null) {
@@ -121,7 +125,10 @@ public class PersistentDao extends InMemoryDao {
                             set.add(iterator);
                         }
                         int mapNumber = maps.size() - iterator.getTableNumber();
-                        return mapNumber < 0 ? memTable.getEntry(key) : maps.get(mapNumber).getEntry(key);
+                        var cell = mapNumber < 0 ? memTable.getCell(key) : maps.get(mapNumber).getCell(key);
+                        if (!cell.isTombstone()) {
+                            return cell;
+                        }
                     } else {
                         if (iterator.hasNext()) {
                             set.add(iterator);
@@ -131,28 +138,25 @@ public class PersistentDao extends InMemoryDao {
                 return null;
             }
 
-
             @Override
             public boolean hasNext() {
-                return minEntry != null;
+                return minCell != null;
             }
 
             @Override
             public Entry<MemorySegment> next() {
-                var entry = minEntry;
-                minEntry = getNextEntry();
-                return entry;
+                var cell = minCell;
+                minCell = getNextCell();
+                return cell;
             }
-
-
         };
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> entry;
-        if ((entry = super.get(key)) != null) {
-            return entry;
+        Cell<MemorySegment> memCell = memTable.getCell(key);
+        if (memCell != null) {
+            return memCell.isTombstone() ? null : memCell;
         }
         int filesCount = Utils.filesCount(path);
         for (int i = filesCount; i >= 1; i--) {
@@ -166,7 +170,11 @@ public class PersistentDao extends InMemoryDao {
             }
             MemorySegment sstKey = map.ceilKey(key);
             if (comparator.compare(sstKey, key) == 0) {
-                return map.getEntry(sstKey);
+                Cell<MemorySegment> cell = map.getCell(sstKey);
+                if (cell.isTombstone()) {
+                    break;
+                }
+                return cell;
             }
         }
         return null;

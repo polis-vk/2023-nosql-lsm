@@ -2,6 +2,8 @@ package ru.vk.itmo.novichkovandrew.dao;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.novichkovandrew.Cell;
+import ru.vk.itmo.novichkovandrew.MemorySegmentCell;
 import ru.vk.itmo.novichkovandrew.table.MemTable;
 
 import java.io.IOException;
@@ -34,7 +36,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         return new Iterator<>() {
-            final Iterator<MemorySegment> iterator = memTable.iterator(from, to);
+            final Iterator<MemorySegment> iterator = memTable.keyIterator(from, to);
 
             @Override
             public boolean hasNext() {
@@ -43,19 +45,23 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             @Override
             public Entry<MemorySegment> next() {
-                return memTable.getEntry(iterator.next());
+                Cell<MemorySegment> cell = null;
+                while (iterator.hasNext() && (cell == null || cell.isTombstone())) {
+                    cell = memTable.getCell(iterator.next());
+                }
+                return cell;
             }
         };
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return memTable.getEntry(key);
+        return memTable.getCell(key);
     }
 
     @Override
-    public synchronized void upsert(Entry<MemorySegment> entry) {
-        memTable.upsert(entry);
+    public void upsert(Entry<MemorySegment> entry) {
+        memTable.upsert(new MemorySegmentCell(entry.key(), entry.value()));
     }
 
     @Override
