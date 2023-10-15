@@ -69,7 +69,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void upsert(Entry<MemorySegment> entry) {
+    public synchronized void upsert(Entry<MemorySegment> entry) {
         memTable.upsert(entry);
     }
 

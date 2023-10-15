@@ -20,9 +20,7 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
     }
 
     public void upsert(Entry<MemorySegment> entry) {
-        synchronized (entriesMap) {
-            byteSize += (entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()));
-        }
+        byteSize += (entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()));
         entriesMap.put(entry.key(), entry);
     }
 
