@@ -32,6 +32,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.ssTable = new SSTable(config);
     }
 
+    public InMemoryDao(final Config config) throws IOException {
+        this();
+        this.ssTable = new SSTable(config);
+    }
+
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
         return getSafe(key);
