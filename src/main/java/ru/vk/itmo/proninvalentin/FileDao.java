@@ -18,6 +18,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.*;
 
+// TODO: записывать время создания файла в самое начало metadata файла, чтобы занимать меньше времени
 // TODO: проверить, чтобы у всех методов был package-private или другой любой минимальный модификатор доступа
 // TODO: переназвать все offsets на metadata
 // TODO: переназвать все ms на storage
@@ -72,8 +73,6 @@ public class FileDao implements Closeable {
 
         for (File file : Arrays.stream(listOfFiles)
                 .filter(File::isFile)
-                .sorted(Comparator.comparing(File::getName))
-                .sorted(Collections.reverseOrder())
                 .toList()) {
             if (file.getName().startsWith(VALUES_FILENAME_PREFIX)) {
                 readValuesStorages.add(getReadOnlyMappedMemory(file));
@@ -137,10 +136,11 @@ public class FileDao implements Closeable {
                 MemorySegment offsetsStorage = getOffsetsStorage(offsetsChannel, arena);
 
                 Iterator<Entry<MemorySegment>> it = inMemoryDao.all();
+                long createdAt = Instant.now().toEpochMilli();
                 while (it.hasNext()) {
                     Entry<MemorySegment> entry = it.next();
                     metadataOffset = MemorySegmentUtils.writeEntryMetadata(
-                            valueOffset, entry.value() == null, Instant.now().toEpochMilli(),
+                            valueOffset, entry.value() == null, createdAt,
                             offsetsStorage, metadataOffset);
                     valueOffset = MemorySegmentUtils.writeEntry(entry, valuesStorage, valueOffset);
                 }
@@ -149,9 +149,9 @@ public class FileDao implements Closeable {
     }
 
     // Получить список итераторов по файлам. Ближе к началу находятся итераторы с более свежими данными
-    public List<Iterator<Entry<MemorySegment>>> getFilesIterators(MemorySegment from,
-                                                                  MemorySegment to) throws IOException {
-        List<Iterator<Entry<MemorySegment>>> filesIterators = new ArrayList<>(readValuesStorages.size());
+    public List<Iterator<EnrichedEntry>> getFilesIterators(MemorySegment from,
+                                                           MemorySegment to) throws IOException {
+        List<Iterator<EnrichedEntry>> filesIterators = new ArrayList<>(readValuesStorages.size());
 
         for (int i = 0; i < readValuesStorages.size(); i++) {
             filesIterators.add(FileIterator.create(
@@ -175,7 +175,9 @@ public class FileDao implements Closeable {
         while (valuesInMemory.hasNext()) {
             Entry<MemorySegment> v = valuesInMemory.next();
             keysSize += v.key().byteSize();
-            valuesSize += v.value().byteSize();
+            if (v.value() != null) {
+                valuesSize += v.value().byteSize();
+            }
             countOfMemorySegments++;
         }
 

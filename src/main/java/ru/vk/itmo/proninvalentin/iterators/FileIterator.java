@@ -2,6 +2,7 @@ package ru.vk.itmo.proninvalentin.iterators;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.proninvalentin.EnrichedEntry;
 import ru.vk.itmo.proninvalentin.utils.MemorySegmentUtils;
 import ru.vk.itmo.proninvalentin.Metadata;
 
@@ -11,12 +12,12 @@ import java.util.Comparator;
 import java.util.Iterator;
 
 public class FileIterator {
-    public static Iterator<Entry<MemorySegment>> create(MemorySegment readValuesMS,
-                                                        MemorySegment readOffsetsMS,
-                                                        MemorySegment from,
-                                                        MemorySegment to,
-                                                        Comparator<MemorySegment> comparator,
-                                                        long metadataFileSize) {
+    public static Iterator<EnrichedEntry> create(MemorySegment readValuesMS,
+                                                  MemorySegment readOffsetsMS,
+                                                  MemorySegment from,
+                                                  MemorySegment to,
+                                                  Comparator<MemorySegment> comparator,
+                                                  long metadataFileSize) {
         long entryIndex = 0;
         if (from != null) {
             entryIndex = MemorySegmentUtils.leftBinarySearch(readValuesMS, readOffsetsMS, from, comparator);
@@ -42,11 +43,11 @@ public class FileIterator {
             }
 
             @Override
-            public Entry<MemorySegment> next() {
-                Metadata metadata = MemorySegmentUtils.getMetadataByIndex(readValuesMS, curIndex);
+            public EnrichedEntry next() {
+                Metadata metadata = MemorySegmentUtils.getMetadataByIndex(readOffsetsMS, curIndex);
                 BaseEntry<MemorySegment> entry = MemorySegmentUtils.getEntryByIndex(
                         readValuesMS, readOffsetsMS, curIndex++);
-                return metadata.isDeleted ? null : entry;
+                return new EnrichedEntry(metadata, entry);
             }
         };
     }

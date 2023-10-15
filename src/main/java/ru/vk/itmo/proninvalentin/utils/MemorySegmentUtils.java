@@ -19,6 +19,10 @@ public class MemorySegmentUtils {
                                                            MemorySegment readOffsetsMS,
                                                            long index) {
         Metadata metadata = getMetadataByIndex(readOffsetsMS, index);
+        if (metadata.isDeleted) {
+            return null;
+        }
+
         MemorySegment key = getBySizeOffset(readValuesMS, metadata.entryOffset);
         long valueSizeOffset = metadata.entryOffset + Long.BYTES + key.byteSize();
         MemorySegment value = getBySizeOffset(readValuesMS, valueSizeOffset);
@@ -116,7 +120,9 @@ public class MemorySegmentUtils {
         // Сначала пишем длину ключа и сам ключ
         localFileOffset = writeMemorySegment(src.key(), dst, localFileOffset);
         // Потом пишем длину значения и само значение
-        localFileOffset = writeMemorySegment(src.value(), dst, localFileOffset);
+        if (src.value() != null) {
+            localFileOffset = writeMemorySegment(src.value(), dst, localFileOffset);
+        }
         return localFileOffset;
     }
 
