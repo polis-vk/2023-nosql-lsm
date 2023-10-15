@@ -18,9 +18,10 @@ public class SSTable {
 
     private final Path basePath;
     private static final String FILE_PATH = "SSTable";
-
+    private final FileChannel fc;
     public SSTable(Config config) throws IOException {
         this.basePath = config.basePath().resolve(FILE_PATH);
+        fc = FileChannel.open(basePath, StandardOpenOption.READ);
     }
 
     public void saveMemoryData(NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries)
@@ -57,11 +58,9 @@ public class SSTable {
             return null;
         }
 
-        try (FileChannel fc = FileChannel.open(basePath, StandardOpenOption.READ)) {
+        try {
             long offset = 0L;
-
-            MemorySegment readSegment = fc.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(basePath), Arena.global());
-
+            MemorySegment readSegment = fc.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(basePath), Arena.ofAuto());
             while (offset < readSegment.byteSize()) {
                 long keySize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += Long.BYTES;
