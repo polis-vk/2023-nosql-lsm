@@ -1,6 +1,6 @@
 package ru.vk.itmo.novichkovandrew.table;
 
-import ru.vk.itmo.novichkovandrew.Cell;
+import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.iterator.PeekTableIterator;
 
 import java.lang.foreign.MemorySegment;
@@ -9,9 +9,9 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterable<Cell<MemorySegment>> {
+public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterable<Entry<MemorySegment>> {
 
-    private final ConcurrentSkipListMap<MemorySegment, Cell<MemorySegment>> entriesMap;
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> entriesMap;
     private long byteSize;
 
     public MemTable(Comparator<MemorySegment> comparator) {
@@ -19,15 +19,15 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
         this.byteSize = 0L;
     }
 
-    public void upsert(Cell<MemorySegment> cell) {
+    public void upsert(Entry<MemorySegment> entry) {
         synchronized (entriesMap) {
-            byteSize += (cell.key().byteSize() + cell.valueSize());
+            byteSize += (entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()));
         }
-        entriesMap.put(cell.key(), cell);
+        entriesMap.put(entry.key(), entry);
     }
 
     @Override
-    public Cell<MemorySegment> getCell(MemorySegment key) {
+    public Entry<MemorySegment> getEntry(MemorySegment key) {
         return entriesMap.get(key);
     }
 
@@ -46,6 +46,11 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
         return new PeekTableIterator<>(getSubMap(from, to).keySet().iterator(), Integer.MAX_VALUE);
     }
 
+    @Override
+    public boolean contains(MemorySegment key) {
+        return entriesMap.containsKey(key);
+    }
+
     public long byteSize() {
         return this.byteSize;
     }
@@ -62,7 +67,7 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
     }
 
 
-    private NavigableMap<MemorySegment, Cell<MemorySegment>> getSubMap(MemorySegment from, MemorySegment to) {
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, MemorySegment to) {
         if (from != null && to != null) {
             return entriesMap.subMap(from, to);
         }
@@ -81,12 +86,13 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
         byteSize = 0L;
     }
 
-    public boolean isEmpty() {
-        return size() == 0;
+    @Override
+    public Iterator<Entry<MemorySegment>> iterator() {
+        return entriesMap.values().iterator();
     }
 
     @Override
-    public Iterator<Cell<MemorySegment>> iterator() {
-        return entriesMap.values().iterator();
+    public boolean isTombstone(Entry<MemorySegment> entry) {
+        return entry.value() == null && contains(entry.key());
     }
 }

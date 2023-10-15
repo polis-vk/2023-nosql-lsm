@@ -1,6 +1,6 @@
 package ru.vk.itmo.novichkovandrew.dao;
 
-import ru.vk.itmo.novichkovandrew.Cell;
+import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.Utils;
 import ru.vk.itmo.novichkovandrew.iterator.IteratorsComparator;
 import ru.vk.itmo.novichkovandrew.iterator.PeekTableIterator;
@@ -42,7 +42,6 @@ public class PersistentDao extends InMemoryDao {
 
     public PersistentDao(Path path) {
         this.path = path;
-        //   this.arena = Arena.ofConfined();
         this.maps = new ArrayList<>();
         maps.add(memTable);
     }
@@ -59,15 +58,15 @@ public class PersistentDao extends InMemoryDao {
                 long sstOffset = 0L;
                 long indexOffset = Utils.writeLong(sst, 0L, memTable.size());
                 MemorySegment sstMap = sst.map(FileChannel.MapMode.READ_WRITE, metaSize, memTable.byteSize(), arena);
-                for (Cell<MemorySegment> cell : memTable) {
+                for (Entry<MemorySegment> entry : memTable) {
                     long keyOffset = sstOffset + metaSize;
-                    long valueOffset = keyOffset + cell.key().byteSize();
-                    if (cell.isTombstone()) {
+                    long valueOffset = keyOffset + entry.key().byteSize();
+                    if (memTable.isTombstone(entry)) {
                         valueOffset *= -1;
                     }
                     indexOffset = writePosToFile(sst, indexOffset, keyOffset, valueOffset);
-                    sstOffset = copyToSegment(sstMap, cell.key(), sstOffset);
-                    sstOffset = copyToSegment(sstMap, cell.value(), sstOffset);
+                    sstOffset = copyToSegment(sstMap, entry.key(), sstOffset);
+                    sstOffset = copyToSegment(sstMap, entry.value(), sstOffset);
                 }
                 writePosToFile(sst, indexOffset, sstOffset + metaSize, 0L);
             }
@@ -78,7 +77,7 @@ public class PersistentDao extends InMemoryDao {
 
     @Override
     public void close() throws IOException {
-        if (!memTable.isEmpty()) {
+        if (memTable.size() != 0) {
             flush();
         }
         for (var fileMap : maps) {
@@ -89,7 +88,7 @@ public class PersistentDao extends InMemoryDao {
     }
 
     @Override
-    public Iterator<Cell<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+    public Iterator<ru.vk.itmo.Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         openAll();
         if (maps.size() == 1) {
             return PersistentDao.super.get(from, to);
@@ -101,10 +100,10 @@ public class PersistentDao extends InMemoryDao {
     }
 
     @Override
-    public Cell<MemorySegment> get(MemorySegment key) {
-        Cell<MemorySegment> memCell = memTable.getCell(key);
-        if (memCell != null) {
-            return memCell.isTombstone() ? null : memCell;
+    public ru.vk.itmo.Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> entry = memTable.getEntry(key);
+        if (entry != null) {
+            return memTable.isTombstone(entry) ? null : entry;
         }
         int filesCount = Utils.filesCount(path);
         for (int i = filesCount; i >= 1; i--) {
@@ -118,31 +117,31 @@ public class PersistentDao extends InMemoryDao {
             }
             MemorySegment sstKey = map.ceilKey(key);
             if (comparator.compare(sstKey, key) == 0) {
-                Cell<MemorySegment> cell = map.getCell(sstKey);
-                if (cell.isTombstone()) {
+                entry = map.getEntry(sstKey);
+                if (map.isTombstone(entry)) {
                     break;
                 }
-                return cell;
+                return entry;
             }
         }
         return null;
     }
 
 
-    public class SortedStingTablesIterator implements Iterator<Cell<MemorySegment>> {
+    public class SortedStingTablesIterator implements Iterator<ru.vk.itmo.Entry<MemorySegment>> {
         private final Comparator<PeekTableIterator<MemorySegment>> iterComparator;
 
         private final TreeSet<PeekTableIterator<MemorySegment>> set;
         private MemorySegment minKey;
-        private Cell<MemorySegment> minCell;
+        private ru.vk.itmo.Entry<MemorySegment> minEntry;
 
         public SortedStingTablesIterator(Stream<PeekTableIterator<MemorySegment>> sstIteratorsStream) {
             this.iterComparator = new IteratorsComparator<>(comparator);
             this.set = sstIteratorsStream.collect(Collectors.toCollection(() -> new TreeSet<>(iterComparator)));
-            this.minCell = getNextCell();
+            this.minEntry = getNextEntry();
         }
 
-        private Cell<MemorySegment> getNextCell() {
+        private ru.vk.itmo.Entry<MemorySegment> getNextEntry() {
             while (!set.isEmpty()) {
                 var iterator = set.pollFirst();
                 if (iterator == null) {
@@ -155,9 +154,9 @@ public class PersistentDao extends InMemoryDao {
                         set.add(iterator);
                     }
                     int mapNumber = maps.size() - iterator.getTableNumber();
-                    var cell = mapNumber < 0 ? memTable.getCell(key) : maps.get(mapNumber).getCell(key);
-                    if (!cell.isTombstone()) {
-                        return cell;
+                    var entry = mapNumber < 0 ? memTable.getEntry(key) : maps.get(mapNumber).getEntry(key);
+                    if (entry.value() != null) { // Fix it
+                        return entry;
                     }
                 } else {
                     if (iterator.hasNext()) {
@@ -170,14 +169,14 @@ public class PersistentDao extends InMemoryDao {
 
         @Override
         public boolean hasNext() {
-            return minCell != null;
+            return minEntry != null;
         }
 
         @Override
-        public Cell<MemorySegment> next() {
-            var cell = minCell;
-            minCell = getNextCell();
-            return cell;
+        public ru.vk.itmo.Entry<MemorySegment> next() {
+            var entry = minEntry;
+            minEntry = getNextEntry();
+            return entry;
         }
     }
 

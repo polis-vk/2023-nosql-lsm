@@ -1,8 +1,7 @@
 package ru.vk.itmo.novichkovandrew.dao;
 
 import ru.vk.itmo.Dao;
-import ru.vk.itmo.novichkovandrew.Cell;
-import ru.vk.itmo.novichkovandrew.MemorySegmentCell;
+import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.table.MemTable;
 
 import java.io.IOException;
@@ -11,7 +10,7 @@ import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 import java.util.Iterator;
 
-public class InMemoryDao implements Dao<MemorySegment, Cell<MemorySegment>> {
+public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     protected final MemTable memTable;
     protected final Comparator<MemorySegment> comparator = (first, second) -> {
         if (first == null || second == null) return -1;
@@ -33,44 +32,44 @@ public class InMemoryDao implements Dao<MemorySegment, Cell<MemorySegment>> {
     }
 
     @Override
-    public Iterator<Cell<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+    public Iterator<ru.vk.itmo.Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         return new Iterator<>() {
             final Iterator<MemorySegment> iterator = memTable.keyIterator(from, to);
 
-            Cell<MemorySegment> cell = getCell();
+            Entry<MemorySegment> entry = getEntry();
 
-            private Cell<MemorySegment> getCell() {
-                Cell<MemorySegment> cell;
+            private Entry<MemorySegment> getEntry() {
+                Entry<MemorySegment> entry;
                 do {
-                    cell = iterator.hasNext() ? memTable.getCell(iterator.next()) : null;
-                } while (cell != null && iterator.hasNext() && cell.isTombstone());
-                if (cell != null) {
-                    return cell.isTombstone() ? null : cell;
+                    entry = iterator.hasNext() ? memTable.getEntry(iterator.next()) : null;
+                } while (entry != null && iterator.hasNext() && memTable.isTombstone(entry));
+                if (entry != null) {
+                    return memTable.isTombstone(entry) ? null : entry;
                 }
                 return null;
             }
 
             @Override
             public boolean hasNext() {
-                return cell != null;
+                return entry != null;
             }
 
             @Override
-            public Cell<MemorySegment> next() {
-                Cell<MemorySegment> cell = this.cell;
-                this.cell = getCell();
-                return cell;
+            public Entry<MemorySegment> next() {
+                Entry<MemorySegment> entry = this.entry;
+                this.entry = getEntry();
+                return entry;
             }
         };
     }
 
     @Override
-    public Cell<MemorySegment> get(MemorySegment key) {
-        return memTable.getCell(key);
+    public ru.vk.itmo.Entry<MemorySegment> get(MemorySegment key) {
+        return memTable.getEntry(key);
     }
 
     @Override
-    public void upsert(Cell<MemorySegment> entry) {
+    public void upsert(Entry<MemorySegment> entry) {
         memTable.upsert(entry);
     }
 

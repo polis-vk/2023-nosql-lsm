@@ -1,6 +1,6 @@
 package ru.vk.itmo.novichkovandrew.table;
 
-import ru.vk.itmo.novichkovandrew.Cell;
+import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.iterator.PeekTableIterator;
 
 import java.io.Closeable;
@@ -9,7 +9,7 @@ import java.lang.foreign.MemorySegment;
 
 public interface TableMap<K, V> extends Closeable {
 
-    Cell<MemorySegment> getCell(K key);
+    Entry<MemorySegment> getEntry(K key);
 
     K ceilKey(K key);
 
@@ -20,4 +20,8 @@ public interface TableMap<K, V> extends Closeable {
     int size() throws IOException;
 
     PeekTableIterator<K> keyIterator(K key, K to);
+
+    boolean contains(K sstKey);
+
+    boolean isTombstone(Entry<K> entry);
 }
