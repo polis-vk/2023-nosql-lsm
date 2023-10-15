@@ -31,7 +31,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final String INDEX = DB + "_index";
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
-            new ConcurrentSkipListMap<>(DaoImpl::compare);
+            new ConcurrentSkipListMap<>(MemorySegmentComparator.INSTANCE);
 
     public DaoImpl(Config config) throws IOException {
         this.config = config;
