@@ -41,6 +41,12 @@ public @interface DaoTest {
 
     int stage();
 
+    /**
+     * 0 - no max stage, test will be executed if stage <= factory stage
+     * n > 0 - test will be executed if stage <= factory stage >= maxStage
+     */
+    int maxStage() default 0;
+
     class DaoList implements ArgumentsProvider, ExecutionCondition {
         private static final AtomicInteger ID = new AtomicInteger();
         private static final ExtensionContext.Namespace NAMESPACE = ExtensionContext.Namespace.create("dao");
@@ -135,7 +141,12 @@ public @interface DaoTest {
 
         private Dao<String, Entry<String>> createDao(ExtensionContext context, Class<?> clazz) throws IOException, InstantiationException, IllegalAccessException, InvocationTargetException, NoSuchMethodException {
             Path tmp = Files.createTempDirectory("dao");
+
+            DaoFactory.Factory<?, ?> f = (DaoFactory.Factory<?, ?>) clazz.getDeclaredConstructor().newInstance();
+            Dao<String, Entry<String>> dao = f.createStringDao(new Config(tmp));
+
             ExtensionContext.Store.CloseableResource res = () -> {
+                dao.close();
                 if (!Files.exists(tmp)) {
                     return;
                 }
@@ -153,14 +164,8 @@ public @interface DaoTest {
                     }
                 });
             };
+
             context.getStore(NAMESPACE).put(ID.incrementAndGet() + "", res);
-
-            DaoFactory.Factory<?, ?> f = (DaoFactory.Factory<?, ?>) clazz.getDeclaredConstructor().newInstance();
-
-            Dao<String, Entry<String>> dao = f.createStringDao(new Config(tmp));
-
-            ExtensionContext.Store.CloseableResource resDao = dao::close;
-            context.getStore(NAMESPACE).put(ID.incrementAndGet() + "", resDao);
 
             return dao;
         }
@@ -170,10 +175,12 @@ public @interface DaoTest {
             try {
                 List<Class<?>> factories = getFactories(context);
                 int minStage = context.getRequiredTestMethod().getAnnotation(DaoTest.class).stage();
+                int maxStage = context.getRequiredTestMethod().getAnnotation(DaoTest.class).maxStage();
                 if (factories.isEmpty()) {
                     throw new IllegalStateException("No DaoFactory declared under ru.vk.itmo.test.<username> package");
                 }
-                if (minStage > factories.get(0).getAnnotation(DaoFactory.class).stage()) {
+                int daoStage = factories.get(0).getAnnotation(DaoFactory.class).stage();
+                if (minStage > daoStage || (maxStage > 0 && maxStage < daoStage)) {
                     return ConditionEvaluationResult.disabled("Implementation is not ready");
                 }
                 return ConditionEvaluationResult.enabled("Implementation is ready");
