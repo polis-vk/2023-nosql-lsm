@@ -19,6 +19,7 @@ public class SSTable {
     private final Path basePath;
     private static final String FILE_PATH = "SSTable";
     private final FileChannel fc;
+
     public SSTable(Config config) throws IOException {
         this.basePath = config.basePath().resolve(FILE_PATH);
         fc = FileChannel.open(basePath, StandardOpenOption.READ);
