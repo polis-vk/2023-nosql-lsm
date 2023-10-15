@@ -30,7 +30,7 @@ public class SSTable {
         int filesCount = 0;
 
         if(Files.exists(filePath)) {
-            try (Stream<Path> stream = Files.list(filePath)) {
+            try (Stream<Path> stream = Files.list(filePath).sorted()) {
                 List<Path> files = stream.toList();
                 filesCount = files.size();
                 for (Path file : files) {
