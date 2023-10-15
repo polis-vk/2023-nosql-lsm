@@ -3,6 +3,8 @@ package ru.vk.itmo.test.novichkovandrew;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.novichkovandrew.Cell;
+import ru.vk.itmo.novichkovandrew.MemorySegmentCell;
 import ru.vk.itmo.novichkovandrew.dao.InMemoryDao;
 import ru.vk.itmo.novichkovandrew.dao.PersistentDao;
 import ru.vk.itmo.test.DaoFactory;
@@ -13,14 +15,17 @@ import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 @DaoFactory(stage = 3)
-public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Cell<MemorySegment>> {
+
+    Cell.Factory<MemorySegment> factory = new MemorySegmentCell.CellFactory();
+
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
+    public Dao<MemorySegment, Cell<MemorySegment>> createDao() {
         return new InMemoryDao();
     }
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+    public Dao<MemorySegment, Cell<MemorySegment>> createDao(Config config) throws IOException {
         if (config == null || config.basePath() == null) {
             return createDao();
         }
@@ -38,7 +43,7 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
     }
 
     @Override
-    public Entry<MemorySegment> fromBaseEntry(Entry<MemorySegment> baseEntry) {
-        return baseEntry;
+    public Cell<MemorySegment> fromBaseEntry(Entry<MemorySegment> baseEntry) {
+        return factory.create(baseEntry);
     }
 }
