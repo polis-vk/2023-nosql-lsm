@@ -69,7 +69,6 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
 
             Entry<MemorySegment> currEntry = cache[i][position];
             if (currEntry == null) {
-                positions[i] = -1;
                 continue;
             }
 
@@ -78,7 +77,7 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
                 if (compareResult < 0) {
                     minEntry = currEntry;
                     savedPosition = i;
-                } else if (compareResult == 0) {
+                } else if (compareResult == 0) { // Entry по такому же ключу уже неактуальны.
                     positions[i]++;
                 }
             } else {
@@ -106,13 +105,17 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
                 break;
             }
 
-            long mismatchFrom = segmentComparator.compare(currMemTableEntry.key(), from);
-            long mismatchTo = segmentComparator.compare(currMemTableEntry.key(), to);
-            if (mismatchFrom < 0) {
-                continue;
+            if (from != null) {
+                long mismatchFrom = segmentComparator.compare(currMemTableEntry.key(), from);
+                if (mismatchFrom < 0) {
+                    continue;
+                }
             }
-            if (mismatchTo > 0) {
-                break;
+            if (to != null) {
+                long mismatchTo = segmentComparator.compare(currMemTableEntry.key(), to);
+                if (mismatchTo > 0) {
+                    break;
+                }
             }
 
             cache[ssTablesCount][index] = currMemTableEntry;
@@ -133,7 +136,7 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
 
     private void collectFromStorage() {
 
-        for (int i = ssTablesCount - 1; i > 0; i--) {
+        for (int i = ssTablesCount - 1; i >= 0; i--) {
             int position = positions[i];
             if (position == -1) {
                 continue;
@@ -148,11 +151,13 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
 
                 int keyOffset = getKeyOffsetByIndex(meta, index);
                 int keySize = getKeySize(meta, index, keyOffset);
-                long mismatch = MemorySegment.mismatch(ssTable, keyOffset, keySize, to, 0, to.byteSize());
 
-                if (mismatch > 0) {
-                    positions[i] = -1;
-                    break;
+                if (to != null) {
+                    long mismatch = MemorySegment.mismatch(ssTable, keyOffset, keyOffset + keySize, to, 0, to.byteSize());
+                    if (mismatch > 0) {
+                        positions[i] = -1;
+                        break;
+                    }
                 }
 
                 MemorySegment key = ssTable.asSlice(keyOffset, keySize);
@@ -169,21 +174,22 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private void initStartState() throws IOException {
-        for (int i = ssTablesCount; i > 0; i--) {
+        for (int i = ssTablesCount - 1; i >= 0; i--) {
             if (ssTables[i] == null) {
                 createStorageSegment(i);
             }
             MemorySegment ssTable = ssTables[i];
             MemorySegment meta = metaTables[i];
 
-            int pos = findKeyPositionOrNearest(ssTable, meta, from);
+            int pos = (from == null) ? 0 : findKeyPositionOrNearest(ssTable, meta, from);
             MemorySegment key = getKeySegment(ssTable, meta, pos);
 
-            int compareResult = segmentComparator.compare(key, to);
-            if (compareResult > 0) {
-                positions[i] = -1;
-            } else {
-                positions[i] = pos;
+            positions[i] = pos;
+            if (to != null) {
+                int compareResult = segmentComparator.compare(key, to);
+                if (compareResult > 0) {
+                    positions[i] = -1;
+                }
             }
         }
     }

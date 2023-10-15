@@ -136,7 +136,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private Entry<MemorySegment> findKeyInStorage(MemorySegment key) throws IOException {
 
-        for (int i = ssTablesCount; i > 0; i--) {
+        for (int i = ssTablesCount - 1; i >= 0; i--) {
 
             if (ssTables[i] == null) {
                 createStorageSegment(i);
@@ -149,7 +149,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             int keyOffset = getKeyOffsetByIndex(metaTable, pos);
             int keySize = getKeySize(metaTable, pos, keyOffset);
 
-            long mismatch = MemorySegment.mismatch(ssTable, keyOffset, keySize, key, 0, key.byteSize());
+            long mismatch = MemorySegment.mismatch(ssTable, keyOffset, keyOffset + keySize, key, 0, key.byteSize());
 
             if (mismatch == -1) {
                 MemorySegment value = getValueSegment(ssTable, metaTable, pos);
@@ -168,8 +168,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     static void createStorageSegment(int index) throws IOException {
 
-        String ssTableFileName = getSsTableFileName(index);
-        String ssTableMetaFileName = getSsTableMataFileName(index);
+        String ssTableFileName = getSsTableFileName(index + 1);
+        String ssTableMetaFileName = getSsTableMataFileName(index + 1);
         Path ssTablePath = config.basePath().resolve(ssTableFileName);
         Path ssTableMetaPath = config.basePath().resolve(ssTableMetaFileName);
 
@@ -181,8 +181,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             MemorySegment ssTable = ssTableChannel.map(FileChannel.MapMode.READ_WRITE, 0, ssTableChannel.size(), offHeapArena);
             MemorySegment meta = metaChannel.map(FileChannel.MapMode.READ_WRITE, 0, metaChannel.size(), offHeapArena);
 
-            ssTables[index - 1] = ssTable;
-            metaTables[index - 1] = meta;
+            ssTables[index] = ssTable;
+            metaTables[index] = meta;
 
         }
     }
@@ -191,7 +191,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         int entryNumber = meta.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
 
         int min = 0;
-        int max = entryNumber - 1;
+        int max = entryNumber;
         int mid;
         int nearest = -1;
         while (min != max) {
@@ -205,7 +205,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             int compareResult = segmentComparator.compare(currKey, key);
 
             if (compareResult > 0) {
-                max = mid - 1;
+                max = mid;
             } else if (compareResult < 0) {
                 nearest = mid;
                 min = mid + 1;
@@ -256,7 +256,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 saveSsTableValue(meta, ssTable, entry.value(), (int) entry.value().byteSize());
             }
         } finally {
-            offHeapArena.close();
+            if (offHeapArena.scope().isAlive()) {
+                offHeapArena.close();
+            }
         }
     }
 
@@ -308,6 +310,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } else {
             valueEndOffset = getKeyOffsetByIndex(meta, index + 1);
         }
+
         int valueOffset = getValueOffsetByIndex(meta, index);
 
         return valueEndOffset - valueOffset;
@@ -321,7 +324,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     static MemorySegment getValueSegment(MemorySegment ssTable, MemorySegment meta, int index) {
         int valueOffset = getValueOffsetByIndex(meta, index);
-        int valueSize = getValueSize(ssTable, index, (int) ssTable.byteSize());
+        int valueSize = getValueSize(meta, index, (int) ssTable.byteSize());
         return ssTable.asSlice(valueOffset, valueSize);
     }
 }
