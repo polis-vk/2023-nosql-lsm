@@ -7,6 +7,7 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
@@ -26,22 +27,24 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     }
 
     public InMemoryDaoImpl(Config config) {
-        ssTable = new SSTable(config.basePath(), comparator);
+        ssTable = new SSTable(config.basePath());
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> innerMap = memorySegmentEntryMap;
 
-        if (from != null && to == null) {
-            innerMap = innerMap.tailMap(from);
-        } else if (from == null && to != null) {
-            innerMap = innerMap.headMap(to);
-        } else if (from != null) {
+        if (from != null && to != null) {
             innerMap = innerMap.subMap(from, to);
+        } else if (from != null) {
+            innerMap = innerMap.tailMap(from);
+        } else if (to != null) {
+            innerMap = innerMap.headMap(to);
         }
 
-        return innerMap.values().iterator();
+        Collection<Entry<MemorySegment>> values = ssTable.get(from, to, innerMap);
+        values.removeIf(it -> it.value() == null);
+        return values.iterator();
     }
 
     @Override
@@ -57,8 +60,10 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         if (memorySegmentEntryMap.containsKey(key)) {
-            return memorySegmentEntryMap.get(key);
+            Entry<MemorySegment> entry = memorySegmentEntryMap.get(key);
+            return entry.value() == null ? null : entry;
         }
+
         return ssTable.get(key);
     }
 
