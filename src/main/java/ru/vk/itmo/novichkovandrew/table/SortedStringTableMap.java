@@ -33,14 +33,13 @@ public class SortedStringTableMap implements TableMap<MemorySegment, MemorySegme
 
     private final Cell.Factory<MemorySegment> factory = new MemorySegmentCell.CellFactory();
 
-    public SortedStringTableMap(Path path, int sstNumber, Comparator<MemorySegment> comparator,
-                                Arena arena) {
+    public SortedStringTableMap(Path path, int sstNumber, Comparator<MemorySegment> comparator) {
         try {
             this.sstChannel = FileChannel.open(path, StandardOpenOption.READ);
             this.size = Math.toIntExact(Utils.readLong(sstChannel, 0L));
             this.sstNumber = sstNumber;
             this.comparator = comparator;
-            this.arena = arena;
+            this.arena = Arena.ofConfined();
         } catch (IOException ex) {
             throw new RuntimeException("Couldn't create FileChannel by path" + path);
         }
@@ -50,6 +49,7 @@ public class SortedStringTableMap implements TableMap<MemorySegment, MemorySegme
     public void close() {
         try {
             this.sstChannel.close();
+            this.arena.close();
         } catch (IOException e) {
             System.err.printf("Couldn't close file channel: %s%n", sstChannel);
         }

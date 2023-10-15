@@ -8,20 +8,21 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterable<Cell<MemorySegment>> {
 
     private final ConcurrentSkipListMap<MemorySegment, Cell<MemorySegment>> entriesMap;
-    private final AtomicLong byteSize;
+    private long byteSize;
 
     public MemTable(Comparator<MemorySegment> comparator) {
         this.entriesMap = new ConcurrentSkipListMap<>(comparator);
-        this.byteSize = new AtomicLong(0);
+        this.byteSize = 0L;
     }
 
     public void upsert(Cell<MemorySegment> cell) {
-        byteSize.addAndGet(cell.key().byteSize() + cell.valueSize());
+        synchronized (entriesMap) {
+            byteSize += (cell.key().byteSize() + cell.valueSize());
+        }
         entriesMap.put(cell.key(), cell);
     }
 
@@ -46,7 +47,7 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
     }
 
     public long byteSize() {
-        return this.byteSize.get();
+        return this.byteSize;
     }
 
     /**
@@ -77,7 +78,7 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
     @Override
     public void close() {
         entriesMap.clear();
-        byteSize.set(0);
+        byteSize = 0L;
     }
 
     public boolean isEmpty() {

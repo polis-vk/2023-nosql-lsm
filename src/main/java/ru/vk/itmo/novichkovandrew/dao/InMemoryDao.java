@@ -37,17 +37,28 @@ public class InMemoryDao implements Dao<MemorySegment, Cell<MemorySegment>> {
         return new Iterator<>() {
             final Iterator<MemorySegment> iterator = memTable.keyIterator(from, to);
 
+            Cell<MemorySegment> cell = getCell();
+
+            private Cell<MemorySegment> getCell() {
+                Cell<MemorySegment> cell;
+                do {
+                    cell = iterator.hasNext() ? memTable.getCell(iterator.next()) : null;
+                } while (cell != null && iterator.hasNext() && cell.isTombstone());
+                if (cell != null) {
+                    return cell.isTombstone() ? null : cell;
+                }
+                return null;
+            }
+
             @Override
             public boolean hasNext() {
-                return iterator.hasNext();
+                return cell != null;
             }
 
             @Override
             public Cell<MemorySegment> next() {
-                Cell<MemorySegment> cell = null;
-                while (iterator.hasNext() && (cell == null || cell.isTombstone())) {
-                    cell = memTable.getCell(iterator.next());
-                }
+                Cell<MemorySegment> cell = this.cell;
+                this.cell = getCell();
                 return cell;
             }
         };

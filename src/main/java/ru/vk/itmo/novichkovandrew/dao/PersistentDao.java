@@ -30,7 +30,7 @@ public class PersistentDao extends InMemoryDao {
      * Path associated with SSTables.
      */
     private final Path path;
-    private final Arena arena;
+    //    private final Arena arena;
     private final StandardOpenOption[] openOptions = new StandardOpenOption[]{
             StandardOpenOption.CREATE,
             StandardOpenOption.TRUNCATE_EXISTING,
@@ -42,7 +42,7 @@ public class PersistentDao extends InMemoryDao {
 
     public PersistentDao(Path path) {
         this.path = path;
-        this.arena = Arena.ofConfined();
+        //   this.arena = Arena.ofConfined();
         this.maps = new ArrayList<>();
         maps.add(memTable);
     }
@@ -52,7 +52,9 @@ public class PersistentDao extends InMemoryDao {
     public void flush() throws IOException {
         try {
             Path sstPath = sstTablePath(Utils.filesCount(path) + 1);
-            try (FileChannel sst = FileChannel.open(sstPath, openOptions)) {
+            try (FileChannel sst = FileChannel.open(sstPath, openOptions);
+                 Arena arena = Arena.ofConfined()
+            ) {
                 long metaSize = memTable.getMetaDataSize();
                 long sstOffset = 0L;
                 long indexOffset = Utils.writeLong(sst, 0L, memTable.size());
@@ -83,15 +85,15 @@ public class PersistentDao extends InMemoryDao {
             fileMap.close();
         }
         maps.clear();
-        if (arena.scope().isAlive()) {
-            arena.close();
-        }
         super.close();
     }
 
     @Override
     public Iterator<Cell<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         openAll();
+        if (maps.size() == 1) {
+            return PersistentDao.super.get(from, to);
+        }
         Stream<PeekTableIterator<MemorySegment>> stream = maps.stream()
                 .map(m -> m.keyIterator(from, to))
                 .filter(PeekTableIterator::hasNext);
@@ -111,7 +113,7 @@ public class PersistentDao extends InMemoryDao {
             if (position < maps.size()) {
                 map = maps.get(position);
             } else {
-                map = new SortedStringTableMap(sstTablePath(i), i, comparator, arena);
+                map = new SortedStringTableMap(sstTablePath(i), i, comparator);
                 maps.add(map);
             }
             MemorySegment sstKey = map.ceilKey(key);
@@ -186,7 +188,7 @@ public class PersistentDao extends InMemoryDao {
         for (int i = filesCount; i >= 1; i--) {
             if (filesCount - i >= alreadyOpened) {
                 Path sstPath = sstTablePath(i);
-                maps.add(new SortedStringTableMap(sstPath, i, comparator, arena));
+                maps.add(new SortedStringTableMap(sstPath, i, comparator));
             }
         }
     }
