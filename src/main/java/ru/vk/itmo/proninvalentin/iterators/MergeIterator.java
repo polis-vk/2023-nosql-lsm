@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.stream.Stream;
 
 public class MergeIterator {
+    // Вспомогательный класс для отслеживания индекса итератора, а также его текущего значения
     static class Pair {
         public final int index;
         public Entry<MemorySegment> value;
@@ -29,58 +30,55 @@ public class MergeIterator {
                 .filter(Iterator::hasNext)
                 .toList();
 
-        Comparator<Pair> pairComparator = Comparator.comparing(p -> p.value == null ? null : p.value.key(), comparator);
-        pairComparator = pairComparator.thenComparing(p -> p.index);
-
-        // Инициализируем текущий Entry у каждого итератора как null
+        // Инициализируем текущий Entry у каждого итератора
         List<Pair> curItEntries = new ArrayList<>(iterators.size());
         for (int i = 0; i < iterators.size(); i++) {
-            curItEntries.add(new Pair(i, null));
+            curItEntries.add(new Pair(i, iterators.get(i).next()));
         }
 
+        // Наш компаратор сначало сортирует значения итераторов по ключу
+        Comparator<Pair> pairComparator = Comparator.comparing(p -> p.value.key(), comparator);
+        // Затем по индексу итератора, итератор с наименьшим индексом указывает на более новые данные
+        pairComparator = pairComparator.thenComparing(p -> p.index);
         Comparator<Pair> finalPairComparator = pairComparator;
         return new Iterator<>() {
-            // Последнее отданное Entry
+            // Последнее отданное итератором Entry
             Entry<MemorySegment> lastGivenEntry;
 
             @Override
             public boolean hasNext() {
-                // Проверяем есть ли хотя бы один итератор с hasNext или значение, которое мы не обработали
+                // Проверяем есть ли хотя бы один итератор с hasNext или значением, которое мы не обработали
                 return iterators.stream().anyMatch(Iterator::hasNext)
                         || curItEntries.stream().anyMatch(e -> e.value != null);
             }
 
             @Override
             public Entry<MemorySegment> next() {
-                // Двигаем вперед если hasNext == true и текущее значение равно последнему найденному
-                for (int i = 0; i < iterators.size(); i++) {
-                    Iterator<Entry<MemorySegment>> it = iterators.get(i);
-                    var curItEntry = curItEntries.get(i);
-                    var curItEntryEqualWithLastGivenEntry = curItEntry.value != null
-                            && comparator.compare(curItEntry.value.key(), lastGivenEntry.key()) == 0;
-                    if (lastGivenEntry == null || curItEntryEqualWithLastGivenEntry) {
-                        curItEntry.value = !it.hasNext() ? null : it.next();
-                    }
-                }
                 var t = curItEntries.stream().map(c -> {
                     if (c.value == null) {
                         return "Empty";
                     }
-                    return new DaoFactoryImpl().toString(c.value.key());
+                    var ckey = c.value.key() == null ? "Empty" : new DaoFactoryImpl().toString(c.value.key());
+                    var cvalue = c.value.value() == null ? "Empty" : new DaoFactoryImpl().toString(c.value.value());
+                    return ckey + ":" + cvalue;
                 }).toList();
                 System.out.println(t);
-                lastGivenEntry = curItEntries.stream().sorted(finalPairComparator).toList().getFirst().value;
-                if (lastGivenEntry != null) {
-                    for (var curItEntry : curItEntries) {
-                        if (curItEntry != null && curItEntry.value != null
-                                && comparator.compare(curItEntry.value.key(), lastGivenEntry.key()) == 0) {
-                            curItEntry.value = null;
-                        }
+                var bb = curItEntries.stream().filter(e -> e.value != null).sorted(finalPairComparator).toList();
+                lastGivenEntry = bb.size() > 0 ? bb.getFirst().value : null;
+                var lastGivenEntryKeyOutput = lastGivenEntry == null || lastGivenEntry.key() == null ? "Empty" : new DaoFactoryImpl().toString(lastGivenEntry.key());
+                System.out.println("Last given entry key: " + lastGivenEntryKeyOutput);
+                var lastGivenEntryValueOutput = lastGivenEntry == null || lastGivenEntry.value() == null ? "Empty" : new DaoFactoryImpl().toString(lastGivenEntry.value());
+                System.out.println("Last given entry key: " + lastGivenEntryValueOutput);
+                // Двигаем вперед если hasNext == true и текущее значение равно последнему найденному
+                for (int i = 0; i < iterators.size(); i++) {
+                    Iterator<Entry<MemorySegment>> curIt = iterators.get(i);
+                    Pair curItEntry = curItEntries.get(i);
+                    boolean curItEntryEqualWithLastGivenEntry = curItEntry.value != null && lastGivenEntry != null
+                            && comparator.compare(curItEntry.value.key(), lastGivenEntry.key()) == 0;
+                    if (curItEntryEqualWithLastGivenEntry) {
+                        curItEntry.value = !curIt.hasNext() ? null : curIt.next();
                     }
                 }
-
-                var lastGivenEntryOutput = lastGivenEntry == null || lastGivenEntry.key() == null ? "Empty" : new DaoFactoryImpl().toString(lastGivenEntry.key());
-                System.out.println("Last given entry: " + lastGivenEntryOutput);
 
                 return lastGivenEntry;
             }

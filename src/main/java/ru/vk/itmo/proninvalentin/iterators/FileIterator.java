@@ -17,30 +17,25 @@ public class FileIterator {
                                                         MemorySegment to,
                                                         Comparator<MemorySegment> comparator,
                                                         long metadataFileSize) {
-        long entryOffset = 0;
+        long entryIndex = 0;
         if (from != null) {
-            entryOffset = MemorySegmentUtils.leftBinarySearch(readValuesMS, readOffsetsMS, from, comparator);
-            if (entryOffset == -1) {
+            entryIndex = MemorySegmentUtils.leftBinarySearch(readValuesMS, readOffsetsMS, from, comparator);
+            if (entryIndex == -1) {
                 return Collections.emptyIterator();
             }
         }
 
-        long finalEntryOffset = entryOffset;
+        long finalEntryIndex = entryIndex;
         return new Iterator<>() {
-            private long curIndex = finalEntryOffset == 0 ? 0 : finalEntryOffset / Metadata.SIZE;
+            private long curIndex = finalEntryIndex;
             private final long valuesCount = metadataFileSize / Metadata.SIZE;
-            private final MemorySegment toKey = to == null ? null : to.asSlice(0, Metadata.SIZE);
 
             @Override
             public boolean hasNext() {
                 // Смотрим не дошли ли мы до конца, либо не является ли текущая запись последней перед toKey
-                if (curIndex + 1 < valuesCount) {
-                    var key = MemorySegmentUtils.getKeyByIndex(readValuesMS, readOffsetsMS, curIndex + 1);
-                    if (toKey == null) {
-                        return true;
-                    } else {
-                        return comparator.compare(key, toKey) < 0;
-                    }
+                if (curIndex < valuesCount) {
+                    var key = MemorySegmentUtils.getKeyByIndex(readValuesMS, readOffsetsMS, curIndex);
+                    return comparator.compare(key, to) < 0;
                 } else {
                     return false;
                 }
@@ -48,14 +43,9 @@ public class FileIterator {
 
             @Override
             public Entry<MemorySegment> next() {
-                if (!hasNext()) {
-                    return null;
-                }
-
-                Metadata metadata = MemorySegmentUtils.getMetadataByIndex(readValuesMS, ++curIndex);
+                Metadata metadata = MemorySegmentUtils.getMetadataByIndex(readValuesMS, curIndex);
                 BaseEntry<MemorySegment> entry = MemorySegmentUtils.getEntryByIndex(
-                        readValuesMS,
-                        readOffsetsMS, curIndex);
+                        readValuesMS, readOffsetsMS, curIndex++);
                 return metadata.isDeleted ? null : entry;
             }
         };
