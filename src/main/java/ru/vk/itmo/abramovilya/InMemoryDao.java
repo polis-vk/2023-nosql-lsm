@@ -111,15 +111,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 if (!inMemoryPriorityQueue.isEmpty()) {
                     MemorySegment inMemoryPriorityQueueFirstKey = inMemoryPriorityQueue.element().key();
                     if (compareMemorySegments(inMemoryPriorityQueueFirstKey, priorityQueue.element().memorySegment()) <= 0) {
-                        while (!priorityQueue.isEmpty() && priorityQueue.peek().memorySegment().mismatch(inMemoryPriorityQueueFirstKey) == -1) {
-                            Index indexWithSameMin = priorityQueue.remove().index();
-                            MemorySegment nextKey = indexWithSameMin.nextKey();
-                            if (nextKey != null && (to == null || compareMemorySegments(nextKey, to) < 0)) {
-                                priorityQueue.add(new Pair(nextKey, indexWithSameMin));
-                            } else {
-                                indexWithSameMin.close();
-                            }
-                        }
+                        removeExpiredValues(inMemoryPriorityQueueFirstKey);
                         if (inMemoryPriorityQueue.element().value() == null) {
                             inMemoryPriorityQueue.remove();
                             return next();
@@ -132,15 +124,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 MemorySegment key = minPair.memorySegment();
                 Index index = minPair.index();
                 MemorySegment value = index.getValueFromStorage();
-                while (!priorityQueue.isEmpty() && priorityQueue.peek().memorySegment().mismatch(key) == -1) {
-                    Index indexWithSameMin = priorityQueue.remove().index();
-                    MemorySegment nextKey = indexWithSameMin.nextKey();
-                    if (nextKey != null && (to == null || compareMemorySegments(nextKey, to) < 0)) {
-                        priorityQueue.add(new Pair(nextKey, indexWithSameMin));
-                    } else {
-                        indexWithSameMin.close();
-                    }
-                }
+                removeExpiredValues(key);
 
                 MemorySegment minPairNextKey = index.nextKey();
                 if (minPairNextKey != null && (to == null || compareMemorySegments(minPairNextKey, to) < 0)) {
@@ -150,80 +134,59 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 return new BaseEntry<>(key, value);
             }
 
+            private void removeExpiredValues(MemorySegment inMemoryPriorityQueueFirstKey) {
+                while (!priorityQueue.isEmpty() && priorityQueue.peek().memorySegment().mismatch(inMemoryPriorityQueueFirstKey) == -1) {
+                    Index indexWithSameMin = priorityQueue.remove().index();
+                    MemorySegment nextKey = indexWithSameMin.nextKey();
+                    if (nextKey != null && (to == null || compareMemorySegments(nextKey, to) < 0)) {
+                        priorityQueue.add(new Pair(nextKey, indexWithSameMin));
+                    } else {
+                        indexWithSameMin.close();
+                    }
+                }
+            }
+
             private void cleanupQueue() {
                 if (!inMemoryPriorityQueue.isEmpty() && !priorityQueue.isEmpty()) {
                     MemorySegment inMemKey = inMemoryPriorityQueue.element().key();
                     MemorySegment inFileKey = priorityQueue.element().memorySegment();
-                    if (compareMemorySegments(inMemKey, inFileKey) < 0) { // inMem < inFile
+                    if (compareMemorySegments(inMemKey, inFileKey) < 0) {
                         if (inMemoryPriorityQueue.element().value() == null) {
                             inMemoryPriorityQueue.remove();
                             cleanupQueue();
                         }
                     } else if (compareMemorySegments(inMemKey, inFileKey) == 0) {
                         if (inMemoryPriorityQueue.element().value() == null) {
-                            while (!priorityQueue.isEmpty() && priorityQueue.peek().memorySegment().mismatch(inMemKey) == -1) {
-                                Index indexWithSameMin = priorityQueue.remove().index();
-                                MemorySegment nextKey = indexWithSameMin.nextKey();
-                                if (nextKey != null && (to == null || compareMemorySegments(nextKey, to) < 0)) {
-                                    priorityQueue.add(new Pair(nextKey, indexWithSameMin));
-                                } else {
-                                    indexWithSameMin.close();
-                                }
-                            }
+                            removeExpiredValues(inMemKey);
                             inMemoryPriorityQueue.remove();
                             cleanupQueue();
                         }
                     } else {
-                        Pair minPair = priorityQueue.element();
-                        MemorySegment key = minPair.memorySegment();
-                        Index index = minPair.index();
-                        MemorySegment value = index.getValueFromStorage();
-
-                        if (value == null) {
-                            priorityQueue.remove();
-                            while (!priorityQueue.isEmpty() && priorityQueue.peek().memorySegment().mismatch(key) == -1) {
-                                Index indexWithSameMin = priorityQueue.remove().index();
-                                MemorySegment nextKey = indexWithSameMin.nextKey();
-                                if (nextKey != null && (to == null || compareMemorySegments(nextKey, to) < 0)) {
-                                    priorityQueue.add(new Pair(nextKey, indexWithSameMin));
-                                } else {
-                                    indexWithSameMin.close();
-                                }
-                            }
-                            MemorySegment minPairNextKey = index.nextKey();
-                            if (minPairNextKey != null && (to == null || compareMemorySegments(minPairNextKey, to) < 0)) {
-                                priorityQueue.add(new Pair(minPairNextKey, index));
-                            }
-                            cleanupQueue();
-                        }
+                        cleanUpSStableQueue();
                     }
                 } else if (priorityQueue.isEmpty()) {
                     while (!inMemoryPriorityQueue.isEmpty() && inMemoryPriorityQueue.element().value() == null) {
                         inMemoryPriorityQueue.remove();
                     }
                 } else {
-                    Pair minPair = priorityQueue.element();
-                    MemorySegment key = minPair.memorySegment();
-                    Index index = minPair.index();
-                    MemorySegment value = index.getValueFromStorage();
+                    cleanUpSStableQueue();
+                }
+            }
 
-                    if (value == null) {
-                        priorityQueue.remove();
-                        while (!priorityQueue.isEmpty() && priorityQueue.peek().memorySegment().mismatch(key) == -1) {
-                            Index indexWithSameMin = priorityQueue.remove().index();
-                            MemorySegment nextKey = indexWithSameMin.nextKey();
-                            if (nextKey != null && (to == null || compareMemorySegments(nextKey, to) < 0)) {
-                                priorityQueue.add(new Pair(nextKey, indexWithSameMin));
-                            } else {
-                                indexWithSameMin.close();
-                            }
-                        }
-                        MemorySegment minPairNextKey = index.nextKey();
-                        if (minPairNextKey != null && (to == null || compareMemorySegments(minPairNextKey, to) < 0)) {
-                            priorityQueue.add(new Pair(minPairNextKey, index));
-                        }
-                        cleanupQueue();
+            private void cleanUpSStableQueue() {
+                Pair minPair = priorityQueue.element();
+                MemorySegment key = minPair.memorySegment();
+                Index index = minPair.index();
+                MemorySegment value = index.getValueFromStorage();
+
+                if (value == null) {
+                    priorityQueue.remove();
+                    removeExpiredValues(key);
+                    MemorySegment minPairNextKey = index.nextKey();
+                    if (minPairNextKey != null && (to == null || compareMemorySegments(minPairNextKey, to) < 0)) {
+                        priorityQueue.add(new Pair(minPairNextKey, index));
                     }
+                    cleanupQueue();
                 }
             }
         };
