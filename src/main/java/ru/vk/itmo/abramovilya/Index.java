@@ -1,7 +1,6 @@
 package ru.vk.itmo.abramovilya;
 
 import java.io.Closeable;
-import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
@@ -12,11 +11,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
-class Index implements Closeable {
-    final int number;
+class Index implements Closeable, Table {
+    private final int number;
     private final MemorySegment mappedIndexFile;
     private long offset;
-
     private final FileChannel fileChannel;
     private final Path storagePath;
     private final Arena arena = Arena.ofShared();
@@ -31,7 +29,6 @@ class Index implements Closeable {
         this.outerArena = outerArena;
         this.offset = offset;
 
-
         try {
             Path filePath = storagePath.resolve(indexFileBaseName + number);
             fileChannel = FileChannel.open(filePath);
@@ -41,7 +38,8 @@ class Index implements Closeable {
         }
     }
 
-    MemorySegment getValueFromStorage() {
+    @Override
+    public MemorySegment getValueFromStorage() {
         long inStorageOffset = mappedIndexFile.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
 
         Path sstableFilePath = storagePath.resolve(sstableFileBaseName + number);
@@ -63,7 +61,8 @@ class Index implements Closeable {
     }
 
 
-    MemorySegment nextKey() {
+    @Override
+    public MemorySegment nextKey() {
         offset += Long.BYTES;
         long msSize = mappedIndexFile.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
         offset += Long.BYTES;
@@ -89,5 +88,10 @@ class Index implements Closeable {
             arena.close();
 
         }
+    }
+
+    @Override
+    public int number() {
+        return number;
     }
 }

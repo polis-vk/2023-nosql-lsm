@@ -46,7 +46,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    record Pair(MemorySegment memorySegment, Index index) {
+    record Pair(MemorySegment memorySegment, Table index) {
     }
 
     @Override
@@ -54,10 +54,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return new Iterator<>() {
             private final PriorityQueue<Pair> priorityQueue = new PriorityQueue<>(
                     ((Comparator<Pair>) (p1, p2) -> compareMemorySegments(p1.memorySegment, p2.memorySegment))
-                            .thenComparing(p -> p.index.number, Comparator.reverseOrder())
+                            .thenComparing(p -> p.index.number(), Comparator.reverseOrder())
             );
-
-            private final PriorityQueue<Entry<MemorySegment>> inMemoryPriorityQueue = new PriorityQueue<>((o1, o2) -> compareMemorySegments(o1.key(), o2.key()));
 
             {
                 ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> subMap;
@@ -70,7 +68,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 } else {
                     subMap = map.subMap(from, to);
                 }
-                inMemoryPriorityQueue.addAll(subMap.values());
 
                 try {
                     int totalSStables = getTotalSStables();
@@ -83,6 +80,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                             ));
                         }
                     }
+                    if (!subMap.isEmpty()) {
+                        priorityQueue.add(new Pair(subMap.firstEntry().getKey(), new MemTable(subMap)));
+                    }
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 }
@@ -90,8 +90,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             @Override
             public boolean hasNext() {
-                cleanupQueue();
-                return !(priorityQueue.isEmpty() && inMemoryPriorityQueue.isEmpty());
+                cleanUpSStableQueue();
+                return !priorityQueue.isEmpty();
             }
 
             @Override
@@ -99,30 +99,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                if (priorityQueue.isEmpty()) {
-                    if (inMemoryPriorityQueue.element().value() == null) {
-                        inMemoryPriorityQueue.remove();
-                        return next();
-                    } else {
-                        return inMemoryPriorityQueue.remove();
-                    }
-                }
-
-                if (!inMemoryPriorityQueue.isEmpty()) {
-                    MemorySegment inMemoryPriorityQueueFirstKey = inMemoryPriorityQueue.element().key();
-                    if (compareMemorySegments(inMemoryPriorityQueueFirstKey, priorityQueue.element().memorySegment()) <= 0) {
-                        removeExpiredValues(inMemoryPriorityQueueFirstKey);
-                        if (inMemoryPriorityQueue.element().value() == null) {
-                            inMemoryPriorityQueue.remove();
-                            return next();
-                        }
-                        return inMemoryPriorityQueue.remove();
-                    }
-                }
 
                 Pair minPair = priorityQueue.remove();
                 MemorySegment key = minPair.memorySegment();
-                Index index = minPair.index();
+                Table index = minPair.index();
                 MemorySegment value = index.getValueFromStorage();
                 removeExpiredValues(key);
 
@@ -136,7 +116,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             private void removeExpiredValues(MemorySegment inMemoryPriorityQueueFirstKey) {
                 while (!priorityQueue.isEmpty() && priorityQueue.peek().memorySegment().mismatch(inMemoryPriorityQueueFirstKey) == -1) {
-                    Index indexWithSameMin = priorityQueue.remove().index();
+                    Table indexWithSameMin = priorityQueue.remove().index();
                     MemorySegment nextKey = indexWithSameMin.nextKey();
                     if (nextKey != null && (to == null || compareMemorySegments(nextKey, to) < 0)) {
                         priorityQueue.add(new Pair(nextKey, indexWithSameMin));
@@ -146,47 +126,22 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
 
-            private void cleanupQueue() {
-                if (!inMemoryPriorityQueue.isEmpty() && !priorityQueue.isEmpty()) {
-                    MemorySegment inMemKey = inMemoryPriorityQueue.element().key();
-                    MemorySegment inFileKey = priorityQueue.element().memorySegment();
-                    if (compareMemorySegments(inMemKey, inFileKey) < 0) {
-                        if (inMemoryPriorityQueue.element().value() == null) {
-                            inMemoryPriorityQueue.remove();
-                            cleanupQueue();
+            private void cleanUpSStableQueue() {
+                if (!priorityQueue.isEmpty()) {
+                    Pair minPair = priorityQueue.element();
+                    MemorySegment key = minPair.memorySegment();
+                    Table index = minPair.index();
+                    MemorySegment value = index.getValueFromStorage();
+
+                    if (value == null) {
+                        priorityQueue.remove();
+                        removeExpiredValues(key);
+                        MemorySegment minPairNextKey = index.nextKey();
+                        if (minPairNextKey != null && (to == null || compareMemorySegments(minPairNextKey, to) < 0)) {
+                            priorityQueue.add(new Pair(minPairNextKey, index));
                         }
-                    } else if (compareMemorySegments(inMemKey, inFileKey) == 0) {
-                        if (inMemoryPriorityQueue.element().value() == null) {
-                            removeExpiredValues(inMemKey);
-                            inMemoryPriorityQueue.remove();
-                            cleanupQueue();
-                        }
-                    } else {
                         cleanUpSStableQueue();
                     }
-                } else if (priorityQueue.isEmpty()) {
-                    while (!inMemoryPriorityQueue.isEmpty() && inMemoryPriorityQueue.element().value() == null) {
-                        inMemoryPriorityQueue.remove();
-                    }
-                } else {
-                    cleanUpSStableQueue();
-                }
-            }
-
-            private void cleanUpSStableQueue() {
-                Pair minPair = priorityQueue.element();
-                MemorySegment key = minPair.memorySegment();
-                Index index = minPair.index();
-                MemorySegment value = index.getValueFromStorage();
-
-                if (value == null) {
-                    priorityQueue.remove();
-                    removeExpiredValues(key);
-                    MemorySegment minPairNextKey = index.nextKey();
-                    if (minPairNextKey != null && (to == null || compareMemorySegments(minPairNextKey, to) < 0)) {
-                        priorityQueue.add(new Pair(minPairNextKey, index));
-                    }
-                    cleanupQueue();
                 }
             }
         };
