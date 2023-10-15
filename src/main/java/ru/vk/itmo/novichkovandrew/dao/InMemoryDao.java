@@ -1,7 +1,6 @@
 package ru.vk.itmo.novichkovandrew.dao;
 
 import ru.vk.itmo.Dao;
-import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.Cell;
 import ru.vk.itmo.novichkovandrew.MemorySegmentCell;
 import ru.vk.itmo.novichkovandrew.table.MemTable;
@@ -12,7 +11,7 @@ import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 import java.util.Iterator;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class InMemoryDao implements Dao<MemorySegment, Cell<MemorySegment>> {
     protected final MemTable memTable;
     protected final Comparator<MemorySegment> comparator = (first, second) -> {
         if (first == null || second == null) return -1;
@@ -34,7 +33,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+    public Iterator<Cell<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         return new Iterator<>() {
             final Iterator<MemorySegment> iterator = memTable.keyIterator(from, to);
 
@@ -44,7 +43,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
 
             @Override
-            public Entry<MemorySegment> next() {
+            public Cell<MemorySegment> next() {
                 Cell<MemorySegment> cell = null;
                 while (iterator.hasNext() && (cell == null || cell.isTombstone())) {
                     cell = memTable.getCell(iterator.next());
@@ -55,14 +54,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public Entry<MemorySegment> get(MemorySegment key) {
+    public Cell<MemorySegment> get(MemorySegment key) {
         return memTable.getCell(key);
     }
 
     @Override
-    public void upsert(Entry<MemorySegment> entry) {
-        memTable.upsert(new MemorySegmentCell(entry.key(), entry.value()));
+    public void upsert(Cell<MemorySegment> entry) {
+        memTable.upsert(entry);
     }
+
 
     @Override
     public void close() throws IOException {

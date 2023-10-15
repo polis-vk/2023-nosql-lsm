@@ -5,10 +5,11 @@ import ru.vk.itmo.novichkovandrew.iterator.PeekTableIterator;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.lang.foreign.MemorySegment;
 
 public interface TableMap<K, V> extends Closeable {
 
-    Cell<K> getCell(K key);
+    Cell<MemorySegment> getCell(K key);
 
     K ceilKey(K key);
 

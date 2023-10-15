@@ -1,11 +1,11 @@
 package ru.vk.itmo.novichkovandrew.dao;
 
-import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.Cell;
+import ru.vk.itmo.novichkovandrew.Utils;
+import ru.vk.itmo.novichkovandrew.iterator.IteratorsComparator;
+import ru.vk.itmo.novichkovandrew.iterator.PeekTableIterator;
 import ru.vk.itmo.novichkovandrew.table.SortedStringTableMap;
 import ru.vk.itmo.novichkovandrew.table.TableMap;
-import ru.vk.itmo.novichkovandrew.Utils;
-import ru.vk.itmo.novichkovandrew.iterator.PeekTableIterator;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -20,6 +20,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static ru.vk.itmo.novichkovandrew.Utils.copyToSegment;
 
@@ -29,10 +30,6 @@ public class PersistentDao extends InMemoryDao {
      * Path associated with SSTables.
      */
     private final Path path;
-
-    private final String SST_NAME = "data";
-    private final String SST_FORMAT = "txt";
-
     private final Arena arena;
     private final StandardOpenOption[] openOptions = new StandardOpenOption[]{
             StandardOpenOption.CREATE,
@@ -73,9 +70,7 @@ public class PersistentDao extends InMemoryDao {
                 writePosToFile(sst, indexOffset, sstOffset + metaSize, 0L);
             }
         } catch (InvalidPathException ex) {
-            throw new RuntimeException(
-                    String.format("Failed by path with pattern %s-n.%s, %s%n", SST_NAME, SST_FORMAT, ex.getMessage())
-            );
+            throw new RuntimeException("Failed by path: " + ex.getMessage());
         }
     }
 
@@ -95,65 +90,16 @@ public class PersistentDao extends InMemoryDao {
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+    public Iterator<Cell<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         openAll();
-        return new Iterator<>() {
-            final Comparator<PeekTableIterator<MemorySegment>> iterComparator = (o1, o2) -> {
-                int memoryComparison = comparator.compare(o1.peek(), o2.peek());
-                if (memoryComparison == 0) {
-                    return -1 * Integer.compare(o1.getTableNumber(), o2.getTableNumber());
-                }
-                return memoryComparison;
-            };
-            private final TreeSet<PeekTableIterator<MemorySegment>> set = maps.stream()
-                    .map(map -> map.keyIterator(from, to))
-                    .filter(Iterator::hasNext)
-                    .collect(Collectors.toCollection(() -> new TreeSet<>(iterComparator)));
-            private MemorySegment minKey; //TODO: Maybe unused
-            private Cell<MemorySegment> minCell = getNextCell();
-
-            private Cell<MemorySegment> getNextCell() {
-                while (!set.isEmpty()) {
-                    var iterator = set.pollFirst();
-                    if (iterator == null) {
-                        continue;
-                    }
-                    var key = iterator.next();
-                    if (minKey == null || comparator.compare(key, minKey) > 0) {
-                        minKey = key;
-                        if (iterator.hasNext()) {
-                            set.add(iterator);
-                        }
-                        int mapNumber = maps.size() - iterator.getTableNumber();
-                        var cell = mapNumber < 0 ? memTable.getCell(key) : maps.get(mapNumber).getCell(key);
-                        if (!cell.isTombstone()) {
-                            return cell;
-                        }
-                    } else {
-                        if (iterator.hasNext()) {
-                            set.add(iterator);
-                        }
-                    }
-                }
-                return null;
-            }
-
-            @Override
-            public boolean hasNext() {
-                return minCell != null;
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                var cell = minCell;
-                minCell = getNextCell();
-                return cell;
-            }
-        };
+        Stream<PeekTableIterator<MemorySegment>> stream = maps.stream()
+                .map(m -> m.keyIterator(from, to))
+                .filter(PeekTableIterator::hasNext);
+        return new SortedStingTablesIterator(stream);
     }
 
     @Override
-    public Entry<MemorySegment> get(MemorySegment key) {
+    public Cell<MemorySegment> get(MemorySegment key) {
         Cell<MemorySegment> memCell = memTable.getCell(key);
         if (memCell != null) {
             return memCell.isTombstone() ? null : memCell;
@@ -181,6 +127,59 @@ public class PersistentDao extends InMemoryDao {
     }
 
 
+    public class SortedStingTablesIterator implements Iterator<Cell<MemorySegment>> {
+        private final Comparator<PeekTableIterator<MemorySegment>> iterComparator;
+
+        private final TreeSet<PeekTableIterator<MemorySegment>> set;
+        private MemorySegment minKey;
+        private Cell<MemorySegment> minCell;
+
+        public SortedStingTablesIterator(Stream<PeekTableIterator<MemorySegment>> sstIteratorsStream) {
+            this.iterComparator = new IteratorsComparator<>(comparator);
+            this.set = sstIteratorsStream.collect(Collectors.toCollection(() -> new TreeSet<>(iterComparator)));
+            this.minCell = getNextCell();
+        }
+
+        private Cell<MemorySegment> getNextCell() {
+            while (!set.isEmpty()) {
+                var iterator = set.pollFirst();
+                if (iterator == null) {
+                    continue;
+                }
+                var key = iterator.next();
+                if (minKey == null || comparator.compare(key, minKey) > 0) {
+                    minKey = key;
+                    if (iterator.hasNext()) {
+                        set.add(iterator);
+                    }
+                    int mapNumber = maps.size() - iterator.getTableNumber();
+                    var cell = mapNumber < 0 ? memTable.getCell(key) : maps.get(mapNumber).getCell(key);
+                    if (!cell.isTombstone()) {
+                        return cell;
+                    }
+                } else {
+                    if (iterator.hasNext()) {
+                        set.add(iterator);
+                    }
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return minCell != null;
+        }
+
+        @Override
+        public Cell<MemorySegment> next() {
+            var cell = minCell;
+            minCell = getNextCell();
+            return cell;
+        }
+    }
+
+
     private void openAll() {
         int filesCount = Utils.filesCount(path);
         final int alreadyOpened = maps.size() - 1;
@@ -199,7 +198,7 @@ public class PersistentDao extends InMemoryDao {
     }
 
     private Path sstTablePath(long suffix) {
-        String fileName = String.format("%s-%s.%s", SST_NAME, suffix, SST_FORMAT);
+        String fileName = String.format("data-%s.txt", suffix);
         return path.resolve(Path.of(fileName));
     }
 }
