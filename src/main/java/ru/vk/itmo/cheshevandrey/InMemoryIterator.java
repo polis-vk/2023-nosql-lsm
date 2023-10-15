@@ -1,9 +1,11 @@
 package ru.vk.itmo.cheshevandrey;
 
+import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.*;
 
 import static ru.vk.itmo.cheshevandrey.InMemoryDao.*;
@@ -43,7 +45,8 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
     @Override
     public boolean hasNext() {
         if (loadedElementsCount == 0) {
-            collectData();
+            collectFromMemTable();
+            collectFromStorage();
         }
 
         return loadedElementsCount != 0;
@@ -91,11 +94,6 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
         return minEntry;
     }
 
-    private void collectData() {
-        collectFromMemTable();
-        collectFromStorage();
-    }
-
     private void collectFromMemTable() {
 
         Entry<MemorySegment> currMemTableEntry;
@@ -135,6 +133,39 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
 
     private void collectFromStorage() {
 
+        for (int i = ssTablesCount - 1; i > 0; i--) {
+            int position = positions[i];
+            if (position == -1) {
+                continue;
+            }
+
+            MemorySegment ssTable = ssTables[i];
+            MemorySegment meta = metaTables[i];
+            int entryNumber = meta.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
+
+            int index = 0;
+            while (index < CACHE_CAPACITY && position < entryNumber) {
+
+                int keyOffset = getKeyOffsetByIndex(meta, index);
+                int keySize = getKeySize(meta, index, keyOffset);
+                long mismatch = MemorySegment.mismatch(ssTable, keyOffset, keySize, to, 0, to.byteSize());
+
+                if (mismatch > 0) {
+                    positions[i] = -1;
+                    break;
+                }
+
+                MemorySegment key = ssTable.asSlice(keyOffset, keySize);
+                MemorySegment value = getValueSegment(ssTable, meta, position);
+
+                Entry<MemorySegment> insertEntry = new BaseEntry<>(key, value);
+                cache[i][index] = insertEntry;
+
+                loadedElementsCount++;
+                index++;
+                position++;
+            }
+        }
     }
 
     private void initStartState() throws IOException {
@@ -146,20 +177,14 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
             MemorySegment meta = metaTables[i];
 
             int pos = findKeyPositionOrNearest(ssTable, meta, from);
+            MemorySegment key = getKeySegment(ssTable, meta, pos);
 
-            int keyOffset = getKeyOffsetByIndex(meta, pos);
-            int keySize = getKeySize(meta, pos, keyOffset);
-
-            /// ??? not optimal
-            MemorySegment key = ssTable.asSlice(keyOffset, keySize);
             int compareResult = segmentComparator.compare(key, to);
-
             if (compareResult > 0) {
                 positions[i] = -1;
             } else {
                 positions[i] = pos;
             }
         }
-
     }
 }

@@ -152,10 +152,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             long mismatch = MemorySegment.mismatch(ssTable, keyOffset, keySize, key, 0, key.byteSize());
 
             if (mismatch == -1) {
-                int valueOffset = getValueOffsetByIndex(metaTable, pos);
-                int valueSize = getValueSize(ssTable, pos, (int) ssTable.byteSize());
-                MemorySegment value = ssTable.asSlice(valueOffset, valueSize);
-
+                MemorySegment value = getValueSegment(ssTable, metaTable, pos);
                 if (value == null) {
                     return null;
                 }
@@ -218,36 +215,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         return nearest;
-    }
-
-    static int getKeyOffsetByIndex(MemorySegment meta, int index) {
-        int keyPosition = Integer.BYTES + index * 2 * Integer.BYTES;
-        return meta.get(ValueLayout.JAVA_INT_UNALIGNED, keyPosition);
-    }
-
-    static int getValueOffsetByIndex(MemorySegment meta, int index) {
-        int valuePosition = (index + 1) * 2 * Integer.BYTES;
-        return meta.get(ValueLayout.JAVA_INT_UNALIGNED, valuePosition);
-    }
-
-    static int getKeySize(MemorySegment meta, int index, int keyOffset) {
-        int valueOffset = getValueOffsetByIndex(meta, index);
-        return valueOffset - keyOffset;
-    }
-
-    static int getValueSize(MemorySegment meta, int index, int limitOffset) {
-        int entryNumber = meta.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
-
-        int valueEndOffset;
-        if (index == entryNumber - 1) {
-            valueEndOffset = limitOffset;
-        }
-        {
-            valueEndOffset = getKeyOffsetByIndex(meta, index + 1);
-        }
-        int valueOffset = getValueOffsetByIndex(meta, index);
-
-        return valueEndOffset - valueOffset;
     }
 
     @Override
@@ -317,4 +284,44 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         memTable.put(entry.key(), entry);
     }
 
+    static int getKeyOffsetByIndex(MemorySegment meta, int index) {
+        int keyPosition = Integer.BYTES + index * 2 * Integer.BYTES;
+        return meta.get(ValueLayout.JAVA_INT_UNALIGNED, keyPosition);
+    }
+
+    static int getValueOffsetByIndex(MemorySegment meta, int index) {
+        int valuePosition = (index + 1) * 2 * Integer.BYTES;
+        return meta.get(ValueLayout.JAVA_INT_UNALIGNED, valuePosition);
+    }
+
+    static int getKeySize(MemorySegment meta, int index, int keyOffset) {
+        int valueOffset = getValueOffsetByIndex(meta, index);
+        return valueOffset - keyOffset;
+    }
+
+    static int getValueSize(MemorySegment meta, int index, int limitOffset) {
+        int entryNumber = meta.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
+
+        int valueEndOffset;
+        if (index == entryNumber - 1) {
+            valueEndOffset = limitOffset;
+        } else {
+            valueEndOffset = getKeyOffsetByIndex(meta, index + 1);
+        }
+        int valueOffset = getValueOffsetByIndex(meta, index);
+
+        return valueEndOffset - valueOffset;
+    }
+
+    static MemorySegment getKeySegment(MemorySegment ssTable, MemorySegment meta, int index) {
+        int keyOffset = getKeyOffsetByIndex(meta, index);
+        int keySize = getKeySize(meta, index, keyOffset);
+        return ssTable.asSlice(keyOffset, keySize);
+    }
+
+    static MemorySegment getValueSegment(MemorySegment ssTable, MemorySegment meta, int index) {
+        int valueOffset = getValueOffsetByIndex(meta, index);
+        int valueSize = getValueSize(ssTable, index, (int) ssTable.byteSize());
+        return ssTable.asSlice(valueOffset, valueSize);
+    }
 }
