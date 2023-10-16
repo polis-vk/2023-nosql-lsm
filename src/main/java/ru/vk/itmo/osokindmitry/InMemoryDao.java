@@ -29,7 +29,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String FILE_NAME = "sstable.txt";
 
-
     public InMemoryDao(Config config) {
         path = config.basePath().resolve(FILE_NAME);
         arena = Arena.ofConfined();
@@ -101,11 +100,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private long writeEntry(MemorySegment entry, MemorySegment ssTable, long offset) {
-        ssTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.byteSize());
-        offset += Long.BYTES;
-        MemorySegment.copy(entry, 0, ssTable, offset, entry.byteSize());
-        offset += entry.byteSize();
-        return offset;
+        long curOffset = offset;
+        ssTable.set(ValueLayout.JAVA_LONG_UNALIGNED, curOffset, entry.byteSize());
+        curOffset += Long.BYTES;
+        MemorySegment.copy(entry, 0, ssTable, curOffset, entry.byteSize());
+        curOffset += entry.byteSize();
+        return curOffset;
     }
 
     private MemorySegment mapFile(Path path) {
@@ -134,10 +134,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             MemorySegment slicedKey = mappedSegment.asSlice(offset, size);
             offset += size;
 
+            long mismatch = key.mismatch(slicedKey);
             size = mappedSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
 
-            if (key.mismatch(slicedKey) == -1) {
+            if (mismatch == -1) {
                 MemorySegment slicedValue = mappedSegment.asSlice(offset, size);
                 BaseEntry<MemorySegment> entry = new BaseEntry<>(slicedKey, slicedValue);
                 cachedValues.put(slicedKey, entry);
