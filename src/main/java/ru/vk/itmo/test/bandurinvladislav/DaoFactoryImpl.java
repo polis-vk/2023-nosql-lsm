@@ -1,9 +1,9 @@
-package ru.vk.itmo.test.bazhenovkirill;
+package ru.vk.itmo.test.bandurinvladislav;
 
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.bazhenovkirill.PersistentDaoImpl;
+import ru.vk.itmo.bandurinvladislav.PersistentDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -16,14 +16,13 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new PersistentDaoImpl(config);
+        return new PersistentDao(config);
     }
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        return memorySegment == null
-                ? null
-                : new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
+        return memorySegment == null ? null :
+                new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override
