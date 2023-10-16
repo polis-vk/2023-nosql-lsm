@@ -55,9 +55,8 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
             } catch (IOException e) {
                 return inMemoryDao.get(from, to);
             }
-        } else {
-            return inMemoryDao.get(from, to);
         }
+        return inMemoryDao.get(from, to);
     }
 
     @Override

@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class FileDao implements Closeable {
     // Префикс файлов, в которых хранятся Entry
@@ -74,7 +75,7 @@ public class FileDao implements Closeable {
         for (File file : Arrays.stream(listOfFiles)
                 .filter(File::isFile)
                 .sorted(Comparator.comparing(x -> FileUtils.parseIndexFromFileName(x.getName())))
-                .toList()) {
+                .collect(Collectors.toList())) {
             if (file.getName().startsWith(VALUES_FILENAME_PREFIX)) {
                 readValuesMSStorage.add(getReadOnlyMappedMemory(file));
             } else if (file.getName().startsWith(METADATA_FILENAME_PREFIX)) {
@@ -115,9 +116,9 @@ public class FileDao implements Closeable {
         if (entries.isEmpty()) {
             return null;
         } else {
-            Comparator<EnrichedEntry> comparator = Comparator.comparing(x ->
+            Comparator<EnrichedEntry> enrichedEntryComparator = Comparator.comparing(x ->
                     x.metadata.createdAt, new CreateAtTimeComparator());
-            EnrichedEntry entry = entries.stream().sorted(comparator).toList().getFirst();
+            EnrichedEntry entry = entries.stream().sorted(enrichedEntryComparator).toList().getFirst();
             if (entry.metadata.isDeleted) {
                 return null;
             } else {
@@ -178,8 +179,7 @@ public class FileDao implements Closeable {
                     readMetadataMSStorage.get(i),
                     from,
                     to,
-                    comparator,
-                    metadataFiles.get(i).length()));
+                    comparator));
         }
 
         return filesIterators;

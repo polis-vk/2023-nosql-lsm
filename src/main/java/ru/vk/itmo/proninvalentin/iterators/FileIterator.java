@@ -11,12 +11,14 @@ import java.util.Comparator;
 import java.util.Iterator;
 
 public class FileIterator {
+    private FileIterator() {
+    }
+
     public static Iterator<EnrichedEntry> create(MemorySegment readValuesMS,
                                                  MemorySegment readMetadataMS,
                                                  MemorySegment from,
                                                  MemorySegment to,
-                                                 Comparator<MemorySegment> comparator,
-                                                 long metadataFileSize) {
+                                                 Comparator<MemorySegment> comparator) {
         long startIndex = 0;
         if (from != null) {
             startIndex = MemorySegmentUtils.leftBinarySearch(readValuesMS, readMetadataMS, from, comparator);
@@ -31,7 +33,7 @@ public class FileIterator {
         }
 
         if (endIndex == -1) {
-            endIndex = metadataFileSize / Metadata.SIZE;
+            endIndex = readMetadataMS.byteSize() / Metadata.SIZE;
         }
 
         long finalStartIndex = startIndex;

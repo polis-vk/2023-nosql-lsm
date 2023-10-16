@@ -8,6 +8,9 @@ import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 
 public class EntryIteratorAdapter {
+    private EntryIteratorAdapter() {
+    }
+
     public static Iterator<EnrichedEntry> create(Iterator<Entry<MemorySegment>> memorySegmentIterator) {
         return new Iterator<>() {
             @Override

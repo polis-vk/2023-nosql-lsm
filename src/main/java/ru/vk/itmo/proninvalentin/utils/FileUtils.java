@@ -7,8 +7,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class FileUtils {
+    private FileUtils() {
+    }
+
     public static String getNewFileName(Path filePath, String filePrefix) {
-        // Если файлов в директории с таким префиксом нету, значит новый файл будет с индексом 0;
         int fileIndex = -1;
         for (File file : getAllFilesWithPrefix(filePath, filePrefix)) {
             String fileName = file.getName();

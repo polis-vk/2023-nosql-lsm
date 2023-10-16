@@ -9,6 +9,9 @@ import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
 public class MemorySegmentUtils {
+    private MemorySegmentUtils() {
+    }
+
     public static MemorySegment getBySizeOffset(MemorySegment readValuesMS, long sizeOffset) {
         long valueSize = readValuesMS.get(ValueLayout.JAVA_LONG_UNALIGNED, sizeOffset);
         long valueOffset = sizeOffset + Long.BYTES;

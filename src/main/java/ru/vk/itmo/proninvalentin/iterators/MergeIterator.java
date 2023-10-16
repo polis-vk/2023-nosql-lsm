@@ -13,6 +13,9 @@ import java.util.Objects;
 import java.util.stream.Stream;
 
 public class MergeIterator {
+    private MergeIterator() {
+    }
+
     public static Iterator<Entry<MemorySegment>> create(Iterator<Entry<MemorySegment>> memoryIterator,
                                                         List<Iterator<EnrichedEntry>> filesIterators,
                                                         Comparator<MemorySegment> msComparator) {
@@ -24,7 +27,6 @@ public class MergeIterator {
         Comparator<EnrichedEntry> enrichedEntryComparator = getEnrichedEntryComparator(msComparator);
         List<EnrichedEntry> curItEntries = new ArrayList<>(iterators.size());
         moveIteratorsNext(iterators, curItEntries);
-        // Двигаем значения итераторов, пропуская удаленные значения
         moveIteratorsToTheNotDeletedEntry(iterators, curItEntries, enrichedEntryComparator, msComparator);
         return new Iterator<>() {
             // Последнее отданное итераторами Entry
@@ -51,13 +53,12 @@ public class MergeIterator {
         };
     }
 
-    // Двигаем наши итераторы до момента, когда хотя бы один итератор не будет обладать акутальным Entry
+    // Двигаем наши итераторы до момента, когда хотя бы один итератор не будет обладать актуальным Entry
     private static void moveIteratorsToTheNotDeletedEntry(List<Iterator<EnrichedEntry>> iterators,
                                                           List<EnrichedEntry> curItEntries,
                                                           Comparator<EnrichedEntry> enrichedEntryComparator,
                                                           Comparator<MemorySegment> msComparator) {
-        EnrichedEntry actualEntry;
-        actualEntry = getActualEntry(curItEntries, enrichedEntryComparator);
+        EnrichedEntry actualEntry = getActualEntry(curItEntries, enrichedEntryComparator);
         while (actualEntry != null && actualEntry.metadata.isDeleted) {
             moveIteratorsWithSpecifiedEntry(iterators, curItEntries, actualEntry.entry, msComparator);
             actualEntry = getActualEntry(curItEntries, enrichedEntryComparator);
@@ -95,8 +96,10 @@ public class MergeIterator {
             EnrichedEntry curItEntry = curItEntries.get(i);
             boolean curItEntryEqualWithLastGivenEntry = curItEntry != null
                     && msComparator.compare(curItEntry.entry.key(), entry.key()) == 0;
-            if (curItEntryEqualWithLastGivenEntry) {
-                curItEntries.set(i, !curIt.hasNext() ? null : curIt.next());
+            if (curItEntryEqualWithLastGivenEntry && curIt.hasNext()) {
+                curItEntries.set(i, curIt.next());
+            } else {
+                curItEntries.set(i, null);
             }
         }
     }
