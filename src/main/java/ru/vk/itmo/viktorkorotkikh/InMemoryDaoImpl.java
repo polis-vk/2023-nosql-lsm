@@ -65,8 +65,8 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     @Override
     public void close() throws IOException {
         if (ssTable != null) {
-            this.ssTable.close();
+            ssTable.close();
         }
-        SSTable.save(storage.values(), this.storagePath);
+        SSTable.save(storage.values(), storagePath);
     }
 }
