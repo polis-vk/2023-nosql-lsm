@@ -7,7 +7,7 @@ import ru.vk.itmo.proninvalentin.Metadata;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 
-public class EntryIteratorAdapter {
+public final class EntryIteratorAdapter {
     private EntryIteratorAdapter() {
     }
 

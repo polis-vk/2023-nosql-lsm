@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
 
-public class MergeIterator {
+public final class MergeIterator {
     private MergeIterator() {
     }
 

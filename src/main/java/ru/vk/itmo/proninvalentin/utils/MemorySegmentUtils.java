@@ -8,7 +8,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
-public class MemorySegmentUtils {
+public final class MemorySegmentUtils {
     private MemorySegmentUtils() {
     }
 
