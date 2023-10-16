@@ -118,8 +118,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                          StandardOpenOption.CREATE)) {
                 MemorySegment pageData = fileChannelData.map(FileChannel.MapMode.READ_WRITE, 0, size, writeArena);
                 MemorySegment pageMeta = fileChannelMeta.map(FileChannel.MapMode.READ_WRITE, 0,
-                                                        4L * memTable.size() * Long.BYTES, writeArena);
-
+                        4L * memTable.size() * Long.BYTES, writeArena);
 
                 long offsetData = 0;
                 long offsetMeta = 0;
@@ -128,16 +127,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     MemorySegment key = entry.getKey();
                     Entry<MemorySegment> val = entry.getValue();
 
-                    long keySize = key.byteSize();
-                    long val1Size = val.key().byteSize();
-                    long val2Size = val.value().byteSize();
-
                     pageMeta.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetMeta, offsetData);
                     offsetMeta += Long.BYTES;
+
+                    long keySize = key.byteSize();
                     pageMeta.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetMeta, keySize);
                     offsetMeta += Long.BYTES;
+
+                    long val1Size = val.key().byteSize();
                     pageMeta.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetMeta, val1Size);
                     offsetMeta += Long.BYTES;
+
+                    long val2Size = val.value().byteSize();
                     pageMeta.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetMeta, val2Size);
                     offsetMeta += Long.BYTES;
 
