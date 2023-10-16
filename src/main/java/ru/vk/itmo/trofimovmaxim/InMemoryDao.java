@@ -125,7 +125,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
                 for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : memTable.entrySet()) {
                     MemorySegment key = entry.getKey();
-                    Entry<MemorySegment> val = entry.getValue();
 
                     pageMeta.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetMeta, offsetData);
                     offsetMeta += Long.BYTES;
@@ -134,6 +133,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     pageMeta.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetMeta, keySize);
                     offsetMeta += Long.BYTES;
 
+                    Entry<MemorySegment> val = entry.getValue();
                     long val1Size = val.key().byteSize();
                     pageMeta.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetMeta, val1Size);
                     offsetMeta += Long.BYTES;
