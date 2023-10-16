@@ -43,7 +43,7 @@ public class MergeIterator {
             // Возвращаемая entry не удалена (metadata.isDeleted == false)
             @Override
             public Entry<MemorySegment> next() {
-                actualEntry = getActualEntry(curItEntries, comparator).entry;
+                actualEntry = Objects.requireNonNull(getActualEntry(curItEntries, comparator)).entry;
                 moveIteratorsWithSpecifiedEntry(iterators, curItEntries, actualEntry, msComparator);
                 moveIteratorsToTheNotDeletedEntry(iterators, curItEntries, enrichedEntryComparator, msComparator);
                 return actualEntry;
@@ -67,10 +67,14 @@ public class MergeIterator {
     // Получить самую маленькую и свежую запись среди всех остальных записей
     private static EnrichedEntry getActualEntry(List<EnrichedEntry> curItEntries,
                                                 Comparator<EnrichedEntry> comparator) {
-        return curItEntries.stream()
+        var entries = curItEntries.stream()
                 .filter(Objects::nonNull)
                 .sorted(comparator)
-                .toList().getFirst();
+                .toList();
+        if (entries.isEmpty()) {
+            return null;
+        }
+        return entries.getFirst();
     }
 
     // Двигаем все итераторы вперед
