@@ -25,8 +25,7 @@ public class SSTable {
         this.ssTablePath = config.basePath().resolve(SS_TABLE_NAME);
 
         if (Files.exists(ssTablePath)) {
-            try (FileChannel ssTableChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ);
-            ) {
+            try (FileChannel ssTableChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
                 this.readDataArena = Arena.ofConfined();
                 this.readDataSegment = ssTableChannel.map(
                         FileChannel.MapMode.READ_ONLY, 0, ssTableChannel.size(), readDataArena
