@@ -30,30 +30,27 @@ public class SSTable {
     private final Path offsetPath;
     private final Arena readArena;
     private final MemorySegment readSegmentData;
-    private final MemorySegment readSegmentIndex;
+    private final MemorySegment readSegmentOffset;
     private static final String OFFSET_PATH = "offset";
     private static final String FILE_PATH = "data";
-    //private final long[] offsets;
-    private MemorySegmentComparator comparator;
+    private final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
 
     public SSTable(Config config) throws IOException {
         this.filePath = config.basePath().resolve(FILE_PATH);
         this.offsetPath = config.basePath().resolve(OFFSET_PATH);
 
-        //offsets = new long[2];
-
         readArena = Arena.ofConfined();
 
         if (Files.notExists(filePath)) {
             readSegmentData = null;
-            readSegmentIndex = null;
+            readSegmentOffset = null;
             return;
         }
 
         try (FileChannel fcData = FileChannel.open(filePath, StandardOpenOption.READ);
-             FileChannel fcIndex = FileChannel.open(filePath, StandardOpenOption.READ)) {
+             FileChannel fcIndex = FileChannel.open(offsetPath, StandardOpenOption.READ)) {
             readSegmentData = fcData.map(READ_ONLY, 0, Files.size(filePath), readArena);
-            readSegmentIndex = fcData.map(READ_ONLY, 0, Files.size(filePath), readArena);
+            readSegmentOffset = fcIndex.map(READ_ONLY, 0, Files.size(offsetPath), readArena);
         }
     }
 
@@ -64,49 +61,39 @@ public class SSTable {
 
         readArena.close();
 
+        long[] offsets = new long[entries.size() * 2];
+
         long offsetData = 0;
-        long offsetIndex = 0;
         long memorySize = entries.stream().mapToLong(
                 entry -> entry.key().byteSize() + entry.value().byteSize()
         ).sum();
+        int index = 0;
 
         try (FileChannel fcData = FileChannel.open(filePath, openOptions);
              FileChannel fcIndex = FileChannel.open(offsetPath, openOptions)) {
 
             MemorySegment writeSegmentData = fcData.map(READ_WRITE, 0, memorySize, Arena.ofConfined());
-            MemorySegment writeSegmentIndex = fcIndex.map(READ_WRITE, 0, memorySize, Arena.ofConfined());
+            MemorySegment writeSegmentOffset = fcIndex.map(READ_WRITE, 0, (long) offsets.length * Long.BYTES, Arena.ofConfined());
 
             for (Entry<MemorySegment> entry : entries) {
                 MemorySegment key = entry.key();
                 MemorySegment value = entry.value();
-                MemorySegment offset;
 
-//                writeSegmentData.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, key.byteSize());
-//                offset += Long.BYTES;
-//                writeSegmentData.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, value.byteSize());
-//                offset += Long.BYTES;
-
-                offset = Utils.longToMemorySegment(offsetData);
-                MemorySegment.copy(offset, 0, writeSegmentIndex, offsetIndex, offset.byteSize());
-
+                offsets[index] = offsetData;
                 MemorySegment.copy(key, 0, writeSegmentData, offsetData, key.byteSize());
                 offsetData += key.byteSize();
 
-                offset = Utils.longToMemorySegment(offsetData);
-                MemorySegment.copy(offset, 0, writeSegmentIndex, offsetIndex, offset.byteSize());
-
+                offsets[index + 1] = offsetData;
                 MemorySegment.copy(value, 0, writeSegmentData, offsetData, value.byteSize());
                 offsetData += value.byteSize();
 
-//                writeSegmentData.
-//                        writeSegmentData.asSlice(offset).copyFrom(entry.key());
-//                offset += entry.key().byteSize();
-//
-//                writeSegmentData.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.value().byteSize());
-//                offset += Long.BYTES;
-//                writeSegmentData.asSlice(offset).copyFrom(entry.value());
-//                offset += entry.value().byteSize();
+                index += 2;
             }
+
+            MemorySegment.copy(
+                    MemorySegment.ofArray(offsets), ValueLayout.JAVA_LONG, 0,
+                    writeSegmentOffset, ValueLayout.JAVA_LONG,0, offsets.length
+            );
         }
     }
 
@@ -116,51 +103,32 @@ public class SSTable {
         }
 
         return binarySearch(key);
-
-//        long offset = 0L;
-//
-//        while (offset < readSegmentData.byteSize()) {
-//            long keySize = readSegmentData.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-//            offset += Long.BYTES;
-//
-//            long valueSize = readSegmentData.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
-//
-//            if (keySize != key.byteSize()) {
-//                offset += keySize + valueSize + Long.BYTES;
-//                continue;
-//            }
-//
-//            MemorySegment keySegment = readSegmentData.asSlice(offset, keySize);
-//            offset += keySize + Long.BYTES;
-//
-//            if (key.mismatch(keySegment) == -1) {
-//                MemorySegment valueSegment = readSegmentData.asSlice(offset, valueSize);
-//                return new BaseEntry<>(keySegment, valueSegment);
-//            }
-//
-//            offset += valueSize;
-//        }
-//
-//        return null;
     }
 
     private Entry<MemorySegment> binarySearch(MemorySegment key) {
-        int left = 0;
-        int middle;
-        int right = (int) readSegmentIndex.byteSize();
+        long left = 0;
+        long middle;
+        long right = readSegmentOffset.byteSize() / Long.BYTES - 1;
         long keyOffset;
         long keySize;
         long valueOffset;
         long valueSize;
 
         while (left <= right) {
+
             middle = (right - left) / 2 + left;
 
-            keyOffset = readSegmentIndex.asSlice(middle, ValueLayout.JAVA_LONG).get(ValueLayout.JAVA_LONG, 0);
-            keySize = readSegmentIndex.asSlice(middle + Long.BYTES, ValueLayout.JAVA_LONG)
-                    .get(ValueLayout.JAVA_LONG, 0) - keyOffset;
+            long offset = middle * Long.BYTES * 2;
+            if (offset >= readSegmentOffset.byteSize()) {
+                return null;
+            }
 
-            MemorySegment keySegment = getSegmentByOffset(keyOffset, keySize);
+            keyOffset = readSegmentOffset.get(ValueLayout.JAVA_LONG, offset);
+
+            offset = middle * Long.BYTES * 2 + Long.BYTES;
+            keySize = readSegmentOffset.get(ValueLayout.JAVA_LONG, offset) - keyOffset;
+
+            MemorySegment keySegment = getSegmentByOffsetAndSize(keyOffset, keySize);
 
             int result = comparator.compare(keySegment, key);
 
@@ -169,11 +137,19 @@ public class SSTable {
             } else if (result > 0) {
                 right = middle - 1;
             } else {
-                valueOffset = readSegmentIndex.asSlice(middle + 8, 8).get(ValueLayout.JAVA_LONG, 0);
-                valueSize = readSegmentIndex.asSlice(middle + 16, 8)
-                        .get(ValueLayout.JAVA_LONG, 0) - valueOffset;
+                offset = middle * Long.BYTES * 2 + Long.BYTES;
+                MemorySegment valueSegment;
 
-                MemorySegment valueSegment = getSegmentByOffset(valueOffset, valueSize);
+                valueOffset = readSegmentOffset.get(ValueLayout.JAVA_LONG, offset);
+
+                offset = (middle + 1) * Long.BYTES * 2;
+                if (offset >= readSegmentOffset.byteSize()) {
+                    valueSegment = getSegmentByOffset(valueOffset);
+
+                } else {
+                    valueSize = readSegmentOffset.get(ValueLayout.JAVA_LONG, offset) - valueOffset;
+                    valueSegment = getSegmentByOffsetAndSize(valueOffset, valueSize);
+                }
 
                 return new BaseEntry<>(keySegment, valueSegment);
             }
@@ -182,7 +158,11 @@ public class SSTable {
         return null;
     }
 
-    private MemorySegment getSegmentByOffset(long offset, long segmentSize) {
+    private MemorySegment getSegmentByOffsetAndSize(long offset, long segmentSize) {
         return readSegmentData.asSlice(offset, segmentSize);
+    }
+
+    private MemorySegment getSegmentByOffset(long offset) {
+        return readSegmentData.asSlice(offset);
     }
 }
