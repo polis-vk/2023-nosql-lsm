@@ -13,7 +13,12 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.NavigableMap;
+import java.util.TreeMap;
+import java.util.List;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -71,7 +76,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private Entry<MemorySegment> binarySearchSSTable(MemorySegment sstable, MemorySegment key) {
-        boolean needMoreBites;
         long offset = 0L;
         long biteCount = 0L;
         List<Long> offsets = new ArrayList<>();
@@ -79,52 +83,54 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             biteCount++;
             offsets.clear();
 
-            // Each time we pull out a page until we reach the end
-            needMoreBites = bite(sstable, key, offset, biteCount, offsets);
+            offset = extractOffsets(sstable, offsets, offset, biteCount, key);
 
-            // Binary search
             Entry<MemorySegment> entryFromFile = binarySearch(offsets, key, sstable);
             if (entryFromFile != null) {
                 return entryFromFile;
             }
-            if (!needMoreBites) break;
         }
 
         return null;
     }
 
-    private boolean bite(MemorySegment sStable, MemorySegment key, Long offset, Long biteCount, List<Long> offsets) {
-        while (offset < Constants.PAGE_SIZE * biteCount && offset < sStable.byteSize()) {
-            long keySize = sStable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+    private long extractOffsets(MemorySegment sstable, List<Long> offsets, long offset, long biteCount, MemorySegment key) {
+        while (offset < Constants.PAGE_SIZE * biteCount && offset < sstable.byteSize()) {
+            long keySize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
-            long valueSize = sStable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
+            long valueSize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
 
-            long currentTotalSize;
-            if (valueSize == -1L) {
-                currentTotalSize = offset + keySize + Long.BYTES + Long.BYTES;
-            } else {
-                currentTotalSize = offset + keySize + Long.BYTES + valueSize;
-            }
+            long currentTotalSize = calculateTotalSize(keySize, valueSize, offset);
             if (currentTotalSize > Constants.PAGE_SIZE * biteCount) {
                 offset -= Long.BYTES;
                 break;
             } else {
                 if (keySize == key.byteSize()) {
-                    // Will search only by keys equal in length
                     offsets.add(offset - Long.BYTES);
                 }
                 if (keySize > key.byteSize()) {
-                    return false;
+                    break;
                 }
-                if (valueSize == -1L) {
-                    offset += keySize + Long.BYTES + Long.BYTES;
-                } else {
-                    offset += keySize + Long.BYTES + valueSize;
-                }
+                offset = updateOffset(keySize, valueSize, offset);
             }
         }
+        return offset;
+    }
 
-        return true;
+    private long calculateTotalSize(long keySize, long valueSize, long offset) {
+        if (valueSize == -1L) {
+            return offset + keySize + Long.BYTES + Long.BYTES;
+        } else {
+            return offset + keySize + Long.BYTES + valueSize;
+        }
+    }
+
+    private long updateOffset(long keySize, long valueSize, long offset) {
+        if (valueSize == -1L) {
+            return offset + keySize + Long.BYTES + Long.BYTES;
+        } else {
+            return offset + keySize + Long.BYTES + valueSize;
+        }
     }
 
     private MemorySegment readFileAtIndex(long index) {
