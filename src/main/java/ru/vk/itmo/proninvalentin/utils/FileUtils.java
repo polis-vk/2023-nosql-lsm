@@ -6,7 +6,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
-public class FileUtils {
+public final class FileUtils {
     private FileUtils() {
     }
 
