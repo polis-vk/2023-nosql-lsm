@@ -13,10 +13,6 @@ import java.nio.file.Paths;
 
 @DaoFactory
 public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
-    @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() throws IOException {
-        return new InMemoryDao(new Config(Paths.get("")));
-    }
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {

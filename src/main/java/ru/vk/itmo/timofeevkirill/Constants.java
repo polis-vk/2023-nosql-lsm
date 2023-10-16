@@ -16,6 +16,7 @@ public final class Constants {
             StandardOpenOption.TRUNCATE_EXISTING
     ));
     public static final OpenOption READ_OPTIONS = StandardOpenOption.READ;
+    public static final long PAGE_SIZE = 4096;
 
     private Constants() {
         throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
