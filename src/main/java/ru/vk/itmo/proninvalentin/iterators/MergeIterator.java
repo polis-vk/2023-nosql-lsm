@@ -97,7 +97,10 @@ public final class MergeIterator {
             boolean curItEntryEqualWithLastGivenEntry = curItEntry != null
                     && msComparator.compare(curItEntry.entry.key(), entry.key()) == 0;
             if (curItEntryEqualWithLastGivenEntry) {
-                curItEntries.set(i, !curIt.hasNext() ? null : curIt.next());
+                curItEntries.set(i, null);
+                if (curIt.hasNext()) {
+                    curItEntries.set(i, curIt.next());
+                }
             }
         }
     }
