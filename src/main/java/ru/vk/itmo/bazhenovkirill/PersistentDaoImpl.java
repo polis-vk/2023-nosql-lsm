@@ -5,14 +5,13 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
-import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
@@ -34,9 +33,9 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable
             = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
 
-    private final Path dataPath;
+    private Path dataPath;
 
-    private final Arena arena;
+    private Arena arena;
 
     private MemorySegment mappedMS;
 
@@ -44,20 +43,12 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
         dataPath = config.basePath().resolve(DATA_FILE);
         arena = Arena.ofShared();
 
-        if (!Files.exists(dataPath)) {
-            mappedMS = MemorySegment.NULL;
-            if (!arena.scope().isAlive()) {
-                arena.close();
-            }
-            return;
-        }
-
         boolean segmentMapped = false;
         try (FileChannel channel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
             mappedMS = channel.map(MapMode.READ_ONLY,
                     0, channel.size(), arena).asReadOnly();
             segmentMapped = true;
-        } catch (FileNotFoundException e) {
+        } catch (NoSuchFileException e) {
             mappedMS = MemorySegment.NULL;
         } finally {
             if (!segmentMapped) {
@@ -112,19 +103,18 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
 
     @Override
     public void close() throws IOException {
+        flush();
         if (!arena.scope().isAlive()) {
             return;
         }
         arena.close();
-
-        flush();
     }
 
     private Entry<MemorySegment> getDataFromSSTable(MemorySegment key) {
         long offset = 0;
-        long valueSize = 0;
         while (offset < mappedMS.byteSize()) {
             long keySize = mappedMS.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            long valueSize = 0;
             offset += Long.BYTES;
 
             if (keySize == key.byteSize()) {
