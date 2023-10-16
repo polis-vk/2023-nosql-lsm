@@ -43,12 +43,7 @@ public class FileIterator {
 
             @Override
             public boolean hasNext() {
-                /*// Пропускаем все удаленные Entry
-                while (curIndex < finalEndIndex
-                        && MemorySegmentUtils.getMetadataByIndex(readOffsetsMS, curIndex).isDeleted) {
-                    curIndex++;
-                }
-                // Смотрим не дошли ли мы до конца, либо не является ли текущая запись последней перед toKey*/
+                // Смотрим не дошли ли мы до конца, либо не является ли текущая запись последней перед toKey
                 return curIndex < finalEndIndex;
             }
 

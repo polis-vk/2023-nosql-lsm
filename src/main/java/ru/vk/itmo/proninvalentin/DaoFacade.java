@@ -26,10 +26,21 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
+        // Сначала ищем в памяти
         Entry<MemorySegment> ms = inMemoryDao.get(key);
-        if (ms == null && fileDao != null) {
-            ms = fileDao.read(key);
+        if (ms != null && ms.value() == null) {
+            return null;
         }
+        // Затем в файловой системе
+        if (ms == null && fileDao != null) {
+            EnrichedEntry msFromFiles = fileDao.read(key);
+            if (msFromFiles == null || msFromFiles.metadata.isDeleted) {
+                return null;
+            } else {
+                return msFromFiles.entry;
+            }
+        }
+
         return ms;
     }
 

@@ -101,7 +101,7 @@ public class FileDao implements Closeable {
     }
 
     // Найти указанный ключ во всех файлах со значениями
-    Entry<MemorySegment> read(MemorySegment msKey) {
+    EnrichedEntry read(MemorySegment msKey) {
         List<EnrichedEntry> entries = new ArrayList<>();
         for (int i = 0; i < readValuesStorages.size(); i++) {
             MemorySegment readValuesMS = readValuesStorages.get(i);
@@ -120,7 +120,12 @@ public class FileDao implements Closeable {
         } else {
             Comparator<EnrichedEntry> comparator = Comparator.comparing(x ->
                     x.metadata.createdAt, new CreateAtTimeComparator());
-            return entries.stream().sorted(comparator).toList().getFirst().entry;
+            var entry = entries.stream().sorted(comparator).toList().getFirst();
+            if (entry.metadata.isDeleted) {
+                return null;
+            } else {
+                return entry;
+            }
         }
     }
 
@@ -150,16 +155,19 @@ public class FileDao implements Closeable {
                 MemorySegment offsetsStorage = getOffsetsStorage(offsetsChannel, arena);
 
                 Iterator<Entry<MemorySegment>> it = inMemoryDao.all();
-                long createdAt = Instant.now().toEpochMilli();
+                long createdAt = Instant.now().toEpochMilli() + metadataFiles.size();
                 while (it.hasNext()) {
                     Entry<MemorySegment> entry = it.next();
                     metadataOffset = MemorySegmentUtils.writeEntryMetadata(
                             valueOffset, entry.value() == null, createdAt,
                             offsetsStorage, metadataOffset);
                     valueOffset = MemorySegmentUtils.writeEntry(entry, valuesStorage, valueOffset);
-                    System.out.println(createdAt);
-                    System.out.println(new DaoFactoryImpl().toString(entry.key()) + ":" + new DaoFactoryImpl().toString(entry.value()));
-                    System.out.println("-----");
+                    boolean writeToConsole = false;
+                    if (writeToConsole) {
+                        System.out.println(createdAt);
+                        System.out.println(new DaoFactoryImpl().toString(entry.key()) + ":" + new DaoFactoryImpl().toString(entry.value()));
+                        System.out.println("-----");
+                    }
                 }
             }
         }
@@ -171,11 +179,17 @@ public class FileDao implements Closeable {
         List<Iterator<EnrichedEntry>> filesIterators = new ArrayList<>(readValuesStorages.size());
 
         for (int i = 0; i < readValuesStorages.size(); i++) {
-            var entry = MemorySegmentUtils.getEntryByIndex(readValuesStorages.get(i), readOffsetsStorages.get(i), 0);
-            var firstValue = new DaoFactoryImpl().toString(entry.value());
-            var createdAt = MemorySegmentUtils.getMetadataByIndex(readOffsetsStorages.get(i), 0).createdAt;
-            var fileName = metadataFiles.get(i).getName();
-            System.out.println("Entry: " + firstValue + "|CreatedAt: " + createdAt + "|Filename: " + fileName);
+            boolean writeToConsole = false;
+            if (writeToConsole) {
+                var entry = MemorySegmentUtils.getEntryByIndex(readValuesStorages.get(i), readOffsetsStorages.get(i), 0);
+                String firstValue = null;
+                if (entry != null) {
+                    firstValue = new DaoFactoryImpl().toString(entry.value());
+                }
+                var createdAt = MemorySegmentUtils.getMetadataByIndex(readOffsetsStorages.get(i), 0).createdAt;
+                var fileName = metadataFiles.get(i).getName();
+                System.out.println("Entry: " + firstValue + "|CreatedAt: " + createdAt + "|Filename: " + fileName);
+            }
             filesIterators.add(FileIterator.create(
                     readValuesStorages.get(i),
                     readOffsetsStorages.get(i),

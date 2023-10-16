@@ -19,17 +19,18 @@ public class MemorySegmentUtils {
                                                            MemorySegment readOffsetsMS,
                                                            long index) {
         Metadata metadata = getMetadataByIndex(readOffsetsMS, index);
-        if (metadata.isDeleted) {
-            return null;
-        }
-
         MemorySegment key = getBySizeOffset(readValuesMS, metadata.entryOffset);
         long valueSizeOffset = metadata.entryOffset + Long.BYTES + key.byteSize();
-        MemorySegment value = getBySizeOffset(readValuesMS, valueSizeOffset);
-
-        return new BaseEntry<>(
-                MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)),
-                MemorySegment.ofArray(value.toArray(ValueLayout.JAVA_BYTE)));
+        if (metadata.isDeleted) {
+            return new BaseEntry<>(
+                    MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)),
+                    null);
+        } else {
+            MemorySegment value = getBySizeOffset(readValuesMS, valueSizeOffset);
+            return new BaseEntry<>(
+                    MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)),
+                    MemorySegment.ofArray(value.toArray(ValueLayout.JAVA_BYTE)));
+        }
     }
 
     public static MemorySegment getKeyByIndex(MemorySegment readValuesMS,
@@ -93,7 +94,7 @@ public class MemorySegmentUtils {
             long keySizeOffset = offsetsStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Metadata.SIZE);
             MemorySegment key = getBySizeOffset(valuesStorage, keySizeOffset);
 
-            if (comparator.compare(key, desiredKey) == 0 && !getMetadataByIndex(offsetsStorage, m).isDeleted) {
+            if (comparator.compare(key, desiredKey) == 0) {
                 return m;
             } else if (comparator.compare(key, desiredKey) < 0) {
                 l = m + 1;
