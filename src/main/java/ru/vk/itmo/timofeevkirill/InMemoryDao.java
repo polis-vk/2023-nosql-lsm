@@ -16,9 +16,9 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.NavigableMap;
-import java.util.TreeMap;
 import java.util.List;
 import java.util.Iterator;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -75,17 +75,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    private Entry<MemorySegment> binarySearchSSTable(MemorySegment sstable, MemorySegment key) {
-        long offset = 0L;
-        long biteCount = 0L;
+    private Entry<MemorySegment> binarySearchSSTable(MemorySegment sStable, MemorySegment key) {
+        long offset = 0;
+        long biteCount = 0;
         List<Long> offsets = new ArrayList<>();
-        while (offset < sstable.byteSize()) {
+
+        while (offset < sStable.byteSize()) {
             biteCount++;
             offsets.clear();
 
-            offset = extractOffsets(sstable, offsets, offset, biteCount, key);
+            offset = processPage(sStable, offsets, offset, key, biteCount);
 
-            Entry<MemorySegment> entryFromFile = binarySearch(offsets, key, sstable);
+            Entry<MemorySegment> entryFromFile = binarySearch(offsets, key, sStable);
             if (entryFromFile != null) {
                 return entryFromFile;
             }
@@ -94,30 +95,35 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    private long extractOffsets(MemorySegment sstable, List<Long> offsets, long offset, long biteCount, MemorySegment key) {
-        while (offset < Constants.PAGE_SIZE * biteCount && offset < sstable.byteSize()) {
-            long keySize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
-            long valueSize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + keySize);
+    private long processPage(MemorySegment sstable, List<Long> offsets, long offset, MemorySegment key, long biteCount) {
+        long mOffset = offset;
+        while (mOffset < Constants.PAGE_SIZE * biteCount && mOffset < sstable.byteSize()) {
+            long keySize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, mOffset);
+            mOffset += Long.BYTES;
+            long valueSize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, mOffset + keySize);
 
-            long currentTotalSize = calculateTotalSize(keySize, valueSize, offset);
+            long currentTotalSize = calculateTotalSize(keySize, valueSize, mOffset);
             if (currentTotalSize > Constants.PAGE_SIZE * biteCount) {
-                offset -= Long.BYTES;
+                mOffset -= Long.BYTES;
                 break;
             } else {
-                if (keySize == key.byteSize()) {
-                    offsets.add(offset - Long.BYTES);
-                }
+                processKeySize(keySize, key.byteSize(), offsets, mOffset - Long.BYTES);
                 if (keySize > key.byteSize()) {
                     break;
                 }
-                offset = updateOffset(keySize, valueSize, offset);
+                mOffset = updateOffset(keySize, valueSize, mOffset);
             }
         }
-        return offset;
+        return mOffset;
     }
 
-    private long calculateTotalSize(long keySize, long valueSize, long offset) {
+    private void processKeySize(long keySize, long byteSize, List<Long> offsets, long offset) {
+        if (keySize == byteSize) {
+            offsets.add(offset);
+        }
+    }
+
+    private long updateOffset(long keySize, long valueSize, long offset) {
         if (valueSize == -1L) {
             return offset + keySize + Long.BYTES + Long.BYTES;
         } else {
@@ -125,7 +131,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private long updateOffset(long keySize, long valueSize, long offset) {
+    private long calculateTotalSize(long keySize, long valueSize, long offset) {
         if (valueSize == -1L) {
             return offset + keySize + Long.BYTES + Long.BYTES;
         } else {
