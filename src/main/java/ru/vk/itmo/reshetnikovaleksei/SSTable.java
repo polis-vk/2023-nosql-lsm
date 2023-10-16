@@ -13,46 +13,54 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Collection;
-import java.util.Comparator;
 
 public class SSTable {
     private static final String SS_TABLE_NAME = "ss_table.db";
 
     private final Path ssTablePath;
-    private final Comparator<MemorySegment> comparator;
+    private final Arena readDataArena;
+    private final MemorySegment readDataSegment;
 
-    public SSTable(Config config, Comparator<MemorySegment> comparator) {
+    public SSTable(Config config) throws IOException {
         this.ssTablePath = config.basePath().resolve(SS_TABLE_NAME);
-        this.comparator = comparator;
+
+        if (Files.exists(ssTablePath)) {
+            try (FileChannel ssTableChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ);
+            ) {
+                this.readDataArena = Arena.ofConfined();
+                this.readDataSegment = ssTableChannel.map(
+                        FileChannel.MapMode.READ_ONLY, 0, ssTableChannel.size(), readDataArena
+                );
+            }
+        } else {
+            this.readDataArena = null;
+            this.readDataSegment = null;
+        }
     }
 
     public Entry<MemorySegment> get(MemorySegment key) throws IOException {
-        if (Files.notExists(ssTablePath)) {
+        if (this.readDataSegment == null) {
             return null;
         }
 
-        try (FileChannel ssTableChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
-            long offset = 0;
-            MemorySegment ssTableMemorySegment = ssTableChannel.map(
-                    FileChannel.MapMode.READ_ONLY, offset, ssTableChannel.size(), Arena.ofConfined());
+        long offset = 0;
+        while (readDataSegment.byteSize() > offset) {
+            long keySize = readDataSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            offset += Long.BYTES;
 
-            while (ssTableMemorySegment.byteSize() > offset) {
-                long keySize = ssTableMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
+            long valueSize = readDataSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            offset += Long.BYTES;
 
-                long valueSize = ssTableMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
+            long mismatch = MemorySegment.mismatch(
+                    readDataSegment, offset, offset + key.byteSize(),
+                    key, 0, key.byteSize()
+            );
 
-                MemorySegment ssTableKey = ssTableMemorySegment.asSlice(offset, keySize);
-                offset += keySize;
-
-                if (comparator.compare(ssTableKey, key) == 0) {
-                    MemorySegment ssTableValue = ssTableMemorySegment.asSlice(offset, valueSize);
-                    return new BaseEntry<>(ssTableKey, ssTableValue);
-                }
-
-                offset += valueSize;
+            if (mismatch == -1) {
+                return new BaseEntry<>(key, readDataSegment.asSlice(offset + keySize, valueSize));
             }
+
+            offset += keySize + valueSize;
         }
 
         return null;
@@ -64,8 +72,9 @@ public class SSTable {
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.READ,
                 StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE
-        )) {
+                StandardOpenOption.WRITE);
+             Arena writeDataArena = Arena.ofConfined()
+        ) {
             long size = 0;
             for (Entry<MemorySegment> entry : entries) {
                 size += entry.key().byteSize() + entry.value().byteSize() + 2 * Long.BYTES;
@@ -73,7 +82,7 @@ public class SSTable {
 
             long offset = 0;
             MemorySegment ssTableMemorySegment = ssTableChannel.map(
-                    FileChannel.MapMode.READ_WRITE, offset, size, Arena.ofConfined());
+                    FileChannel.MapMode.READ_WRITE, offset, size, writeDataArena);
             for (Entry<MemorySegment> entry : entries) {
                 offset += setMemorySegmentSizeAndGetOffset(offset, entry.key(), ssTableMemorySegment);
                 offset += setMemorySegmentSizeAndGetOffset(offset, entry.value(), ssTableMemorySegment);
@@ -81,6 +90,12 @@ public class SSTable {
                 offset += copyToMemorySegmentAndGetOffset(offset, entry.key(), ssTableMemorySegment);
                 offset += copyToMemorySegmentAndGetOffset(offset, entry.value(), ssTableMemorySegment);
             }
+        }
+    }
+
+    public void close() {
+        if (readDataArena != null) {
+            readDataArena.close();
         }
     }
 
@@ -94,7 +109,7 @@ public class SSTable {
     private long copyToMemorySegmentAndGetOffset(long offset,
                                                  MemorySegment entryMemorySegment,
                                                  MemorySegment ssTableMemorySegment) {
-        ssTableMemorySegment.asSlice(offset).copyFrom(entryMemorySegment);
+        MemorySegment.copy(entryMemorySegment, 0, ssTableMemorySegment, offset, entryMemorySegment.byteSize());
         return entryMemorySegment.byteSize();
     }
 }

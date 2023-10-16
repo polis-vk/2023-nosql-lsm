@@ -10,8 +10,8 @@ import java.util.concurrent.ConcurrentNavigableMap;
 public class PersistentDao extends BaseDao {
     private final SSTable ssTable;
 
-    public PersistentDao(Config config) {
-        this.ssTable = new SSTable(config, new MemorySegmentComparator());
+    public PersistentDao(Config config) throws IOException {
+        this.ssTable = new SSTable(config);
     }
 
     @Override
@@ -35,6 +35,7 @@ public class PersistentDao extends BaseDao {
             ssTable.save(getMemoryTable().values());
         }
 
+        ssTable.close();
         getMemoryTable().clear();
     }
 }
