@@ -9,14 +9,15 @@ import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 class MemFileIterator implements Iterator<Entry<MemorySegment>> {
-    private boolean isInit = false;
-    private NavigableMap<MemorySegment, Entry<MemorySegment>> sortedEntries = null;
+    private boolean isInit;
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> sortedEntries;
     private Iterator<Entry<MemorySegment>> iterator;
-    private Map<MemorySegment, Long> biteCounts = null;
-    private Map<Long, Deque<Entry<MemorySegment>>> entries = null;
-    private Map<MemorySegment, Long> tempOffsets = null;
+    private Map<MemorySegment, Long> biteCounts;
+    private Map<Long, Deque<Entry<MemorySegment>>> entries;
+    private Map<MemorySegment, Long> tempOffsets;
 
     private final Comparator<MemorySegment> comparator;
+    private final Comparator<FileEntry> numberComparator;
     private final NavigableMap<Long, MemorySegment> readMappedMemorySegments;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memTableMap;
     private final MemorySegment from;
@@ -27,10 +28,12 @@ class MemFileIterator implements Iterator<Entry<MemorySegment>> {
                            NavigableMap<MemorySegment, Entry<MemorySegment>> memTableMap,
                            MemorySegment from, MemorySegment to) {
         this.comparator = comparator;
+        this.numberComparator = new MSNumberComparator(comparator);
         this.readMappedMemorySegments = readMappedMemorySegments;
         this.memTableMap = memTableMap;
         this.from = from;
         this.to = to;
+        isInit = false;
     }
 
     private void init() {
@@ -44,8 +47,9 @@ class MemFileIterator implements Iterator<Entry<MemorySegment>> {
             for (Long number : readMappedMemorySegments.keySet()) {
                 entries.put(number, new ArrayDeque<>());
             }
-            if (!memTableMap.isEmpty())
+            if (!memTableMap.isEmpty()) {
                 entries.put(Long.MAX_VALUE, new ArrayDeque<>(memTableMap.values()));
+            }
 
             tempOffsets = new HashMap<>();
             for (MemorySegment segment : readMappedMemorySegments.values()) {
@@ -56,26 +60,28 @@ class MemFileIterator implements Iterator<Entry<MemorySegment>> {
         }
     }
 
-
     @Override
     public boolean hasNext() {
         if (iterator != null && iterator.hasNext()) {
             return true;
         } else {
-            if (readMappedMemorySegments.isEmpty()) {
-                if (iterator == null) {
-                    iterator = new FilteredNullFTIterator(memTableMap, from, to);
-                    return iterator.hasNext();
-                }
-            } else {
-                init();
-                while (bite()) {
-                    iterator = new FTIterator(sortedEntries, from, to);
-                    if (iterator.hasNext()) return true;
-                }
+            return assignIterator();
+        }
+    }
+
+    private boolean assignIterator() {
+        if (readMappedMemorySegments.isEmpty()) {
+            if (iterator == null) {
+                iterator = new FilteredNullFTIterator(memTableMap, from, to);
+                return iterator.hasNext();
+            }
+        } else {
+            init();
+            while (bite()) {
+                iterator = new FTIterator(sortedEntries, from, to);
+                if (iterator.hasNext()) return true;
             }
         }
-
         return false;
     }
 
@@ -88,22 +94,24 @@ class MemFileIterator implements Iterator<Entry<MemorySegment>> {
         Iterator<Map.Entry<Long, Deque<Entry<MemorySegment>>>> iter = entries.entrySet().iterator();
         while (iter.hasNext()) {
             Map.Entry<Long, Deque<Entry<MemorySegment>>> entry = iter.next();
-            Collection<Entry<MemorySegment>> value = entry.getValue();
+            Deque<Entry<MemorySegment>> value = entry.getValue();
 
             boolean fetched;
             if (value.isEmpty()) {
                 fetched = biteFile(entry);
-                if (!fetched)
+                if (!fetched) {
                     iter.remove();
+                }
             }
         }
 
-        if (!entries.isEmpty()) {
+        if (entries.isEmpty()) {
+            return false;
+        } else {
             sortedEntries.clear();
             sortedEntries.putAll(mergeSortedEntries());
             return true;
-        } else
-            return false;
+        }
     }
 
     private boolean biteFile(Map.Entry<Long, Deque<Entry<MemorySegment>>> entry) {
@@ -120,10 +128,11 @@ class MemFileIterator implements Iterator<Entry<MemorySegment>> {
             while (offset < Constants.PAGE_SIZE * biteCount && offset < readMappedMemorySegment.byteSize()) {
                 long keySize = readMappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += Long.BYTES;
-                MemorySegment keyMemorySegment = readMappedMemorySegment.asSlice(offset, keySize);
                 offset += keySize;
                 long valueSize = readMappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
                 offset += Long.BYTES;
+                MemorySegment keyMemorySegment = readMappedMemorySegment
+                        .asSlice(offset - keySize - Long.BYTES, keySize);
                 MemorySegment valueMemorySegment;
                 if (valueSize == -1L) {
                     valueMemorySegment = null;
@@ -143,18 +152,49 @@ class MemFileIterator implements Iterator<Entry<MemorySegment>> {
 
     private NavigableMap<MemorySegment, BaseEntry<MemorySegment>> mergeSortedEntries() {
         NavigableMap<MemorySegment, BaseEntry<MemorySegment>> result = new ConcurrentSkipListMap<>(comparator);
-        PriorityQueue<FileEntry> priorityQueue =
-                new PriorityQueue<>(
-                        (e1, e2) -> {
-                            int compareResult = comparator.compare(e1.entry().key(), e2.entry().key());
-                            if (compareResult == 0) {
-                                int numberComparison = Long.compare(e2.number(), e1.number());
-                                if (numberComparison != 0)
-                                    return numberComparison;
-                            }
-                            return compareResult;
-                        });
+        PriorityQueue<FileEntry> priorityQueue = new PriorityQueue<>(numberComparator);
+        initPriorityQueue(priorityQueue);
 
+        while (!priorityQueue.isEmpty()) {
+            FileEntry fileEntry = priorityQueue.poll();
+            MemorySegment fileEntryKey = fileEntry.entry().key();
+            MemorySegment fileEntryValue = fileEntry.entry().value();
+            if (fileEntryValue != null) {
+                result.put(fileEntryKey, new BaseEntry<>(fileEntryKey, fileEntryValue));
+            }
+            Deque<Entry<MemorySegment>> list = entries.get(fileEntry.number());
+            list.removeFirst();
+
+            boolean isOtherEmpty = clearOtherLists(priorityQueue, fileEntryKey);
+            if (list.isEmpty() || isOtherEmpty) {
+                break;
+            }
+
+            Entry<MemorySegment> nextEntry = list.getFirst();
+            priorityQueue.add(new FileEntry(nextEntry, fileEntry.number()));
+        }
+
+        return result;
+    }
+
+    private boolean clearOtherLists(PriorityQueue<FileEntry> priorityQueue, MemorySegment fileEntryKey) {
+        boolean isOtherEmpty = false;
+        while (!priorityQueue.isEmpty() && priorityQueue.peek().entry().key().mismatch(fileEntryKey) == -1) {
+            FileEntry nextFileEntry = priorityQueue.poll();
+            long otherNumber = nextFileEntry.number();
+            Deque<Entry<MemorySegment>> otherList = entries.get(otherNumber);
+            otherList.removeFirst();
+            if (otherList.isEmpty()) {
+                isOtherEmpty = true;
+            } else {
+                Entry<MemorySegment> next = otherList.getFirst();
+                priorityQueue.add(new FileEntry(next, nextFileEntry.number()));
+            }
+        }
+        return isOtherEmpty;
+    }
+
+    private void initPriorityQueue(PriorityQueue<FileEntry> priorityQueue) {
         for (long number : entries.keySet()) {
             Deque<Entry<MemorySegment>> list = entries.get(number);
             if (!list.isEmpty()) {
@@ -162,45 +202,6 @@ class MemFileIterator implements Iterator<Entry<MemorySegment>> {
                 priorityQueue.add(new FileEntry(entry, number));
             }
         }
-
-        loop:
-        while (!priorityQueue.isEmpty()) {
-            FileEntry fileEntry = priorityQueue.poll();
-            if (fileEntry.entry().value() != null)
-                result.put(fileEntry.entry().key(), new BaseEntry<>(fileEntry.entry().key(), fileEntry.entry().value()));
-            Deque<Entry<MemorySegment>> list = entries.get(fileEntry.number());
-            list.removeFirst();
-
-            boolean isOtherEmpty = false;
-            while (!priorityQueue.isEmpty() && priorityQueue.peek().entry().key().mismatch(fileEntry.entry().key()) == -1) {
-                FileEntry mNextEntry = priorityQueue.poll();
-                long otherNumber = mNextEntry.number();
-                Deque<Entry<MemorySegment>> otherList = entries.get(otherNumber);
-                otherList.removeIf(entry -> entry.key().mismatch(mNextEntry.entry().key()) == -1);
-                if (otherList.isEmpty()) {
-                    isOtherEmpty = true;
-                } else {
-                    Entry<MemorySegment> next = otherList.getFirst();
-                    priorityQueue.add(new FileEntry(next, mNextEntry.number()));
-                }
-            }
-
-            if (list.isEmpty() || isOtherEmpty) {
-                break;
-            }
-
-            Entry<MemorySegment> nextEntry = list.getFirst();
-            while (nextEntry.key().mismatch(fileEntry.entry().key()) == -1) {
-                list.removeFirst();
-                if (list.isEmpty()) {
-                    break loop;
-                }
-                nextEntry = list.getFirst();
-            }
-            priorityQueue.add(new FileEntry(nextEntry, fileEntry.number()));
-        }
-
-        return result;
     }
 
-};
+}

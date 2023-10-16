@@ -11,7 +11,8 @@ import java.util.NoSuchElementException;
 public class FilteredNullFTIterator implements Iterator<Entry<MemorySegment>> {
     private final Iterator<Entry<MemorySegment>> iterator;
 
-    public FilteredNullFTIterator(NavigableMap<MemorySegment, Entry<MemorySegment>> map, MemorySegment from, MemorySegment to) {
+    public FilteredNullFTIterator(NavigableMap<MemorySegment, Entry<MemorySegment>> map,
+                                  MemorySegment from, MemorySegment to) {
         Collection<Entry<MemorySegment>> fromToMap;
         if (from == null && to == null) {
             fromToMap = map.values();
