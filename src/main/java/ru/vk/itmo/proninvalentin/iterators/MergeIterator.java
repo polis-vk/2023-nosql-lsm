@@ -96,10 +96,8 @@ public final class MergeIterator {
             EnrichedEntry curItEntry = curItEntries.get(i);
             boolean curItEntryEqualWithLastGivenEntry = curItEntry != null
                     && msComparator.compare(curItEntry.entry.key(), entry.key()) == 0;
-            if (curItEntryEqualWithLastGivenEntry && curIt.hasNext()) {
-                curItEntries.set(i, curIt.next());
-            } else {
-                curItEntries.set(i, null);
+            if (curItEntryEqualWithLastGivenEntry) {
+                curItEntries.set(i, !curIt.hasNext() ? null : curIt.next());
             }
         }
     }
