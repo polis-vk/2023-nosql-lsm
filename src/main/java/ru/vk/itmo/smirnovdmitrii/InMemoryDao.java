@@ -56,8 +56,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public synchronized void close() {
+    public synchronized void flush() {
         outMemoryDao.save(storage);
+        storage.clear();
     }
-
 }
