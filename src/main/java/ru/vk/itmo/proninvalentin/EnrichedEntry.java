@@ -4,6 +4,7 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 
+// Хранит метаданные об Entry и Entry
 public class EnrichedEntry {
     public final Metadata metadata;
     public final Entry<MemorySegment> entry;

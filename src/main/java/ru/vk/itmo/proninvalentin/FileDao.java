@@ -7,7 +7,6 @@ import ru.vk.itmo.proninvalentin.comparators.MemorySegmentComparator;
 import ru.vk.itmo.proninvalentin.iterators.FileIterator;
 import ru.vk.itmo.proninvalentin.utils.FileUtils;
 import ru.vk.itmo.proninvalentin.utils.MemorySegmentUtils;
-import ru.vk.itmo.test.proninvalentin.DaoFactoryImpl;
 
 import java.io.Closeable;
 import java.io.File;
@@ -19,27 +18,25 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
 
-// TODO: записывать время создания файла в самое начало metadata файла, чтобы занимать меньше времени
-// TODO: проверить, чтобы у всех методов был package-private или другой любой минимальный модификатор доступа
-// TODO: переназвать все offsets на metadata
-// TODO: переназвать все ms на storage
-// TODO: убрать все var
-// TODO: сохранение entry со значением null должно выставлять Tombstone бит в 1
-// TODO: заменить все LONG.BYTES на константы (не должно остаться ни одного Long.Bytes)
 public class FileDao implements Closeable {
     // Префикс файлов, в которых хранятся Entry
     public static final String VALUES_FILENAME_PREFIX = "values";
     // Префикс файлов с метаданными каждой entry
     // Метаданные выглядят следующим образом: |Оффсет entry в файле со значениями|Tombstone бит|
     // Tombstone бит служит для указания информации о том удалена ли запись или нет
-    public static final String OFFSETS_FILENAME_PREFIX = "offsets";
+    public static final String METADATA_FILENAME_PREFIX = "metadata";
     private final MemorySegmentComparator comparator;
     // Список замапленных MS для чтения файлов со значениями, начиная с самых новых файлов и заканчивая самыми старыми
-    private final List<MemorySegment> readValuesStorages;
+    private final List<MemorySegment> readValuesMSStorage;
     // Список замапленных MS для чтения файлов с метаданными, начиная с самых новых файлов и заканчивая самыми старыми
-    private final List<MemorySegment> readOffsetsStorages;
+    private final List<MemorySegment> readMetadataMSStorage;
     private final Arena readArena;
     private final Path basePath;
     private long countOfMemorySegments;
@@ -52,16 +49,16 @@ public class FileDao implements Closeable {
         if (Files.notExists(basePath)) {
             comparator = null;
             readArena = null;
-            readValuesStorages = Collections.emptyList();
-            readOffsetsStorages = Collections.emptyList();
+            readValuesMSStorage = Collections.emptyList();
+            readMetadataMSStorage = Collections.emptyList();
             metadataFiles = Collections.emptyList();
             return;
         }
 
         comparator = new MemorySegmentComparator();
         readArena = Arena.ofShared();
-        readValuesStorages = new ArrayList<>();
-        readOffsetsStorages = new ArrayList<>();
+        readValuesMSStorage = new ArrayList<>();
+        readMetadataMSStorage = new ArrayList<>();
         metadataFiles = new ArrayList<>();
         initReadMSLists();
     }
@@ -79,39 +76,39 @@ public class FileDao implements Closeable {
                 .sorted(Comparator.comparing(x -> FileUtils.parseIndexFromFileName(x.getName())))
                 .toList()) {
             if (file.getName().startsWith(VALUES_FILENAME_PREFIX)) {
-                readValuesStorages.add(getReadOnlyMappedMemory(file));
-            } else if (file.getName().startsWith(OFFSETS_FILENAME_PREFIX)) {
+                readValuesMSStorage.add(getReadOnlyMappedMemory(file));
+            } else if (file.getName().startsWith(METADATA_FILENAME_PREFIX)) {
                 metadataFiles.add(file);
-                readOffsetsStorages.add(getReadOnlyMappedMemory(file));
+                readMetadataMSStorage.add(getReadOnlyMappedMemory(file));
             }
         }
 
-        if (readValuesStorages.size() != readOffsetsStorages.size()) {
+        if (readValuesMSStorage.size() != readMetadataMSStorage.size()) {
             throw new IllegalArgumentException(
                     "Directory in config must contain same number of files with name: \"%s\" and \"%s\""
-                            .formatted(VALUES_FILENAME_PREFIX, OFFSETS_FILENAME_PREFIX));
+                            .formatted(VALUES_FILENAME_PREFIX, METADATA_FILENAME_PREFIX));
         }
     }
 
     // Замапить файл в MemorySegment для чтения
     private MemorySegment getReadOnlyMappedMemory(File file) throws IOException {
-        try (FileChannel offsetsChannel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
-            return offsetsChannel.map(FileChannel.MapMode.READ_ONLY, 0, offsetsChannel.size(), readArena);
+        try (FileChannel metadataChannel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
+            return metadataChannel.map(FileChannel.MapMode.READ_ONLY, 0, metadataChannel.size(), readArena);
         }
     }
 
     // Найти указанный ключ во всех файлах со значениями
     EnrichedEntry read(MemorySegment msKey) {
         List<EnrichedEntry> entries = new ArrayList<>();
-        for (int i = 0; i < readValuesStorages.size(); i++) {
-            MemorySegment readValuesMS = readValuesStorages.get(i);
-            MemorySegment readOffsetsMS = readOffsetsStorages.get(i);
+        for (int i = 0; i < readValuesMSStorage.size(); i++) {
+            MemorySegment readValuesMS = readValuesMSStorage.get(i);
+            MemorySegment readMetadataMS = readMetadataMSStorage.get(i);
 
-            long valueIndex = MemorySegmentUtils.binarySearch(readValuesMS, readOffsetsMS, msKey, comparator);
+            long valueIndex = MemorySegmentUtils.binarySearch(readValuesMS, readMetadataMS, msKey, comparator);
             if (valueIndex != -1) {
                 entries.add(new EnrichedEntry(
-                        MemorySegmentUtils.getMetadataByIndex(readOffsetsMS, valueIndex),
-                        MemorySegmentUtils.getEntryByIndex(readValuesMS, readOffsetsMS, valueIndex)));
+                        MemorySegmentUtils.getMetadataByIndex(readMetadataMS, valueIndex),
+                        MemorySegmentUtils.getEntryByIndex(readValuesMS, readMetadataMS, valueIndex)));
             }
         }
 
@@ -120,7 +117,7 @@ public class FileDao implements Closeable {
         } else {
             Comparator<EnrichedEntry> comparator = Comparator.comparing(x ->
                     x.metadata.createdAt, new CreateAtTimeComparator());
-            var entry = entries.stream().sorted(comparator).toList().getFirst();
+            EnrichedEntry entry = entries.stream().sorted(comparator).toList().getFirst();
             if (entry.metadata.isDeleted) {
                 return null;
             } else {
@@ -132,9 +129,9 @@ public class FileDao implements Closeable {
     // Пройтись по всем парам замапленных MS и создать для каждого итератор
     void write(InMemoryDao inMemoryDao) throws IOException {
         String writeValuesFileName = FileUtils.getNewFileName(basePath, VALUES_FILENAME_PREFIX);
-        String writeOffsetsFileName = FileUtils.getNewFileName(basePath, OFFSETS_FILENAME_PREFIX);
+        String writeMetadataFileName = FileUtils.getNewFileName(basePath, METADATA_FILENAME_PREFIX);
         Path writeValuesFilePath = basePath.resolve(writeValuesFileName);
-        Path writeOffsetsFilePath = basePath.resolve(writeOffsetsFileName);
+        Path writeMetadataFilePath = basePath.resolve(writeMetadataFileName);
 
         try (FileChannel valuesChannel = FileChannel.open(
                 writeValuesFilePath,
@@ -142,8 +139,8 @@ public class FileDao implements Closeable {
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.TRUNCATE_EXISTING);
-             FileChannel offsetsChannel = FileChannel.open(
-                     writeOffsetsFilePath,
+             FileChannel metadataChannel = FileChannel.open(
+                     writeMetadataFilePath,
                      StandardOpenOption.CREATE,
                      StandardOpenOption.READ,
                      StandardOpenOption.WRITE,
@@ -151,8 +148,8 @@ public class FileDao implements Closeable {
             try (Arena arena = Arena.ofConfined()) {
                 long valueOffset = 0L;
                 long metadataOffset = 0L;
-                MemorySegment valuesStorage = getValuesStorage(inMemoryDao.all(), valuesChannel, arena);
-                MemorySegment offsetsStorage = getOffsetsStorage(offsetsChannel, arena);
+                MemorySegment valuesMS = getValuesMS(inMemoryDao.all(), valuesChannel, arena);
+                MemorySegment metadataMS = getMetadataMS(metadataChannel, arena);
 
                 Iterator<Entry<MemorySegment>> it = inMemoryDao.all();
                 long createdAt = Instant.now().toEpochMilli() + metadataFiles.size();
@@ -160,14 +157,8 @@ public class FileDao implements Closeable {
                     Entry<MemorySegment> entry = it.next();
                     metadataOffset = MemorySegmentUtils.writeEntryMetadata(
                             valueOffset, entry.value() == null, createdAt,
-                            offsetsStorage, metadataOffset);
-                    valueOffset = MemorySegmentUtils.writeEntry(entry, valuesStorage, valueOffset);
-                    boolean writeToConsole = false;
-                    if (writeToConsole) {
-                        System.out.println(createdAt);
-                        System.out.println(new DaoFactoryImpl().toString(entry.key()) + ":" + new DaoFactoryImpl().toString(entry.value()));
-                        System.out.println("-----");
-                    }
+                            metadataMS, metadataOffset);
+                    valueOffset = MemorySegmentUtils.writeEntry(entry, valuesMS, valueOffset);
                 }
             }
         }
@@ -176,23 +167,12 @@ public class FileDao implements Closeable {
     // Получить список итераторов по файлам. Ближе к началу находятся итераторы с более свежими данными
     public List<Iterator<EnrichedEntry>> getFilesIterators(MemorySegment from,
                                                            MemorySegment to) throws IOException {
-        List<Iterator<EnrichedEntry>> filesIterators = new ArrayList<>(readValuesStorages.size());
+        List<Iterator<EnrichedEntry>> filesIterators = new ArrayList<>(readValuesMSStorage.size());
 
-        for (int i = 0; i < readValuesStorages.size(); i++) {
-            boolean writeToConsole = false;
-            if (writeToConsole) {
-                var entry = MemorySegmentUtils.getEntryByIndex(readValuesStorages.get(i), readOffsetsStorages.get(i), 0);
-                String firstValue = null;
-                if (entry != null) {
-                    firstValue = new DaoFactoryImpl().toString(entry.value());
-                }
-                var createdAt = MemorySegmentUtils.getMetadataByIndex(readOffsetsStorages.get(i), 0).createdAt;
-                var fileName = metadataFiles.get(i).getName();
-                System.out.println("Entry: " + firstValue + "|CreatedAt: " + createdAt + "|Filename: " + fileName);
-            }
+        for (int i = 0; i < readValuesMSStorage.size(); i++) {
             filesIterators.add(FileIterator.create(
-                    readValuesStorages.get(i),
-                    readOffsetsStorages.get(i),
+                    readValuesMSStorage.get(i),
+                    readMetadataMSStorage.get(i),
                     from,
                     to,
                     comparator,
@@ -202,9 +182,9 @@ public class FileDao implements Closeable {
         return filesIterators;
     }
 
-    private MemorySegment getValuesStorage(Iterator<Entry<MemorySegment>> valuesInMemory,
-                                           FileChannel valuesChannel,
-                                           Arena arena) throws IOException {
+    private MemorySegment getValuesMS(Iterator<Entry<MemorySegment>> valuesInMemory,
+                                      FileChannel valuesChannel,
+                                      Arena arena) throws IOException {
         long keysSize = 0L;
         long valuesSize = 0L;
 
@@ -221,10 +201,10 @@ public class FileDao implements Closeable {
         return valuesChannel.map(FileChannel.MapMode.READ_WRITE, 0, inMemoryDataSize, arena);
     }
 
-    private MemorySegment getOffsetsStorage(FileChannel offsetsChannel,
-                                            Arena arena) throws IOException {
+    private MemorySegment getMetadataMS(FileChannel metadataChannel,
+                                        Arena arena) throws IOException {
         long inMemoryDataSize = Metadata.SIZE * countOfMemorySegments;
-        return offsetsChannel.map(FileChannel.MapMode.READ_WRITE, 0, inMemoryDataSize, arena);
+        return metadataChannel.map(FileChannel.MapMode.READ_WRITE, 0, inMemoryDataSize, arena);
     }
 
     @Override

@@ -9,7 +9,7 @@ import java.util.Iterator;
 
 public class EntryIteratorAdapter {
     public static Iterator<EnrichedEntry> create(Iterator<Entry<MemorySegment>> memorySegmentIterator) {
-        return new Iterator<EnrichedEntry>() {
+        return new Iterator<>() {
             @Override
             public boolean hasNext() {
                 return memorySegmentIterator.hasNext();
@@ -18,9 +18,8 @@ public class EntryIteratorAdapter {
             @Override
             public EnrichedEntry next() {
                 Entry<MemorySegment> curValue = memorySegmentIterator.next();
-                return new EnrichedEntry(new Metadata(
-                        0, curValue.value() == null, Long.MAX_VALUE),
-                        curValue);
+                return new EnrichedEntry(
+                        new Metadata(0, curValue.value() == null, Long.MAX_VALUE), curValue);
             }
         };
     }

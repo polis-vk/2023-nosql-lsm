@@ -15,7 +15,7 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
             return 1;
         }
 
-        var mismatchOffset = ms1.mismatch(ms2);
+        long mismatchOffset = ms1.mismatch(ms2);
         if (mismatchOffset == -1) {
             return 0;
         } else if (mismatchOffset == ms1.byteSize()) {
