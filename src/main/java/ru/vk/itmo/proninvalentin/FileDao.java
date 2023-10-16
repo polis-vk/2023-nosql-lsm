@@ -128,6 +128,9 @@ public class FileDao implements Closeable {
 
     // Пройтись по всем парам замапленных MS и создать для каждого итератор
     void write(InMemoryDao inMemoryDao) throws IOException {
+        if (!inMemoryDao.all().hasNext()) {
+            return;
+        }
         String writeValuesFileName = FileUtils.getNewFileName(basePath, VALUES_FILENAME_PREFIX);
         String writeMetadataFileName = FileUtils.getNewFileName(basePath, METADATA_FILENAME_PREFIX);
         Path writeValuesFilePath = basePath.resolve(writeValuesFileName);
