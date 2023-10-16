@@ -15,7 +15,7 @@ public interface MinHeap<T> {
     T removeMin();
 
     /**
-     * add element to the heap
+     * add element to the heap.
      * @param t element to add.
      */
     void add(T t);

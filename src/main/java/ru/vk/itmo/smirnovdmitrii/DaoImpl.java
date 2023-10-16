@@ -17,7 +17,7 @@ import java.util.Objects;
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     final InMemoryDao<MemorySegment, Entry<MemorySegment>> inMemoryDao;
     final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
-    final MemorySegmentComparator comparator = MemorySegmentComparator.getInstance();
+    final MemorySegmentComparator comparator = new MemorySegmentComparator();
 
     private class DaoIterator implements Iterator<Entry<MemorySegment>> {
 
@@ -68,17 +68,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (heap.isEmpty()) {
                 return;
             }
-            MemorySegment deletedKey = null;
-            while (!heap.isEmpty()) {
-                final PeekingIterator<Entry<MemorySegment>> iterator = heap.min();
-                final Entry<MemorySegment> entry = iterator.peek();
-                final MemorySegment currentKey = entry.key();
-                if (entry.value() == null || (deletedKey != null && comparator.equals(deletedKey, currentKey))) {
-                    deletedKey = currentKey;
+            while (!heap.isEmpty() && heap.min().peek().value() == null) {
+                final MemorySegment key = heap.min().peek().key();
+                while (!heap.isEmpty() && comparator.equals(heap.min().peek().key(), key)) {
                     skip();
-                    continue;
                 }
-                break;
             }
         }
 

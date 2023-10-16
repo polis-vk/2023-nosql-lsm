@@ -26,7 +26,7 @@ import java.util.stream.Stream;
 public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>> {
     private static final Path DEFAULT_BASE_PATH = Path.of("");
     private static final long DELETED_VALUE_SIZE = -1L;
-    private final MemorySegmentComparator comparator = MemorySegmentComparator.getInstance();
+    private final MemorySegmentComparator comparator = new MemorySegmentComparator();
     private final List<MemorySegment> mappedSsTables = new ArrayList<>();
     private final Arena arena = Arena.ofShared();
     private final Path basePath;
@@ -43,7 +43,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
             throw new UncheckedIOException(e);
         }
         final List<Path> paths;
-        try (final Stream<Path> stream = Files.list(basePath)) {
+        try (Stream<Path> stream = Files.list(basePath)) {
             paths = stream.collect(Collectors.toCollection(ArrayList::new));
         } catch (final IOException e) {
             throw new UncheckedIOException("exception while listing base directory.", e);
@@ -101,10 +101,9 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
                 continue;
             }
             final Entry<MemorySegment> entry = readBlock(storage, offset);
-            if (!comparator.equals(key, entry.key())) {
-                continue;
+            if (comparator.equals(key, entry.key())) {
+                return entry;
             }
-            return entry;
         }
         return null;
     }
@@ -185,8 +184,6 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
                     StandardOpenOption.WRITE)
             ) {
                 mappedSsTable = channel.map(FileChannel.MapMode.READ_WRITE, 0, appendSize, savingArena);
-            } catch (final IOException e) {
-                throw new IOException("exception while mapping new sstable for read-write.", e);
             }
             long offset = 0;
             long currentEntryOffset = offsetsPartSize;
@@ -202,8 +199,6 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         }
         try (FileChannel channel = FileChannel.open(newSsTablePath, StandardOpenOption.READ)) {
             mappedSsTables.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena));
-        } catch (final IOException e) {
-            throw new IOException("exception while mapping new sstable for read");
         }
     }
 
@@ -252,10 +247,10 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         final MemorySegment key = storage.asSlice(currentOffset, keySize);
         currentOffset += keySize;
         final MemorySegment value;
-        if (valueSize != DELETED_VALUE_SIZE) {
-            value = storage.asSlice(currentOffset, valueSize);
-        } else {
+        if (valueSize == DELETED_VALUE_SIZE) {
             value = null;
+        } else {
+            value = storage.asSlice(currentOffset, valueSize);
         }
         return new BaseEntry<>(key, value);
     }
