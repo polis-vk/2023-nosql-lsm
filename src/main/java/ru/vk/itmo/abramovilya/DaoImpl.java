@@ -21,9 +21,9 @@ import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
-            new ConcurrentSkipListMap<>(InMemoryDao::compareMemorySegments);
+            new ConcurrentSkipListMap<>(DaoImpl::compareMemorySegments);
     private final Path storagePath;
     private final Arena arena = Arena.ofShared();
     private final String sstableBaseName = "storage";
@@ -32,7 +32,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path metaFilePath;
 
 
-    public InMemoryDao(Config config) {
+    public DaoImpl(Config config) {
         storagePath = config.basePath();
 
         metaFilePath = storagePath.resolve("meta");
