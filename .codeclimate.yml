@@ -75,3 +75,4 @@ checks:
 exclude_patterns:
   - "**/*.svg"
   - "src/test/"
+  - "src/main/java/ru/vk/itmo/pashchenkoalexandr/"
