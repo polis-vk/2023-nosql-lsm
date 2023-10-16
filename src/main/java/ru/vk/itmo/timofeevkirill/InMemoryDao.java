@@ -15,9 +15,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.NavigableMap;
-import java.util.List;
 import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -75,18 +75,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    private Entry<MemorySegment> binarySearchSSTable(MemorySegment sStable, MemorySegment key) {
+    private Entry<MemorySegment> binarySearchSSTable(MemorySegment sstable, MemorySegment key) {
         long offset = 0;
         long biteCount = 0;
         List<Long> offsets = new ArrayList<>();
 
-        while (offset < sStable.byteSize()) {
+        while (offset < sstable.byteSize()) {
             biteCount++;
             offsets.clear();
 
-            offset = processPage(sStable, offsets, offset, key, biteCount);
+            offset = processPage(sstable, offsets, offset, key, biteCount);
 
-            Entry<MemorySegment> entryFromFile = binarySearch(offsets, key, sStable);
+            Entry<MemorySegment> entryFromFile = binarySearch(offsets, key, sstable);
             if (entryFromFile != null) {
                 return entryFromFile;
             }
@@ -95,26 +95,27 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    private long processPage(MemorySegment sstable, List<Long> offsets, long offset, MemorySegment key, long biteCount) {
-        long mOffset = offset;
-        while (mOffset < Constants.PAGE_SIZE * biteCount && mOffset < sstable.byteSize()) {
-            long keySize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, mOffset);
-            mOffset += Long.BYTES;
-            long valueSize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, mOffset + keySize);
+    private long processPage(MemorySegment sstable, List<Long> offsets,
+                             long offset, MemorySegment key, long biteCount) {
+        long currentOffset = offset;
+        while (currentOffset < Constants.PAGE_SIZE * biteCount && currentOffset < sstable.byteSize()) {
+            long keySize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, currentOffset);
+            currentOffset += Long.BYTES;
+            long valueSize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, currentOffset + keySize);
 
-            long currentTotalSize = calculateTotalSize(keySize, valueSize, mOffset);
+            long currentTotalSize = calculateTotalSize(keySize, valueSize, currentOffset);
             if (currentTotalSize > Constants.PAGE_SIZE * biteCount) {
-                mOffset -= Long.BYTES;
+                currentOffset -= Long.BYTES;
                 break;
             } else {
-                processKeySize(keySize, key.byteSize(), offsets, mOffset - Long.BYTES);
+                processKeySize(keySize, key.byteSize(), offsets, currentOffset - Long.BYTES);
                 if (keySize > key.byteSize()) {
                     break;
                 }
-                mOffset = updateOffset(keySize, valueSize, mOffset);
+                currentOffset = updateOffset(keySize, valueSize, currentOffset);
             }
         }
-        return mOffset;
+        return currentOffset;
     }
 
     private void processKeySize(long keySize, long byteSize, List<Long> offsets, long offset) {
