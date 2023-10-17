@@ -92,7 +92,7 @@ public class SSTable {
     }
 
     public void write(final SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
-        try (final Arena arena = Arena.ofConfined(); FileChannel writerChannel = FileChannel.open(
+        try (Arena arena = Arena.ofConfined(); FileChannel writerChannel = FileChannel.open(
                 path,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.READ,
