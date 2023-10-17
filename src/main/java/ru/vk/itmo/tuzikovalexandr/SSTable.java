@@ -74,6 +74,8 @@ public class SSTable {
             memorySize += entry.key().byteSize();
             if (entry.value() != null) {
                 memorySize += entry.value().byteSize();
+            } else {
+                memorySize += Long.BYTES;
             }
         }
         int index = 0;
@@ -103,6 +105,9 @@ public class SSTable {
                 if (value != null) {
                     MemorySegment.copy(value, 0, writeSegmentData, offsetData, value.byteSize());
                     offsetData += value.byteSize();
+                } else {
+                    writeSegmentData.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, -1L);
+                    offsetData += Long.BYTES;
                 }
 
                 index += 2;

@@ -28,7 +28,7 @@ public class Utils {
             valueSegment = dataSegment.asSlice(valueOffset, valueSize);
         }
 
-        if (valueSegment.byteSize() == 0) {
+        if (valueSegment.byteSize() == Long.BYTES && valueSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0) == -1) {
             valueSegment = null;
         }
 
