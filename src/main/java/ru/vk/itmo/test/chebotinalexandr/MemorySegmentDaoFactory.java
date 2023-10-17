@@ -3,7 +3,7 @@ package ru.vk.itmo.test.chebotinalexandr;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.chebotinalexandr.InMemoryDao;
+import ru.vk.itmo.chebotinalexandr.NotOnlyInMemoryDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
@@ -15,7 +15,7 @@ public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new InMemoryDao(config);
+        return new NotOnlyInMemoryDao(config);
     }
 
     @Override
