@@ -25,6 +25,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena = Arena.ofConfined();
     private final MemorySegment mappedStorageFile;
     private final FileChannel fileChannel;
+    private final long storageSize;
 
     public InMemoryDao(Config config) {
         storagePath = config.basePath().resolve("storage");
@@ -33,12 +34,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             try {
                 fileChannel = FileChannel.open(storagePath, StandardOpenOption.READ);
                 mappedStorageFile = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storagePath), arena);
+                storageSize = Files.size(storagePath);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
         } else {
             fileChannel = null;
             mappedStorageFile = null;
+            storageSize = 0;
         }
     }
 
@@ -72,26 +75,22 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private Entry<MemorySegment> seekForValueInFile(MemorySegment key) {
-        if (mappedStorageFile == null || !Files.exists(storagePath)) {
+        if (mappedStorageFile == null) {
             return null;
         }
         long readOffset = 0;
-        try {
-            while (readOffset < Files.size(storagePath)) {
-                long keySize = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
+        while (readOffset < storageSize) {
+            long keySize = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
+            readOffset += Long.BYTES;
+            MemorySegment keySegment = mappedStorageFile.asSlice(readOffset, keySize);
+            readOffset += keySize;
+            if (compareMemorySegments(key, keySegment) == 0) {
+                long valueSize = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
                 readOffset += Long.BYTES;
-                MemorySegment keySegment = mappedStorageFile.asSlice(readOffset, keySize);
-                readOffset += keySize;
-                if (compareMemorySegments(key, keySegment) == 0) {
-                    long valueSize = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
-                    readOffset += Long.BYTES;
-                    return new BaseEntry<>(key, mappedStorageFile.asSlice(readOffset, valueSize));
-                }
+                return new BaseEntry<>(key, mappedStorageFile.asSlice(readOffset, valueSize));
             }
-            return null;
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
         }
+        return null;
     }
 
     @Override
