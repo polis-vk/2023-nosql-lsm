@@ -2,7 +2,6 @@ package ru.vk.itmo.proninvalentin.utils;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.proninvalentin.Metadata;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -14,6 +13,9 @@ public final class MemorySegmentUtils {
 
     public static MemorySegment getBySizeOffset(MemorySegment readValuesMS, long sizeOffset) {
         long valueSize = readValuesMS.get(ValueLayout.JAVA_LONG_UNALIGNED, sizeOffset);
+        if (valueSize == -1) {
+            return null;
+        }
         long valueOffset = sizeOffset + Long.BYTES;
         return readValuesMS.asSlice(valueOffset, valueSize);
     }
@@ -21,28 +23,23 @@ public final class MemorySegmentUtils {
     public static BaseEntry<MemorySegment> getEntryByIndex(MemorySegment readValuesMS,
                                                            MemorySegment readMetadataMS,
                                                            long index) {
-        Metadata metadata = getMetadataByIndex(readMetadataMS, index);
-        MemorySegment key = getBySizeOffset(readValuesMS, metadata.entryOffset);
-        long valueSizeOffset = metadata.entryOffset + Long.BYTES + key.byteSize();
-        if (metadata.isDeleted) {
+        long entryOffset = getEntryOffsetByIndex(readMetadataMS, index);
+        MemorySegment key = getBySizeOffset(readValuesMS, entryOffset);
+        long valueSizeOffset = entryOffset + Long.BYTES + key.byteSize();
+        MemorySegment value = getBySizeOffset(readValuesMS, valueSizeOffset);
+        if (value == null) {
             return new BaseEntry<>(MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)), null);
         } else {
-            MemorySegment value = getBySizeOffset(readValuesMS, valueSizeOffset);
             return new BaseEntry<>(
                     MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)),
                     MemorySegment.ofArray(value.toArray(ValueLayout.JAVA_BYTE)));
         }
     }
 
-    public static Metadata getMetadataByIndex(MemorySegment readMetadataMS,
-                                              long index) {
-        long entryOffset = index * Metadata.SIZE;
-        long isDeletedOffset = entryOffset + Metadata.ENTRY_OFFSET_SIZE;
-        long createdAtOffset = isDeletedOffset + Metadata.IS_DELETED_SIZE;
-        return new Metadata(
-                readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, entryOffset),
-                readMetadataMS.get(ValueLayout.JAVA_BYTE, isDeletedOffset) == 1,
-                readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, createdAtOffset));
+    public static long getEntryOffsetByIndex(MemorySegment readMetadataMS,
+                                             long index) {
+        long entryOffset = index * Long.BYTES;
+        return readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, entryOffset);
     }
 
     // Возвращает индекс значения с указанным ключом, если он есть, иначе возвращает -1
@@ -50,14 +47,14 @@ public final class MemorySegmentUtils {
                                     MemorySegment readMetadataMS,
                                     MemorySegment desiredKey,
                                     Comparator<MemorySegment> comparator) {
-        long valuesCount = readMetadataMS.byteSize() / Metadata.SIZE;
+        long valuesCount = readMetadataMS.byteSize() / Long.BYTES;
         long l = 0;
         long r = valuesCount - 1;
 
         while (l <= r) {
             long m = l + (r - l) / 2;
 
-            long keySizeOffset = readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Metadata.SIZE);
+            long keySizeOffset = readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES);
             MemorySegment key = getBySizeOffset(readValuesMS, keySizeOffset);
 
             if (comparator.compare(key, desiredKey) == 0) {
@@ -78,14 +75,14 @@ public final class MemorySegmentUtils {
                                         MemorySegment readMetadataMS,
                                         MemorySegment desiredKey,
                                         Comparator<MemorySegment> comparator) {
-        long valuesCount = readMetadataMS.byteSize() / Metadata.SIZE;
+        long valuesCount = readMetadataMS.byteSize() / Long.BYTES;
         long l = 0;
         long r = valuesCount - 1;
 
         while (l < r) {
             long m = l + (r - l) / 2;
 
-            long keySizeOffset = readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Metadata.SIZE);
+            long keySizeOffset = readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES);
             MemorySegment key = getBySizeOffset(readValuesMS, keySizeOffset);
 
             if (comparator.compare(key, desiredKey) == 0) {
@@ -98,7 +95,7 @@ public final class MemorySegmentUtils {
         }
 
         // Если найденный ключ оказался меньше нужного, то мы говорим, что ничего не нашли
-        long keySizeOffset = readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, l * Metadata.SIZE);
+        long keySizeOffset = readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, l * Long.BYTES);
         MemorySegment key = getBySizeOffset(readValuesMS, keySizeOffset);
         if (key != null && comparator.compare(key, desiredKey) < 0) {
             return -1;
@@ -131,13 +128,8 @@ public final class MemorySegmentUtils {
         return localFileOffset;
     }
 
-    public static long writeEntryMetadata(long entryOffset, boolean isDeleted, long createdAt,
-                                          MemorySegment writeMetadataMS, long metadataOffset) {
-        long isDeletedOffset = metadataOffset + Metadata.ENTRY_OFFSET_SIZE;
-        long createdAtOffset = isDeletedOffset + Metadata.IS_DELETED_SIZE;
-        writeMetadataMS.set(ValueLayout.JAVA_LONG_UNALIGNED, metadataOffset, entryOffset);
-        writeMetadataMS.set(ValueLayout.JAVA_BOOLEAN, isDeletedOffset, isDeleted);
-        writeMetadataMS.set(ValueLayout.JAVA_LONG_UNALIGNED, createdAtOffset, createdAt);
-        return metadataOffset + Metadata.SIZE;
+    public static long writeEntryOffset(long entryOffset, MemorySegment writeOffsetMS, long fileOffset) {
+        writeOffsetMS.set(ValueLayout.JAVA_LONG_UNALIGNED, fileOffset, entryOffset);
+        return fileOffset + Long.BYTES;
     }
 }

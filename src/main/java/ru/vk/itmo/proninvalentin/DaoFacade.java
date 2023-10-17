@@ -4,7 +4,6 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.proninvalentin.comparators.MemorySegmentComparator;
-import ru.vk.itmo.proninvalentin.iterators.MergeIterator;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
@@ -33,11 +32,11 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         // Затем в файловой системе
         if (ms == null && fileDao != null) {
-            EnrichedEntry msFromFiles = fileDao.read(key);
-            if (msFromFiles == null || msFromFiles.metadata.isDeleted) {
+            Entry<MemorySegment> msFromFiles = fileDao.read(key);
+            if (msFromFiles == null || msFromFiles.value() == null) {
                 return null;
             } else {
-                return msFromFiles.entry;
+                return msFromFiles;
             }
         }
 
@@ -46,7 +45,7 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (fileDao != null) {
+       /* if (fileDao != null) {
             try {
                 return MergeIterator.create(
                         inMemoryDao.get(from, to),
@@ -55,7 +54,7 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
             } catch (IOException e) {
                 return inMemoryDao.get(from, to);
             }
-        }
+        }*/
         return inMemoryDao.get(from, to);
     }
 
