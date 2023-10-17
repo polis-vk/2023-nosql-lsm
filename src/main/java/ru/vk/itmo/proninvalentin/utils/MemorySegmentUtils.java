@@ -21,9 +21,9 @@ public final class MemorySegmentUtils {
     }
 
     public static BaseEntry<MemorySegment> getEntryByIndex(MemorySegment readValuesMS,
-                                                           MemorySegment readMetadataMS,
+                                                           MemorySegment readOffsetsMS,
                                                            long index) {
-        long entryOffset = getEntryOffsetByIndex(readMetadataMS, index);
+        long entryOffset = getEntryOffsetByIndex(readOffsetsMS, index);
         MemorySegment key = getBySizeOffset(readValuesMS, entryOffset);
         long valueSizeOffset = entryOffset + Long.BYTES + key.byteSize();
         MemorySegment value = getBySizeOffset(readValuesMS, valueSizeOffset);
@@ -36,25 +36,25 @@ public final class MemorySegmentUtils {
         }
     }
 
-    public static long getEntryOffsetByIndex(MemorySegment readMetadataMS,
+    public static long getEntryOffsetByIndex(MemorySegment readOffsetsMS,
                                              long index) {
         long entryOffset = index * Long.BYTES;
-        return readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, entryOffset);
+        return readOffsetsMS.get(ValueLayout.JAVA_LONG_UNALIGNED, entryOffset);
     }
 
     // Возвращает индекс значения с указанным ключом, если он есть, иначе возвращает -1
     public static long binarySearch(MemorySegment readValuesMS,
-                                    MemorySegment readMetadataMS,
+                                    MemorySegment readOffsetsMS,
                                     MemorySegment desiredKey,
                                     Comparator<MemorySegment> comparator) {
-        long valuesCount = readMetadataMS.byteSize() / Long.BYTES;
+        long valuesCount = readOffsetsMS.byteSize() / Long.BYTES;
         long l = 0;
         long r = valuesCount - 1;
 
         while (l <= r) {
             long m = l + (r - l) / 2;
 
-            long keySizeOffset = readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES);
+            long keySizeOffset = readOffsetsMS.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES);
             MemorySegment key = getBySizeOffset(readValuesMS, keySizeOffset);
 
             if (comparator.compare(key, desiredKey) == 0) {
@@ -72,17 +72,17 @@ public final class MemorySegmentUtils {
     // Возвращает индекс первого значения с ключом равному или большему указанного ключа,
     // если хранилище содержит только ключи меньшие, чем указанный ключ, возвращем -1
     public static long leftBinarySearch(MemorySegment readValuesMS,
-                                        MemorySegment readMetadataMS,
+                                        MemorySegment readOffsetsMS,
                                         MemorySegment desiredKey,
                                         Comparator<MemorySegment> comparator) {
-        long valuesCount = readMetadataMS.byteSize() / Long.BYTES;
+        long valuesCount = readOffsetsMS.byteSize() / Long.BYTES;
         long l = 0;
         long r = valuesCount - 1;
 
         while (l < r) {
             long m = l + (r - l) / 2;
 
-            long keySizeOffset = readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES);
+            long keySizeOffset = readOffsetsMS.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES);
             MemorySegment key = getBySizeOffset(readValuesMS, keySizeOffset);
 
             if (comparator.compare(key, desiredKey) == 0) {
@@ -95,7 +95,7 @@ public final class MemorySegmentUtils {
         }
 
         // Если найденный ключ оказался меньше нужного, то мы говорим, что ничего не нашли
-        long keySizeOffset = readMetadataMS.get(ValueLayout.JAVA_LONG_UNALIGNED, l * Long.BYTES);
+        long keySizeOffset = readOffsetsMS.get(ValueLayout.JAVA_LONG_UNALIGNED, l * Long.BYTES);
         MemorySegment key = getBySizeOffset(readValuesMS, keySizeOffset);
         if (key != null && comparator.compare(key, desiredKey) < 0) {
             return -1;
