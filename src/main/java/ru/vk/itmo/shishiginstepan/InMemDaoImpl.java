@@ -11,24 +11,29 @@ import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memStorage = new ConcurrentSkipListMap<>(
-            (o1, o2) -> {
-                var mismatch = o1.mismatch(o2);
-                if (mismatch == -1) {
-                    return 0;
-                }
-
-                if (mismatch == o1.byteSize()) {
-                    return -1;
-                }
-
-                if (mismatch == o2.byteSize()) {
-                    return 1;
-                }
-                byte b1 = o1.get(ValueLayout.JAVA_BYTE, mismatch);
-                byte b2 = o2.get(ValueLayout.JAVA_BYTE, mismatch);
-                return Byte.compare(b1, b2);
+    private static final MemorySegment deletionMark = MemorySegment.ofArray("52958832".getBytes(StandardCharsets.UTF_8));
+    private static final Comparator<MemorySegment> keyComparator = new Comparator<>() {
+        @Override
+        public int compare(MemorySegment o1, MemorySegment o2) {
+            var mismatch = o1.mismatch(o2);
+            if (mismatch == -1) {
+                return 0;
             }
+
+            if (mismatch == o1.byteSize()) {
+                return -1;
+            }
+
+            if (mismatch == o2.byteSize()) {
+                return 1;
+            }
+            byte b1 = o1.get(ValueLayout.JAVA_BYTE, mismatch);
+            byte b2 = o2.get(ValueLayout.JAVA_BYTE, mismatch);
+            return Byte.compare(b1, b2);
+        }
+    };
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memStorage = new ConcurrentSkipListMap<>(
+            keyComparator
     );
 
     private final PersistentStorage persistentStorage;
