@@ -52,8 +52,7 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         long filesQuantity;
         try (Stream<Path> files = Files.list(config.basePath())) {
             filesQuantity = files.count();
-        }
-        catch (IOException e) {
+        } catch (IOException e) {
             filesQuantity = 0;
         }
 
