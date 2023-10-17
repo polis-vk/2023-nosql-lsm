@@ -97,9 +97,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private Entry<MemorySegment> seekForValueInFile(MemorySegment key, int sstableNum) {
-        Path storageFilePath = storagePath.resolve(sstableBaseName + sstableNum);
-
-        if (!Files.exists(storageFilePath)) {
+        if (sstableNum >= sstableFileChannels.size()) {
             return null;
         }
 
@@ -209,29 +207,30 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                      StandardOpenOption.WRITE,
                      StandardOpenOption.CREATE);
 
-             var storageArena = Arena.ofConfined();
-             var indexArena = Arena.ofConfined()) {
+             var writeArena = Arena.ofConfined()) {
 
-            MemorySegment mappedStorage = storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcMapByteSizeInFile(), storageArena);
-            MemorySegment mappedIndex = indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcIndexByteSizeInFile(), indexArena);
+            MemorySegment mappedStorage = storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcMapByteSizeInFile(), writeArena);
+            MemorySegment mappedIndex = indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcIndexByteSizeInFile(), writeArena);
 
             long entryNum = 0;
             for (var entry : map.values()) {
-                mappedIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, indexWriteOffset, entryNum);
-                indexWriteOffset += Long.BYTES;
-                mappedIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, indexWriteOffset, storageWriteOffset);
-                indexWriteOffset += Long.BYTES;
+                indexWriteOffset = writeEntryNumToStorageOffset(mappedIndex, indexWriteOffset, entryNum, storageWriteOffset);
                 entryNum++;
 
-                writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
-                storageWriteOffset += Long.BYTES;
-                storageWriteOffset += entry.key().byteSize();
-                writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
-                storageWriteOffset += Long.BYTES;
-                if (entry.value() != null) storageWriteOffset += entry.value().byteSize();
+                storageWriteOffset = writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
+                storageWriteOffset = writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
             }
             mappedStorage.load();
+            mappedIndex.load();
         }
+    }
+
+    private static long writeEntryNumToStorageOffset(MemorySegment mappedIndex, long indexWriteOffset, long entryNum, long storageWriteOffset) {
+        mappedIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, indexWriteOffset, entryNum);
+        indexWriteOffset += Long.BYTES;
+        mappedIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, indexWriteOffset, storageWriteOffset);
+        indexWriteOffset += Long.BYTES;
+        return indexWriteOffset;
     }
 
     private int getTotalSStables() {
@@ -257,15 +256,18 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     // Every memorySegment in file has the following structure:
     // 8 bytes - size, <size> bytes - value
     // If memorySegment has the size of -1 byte, then it means its value is DELETED
-    private void writeMemorySegment(MemorySegment memorySegment, MemorySegment mapped, long writeOffset) {
+    private static long writeMemorySegment(MemorySegment memorySegment, MemorySegment mapped, long writeOffset) {
         if (memorySegment != null) {
             long msSize = memorySegment.byteSize();
             mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, writeOffset, msSize);
             writeOffset += Long.BYTES;
             MemorySegment.copy(memorySegment, 0, mapped, writeOffset, msSize);
+            writeOffset += msSize;
         } else {
             mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, writeOffset, -1);
+            writeOffset += Long.BYTES;
         }
+        return writeOffset;
     }
 
     public static int compareMemorySegments(MemorySegment segment1, MemorySegment segment2) {

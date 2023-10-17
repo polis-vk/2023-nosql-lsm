@@ -130,7 +130,7 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
 
             if (to == null) {
                 return Long.BYTES;
-            } // from == null && to != null
+            }
 
             long firstKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
             readOffset += Long.BYTES;
