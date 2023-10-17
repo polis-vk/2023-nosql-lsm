@@ -39,12 +39,12 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final PersistentStorage persistentStorage;
     private final Path basePath;
 
-    public InMemDaoImpl(Path basePath) {
+    public InMemDaoImpl(Path basePath) throws IOException {
         this.basePath = basePath;
         persistentStorage = new PersistentStorage(this.basePath);
     }
 
-    public InMemDaoImpl() {
+    public InMemDaoImpl() throws IOException {
         this.basePath = Paths.get("./");
         persistentStorage = new PersistentStorage(this.basePath);
     }
