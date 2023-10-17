@@ -139,10 +139,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private void writeSegment(final MemorySegment mappedSegment, final MemorySegment msegment) {
         mappedSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, msegment.byteSize());
         offset += Long.BYTES;
-        for (long i = 0; i < msegment.byteSize(); ++i) {
-            mappedSegment.set(ValueLayout.JAVA_BYTE, offset, msegment.get(ValueLayout.JAVA_BYTE, i));
-            ++offset;
-        }
+        long msize = msegment.byteSize();
+        MemorySegment.copy(msegment, 0, mappedSegment, offset, msize);
+        offset += msize;
     }
 
     private MemorySegment readSegment(final MemorySegment mappedSegment) {
