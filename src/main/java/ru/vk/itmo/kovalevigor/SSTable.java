@@ -23,7 +23,7 @@ public class SSTable {
         this.path = path;
     }
 
-    public SortedMap<MemorySegment, Entry<MemorySegment>> load(Arena arena, final long limit) throws IOException {
+    public SortedMap<MemorySegment, Entry<MemorySegment>> load(final Arena arena, final long limit) throws IOException {
         final SortedMap<MemorySegment, Entry<MemorySegment>> map = new TreeMap<>(COMPARATOR);
         if (Files.notExists(path)) {
             return map;
@@ -50,11 +50,11 @@ public class SSTable {
         }
     }
 
-    public SortedMap<MemorySegment, Entry<MemorySegment>> load(Arena arena) throws IOException {
+    public SortedMap<MemorySegment, Entry<MemorySegment>> load(final Arena arena) throws IOException {
         return load(arena, 0);
     }
 
-    public Entry<MemorySegment> get(final MemorySegment key, Arena segmentArena) throws IOException {
+    public Entry<MemorySegment> get(final MemorySegment key, final Arena segmentArena) throws IOException {
         if (Files.notExists(path)) {
             return null;
         }
@@ -75,7 +75,7 @@ public class SSTable {
             long prevOffset = reader.getOffset();
             Entry<MemorySegment> entry = reader.readEntry();
             while (entry != null) {
-                if (UtilsMemorySegment.compare(key, entry.key()) == 0) {
+                if (COMPARATOR.compare(key, entry.key()) == 0) {
                     return MemoryEntryReader.mapEntry(
                             readerChannel,
                             prevOffset,
@@ -92,7 +92,7 @@ public class SSTable {
     }
 
     public void write(final SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
-        try (Arena arena = Arena.ofConfined(); FileChannel writerChannel = FileChannel.open(
+        try (final Arena arena = Arena.ofConfined(); FileChannel writerChannel = FileChannel.open(
                 path,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.READ,

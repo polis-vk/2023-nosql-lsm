@@ -1,12 +1,15 @@
 package ru.vk.itmo.kovalevigor;
 
+import ru.vk.itmo.Entry;
+
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Map;
 
 public class MemoryEntryFileWorker {
 
     private long offset;
-    public final MemorySegment data;
+    protected final MemorySegment data;
     public static final ValueLayout.OfLong META_LAYOUT = ValueLayout.JAVA_LONG_UNALIGNED;
     public static final long ENTRY_META_SIZE = META_LAYOUT.byteSize() * 2;
 
@@ -38,6 +41,14 @@ public class MemoryEntryFileWorker {
     protected long changeOffset(final long diff) {
         offset += diff;
         return getOffset();
+    }
+
+    public static long getTotalMapSize(final Map<MemorySegment, Entry<MemorySegment>> map) {
+        long totalSize = ENTRY_META_SIZE * map.size();
+        for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : map.entrySet()) {
+            totalSize += entry.getKey().byteSize() + entry.getValue().value().byteSize();
+        }
+        return totalSize;
     }
 
 }

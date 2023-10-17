@@ -67,7 +67,7 @@ public class MemoryEntryReader extends MemoryEntryFileWorker {
             final long offset,
             final long keySize,
             final long valueSize,
-            Arena arena
+            final Arena arena
     ) throws IOException {
         final long keyStart = offset + META_LAYOUT.byteSize();
         return createEntry(

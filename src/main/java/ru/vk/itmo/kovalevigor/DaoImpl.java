@@ -75,7 +75,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return result;
         }
         try {
-            return ssTable.get(key, Arena.ofAuto());
+            return ssTable.get(key, memoryArena);
         } catch (IOException e) {
             return null;
         }
@@ -87,8 +87,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
+        if (!memoryArena.scope().isAlive()) {
+            return;
+        }
         ssTable.write(storage);
-        storage.clear();
         memoryArena.close();
+        storage.clear();
     }
 }
