@@ -34,7 +34,9 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
         this.tableList = tableList;
     }
 
-    private Triple goAcrossTables(MemorySegment minKey, int minTableIndex) {
+    private Triple goAcrossTables() {
+        MemorySegment minKey = null;
+        int minTableIndex = -1;
         long minSizeOfVal = -1;
         for (int i = 0; i < indexList.size(); ++i) {
             indexOffsetMap.putIfAbsent(i, getStartOffset(i, from));
@@ -66,29 +68,27 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
 
     private int getNextTable() {
 
-        int minTableIndex = -1;
+        int minTableIdx = -1;
         MemorySegment minKey;
         long minSizeOfVal = -1;
         boolean hasNext = true;
 
         while (minSizeOfVal == -1 && hasNext) {
-            minTableIndex = -1;
-            minKey = null;
 
-            var singleWlk = goAcrossTables(minKey, minTableIndex);
+            var singleWlk = goAcrossTables();
             minKey = (MemorySegment) singleWlk.getFirst();
-            minTableIndex = (int) singleWlk.getSecond();
+            minTableIdx = (int) singleWlk.getSecond();
             minSizeOfVal = (long) singleWlk.getThird();
 
             if (minKey == null) {
-                minTableIndex = -1;
+                minTableIdx = -1;
                 hasNext = false;
             }
-            if (minSizeOfVal == -1 && minTableIndex >= 0) {
-                stepToNextInTable(minTableIndex);
+            if (minSizeOfVal == -1 && minTableIdx >= 0) {
+                stepToNextInTable(minTableIdx);
             }
         }
-        return minTableIndex;
+        return minTableIdx;
     }
 
     private long getStartOffset(int table, MemorySegment key) {
