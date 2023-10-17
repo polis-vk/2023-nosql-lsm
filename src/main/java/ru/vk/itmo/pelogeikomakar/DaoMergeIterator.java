@@ -7,9 +7,9 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.HashMap;
 import java.util.ArrayList;
+import java.util.Map;
 
 public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
 
@@ -64,10 +64,7 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
             if (to != null && comparator.compare(currKey, to) > 0) {
                 continue;
             }
-            if (minKey == null) {
-                minTableIndex = i;
-                minKey = currKey;
-            } else if (comparator.compare(minKey, currKey) > 0) {
+            if (minKey == null || comparator.compare(minKey, currKey) > 0) {
                 minTableIndex = i;
                 minKey = currKey;
             } else if (comparator.compare(minKey, currKey) == 0) {
