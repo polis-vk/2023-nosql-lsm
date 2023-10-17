@@ -44,8 +44,10 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         daoConfig = config;
         boolean readOn = true;
         int ssTableNumber = 0;
-        Arena arenaTableCurr, arenaIndexCurr;
-        MemorySegment ssTableCurr, indexCurr;
+        Arena arenaTableCurr;
+        Arena arenaIndexCurr;
+        MemorySegment ssTableCurr;
+        MemorySegment indexCurr;
 
         while (readOn) {
             Path ssTablePath = config.basePath().resolve(SSTABLE_NAME + Integer.toString(ssTableNumber));
@@ -74,11 +76,8 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             } catch (IOException e) {
                 readOn = false;
                 maxSSTable = ssTableNumber - 1;
-            } finally {
-
             }
         }
-
 
     }
 
@@ -119,7 +118,9 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private long findKeySSTable(int ssTableNum, MemorySegment key) {
 
-        long low, high, result;
+        long low;
+        long high;
+        long result;
         MemorySegment indexCurr = indexMap.get(ssTableNum);
         MemorySegment tableCurr = ssTableMap.get(ssTableNum);
 
@@ -186,13 +187,15 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         maxSSTable += 1;
 
-        FileChannel fileDataOut = FileChannel.open(daoConfig.basePath().resolve(SSTABLE_NAME + Integer.toString(maxSSTable)),
+        FileChannel fileDataOut = FileChannel.open(daoConfig.basePath().
+                        resolve(SSTABLE_NAME + Integer.toString(maxSSTable)),
                 StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
         Arena arenaDataWriter = Arena.ofConfined();
         MemorySegment memSegmentDataOut = fileDataOut.map(FileChannel.MapMode.READ_WRITE,
                 0, ssTableSizeOut, arenaDataWriter);
 
-        FileChannel fileIndexOut = FileChannel.open(daoConfig.basePath().resolve(INDEX_NAME + Integer.toString(maxSSTable)),
+        FileChannel fileIndexOut = FileChannel.open(daoConfig.basePath().
+                        resolve(INDEX_NAME + Integer.toString(maxSSTable)),
                 StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
         Arena arenaIndexWriter = Arena.ofConfined();
         MemorySegment memSegmentIndexOut = fileIndexOut.map(FileChannel.MapMode.READ_WRITE,

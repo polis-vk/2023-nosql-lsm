@@ -5,21 +5,18 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 
 public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
 
     private final MemorySegmentComparator comparator = new MemorySegmentComparator();
-    private MemorySegment from;
-    private MemorySegment to;
-    private Iterator<Entry<MemorySegment>> hashMapIter;
-    private Entry<MemorySegment> currentHashElem = null;
-    private List<MemorySegment> indexList;
-    private HashMap<Integer, Long> indexOffsetMap = new HashMap<>();
-    private List<MemorySegment> tableList;
+    private final MemorySegment from;
+    private final MemorySegment to;
+    private final Iterator<Entry<MemorySegment>> hashMapIter;
+    private Entry<MemorySegment> currentHashElem;
+    private final List<MemorySegment> indexList;
+    private final Map<Integer, Long> indexOffsetMap = new HashMap<>();
+    private final List<MemorySegment> tableList;
 
     public DaoMergeIterator(MemorySegment from, MemorySegment to,
                             Iterator<Entry<MemorySegment>> hashMapIter,
@@ -79,16 +76,17 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private long getStartOffset(int table, MemorySegment key) {
-        var indexCurr = indexList.get(table);
-        var tableCurr = tableList.get(table);
-        long low, high, result;
-
         if (from == null) {
             return 0L;
         }
 
+        long result;
+        long low;
+        long high;
         result = -1;
         low = 0;
+        var indexCurr = indexList.get(table);
+        var tableCurr = tableList.get(table);
         high = indexCurr.byteSize() / Long.BYTES;
 
         while (low <= high) {
