@@ -1,69 +1,37 @@
 package ru.vk.itmo.test.ryabovvadim;
 
-import ru.vk.itmo.BaseEntry;
+import static ru.vk.itmo.test.ryabovvadim.FileUtils.DATA_FILE_EXT;
+import static ru.vk.itmo.test.ryabovvadim.FileUtils.MEMORY_SEGMENT_COMPARATOR;
+
+import java.io.IOException;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.DataOutput;
-import java.io.DataOutputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.lang.foreign.Arena;
-import java.lang.foreign.MemorySegment;
-import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
-
-import static java.lang.foreign.ValueLayout.JAVA_BYTE;
-import static java.lang.foreign.ValueLayout.JAVA_INT;
-import static java.lang.foreign.ValueLayout.JAVA_LONG;
-
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private static final Comparator<MemorySegment> MEMORY_SEGMENT_COMPARATOR =
-            (firstSegment, secondSegment) -> {
-                if (firstSegment == null) {
-                    return secondSegment == null ? 0 : -1;
-                } else if (secondSegment == null) {
-                    return 1;
-                }
-
-                long firstSegmentSize = firstSegment.byteSize();
-                long secondSegmentSize = secondSegment.byteSize();
-                long mismatchOffset = firstSegment.mismatch(secondSegment);
-
-                if (mismatchOffset == firstSegmentSize) {
-                    return -1;
-                }
-                if (mismatchOffset == secondSegmentSize) {
-                    return 1;
-                }
-                if (mismatchOffset == -1) {
-                    return Long.compare(firstSegmentSize, secondSegmentSize);
-                }
-
-                return Byte.compare(
-                        firstSegment.get(JAVA_BYTE, mismatchOffset),
-                        secondSegment.get(JAVA_BYTE, mismatchOffset)
-                );
-            };
-    private static final String SSTABLE_FILE = "data.sst";
-
     private final Arena arena = Arena.ofAuto();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
-            new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
+        new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable =
+        new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
     private final Config config;
-    private SSTable ssTable;
+    private final List<SSTable> ssTables = new ArrayList<>();
 
     public InMemoryDao() {
         this(null);
@@ -72,19 +40,40 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public InMemoryDao(Config config) {
         this.config = config;
         if (config == null || config.basePath() == null) {
-            this.ssTable = null;
-        } else {
-            try {
-                this.ssTable = new SSTable(arena, config.basePath().resolve(SSTABLE_FILE));
-            } catch (IOException e) {
-                this.ssTable = null;
+            return;
+        }
+
+        try {
+            Set<String> dataFileNames = new HashSet<>();
+            Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    String fileName = file.getFileName().toString();
+
+                    int indexDataExtension = fileName.indexOf("." + DATA_FILE_EXT);
+                    if (indexDataExtension >= 0) {
+                        dataFileNames.add(fileName.substring(0, indexDataExtension));
+                    }
+
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+
+            List<Integer> numbers = dataFileNames.stream()
+                .map(Integer::parseInt)
+                .sorted(Comparator.reverseOrder())
+                .toList();
+            for (var number : numbers) {
+                ssTables.add(new SSTable(config.basePath(), Integer.toString(number), arena));
             }
+        } catch (IOException ex) {
+            throw new RuntimeException(ex);
         }
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        maybeLoad(key);
+        loadIfNotExists(key);
         return storage.get(key);
     }
 
@@ -93,7 +82,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (from == null) {
             return all();
         }
-        maybeLoad(from, null);
+        loadIfNotExists(from, null);
         return storage.tailMap(from).values().iterator();
     }
 
@@ -102,13 +91,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (to == null) {
             return all();
         }
-        maybeLoad(null, to);
+        loadIfNotExists(null, to);
         return storage.headMap(to).values().iterator();
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> all() {
-        maybeLoad(null, null);
+        loadIfNotExists(null, null);
         return storage.values().iterator();
     }
 
@@ -120,168 +109,88 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (to == null) {
             return allFrom(from);
         }
-        maybeLoad(from, to);
+        loadIfNotExists(from, to);
         return storage.subMap(from, to).values().iterator();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         storage.put(entry.key(), entry);
+        memoryTable.put(entry.key(), entry);
     }
 
     @Override
     public void flush() throws IOException {
-        if (config != null) {
-            save(config.basePath().resolve(SSTABLE_FILE));
+        if (config != null && config.basePath() != null) {
+            save(config.basePath());
         }
     }
 
-    private void maybeLoad(MemorySegment key) {
-        if (ssTable == null) {
-            return;
-        }
-        if (key == null || storage.containsKey(key)) {
+    private void loadIfNotExists(MemorySegment key) {
+        if (config == null || storage.containsKey(key)) {
             return;
         }
 
-        Entry<MemorySegment> entry = ssTable.load(key);
-        if (entry != null) {
-            storage.put(key, entry);
+        for (SSTable ssTable : ssTables) {
+            Entry<MemorySegment> entry = ssTable.findEntry(key);
+            if (entry != null) {
+                storage.put(entry.key(), entry);
+                return;
+            }
         }
     }
 
-    private void maybeLoad(MemorySegment from, MemorySegment to) {
-        if (ssTable == null) {
+    private void loadIfNotExists(MemorySegment from, MemorySegment to) {
+        if (config == null) {
             return;
         }
-        if (from != null && to != null && storage.containsKey(from) && storage.containsKey(to)) {
-            return;
-        }
+        
+        List<Entry<MemorySegment>> entriesForUpsert = new ArrayList<>();
+        for (SSTable ssTable : ssTables) {
+            List<Entry<MemorySegment>> entries = ssTable.findEntries(from, to);
+            List<Entry<MemorySegment>> tmp = new ArrayList<>();
 
-        ssTable.load(from, to).forEach(entry -> storage.put(entry.key(), entry));
+            int i = 0;
+            int j = 0;
+            while (i < entriesForUpsert.size() || j < entries.size()) {
+                Entry<MemorySegment> mainEntry = i < entriesForUpsert.size() ? entriesForUpsert.get(i) : null;
+                Entry<MemorySegment> newEntry = j < entries.size() ? entries.get(j) : null;
+                int compareResult = MEMORY_SEGMENT_COMPARATOR.compare(
+                    mainEntry == null ? null : mainEntry.key(), 
+                    newEntry == null ? null : newEntry.key()
+                );
+
+                if (newEntry == null || (mainEntry != null && compareResult < 0)) {
+                    tmp.add(mainEntry);
+                    ++i;
+                } else if (mainEntry == null || compareResult > 0) {
+                    if (!storage.containsKey(newEntry.key())) {
+                        tmp.add(newEntry);
+                    }
+                    ++j;
+                } else {
+                    ++j;
+                }
+            }
+            
+            entriesForUpsert = tmp;
+        }
+        
+        entriesForUpsert.forEach(entry -> storage.put(entry.key(), entry));
     }
 
     public void save(Path path) throws IOException {
-        Files.deleteIfExists(path);
-
-        try (FileOutputStream outputFile = new FileOutputStream(path.toFile())) {
-            DataOutput output = new DataOutputStream(outputFile);
-            long offset = JAVA_INT.byteSize() + storage.size() * JAVA_LONG.byteSize();
-            Collection<Entry<MemorySegment>> segments = storage.values();
-
-            output.writeInt(storage.size());
-            for (Entry<MemorySegment> entry : segments) {
-                MemorySegment key = entry.key();
-                MemorySegment value = entry.value();
-
-                output.writeLong(offset);
-                offset += 2 * JAVA_LONG.byteSize() + key.byteSize() + value.byteSize();
-            }
-
-            for (var entry : segments) {
-                MemorySegment key = entry.key();
-                MemorySegment value = entry.value();
-
-                output.writeLong(key.byteSize());
-                output.writeLong(value.byteSize());
-                output.write(key.toArray(JAVA_BYTE));
-                output.write(value.toArray(JAVA_BYTE));
-            }
-        }
-    }
-
-    private static class SSTable {
-        private final Map<MemorySegment, Integer> idsBySegment = new ConcurrentHashMap<>();
-        private final Set<Integer> ids = ConcurrentHashMap.newKeySet();
-        private final MemorySegment mappedFile;
-        private final int countRecords;
-        private final List<Long> offsets = new ArrayList<>();
-
-        public SSTable(Arena arena, Path path) throws IOException {
-            try (FileChannel fileChannel = FileChannel.open(path)) {
-                this.mappedFile = fileChannel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    0,
-                    fileChannel.size(),
-                    arena
-                );
-
-                this.countRecords = mappedFile.get(JAVA_INT, 0);
-                long offset = JAVA_INT.byteSize();
-                for (int i = 0; i < countRecords; ++i) {
-                    offsets.add(mappedFile.get(JAVA_LONG, offset));
-                    offset += JAVA_LONG.byteSize();
-                }
-            }
+        if (memoryTable.isEmpty()) {
+            return;
         }
 
-        public Entry<MemorySegment> load(MemorySegment key) {
-            for (int i = 0; i < countRecords; ++i) {
-                Long entryOffset = offsets.get(i);
-                MemorySegment curKey = readKey(entryOffset);
+        int maxTableNumber = ssTables.stream()
+            .map(SSTable::getName)
+            .mapToInt(Integer::parseInt)
+            .max()
+            .orElse(0);
 
-                if (MEMORY_SEGMENT_COMPARATOR.compare(key, curKey) == 0) {
-                    update(key, i);
-                    return new BaseEntry<>(key, readValue(entryOffset));
-                }
-            }
-
-            return null;
-        }
-
-        public List<Entry<MemorySegment>> load(MemorySegment from, MemorySegment to) {
-            List<Entry<MemorySegment>> loadedEntries = new ArrayList<>();
-            boolean add = to == null;
-            int fromIndex = 0;
-            int toIndex = countRecords;
-
-            if (from != null) {
-                fromIndex = idsBySegment.getOrDefault(from, fromIndex);
-            }
-            if (to != null) {
-                toIndex = idsBySegment.getOrDefault(to, toIndex);
-            }
-
-            for (int i = fromIndex; i < toIndex; ++i) {
-                if (ids.contains(i)) {
-                    continue;
-                }
-
-                Long entryOffset = offsets.get(i);
-                MemorySegment key = readKey(entryOffset);
-
-                if (MEMORY_SEGMENT_COMPARATOR.compare(to, key) == 0) {
-                    update(to, i);
-                    break;
-                }
-                if (!add && MEMORY_SEGMENT_COMPARATOR.compare(from, key) == 0) {
-                    update(from, i);
-                    add = true;
-                }
-
-                if (add) {
-                    loadedEntries.add(new BaseEntry<>(key, readValue(entryOffset)));
-                }
-            }
-
-            return loadedEntries;
-        }
-
-        private MemorySegment readKey(long offset) {
-            long keySize = mappedFile.get(JAVA_LONG, offset);
-            return mappedFile.asSlice(offset + 2 * JAVA_LONG.byteSize(), keySize);
-        }
-
-        private MemorySegment readValue(long offset) {
-            long keySize = mappedFile.get(JAVA_LONG, offset);
-            long valueSize = mappedFile.get(JAVA_LONG, offset + JAVA_LONG.byteSize());
-
-            return mappedFile.asSlice(offset + 2 * JAVA_LONG.byteSize() + keySize, valueSize);
-        }
-
-        private void update(MemorySegment segment, int index) {
-            idsBySegment.put(segment, index);
-            ids.add(index);
-        }
+        int saveTableNumber = maxTableNumber + 1;
+        SSTable.save(path, Integer.toString(saveTableNumber), memoryTable.values(), arena);
     }
 }
