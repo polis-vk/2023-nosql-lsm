@@ -5,7 +5,11 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
 
@@ -14,7 +18,7 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
     private final MemorySegment to;
     private final Iterator<Entry<MemorySegment>> hashMapIter;
     private Entry<MemorySegment> currentHashElem;
-    private Entry<MemorySegment> readyNextEntry = null;
+    private Entry<MemorySegment> readyNextEntry;
     private final List<MemorySegment> indexList;
     private final Map<Integer, Long> indexOffsetMap = new HashMap<>();
     private final List<MemorySegment> tableList;
@@ -30,6 +34,35 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
         this.tableList = tableList;
     }
 
+    private Triple<MemorySegment, int, long> goAcrossTables(MemorySegment minKey, int minTableIndex) {
+        long minSizeOfVal = -1;
+        for (int i = 0; i < indexList.size(); ++i) {
+            indexOffsetMap.putIfAbsent(i, getStartOffset(i, from));
+
+            if (indexOffsetMap.get(i) < 0) {
+                continue;
+            }
+            long dataOffset = indexList.get(i).get(ValueLayout.JAVA_LONG_UNALIGNED, indexOffsetMap.get(i));
+            long sizeOfKey = tableList.get(i).get(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset);
+            MemorySegment currKey = tableList.get(i).asSlice(dataOffset + Long.BYTES, sizeOfKey);
+
+            var table = tableList.get(i);
+            long sizeOfVal = table.get(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset + Long.BYTES + sizeOfKey);
+
+            if (to != null && comparator.compare(currKey, to) >= 0) {
+                continue;
+            }
+            if (minKey == null || comparator.compare(minKey, currKey) > 0) {
+                minTableIndex = i;
+                minKey = currKey;
+                minSizeOfVal = sizeOfVal;
+            } else if (comparator.compare(minKey, currKey) == 0) {
+                stepToNextInTable(i);
+            }
+        }
+
+        return new Triple(minKey, minTableIndex, minSizeOfVal);
+    }
 
     private int getNextTable() {
 
@@ -42,31 +75,11 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
             minTableIndex = -1;
             minKey = null;
 
-            for (int i = 0; i < indexList.size(); ++i) {
-                indexOffsetMap.putIfAbsent(i, getStartOffset(i, from));
+            var singleWlk = goAcrossTables(minKey, minTableIndex);
+            minKey = singleWlk.getFirst();
+            minTableIndex = singleWlk.getSecond();
+            minSizeOfVal = singleWlk.getThird();
 
-                if (indexOffsetMap.get(i) < 0) {
-                    continue;
-                }
-                long dataOffset = indexList.get(i).get(ValueLayout.JAVA_LONG_UNALIGNED, indexOffsetMap.get(i));
-                long sizeOfKey = tableList.get(i).get(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset);
-                MemorySegment currKey = tableList.get(i).asSlice(dataOffset + Long.BYTES, sizeOfKey);
-
-                var table = tableList.get(i);
-                long sizeOfVal = table.get(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset + Long.BYTES + sizeOfKey);
-
-
-                if (to != null && comparator.compare(currKey, to) >= 0) {
-                    continue;
-                }
-                if (minKey == null || comparator.compare(minKey, currKey) > 0) {
-                    minTableIndex = i;
-                    minKey = currKey;
-                    minSizeOfVal = sizeOfVal;
-                } else if (comparator.compare(minKey, currKey) == 0) {
-                    stepToNextInTable(i);
-                }
-            }
             if (minKey == null) {
                 minTableIndex = -1;
                 hasNext = false;
@@ -167,6 +180,21 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
         }
     }
 
+    private Entry<MemorySegment> nextPopTabled(boolean pop, int table) {
+        var tableResult = getNextFromTable(table);
+        if (comparator.compare(tableResult.get(0), currentHashElem.key()) < 0) {
+            if (pop) {
+                stepToNextInTable(table);
+            }
+            return new BaseEntry<MemorySegment>(tableResult.get(0), tableResult.get(1));
+        } else if (comparator.compare(tableResult.get(0), currentHashElem.key()) == 0 && pop) {
+            stepToNextInTable(table);
+        }
+        var result = currentHashElem;
+        currentHashElem = null;
+        return result;
+    }
+
     private Entry<MemorySegment> nextPopOption(boolean pop) {
         if (!hasNextNullable()) {
             return null;
@@ -186,19 +214,7 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
         }
 
         if (table >= 0) {
-            var tableResult = getNextFromTable(table);
-            if (comparator.compare(tableResult.get(0), currentHashElem.key()) < 0) {
-                if (pop) {
-                    stepToNextInTable(table);
-                }
-                return new BaseEntry<MemorySegment>(tableResult.get(0), tableResult.get(1));
-            } else if (comparator.compare(tableResult.get(0), currentHashElem.key()) == 0 && pop) {
-                stepToNextInTable(table);
-            }
-            var result = currentHashElem;
-            currentHashElem = null;
-            return result;
-
+            return nextPopTabled(pop, table);
         } else {
             var result = currentHashElem;
             currentHashElem = null;
@@ -234,11 +250,7 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> next() {
-        if (readyNextEntry != null) {
-            var result = readyNextEntry;
-            readyNextEntry = null;
-            return result;
-        } else {
+        if (readyNextEntry == null) {
             Entry<MemorySegment> entry;
             do {
                 entry = nextPopOption(true);
@@ -247,7 +259,10 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
                 }
             } while (entry.value() == null);
             return entry;
+        } else {
+            var result = readyNextEntry;
+            readyNextEntry = null;
+            return result;
         }
-
     }
 }
