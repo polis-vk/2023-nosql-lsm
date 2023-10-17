@@ -2,12 +2,12 @@ package ru.vk.itmo.tuzikovalexandr;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Comparator;
 
-public class MemorySegmentComparator implements Comparator<MemorySegment> {
+public class MemorySegmentComparator {
 
-    @Override
-    public int compare(MemorySegment o1, MemorySegment o2) {
+    private MemorySegmentComparator() {}
+
+    public static int compare(MemorySegment o1, MemorySegment o2) {
         long offset = o1.mismatch(o2);
         if (offset == -1) {
             return 0;
@@ -20,5 +20,13 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
         }
 
         return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, offset), o2.get(ValueLayout.JAVA_BYTE, offset));
+    }
+
+    public static int iteratorsCompare(PeekIterator o1, PeekIterator o2) {
+        int compare = MemorySegmentComparator.compare(o1.peek().key(), o2.peek().key());
+        if (compare == 0) {
+            return o1.getPriority() > o2.getPriority() ? -1 : 1;
+        }
+        return compare;
     }
 }

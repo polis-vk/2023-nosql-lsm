@@ -7,12 +7,13 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memory =
-            new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+            new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
     private final SSTable ssTable;
 
     public InMemoryDaoImpl(Config config) throws IOException {
@@ -21,22 +22,40 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        Iterator<Entry<MemorySegment>> memoryIterator;
 
         if (from == null && to == null) {
-            return memory.values().iterator();
+            memoryIterator = memory.values().iterator();
         } else if (from == null) {
-            return memory.headMap(to, false).values().iterator();
+            memoryIterator = memory.headMap(to, false).values().iterator();
         } else if (to == null) {
-            return memory.subMap(from, true, memory.lastKey(), false).values().iterator();
+            memoryIterator = memory.tailMap(from, true).values().iterator();
         } else {
-            return memory.subMap(from, true, to, false).values().iterator();
+            memoryIterator = memory.subMap(from, true, to, false).values().iterator();
         }
+
+        if (ssTable.isNullIndexList()) {
+            return memoryIterator;
+        }
+
+        List<PeekIterator> iterators = ssTable.readDataFromTo(from, to);
+        iterators.add(new PeekIterator(memoryIterator, ssTable.getIndexListSize() + 1));
+        return new RangeIterator(iterators);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         var entry = memory.get(key);
-        return entry == null ? ssTable.readData(key) : entry;
+
+        if (entry == null) {
+            entry = ssTable.readData(key);
+        }
+
+        if (entry != null && entry.value() == null) {
+            return null;
+        }
+
+        return entry;
     }
 
     @Override
