@@ -100,8 +100,10 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } else {
             value = getFromSSTables(key);
         }
-
-        return value;
+        if (value == null) {
+            return null;
+        }
+        return value.value() == null ? null : value;
     }
 
     private Entry<MemorySegment> getFromSSTables(MemorySegment key) {
@@ -161,7 +163,7 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         MemorySegment currKey = currentTable.asSlice(dataOffset + Long.BYTES, sizeOfKey);
         long sizeOfVal = currentTable.get(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset + Long.BYTES + sizeOfKey);
         long offset = dataOffset + 2L * Long.BYTES + sizeOfKey;
-        if (sizeOfVal == 0) {
+        if (sizeOfVal == -1) {
             return null;
         }
         MemorySegment currValue = currentTable.asSlice(offset, sizeOfVal);
@@ -220,7 +222,7 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             offsetData += item.key().byteSize();
 
             if (item.value() == null) {
-                memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, 0);
+                memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, -1);
                 offsetData += Long.BYTES;
             } else {
                 memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, item.value().byteSize());
