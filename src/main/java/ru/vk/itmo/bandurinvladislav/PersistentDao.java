@@ -33,16 +33,19 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return m1.get(ValueLayout.JAVA_BYTE, mismatch) - m2.get(ValueLayout.JAVA_BYTE, mismatch);
         }
     };
-    private static final String STORAGE_NAME = "persistentStorage.txt";
+    private static final String STORAGE_NAME = "persistentStorage";
+    private static final String INDEX_NAME_SUFFIX = "-index";
 
     private final Arena daoArena = Arena.ofConfined();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryStorage =
             new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
     private final Path persistentStorage;
     private final MemorySegment fileSegment;
+    private final MemorySegment indexSegment;
 
     public PersistentDao(Config config) {
         persistentStorage = config.basePath().resolve(STORAGE_NAME);
+        Path indexPath = persistentStorage.resolve(INDEX_NAME_SUFFIX);
         try (FileChannel fileChannel = FileChannel.open(persistentStorage,
                 StandardOpenOption.READ)) {
             fileSegment = fileChannel.map(
@@ -55,6 +58,17 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new UncheckedIOException(e);
         }
 
+        try (FileChannel indexChannel = FileChannel.open(indexPath,
+                StandardOpenOption.READ)) {
+            indexSegment = indexChannel.map(
+                    FileChannel.MapMode.READ_ONLY,
+                    0,
+                    indexChannel.size(),
+                    daoArena
+            );
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     @Override
@@ -72,30 +86,15 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
 
-        long offset = 0;
-        long entryCount = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-        offset += Long.BYTES;
+        long entryIndex = findEntryIndex(key);
+        long keySize = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, entryIndex + Integer.BYTES);
+        long valueSize = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, entryIndex + Integer.BYTES + Long.BYTES);
+        long offsetInFileSegment = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, entryIndex + Integer.BYTES + 2 * Long.BYTES);
+        MemorySegment entryKey = fileSegment.asSlice(offsetInFileSegment, keySize);
 
-        for (long i = 0; i < entryCount; i++) {
-            long keySize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            if (keySize != key.byteSize()) {
-                offset += Long.BYTES + keySize;
-                offset += Long.BYTES + fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                continue;
-            }
-
-            offset += Long.BYTES;
-            MemorySegment entryKey = fileSegment.asSlice(offset, keySize);
-            offset += keySize;
-
-            long valueSize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
-            if (key.mismatch(entryKey) == -1) {
-                MemorySegment entryValue = fileSegment.asSlice(offset, valueSize);
-                return new BaseEntry<>(entryKey, entryValue);
-            } else {
-                offset += valueSize;
-            }
+        if (entryKey.mismatch(key) == -1) {
+            MemorySegment entryValue = fileSegment.asSlice(offsetInFileSegment + keySize, valueSize);
+            return new BaseEntry<>(entryKey, entryValue);
         }
         return null;
     }
@@ -118,23 +117,29 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void writeMemorySegment(MemorySegment fileSegment, MemorySegment data, long offset) {
-        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, data.byteSize());
-        MemorySegment.copy(data, 0, fileSegment, offset + Long.BYTES, data.byteSize());
+        MemorySegment.copy(data, 0, fileSegment, offset, data.byteSize());
     }
 
     @Override
     public void flush() throws IOException {
-        long writeOffset = 0;
+        long storageOffset = 0;
+        long indexOffset = 0;
         try (FileChannel fileChannel = FileChannel.open(persistentStorage,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.READ,
                 StandardOpenOption.TRUNCATE_EXISTING);
+             FileChannel indexChannel = FileChannel.open(persistentStorage,
+                     StandardOpenOption.CREATE,
+                     StandardOpenOption.WRITE,
+                     StandardOpenOption.READ,
+                     StandardOpenOption.TRUNCATE_EXISTING);
              Arena arena = Arena.ofConfined()) {
 
-            long fileSegmentSize = Long.BYTES;
+            long fileSegmentSize = 0;
+            long indexSize = 2 * Long.BYTES + (long) inMemoryStorage.size();
             for (Map.Entry<MemorySegment, Entry<MemorySegment>> e : inMemoryStorage.entrySet()) {
-                fileSegmentSize += e.getKey().byteSize() + e.getValue().value().byteSize() + 2 * Long.BYTES;
+                fileSegmentSize += e.getKey().byteSize() + e.getValue().value().byteSize();
             }
 
             MemorySegment fileWriteSegment = fileChannel.map(
@@ -144,14 +149,26 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     arena
             );
 
-            fileWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, writeOffset, inMemoryStorage.size());
-            writeOffset += 8;
+            MemorySegment indexSegment = indexChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    indexSize,
+                    arena
+            );
 
+            int counter = 1;
             for (Map.Entry<MemorySegment, Entry<MemorySegment>> e : inMemoryStorage.entrySet()) {
-                writeMemorySegment(fileWriteSegment, e.getKey(), writeOffset);
-                writeOffset += Long.BYTES + e.getKey().byteSize();
-                writeMemorySegment(fileWriteSegment, e.getValue().value(), writeOffset);
-                writeOffset += Long.BYTES + e.getValue().value().byteSize();
+                indexSegment.set(ValueLayout.JAVA_INT_UNALIGNED, indexOffset, counter);
+                indexOffset += Integer.BYTES;
+                indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, e.getKey().byteSize());
+                indexOffset += Long.BYTES;
+                indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, e.getValue().value().byteSize());
+                indexOffset += Long.BYTES;
+                indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, storageOffset);
+                indexOffset += Long.BYTES;
+
+                writeMemorySegment(fileWriteSegment, e.getValue().value(), storageOffset);
+                storageOffset += e.getValue().value().byteSize();
             }
         }
     }
@@ -163,5 +180,26 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         flush();
+    }
+
+    private long findEntryIndex(MemorySegment key) {
+        long l = 0;
+        long r = indexSegment.byteSize();
+
+        while (r - l >= 28) {
+            long m = (l + r) / 2;
+            m -= m % 28;
+
+            long keySize = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m + Integer.BYTES);
+            long offsetInFileSegment = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m + Integer.BYTES + 2 * Long.BYTES);
+            MemorySegment keyEntry = fileSegment.asSlice(offsetInFileSegment, keySize);
+
+            if (MEMORY_SEGMENT_COMPARATOR.compare(keyEntry, key) < 0) {
+                l = m;
+            } else {
+                r = m;
+            }
+        }
+        return r;
     }
 }
