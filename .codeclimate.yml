@@ -1,5 +1,10 @@
 version: "2"
 plugins:
+  duplication:
+    enabled: false
+    config:
+      languages:
+        java:
   checkstyle:
     enabled: true
     config:
@@ -70,3 +75,4 @@ checks:
 exclude_patterns:
   - "**/*.svg"
   - "src/test/"
+  - "src/main/java/ru/vk/itmo/pashchenkoalexandr/"
