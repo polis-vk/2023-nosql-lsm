@@ -5,7 +5,9 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
-import java.lang.foreign.*;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -52,12 +54,13 @@ public class PersistenceManyFilesDao implements Dao<MemorySegment, Entry<MemoryS
         List<Path> collect;
         try (Stream<Path> fileStream = Files.list(dir)) {
             collect = fileStream
-                    .filter(path -> path.getFileName().toString().startsWith(SS_TABLE_DIR))
+                    .filter(path -> path.getFileName()
+                            .toString()
+                            .startsWith(SS_TABLE_DIR))
                     .toList();
         }
         return collect;
     }
-
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {

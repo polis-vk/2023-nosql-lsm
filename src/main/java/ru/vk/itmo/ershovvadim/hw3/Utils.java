@@ -4,9 +4,11 @@ import java.lang.foreign.MemorySegment;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
-public class Utils {
+public final class Utils {
 
-    private Utils() { }
+    private Utils() {
+        throw new IllegalStateException("Utility class");
+    }
 
     public static int compare(MemorySegment segment1, MemorySegment segment2) {
         return compare(segment1, segment2, 0, segment2.byteSize());
