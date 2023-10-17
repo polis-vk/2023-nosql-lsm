@@ -1,13 +1,18 @@
 package ru.vk.itmo.shishiginstepan;
 
+import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Comparator;
 import java.util.Iterator;
+import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -41,44 +46,73 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemDaoImpl(Path basePath) throws IOException {
         this.basePath = basePath;
-        persistentStorage = new PersistentStorage(this.basePath);
+        this.persistentStorage = new PersistentStorage(this.basePath);
     }
 
     public InMemDaoImpl() throws IOException {
         this.basePath = Paths.get("./");
-        persistentStorage = new PersistentStorage(this.basePath);
+        this.persistentStorage = new PersistentStorage(this.basePath);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        Iterator<Entry<MemorySegment>> memIterator;
         if (to == null && from == null) {
-            return this.memStorage.values().iterator();
+            memIterator = this.memStorage.values().iterator();
         } else if (to == null) {
-            return this.memStorage.tailMap(from).sequencedValues().iterator();
+            memIterator = this.memStorage.tailMap(from).sequencedValues().iterator();
         } else if (from == null) {
-            return this.memStorage.headMap(to).sequencedValues().iterator();
+            memIterator = this.memStorage.headMap(to).sequencedValues().iterator();
         } else {
-            return this.memStorage.subMap(from, to).sequencedValues().iterator();
+            memIterator = this.memStorage.subMap(from, to).sequencedValues().iterator();
         }
+        var persistentIterators = this.persistentStorage.get(from, to);
+        persistentIterators.add(0, memIterator);
+        return new SkipDeletedIterator(
+                new MergeIterator(persistentIterators),
+                deletionMark,
+                keyComparator
+        );
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        var val = this.memStorage.get(key);
-        if (val == null) {
-            return persistentStorage.get(key);
+        var entry = this.memStorage.get(key);
+        if (entry == null) {
+            entry = persistentStorage.get(key);
         }
-        return val;
+        if (entry==null){
+            return null;
+        }
+        if (keyComparator.compare(entry.value(), deletionMark)==0) {
+            return null;
+        }
+        return entry;
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        this.memStorage.put(entry.key(), entry);
+        if (entry.value()==null){
+            this.memStorage.put(
+                    entry.key(),
+                    new BaseEntry<>(entry.key(), deletionMark)
+            );
+        } else {
+            this.memStorage.put(entry.key(), entry);
+        }
     }
 
+
+    @Override
+    public void close() {
+        this.flush();
+        this.persistentStorage.close();
+    }
     @Override
     public void flush() {
-        persistentStorage.store(memStorage.values());
-        memStorage.clear();
+        if (!this.memStorage.isEmpty()) {
+            this.persistentStorage.store(this.memStorage.values());
+        }
+        this.memStorage.clear();
     }
 }

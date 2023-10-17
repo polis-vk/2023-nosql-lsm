@@ -2,38 +2,53 @@ package ru.vk.itmo.shishiginstepan;
 
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collection;
+import java.util.*;
+import java.util.concurrent.ConcurrentSkipListSet;
 
 public class PersistentStorage {
-    // TODO заменить на интерфейс сстейбл
-    private final SimpleSSTable sstable;
+    private final Arena arena;
+    private final Path basePath;
+    private final NavigableSet<BinarySearchSSTable> sstables = new ConcurrentSkipListSet<BinarySearchSSTable>(
+            Comparator.comparingInt(ss -> -ss.id)
+    );
 
-    PersistentStorage(Path basePath) {
-        this.sstable = new SimpleSSTable(basePath);
+    PersistentStorage(Path basePath) throws IOException {
+        this.arena = Arena.ofShared();
+        this.basePath = basePath;
+        try (var sstablesFiles = Files.list(basePath)) {
+            sstablesFiles.filter(x -> !x.getFileName().toString().contains("_index")).map(path -> new BinarySearchSSTable(path, arena)).forEach(this.sstables::add);
+        }
+    }
+
+    public void close() {
+        this.arena.close();
     }
 
     public void store(Collection<Entry<MemorySegment>> data) {
-        long dataSize = 0;
-        for (var entry: data) {
-            dataSize += entry.value().byteSize() + entry.key().byteSize() + 16;
-        }
-        sstable.writeEntries(data.iterator(), dataSize);
+        int nextSStableID = this.sstables.isEmpty() ? 0 : this.sstables.first().id + 1;
+        Path newSSTPath = BinarySearchSSTable.WriteSSTable(data, basePath, nextSStableID);
+        var sstable = new BinarySearchSSTable(newSSTPath, this.arena);
+        this.sstables.add(sstable);
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-        var ssTableResult = this.sstable.get(key);
-        return ssTableResult == null ? null : new Entry<>() {
-            @Override
-            public MemorySegment key() {
-                return key;
-            }
-
-            @Override
-            public MemorySegment value() {
+        for (BinarySearchSSTable sstable : this.sstables) {
+            Entry<MemorySegment> ssTableResult = sstable.get(key);
+            if (ssTableResult != null) {
                 return ssTableResult;
             }
-        };
+        }
+        return null;
+    }
+
+    public List<Iterator<Entry<MemorySegment>>> get(MemorySegment from, MemorySegment to) {
+        var iterators = new ArrayList<Iterator<Entry<MemorySegment>>>();
+        this.sstables.forEach((var sstable) -> iterators.add(sstable.scan(from, to)));
+        return iterators;
     }
 }
