@@ -34,7 +34,7 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
         this.tableList = tableList;
     }
 
-    private Triple<MemorySegment, int, long> goAcrossTables(MemorySegment minKey, int minTableIndex) {
+    private Triple<MemorySegment, Integer, Long> goAcrossTables(MemorySegment minKey, int minTableIndex) {
         long minSizeOfVal = -1;
         for (int i = 0; i < indexList.size(); ++i) {
             indexOffsetMap.putIfAbsent(i, getStartOffset(i, from));
