@@ -35,10 +35,6 @@ public class MemTable implements Table {
     }
 
     @Override
-    public void close() {
-    }
-
-    @Override
     public int number() {
         return Integer.MAX_VALUE;
     }

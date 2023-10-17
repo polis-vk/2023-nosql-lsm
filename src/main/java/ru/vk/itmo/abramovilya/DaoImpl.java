@@ -14,9 +14,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
-import java.util.PriorityQueue;
+import java.util.*;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -29,6 +27,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final String indexBaseName = "table";
     private final Path metaFilePath;
 
+    private final List<FileChannel> sstableFileChannels = new ArrayList<>();
+    private final List<MemorySegment> sstableMappedList = new ArrayList<>();
+    private final List<FileChannel> indexFileChannels = new ArrayList<>();
+    private final List<MemorySegment> indexMappedList = new ArrayList<>();
 
     public DaoImpl(Config config) {
         storagePath = config.basePath();
@@ -36,12 +38,27 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         metaFilePath = storagePath.resolve("meta");
         try {
             if (!Files.exists(metaFilePath)) {
-                Files.createFile(metaFilePath);
-                Files.writeString(metaFilePath, "0");
+                Files.writeString(metaFilePath, "0", StandardOpenOption.CREATE, StandardOpenOption.WRITE);
             }
+
+            int totalSSTables = Integer.parseInt(Files.readString(metaFilePath));
+            for (int sstableNum = 0; sstableNum < totalSSTables; sstableNum++) {
+                Path sstablePath = storagePath.resolve(sstableBaseName + (sstableNum + 1));
+                Path indexPath = storagePath.resolve(indexBaseName + (sstableNum + 1));
+
+                FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
+                sstableFileChannels.add(sstableFileChannel);
+                MemorySegment sstableMapped = sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
+                sstableMappedList.add(sstableMapped);
+
+                FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ);
+                indexFileChannels.add(indexFileChannel);
+                MemorySegment indexMapped = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
+                indexMappedList.add(indexMapped);
+            }
+
         } catch (IOException e) {
 //            throw new UncheckedIOException(e);
-
         }
     }
 
@@ -57,7 +74,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                     for (int i = totalSStables; i > 0; i--) {
                         long offset = findOffsetInIndex(from, to, i);
                         if (offset != -1) {
-                            priorityQueue.add(new SSTable(i, offset, indexBaseName, sstableBaseName, storagePath, arena));
+                            priorityQueue.add(new SSTable(i, offset, sstableMappedList.get(i - 1), indexMappedList.get(i - 1)));
                         }
                     }
                     if (!subMap.isEmpty()) {
@@ -112,8 +129,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                     MemorySegment nextKey = indexWithSameMin.nextKey();
                     if (nextKey != null && (to == null || compareMemorySegments(nextKey, to) < 0)) {
                         priorityQueue.add(indexWithSameMin);
-                    } else {
-                        indexWithSameMin.close();
                     }
                 }
             }
@@ -141,38 +156,31 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     // Finds offset in table file to key such
     // that it is greater or equal to from
     private long findOffsetInIndex(MemorySegment from, MemorySegment to, int i) throws IOException {
-        Path storageFilePath = storagePath.resolve(sstableBaseName + i);
-        Path indexFliePath = storagePath.resolve(indexBaseName + i);
+        long readOffset = 0;
+        MemorySegment storageMapped = sstableMappedList.get(i - 1);
+        MemorySegment indexMapped = indexMappedList.get(i - 1);
 
-        try (FileChannel storageFileChannel = FileChannel.open(storageFilePath, StandardOpenOption.READ);
-             FileChannel indexFileChannel = FileChannel.open(indexFliePath, StandardOpenOption.READ)
-        ) {
-            long readOffset = 0;
-            MemorySegment storageMapped = storageFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storageFilePath), arena);
-            MemorySegment indexMapped = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexFliePath), arena);
-
-            if (from != null) {
-                FoundSegmentIndexIndexValue found = upperBound(from, storageMapped, indexMapped, indexFliePath);
-                MemorySegment foundMemorySegment = found.found();
-                if (compareMemorySegments(foundMemorySegment, from) < 0 || to != null && compareMemorySegments(foundMemorySegment, to) >= 0) {
-                    return -1;
-                }
-                return found.index() * 2 * Long.BYTES + Long.BYTES;
-            } else {
-
-                if (to == null) {
-                    return Long.BYTES;
-                } // from == null && to != null
-
-                long firstKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
-                readOffset += Long.BYTES;
-                MemorySegment firstKey = storageMapped.asSlice(readOffset, firstKeySize);
-
-                if (compareMemorySegments(firstKey, to) >= 0) {
-                    return -1;
-                }
-                return Long.BYTES;
+        if (from != null) {
+            FoundSegmentIndexIndexValue found = upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
+            MemorySegment foundMemorySegment = found.found();
+            if (compareMemorySegments(foundMemorySegment, from) < 0 || to != null && compareMemorySegments(foundMemorySegment, to) >= 0) {
+                return -1;
             }
+            return found.index() * 2 * Long.BYTES + Long.BYTES;
+        } else {
+
+            if (to == null) {
+                return Long.BYTES;
+            } // from == null && to != null
+
+            long firstKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
+            readOffset += Long.BYTES;
+            MemorySegment firstKey = storageMapped.asSlice(readOffset, firstKeySize);
+
+            if (compareMemorySegments(firstKey, to) >= 0) {
+                return -1;
+            }
+            return Long.BYTES;
         }
     }
 
@@ -191,52 +199,40 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
 
-        try {
-            int totalSStables = getTotalSStables();
-            for (int sstableNum = totalSStables; sstableNum > 0; sstableNum--) {
-//                Path currSStablePath = storagePath.resolve(sstableBaseName + sstableNum);
-                var foundEntry = seekForValueInFile(key, sstableNum);
-                if (foundEntry != null) {
-                    if (foundEntry.value() != null) {
-                        return foundEntry;
-                    }
-                    return null;
+        int totalSStables = getTotalSStables();
+        for (int sstableNum = totalSStables; sstableNum > 0; sstableNum--) {
+            var foundEntry = seekForValueInFile(key, sstableNum);
+            if (foundEntry != null) {
+                if (foundEntry.value() != null) {
+                    return foundEntry;
                 }
+                return null;
             }
-        } catch (IOException e) {
-//            throw new UncheckedIOException(e);
         }
         return null;
     }
 
     private Entry<MemorySegment> seekForValueInFile(MemorySegment key, int sstableNum) {
         Path storageFilePath = storagePath.resolve(sstableBaseName + sstableNum);
-        Path indexFilePath = storagePath.resolve(indexBaseName + sstableNum);
 
         if (!Files.exists(storageFilePath)) {
             return null;
         }
 
-        try (FileChannel storageFileChannel = FileChannel.open(storageFilePath, StandardOpenOption.READ);
-             FileChannel indexFileChannel = FileChannel.open(indexFilePath, StandardOpenOption.READ)
-        ) {
-            MemorySegment storageMapped = storageFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storageFilePath), arena);
-            MemorySegment indexMapped = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexFilePath), arena);
+        MemorySegment storageMapped = sstableMappedList.get(sstableNum - 1);
+        MemorySegment indexMapped = indexMappedList.get(sstableNum - 1);
 
-            FoundSegmentIndexIndexValue found = upperBound(key, storageMapped, indexMapped, indexFilePath);
-            if (compareMemorySegments(found.found(), key) != 0) {
-                return null;
-            } else {
-                return getEntryFromIndexFile(storageMapped, indexMapped, found.index());
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+        FoundSegmentIndexIndexValue found = upperBound(key, storageMapped, indexMapped, indexMapped.byteSize());
+        if (compareMemorySegments(found.found(), key) != 0) {
+            return null;
+        } else {
+            return getEntryFromIndexFile(storageMapped, indexMapped, found.index());
         }
     }
 
-    private FoundSegmentIndexIndexValue upperBound(MemorySegment key, MemorySegment storageMapped, MemorySegment indexMapped, Path indexFilePath) throws IOException {
+    private FoundSegmentIndexIndexValue upperBound(MemorySegment key, MemorySegment storageMapped, MemorySegment indexMapped, long indexSize) {
         long l = -1;
-        long r = indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, Files.size(indexFilePath) - 2 * Long.BYTES);
+        long r = indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, indexSize - 2 * Long.BYTES);
 
         while (r - l > 1) {
             long m = (r + l) / 2;
@@ -300,6 +296,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             arena.close();
         }
         flush();
+        for (FileChannel fc : sstableFileChannels) {
+            if (fc.isOpen()) fc.close();
+        }
+        for (FileChannel fc : indexFileChannels) {
+            if (fc.isOpen()) fc.close();
+        }
     }
 
     private void writeMapIntoFile() throws IOException {
@@ -348,8 +350,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private int getTotalSStables() throws IOException {
-        return Integer.parseInt(Files.readString(metaFilePath));
+    private int getTotalSStables() {
+        return sstableFileChannels.size();
     }
 
     private long calcIndexByteSizeInFile() {

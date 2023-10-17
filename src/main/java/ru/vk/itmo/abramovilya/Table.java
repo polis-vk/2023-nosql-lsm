@@ -9,8 +9,6 @@ public interface Table extends Comparable<Table> {
 
     MemorySegment nextKey();
 
-    void close();
-
     int number();
 
     @Override
