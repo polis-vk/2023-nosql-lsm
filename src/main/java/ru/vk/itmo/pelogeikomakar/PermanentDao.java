@@ -27,17 +27,18 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> mapCurrent =
             new ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>>(memorySegmentComparator);
 
-    private ConcurrentMap<Integer, MemorySegment> ssTableMap = new ConcurrentHashMap<>();
-    private ConcurrentMap<Integer, Arena> arenaTableMap = new ConcurrentHashMap<>();
-    private ConcurrentMap<Integer, MemorySegment> indexMap = new ConcurrentHashMap<>();
-    private ConcurrentMap<Integer, Arena> arenaIndexMap = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Integer, MemorySegment> ssTableMap = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Integer, Arena> arenaTableMap = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Integer, MemorySegment> indexMap = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Integer, Arena> arenaIndexMap = new ConcurrentHashMap<>();
     private int maxSSTable = -1;
     private static final String SSTABLE_NAME = "SS_TABLE_PELOGEIKO-";
     private static final String INDEX_NAME = "INDEX_PELOGEIKO-";
-    private Config daoConfig;
+    private final Config daoConfig;
 
     public PermanentDao(Config config) {
         if (config == null) {
+            daoConfig = null;
             return;
         }
 
@@ -54,17 +55,17 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             Path indexPath = config.basePath().resolve(INDEX_NAME + Integer.toString(ssTableNumber));
 
             try {
-                FileChannel tableFile = FileChannel.open(ssTablePath, StandardOpenOption.READ);
-                arenaTableCurr = Arena.ofConfined();
-                ssTableCurr = tableFile.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), arenaTableCurr);
+                try (FileChannel tableFile = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
+                    arenaTableCurr = Arena.ofConfined();
+                    ssTableCurr = tableFile.map(FileChannel.MapMode.READ_ONLY, 0,
+                            Files.size(ssTablePath), arenaTableCurr);
+                }
 
-                tableFile.close();
-
-                FileChannel indexFile = FileChannel.open(indexPath, StandardOpenOption.READ);
-                arenaIndexCurr = Arena.ofConfined();
-                indexCurr = indexFile.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arenaIndexCurr);
-
-                indexFile.close();
+                try (FileChannel indexFile = FileChannel.open(indexPath, StandardOpenOption.READ)) {
+                    arenaIndexCurr = Arena.ofConfined();
+                    indexCurr = indexFile.map(FileChannel.MapMode.READ_ONLY, 0,
+                            Files.size(indexPath), arenaIndexCurr);
+                }
 
                 ssTableMap.put(ssTableNumber, ssTableCurr);
                 arenaTableMap.put(ssTableNumber, arenaTableCurr);
@@ -187,15 +188,15 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         maxSSTable += 1;
 
-        FileChannel fileDataOut = FileChannel.open(daoConfig.basePath().
-                        resolve(SSTABLE_NAME + Integer.toString(maxSSTable)),
+        FileChannel fileDataOut = FileChannel.open(daoConfig.basePath()
+                        .resolve(SSTABLE_NAME + Integer.toString(maxSSTable)),
                 StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
         Arena arenaDataWriter = Arena.ofConfined();
         MemorySegment memSegmentDataOut = fileDataOut.map(FileChannel.MapMode.READ_WRITE,
                 0, ssTableSizeOut, arenaDataWriter);
 
-        FileChannel fileIndexOut = FileChannel.open(daoConfig.basePath().
-                        resolve(INDEX_NAME + Integer.toString(maxSSTable)),
+        FileChannel fileIndexOut = FileChannel.open(daoConfig.basePath()
+                        .resolve(INDEX_NAME + Integer.toString(maxSSTable)),
                 StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
         Arena arenaIndexWriter = Arena.ofConfined();
         MemorySegment memSegmentIndexOut = fileIndexOut.map(FileChannel.MapMode.READ_WRITE,
@@ -262,7 +263,6 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             tables.add(ssTableMap.get(ssTableNum));
             indexies.add(indexMap.get(ssTableNum));
         }
-        DaoMergeIterator resultIter = new DaoMergeIterator(from, to, hashMapIter, indexies, tables);
-        return resultIter;
+        return new DaoMergeIterator(from, to, hashMapIter, indexies, tables);
     }
 }

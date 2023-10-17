@@ -5,7 +5,11 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.ArrayList;
 
 public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
 
@@ -38,10 +42,8 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
         if (currentHashElem != null) {
             return true;
         }
-        if (getNextTable() != -1) {
-            return true;
-        }
-        return false;
+
+        return getNextTable() != -1;
     }
 
     private int getNextTable() {
@@ -156,12 +158,12 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
         int table = getNextTable();
 
         if (currentHashElem == null) {
-            if (!hashMapIter.hasNext()) {
+            if (hashMapIter.hasNext()) {
+                currentHashElem = hashMapIter.next();
+            } else {
                 var result = getNextFromTable(table);
                 stepToNextInTable(table);
                 return new BaseEntry<MemorySegment>(result.get(0), result.get(1));
-            } else {
-                currentHashElem = hashMapIter.next();
             }
         }
 
