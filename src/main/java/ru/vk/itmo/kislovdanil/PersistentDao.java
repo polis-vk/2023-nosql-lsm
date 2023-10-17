@@ -65,6 +65,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void close() throws IOException {
         if (!storage.isEmpty()) {
+            // SSTable constructor with rewrite=true writes MemTable data on disk deleting old data if it exists
             new SSTable(config.basePath(), comp, 0L, storage, true);
         }
     }

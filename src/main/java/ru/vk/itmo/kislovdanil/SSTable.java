@@ -132,7 +132,7 @@ public class SSTable implements Comparable<SSTable> {
     private long findByKey(MemorySegment key) {
         long left = 0;
         long right = size - 1;
-        while (right - left > 2) {
+        while (right - left > 1) {
             long middle = (right + left) / 2;
             Metadata currentEntryMetadata = new Metadata(middle);
             MemorySegment curKey = currentEntryMetadata.readKey();
