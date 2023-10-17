@@ -1,99 +1,148 @@
 package ru.vk.itmo.kovalevigor;
 
+import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Comparator;
-import java.util.Map;
-import java.util.SortedMap;
-import java.util.TreeMap;
+import java.util.*;
 
 public class SSTable {
 
-    private final Path path;
+    private static final long INDEX_ENTRY_SIZE = 2 * ValueLayout.JAVA_LONG.byteSize();
     public static final Comparator<MemorySegment> COMPARATOR = UtilsMemorySegment::compare;
 
-    public SSTable(final Path path) {
-        this.path = path;
-    }
+    private final MemorySegment dataSegment;
+    private final IndexList indexList;
 
-    public SortedMap<MemorySegment, Entry<MemorySegment>> load(final Arena arena, final long limit) throws IOException {
-        final SortedMap<MemorySegment, Entry<MemorySegment>> map = new TreeMap<>(COMPARATOR);
-        if (Files.notExists(path)) {
-            return map;
+    private class IndexList extends AbstractList<MemorySegment> {
+
+        public static long MAX_BYTE_SIZE = Integer.MAX_VALUE * INDEX_ENTRY_SIZE;
+
+        private final MemorySegment segment;
+        private final long valuesOffset;
+
+        public IndexList(MemorySegment segment) {
+            if (segment.byteSize() > MAX_BYTE_SIZE) {
+                segment = segment.asSlice(0, MAX_BYTE_SIZE);
+            }
+            this.segment = segment;
+            valuesOffset = size() > 0 ? readMeta(0).valueOffset : 0;
         }
 
+        private long getEntryOffset(final int index) {
+            if (size() <= index) {
+                return -1;
+            }
+            return INDEX_ENTRY_SIZE * index;
+        }
+
+        private long readOffset(final long offset) {
+            return segment.get(ValueLayout.JAVA_LONG, offset);
+        }
+
+        private EntryMeta readMeta(final int index) {
+            final long offset = getEntryOffset(index);
+            final long nextEntryOffset = getEntryOffset(index + 1);
+
+            final long keyOffset = readOffset(offset);
+            final long valueOffset = readOffset(offset + ValueLayout.JAVA_LONG.byteSize());
+
+            long keySize = valuesOffset - keyOffset;
+            long valueSize = dataSegment.byteSize() - valueOffset;
+            if (nextEntryOffset != -1) {
+                keySize = readOffset(nextEntryOffset) - keyOffset;
+                valueSize = readOffset(nextEntryOffset + ValueLayout.JAVA_LONG.byteSize()) - valueOffset;
+            }
+            return new EntryMeta(keyOffset, keySize, valueOffset, valueSize);
+        }
+
+        private MemorySegment readKey(final EntryMeta meta) {
+            return dataSegment.asSlice(meta.keyOffset, meta.keySize);
+        }
+
+        @Override
+        public MemorySegment get(final int index) {
+            return readKey(readMeta(index));
+        }
+
+        public Entry<MemorySegment> getEntry(final int index) {
+            final EntryMeta meta = readMeta(index);
+            final MemorySegment value = dataSegment.asSlice(meta.valueOffset, meta.valueSize);
+            return new BaseEntry<>(readKey(meta), value);
+        }
+
+        @Override
+        public int size() {
+            return (int)(segment.byteSize() / INDEX_ENTRY_SIZE);
+        }
+
+        public static void write(
+                final MemorySegment writer,
+                final long[][] offsets
+        ) {
+            long offset = 0;
+            for (final long[] entry: offsets) {
+                writer.set(ValueLayout.JAVA_LONG, offset, entry[0]);
+                writer.set(ValueLayout.JAVA_LONG, offset += ValueLayout.JAVA_LONG.byteSize(), entry[1]);
+                offset += ValueLayout.JAVA_LONG.byteSize();
+            }
+        }
+    }
+
+    public SSTable(final Path root, final String name, final Arena arena) throws IOException {
+        dataSegment = mapSegment(getDataPath(root, name), arena);
+        indexList = new IndexList(mapSegment(getIndexPath(root, name), arena));
+    }
+
+    private static Path getDataPath(final Path root, final String name) {
+        return root.resolve(name);
+    }
+
+    private static Path getIndexPath(final Path root, final String name) {
+        return root.resolve(name + "_index");
+    }
+
+    private static MemorySegment mapSegment(final Path path, final Arena arena) throws IOException {
         try (FileChannel readerChannel = FileChannel.open(
                 path,
                 StandardOpenOption.READ)
         ) {
-            final MemorySegment memorySegment = readerChannel.map(
+            return readerChannel.map(
                     FileChannel.MapMode.READ_ONLY,
                     0,
                     readerChannel.size(),
                     arena
             );
-            final MemoryEntryReader reader = new MemoryEntryReader(memorySegment);
-
-            Entry<MemorySegment> entry = reader.readEntry(limit);
-            while (entry != null) {
-                map.put(entry.key(), entry);
-                entry = reader.readEntry(limit);
-            }
-            return map;
         }
     }
 
-    public SortedMap<MemorySegment, Entry<MemorySegment>> load(final Arena arena) throws IOException {
-        return load(arena, 0);
+    public Entry<MemorySegment> get(final MemorySegment key) throws IOException {
+        final int pos = Collections.binarySearch(indexList, key, COMPARATOR);
+        return pos >= 0 ? indexList.getEntry(pos) : null;
     }
 
-    public Entry<MemorySegment> get(final MemorySegment key, final Arena segmentArena) throws IOException {
-        if (Files.notExists(path)) {
-            return null;
+    private static long getTotalMapSize(final SortedMap<MemorySegment, Entry<MemorySegment>> map) {
+        long totalSize = 0;
+        for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : map.entrySet()) {
+            totalSize += entry.getKey().byteSize() + entry.getValue().value().byteSize();
         }
-
-        try (
-                Arena readerArena = Arena.ofConfined();
-                FileChannel readerChannel = FileChannel.open(path, StandardOpenOption.READ)
-        ) {
-
-            final MemorySegment memorySegment = readerChannel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    0,
-                    readerChannel.size(),
-                    readerArena
-            );
-            final MemoryEntryReader reader = new MemoryEntryReader(memorySegment);
-
-            long prevOffset = reader.getOffset();
-            Entry<MemorySegment> entry = reader.readEntry();
-            while (entry != null) {
-                if (COMPARATOR.compare(key, entry.key()) == 0) {
-                    return MemoryEntryReader.mapEntry(
-                            readerChannel,
-                            prevOffset,
-                            entry.key().byteSize(),
-                            entry.value().byteSize(),
-                            segmentArena
-                    );
-                }
-                prevOffset = reader.getOffset();
-                entry = reader.readEntry();
-            }
-        }
-        return null;
+        return totalSize;
     }
 
-    public void write(final SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
+    public static void write(
+            final SortedMap<MemorySegment, Entry<MemorySegment>> map,
+            final Path path,
+            final String name
+    ) throws IOException {
+        long[][] offsets;
         try (Arena arena = Arena.ofConfined(); FileChannel writerChannel = FileChannel.open(
-                path,
+                getDataPath(path, name),
                 StandardOpenOption.CREATE,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE)
@@ -101,14 +150,53 @@ public class SSTable {
             final MemorySegment memorySegment = writerChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
-                    MemoryEntryWriter.getTotalMapSize(map),
+                    getTotalMapSize(map),
                     arena
             );
-            final MemoryEntryWriter writer = new MemoryEntryWriter(memorySegment);
+            offsets = new long[map.size()][2];
 
-            for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : map.entrySet()) {
-                writer.putEntry(entry);
+            int index = 0;
+            long totalOffset = 0;
+            for (final MemorySegment key : map.keySet()) {
+                offsets[index++][0] = totalOffset;
+                MemorySegment.copy(
+                        key,
+                        0,
+                        memorySegment,
+                        totalOffset,
+                        key.byteSize()
+                );
+                totalOffset += key.byteSize();
+            }
+
+            index = 0;
+            for (final Entry<MemorySegment> value : map.values()) {
+                offsets[index++][1] = totalOffset;
+                MemorySegment.copy(
+                        value.value(),
+                        0,
+                        memorySegment,
+                        totalOffset,
+                        value.value().byteSize()
+                );
+                totalOffset += value.value().byteSize();
             }
         }
+
+        try (Arena arena = Arena.ofConfined(); FileChannel writerChannel = FileChannel.open(
+                getIndexPath(path, name),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE)
+        ) {
+            final MemorySegment memorySegment = writerChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    INDEX_ENTRY_SIZE * map.size(),
+                    arena
+            );
+            IndexList.write(memorySegment, offsets);
+        }
     }
+
 }

@@ -4,9 +4,12 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Objects;
@@ -19,12 +22,19 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final SSTable ssTable;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
     public static final String SSTABLE_NAME = "sstable";
-    public static final long TABLE_SIZE_LIMIT = 1024 * 8; // TODO: От балды
+    public final Path path;
 
     public DaoImpl(final Config config) throws IOException {
+        path = config.basePath();
         memoryArena = Arena.ofShared();
-        ssTable = new SSTable(getSSTablePath(config.basePath()));
-        storage = new ConcurrentSkipListMap<>(ssTable.load(memoryArena, TABLE_SIZE_LIMIT));
+        storage = new ConcurrentSkipListMap<>(SSTable.COMPARATOR);
+        if (Files.notExists(path.resolve(SSTABLE_NAME))) {
+            ssTable = null;
+        } else {
+            ssTable = new SSTable(path, SSTABLE_NAME, memoryArena);
+        }
+
+//        storage = new ConcurrentSkipListMap<>(ssTable.load(memoryArena, TABLE_SIZE_LIMIT));
     }
 
     private static <T> Iterator<T> getValuesIterator(final ConcurrentNavigableMap<?, T> map) {
@@ -74,15 +84,14 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (result != null) {
             return result;
         }
+        if (ssTable == null) {
+            return null;
+        }
         try {
-            return ssTable.get(key, memoryArena);
+            return ssTable.get(key);
         } catch (IOException e) {
             return null;
         }
-    }
-
-    private Path getSSTablePath(final Path base) {
-        return base.resolve(SSTABLE_NAME);
     }
 
     @Override
@@ -90,7 +99,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!memoryArena.scope().isAlive()) {
             return;
         }
-        ssTable.write(storage);
+        if (!storage.isEmpty()) {
+            SSTable.write(storage, path, SSTABLE_NAME);
+        }
         memoryArena.close();
         storage.clear();
     }
