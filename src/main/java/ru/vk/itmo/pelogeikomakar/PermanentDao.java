@@ -20,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.stream.Stream;
 
 public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
@@ -43,14 +44,20 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         daoConfig = config;
-        boolean readOn = true;
-        int ssTableNumber = 0;
         Arena arenaTableCurr;
         Arena arenaIndexCurr;
         MemorySegment ssTableCurr;
         MemorySegment indexCurr;
 
-        while (readOn) {
+        long filesQuantity;
+        try (Stream<Path> files = Files.list(config.basePath())) {
+            filesQuantity = files.count();
+        }
+        catch (IOException e) {
+            filesQuantity = 0;
+        }
+
+        for (int ssTableNumber = 0; ssTableNumber < filesQuantity; ++ssTableNumber) {
             Path ssTablePath = config.basePath().resolve(SSTABLE_NAME + Integer.toString(ssTableNumber));
             Path indexPath = config.basePath().resolve(INDEX_NAME + Integer.toString(ssTableNumber));
 
@@ -73,10 +80,9 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 indexMap.put(ssTableNumber, indexCurr);
                 arenaIndexMap.put(ssTableNumber, arenaIndexCurr);
 
-                ssTableNumber += 1;
             } catch (IOException e) {
-                readOn = false;
                 maxSSTable = ssTableNumber - 1;
+                break;
             }
         }
 

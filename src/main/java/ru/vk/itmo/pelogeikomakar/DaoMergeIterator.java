@@ -5,10 +5,10 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.HashMap;
-import java.util.ArrayList;
 import java.util.Map;
 
 public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
@@ -52,9 +52,8 @@ public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
         MemorySegment minKey = null;
 
         for (int i = 0; i < indexList.size(); ++i) {
-            if (!indexOffsetMap.containsKey(i)) {
-                indexOffsetMap.put(i, getStartOffset(i, from));
-            }
+            indexOffsetMap.putIfAbsent(i, getStartOffset(i, from));
+
             if (indexOffsetMap.get(i) < 0) {
                 continue;
             }
