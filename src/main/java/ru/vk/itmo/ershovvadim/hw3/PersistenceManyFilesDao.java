@@ -51,13 +51,13 @@ public class PersistenceManyFilesDao implements Dao<MemorySegment, Entry<MemoryS
     }
 
     private List<Path> getAllSSTableDir() throws IOException {
-        List<Path> collect;
+        List<Path> collect = new ArrayList<>();
         try (Stream<Path> fileStream = Files.list(dir)) {
-            collect = fileStream
-                    .filter(path -> path.getFileName()
-                            .toString()
-                            .startsWith(SS_TABLE_DIR))
-                    .toList();
+            fileStream.forEach(path -> {
+                if (path.getFileName().toString().startsWith(SS_TABLE_DIR)) {
+                    collect.add(path);
+                }
+            });
         }
         return collect;
     }
