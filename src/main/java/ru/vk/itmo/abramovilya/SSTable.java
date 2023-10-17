@@ -11,7 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
-class Index implements Closeable, Table {
+class SSTable implements Closeable, Table {
     private final int number;
     private final MemorySegment mappedIndexFile;
     private final MemorySegment mappedStorageFile;
@@ -21,10 +21,11 @@ class Index implements Closeable, Table {
     private final Path storagePath;
     private final Arena arena = Arena.ofShared();
     private final String sstableFileBaseName;
+    private MemorySegment currentKey;
 
     private final Arena outerArena;
 
-    Index(int number, long offset, String indexFileBaseName, String sstableFileBaseName, Path storagePath, Arena outerArena) {
+    SSTable(int number, long offset, String indexFileBaseName, String sstableFileBaseName, Path storagePath, Arena outerArena) {
         this.number = number;
         this.storagePath = storagePath;
         this.sstableFileBaseName = sstableFileBaseName;
@@ -39,13 +40,22 @@ class Index implements Closeable, Table {
             Path storageFilePath = storagePath.resolve(sstableFileBaseName + number);
             storageFileChannel = FileChannel.open(storageFilePath);
             mappedStorageFile = storageFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storageFilePath), arena);
+
+            long storageOffset = mappedIndexFile.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            long msSize = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, storageOffset);
+            currentKey = mappedStorageFile.asSlice(storageOffset + Long.BYTES, msSize);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
     }
 
     @Override
-    public MemorySegment getValueFromStorage() {
+    public MemorySegment getKey() {
+        return currentKey;
+    }
+
+    @Override
+    public MemorySegment getValue() {
         long inStorageOffset = mappedIndexFile.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
 
         Path sstableFilePath = storagePath.resolve(sstableFileBaseName + number);
@@ -77,7 +87,9 @@ class Index implements Closeable, Table {
 
         long msSize = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, storageOffset);
         storageOffset += Long.BYTES;
-        return mappedStorageFile.asSlice(storageOffset, msSize);
+        MemorySegment key = mappedStorageFile.asSlice(storageOffset, msSize);
+        currentKey = key;
+        return key;
     }
 
     @Override

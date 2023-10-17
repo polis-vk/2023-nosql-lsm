@@ -14,7 +14,6 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
@@ -27,7 +26,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path storagePath;
     private final Arena arena = Arena.ofShared();
     private final String sstableBaseName = "storage";
-    private final String indexBaseName = "index";
+    private final String indexBaseName = "table";
     private final Path metaFilePath;
 
 
@@ -46,18 +45,30 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    record Pair(MemorySegment memorySegment, Table index) {
-    }
-
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         return new Iterator<>() {
-            private final PriorityQueue<Pair> priorityQueue = new PriorityQueue<>(
-                    ((Comparator<Pair>) (p1, p2) -> compareMemorySegments(p1.memorySegment, p2.memorySegment))
-                            .thenComparing(p -> p.index.number(), Comparator.reverseOrder())
-            );
+            private final PriorityQueue<Table> priorityQueue = new PriorityQueue<>();
 
             {
+                ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> subMap = getSubMap();
+                try {
+                    int totalSStables = getTotalSStables();
+                    for (int i = totalSStables; i > 0; i--) {
+                        long offset = findOffsetInIndex(from, to, i);
+                        if (offset != -1) {
+                            priorityQueue.add(new SSTable(i, offset, indexBaseName, sstableBaseName, storagePath, arena));
+                        }
+                    }
+                    if (!subMap.isEmpty()) {
+                        priorityQueue.add(new MemTable(subMap));
+                    }
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
+
+            private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap() {
                 ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> subMap;
                 if (from == null && to == null) {
                     subMap = map;
@@ -68,24 +79,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 } else {
                     subMap = map.subMap(from, to);
                 }
-
-                try {
-                    int totalSStables = getTotalSStables();
-                    for (int i = totalSStables; i > 0; i--) {
-                        long offset = findOffsetInIndex(from, to, i);
-                        if (offset != -1) {
-                            priorityQueue.add(new Pair(
-                                    getKeyAtIndexOffset(offset, i),
-                                    new Index(i, offset, indexBaseName, sstableBaseName, storagePath, arena)
-                            ));
-                        }
-                    }
-                    if (!subMap.isEmpty()) {
-                        priorityQueue.add(new Pair(subMap.firstEntry().getKey(), new MemTable(subMap)));
-                    }
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
+                return subMap;
             }
 
             @Override
@@ -100,26 +94,24 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                     throw new NoSuchElementException();
                 }
 
-                Pair minPair = priorityQueue.remove();
-                MemorySegment key = minPair.memorySegment();
-                Table index = minPair.index();
-                MemorySegment value = index.getValueFromStorage();
+                Table minTable = priorityQueue.remove();
+                MemorySegment key = minTable.getKey();
+                MemorySegment value = minTable.getValue();
                 removeExpiredValues(key);
 
-                MemorySegment minPairNextKey = index.nextKey();
+                MemorySegment minPairNextKey = minTable.nextKey();
                 if (minPairNextKey != null && (to == null || compareMemorySegments(minPairNextKey, to) < 0)) {
-                    priorityQueue.add(new Pair(minPairNextKey, index));
+                    priorityQueue.add(minTable);
                 }
-                if (value == null) return next();
                 return new BaseEntry<>(key, value);
             }
 
-            private void removeExpiredValues(MemorySegment inMemoryPriorityQueueFirstKey) {
-                while (!priorityQueue.isEmpty() && priorityQueue.peek().memorySegment().mismatch(inMemoryPriorityQueueFirstKey) == -1) {
-                    Table indexWithSameMin = priorityQueue.remove().index();
+            private void removeExpiredValues(MemorySegment minMemorySegment) {
+                while (!priorityQueue.isEmpty() && priorityQueue.peek().getKey().mismatch(minMemorySegment) == -1) {
+                    Table indexWithSameMin = priorityQueue.remove();
                     MemorySegment nextKey = indexWithSameMin.nextKey();
                     if (nextKey != null && (to == null || compareMemorySegments(nextKey, to) < 0)) {
-                        priorityQueue.add(new Pair(nextKey, indexWithSameMin));
+                        priorityQueue.add(indexWithSameMin);
                     } else {
                         indexWithSameMin.close();
                     }
@@ -128,17 +120,16 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             private void cleanUpSStableQueue() {
                 if (!priorityQueue.isEmpty()) {
-                    Pair minPair = priorityQueue.element();
-                    MemorySegment key = minPair.memorySegment();
-                    Table index = minPair.index();
-                    MemorySegment value = index.getValueFromStorage();
+                    Table minTable = priorityQueue.element();
+                    MemorySegment key = minTable.getKey();
+                    MemorySegment value = minTable.getValue();
 
                     if (value == null) {
                         priorityQueue.remove();
                         removeExpiredValues(key);
-                        MemorySegment minPairNextKey = index.nextKey();
+                        MemorySegment minPairNextKey = minTable.nextKey();
                         if (minPairNextKey != null && (to == null || compareMemorySegments(minPairNextKey, to) < 0)) {
-                            priorityQueue.add(new Pair(minPairNextKey, index));
+                            priorityQueue.add(minTable);
                         }
                         cleanUpSStableQueue();
                     }
@@ -147,27 +138,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         };
     }
 
-    private MemorySegment getKeyAtIndexOffset(long indexOffset, int indexNum) throws IOException {
-        Path storagePath = this.storagePath.resolve(sstableBaseName + indexNum);
-        Path indexPath = this.storagePath.resolve(indexBaseName + indexNum);
-        try (FileChannel storageFileChannel = FileChannel.open(storagePath, StandardOpenOption.READ);
-             FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ)
-        ) {
-
-            MemorySegment mappedStorage = storageFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storagePath), arena);
-            MemorySegment mappedIndex = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
-
-            long storageOffset = mappedIndex.get(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset);
-
-            long msSize = mappedStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, storageOffset);
-            storageOffset += Long.BYTES;
-            return mappedStorage.asSlice(storageOffset, msSize);
-        }
-
-    }
-
-
-    // Finds offset in index file to key such
+    // Finds offset in table file to key such
     // that it is greater or equal to from
     private long findOffsetInIndex(MemorySegment from, MemorySegment to, int i) throws IOException {
         Path storageFilePath = storagePath.resolve(sstableBaseName + i);
@@ -218,7 +189,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 return value;
             }
             return null;
-
         }
 
         try {

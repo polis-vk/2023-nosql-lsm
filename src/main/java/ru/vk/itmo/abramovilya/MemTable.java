@@ -16,8 +16,13 @@ public class MemTable implements Table {
     }
 
     @Override
-    public MemorySegment getValueFromStorage() {
+    public MemorySegment getValue() {
         return current.value();
+    }
+
+    @Override
+    public MemorySegment getKey() {
+        return current.key();
     }
 
     @Override
