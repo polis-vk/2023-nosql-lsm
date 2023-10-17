@@ -18,6 +18,7 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+
     private final MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
 
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
@@ -125,7 +126,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         arenaWriter.close();
         fileOut.close();
-
     }
 
     @Override

@@ -22,6 +22,7 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
         long mismatchOffset = o1.mismatch(o2);
 
         if (mismatchOffset < 0 || mismatchOffset >= Math.min(o1Size, o2Size)) {
+          
             if (o1Size < o2Size) {
                 return -1;
             } else if (o1Size > o2Size) {
