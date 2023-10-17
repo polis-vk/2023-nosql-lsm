@@ -1,7 +1,8 @@
 package ru.vk.itmo.test.ryabovvadim;
 
-import static ru.vk.itmo.test.ryabovvadim.FileUtils.DATA_FILE_EXT;
-import static ru.vk.itmo.test.ryabovvadim.FileUtils.MEMORY_SEGMENT_COMPARATOR;
+import ru.vk.itmo.Config;
+import ru.vk.itmo.Dao;
+import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -20,9 +21,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-import ru.vk.itmo.Config;
-import ru.vk.itmo.Dao;
-import ru.vk.itmo.Entry;
+import static ru.vk.itmo.test.ryabovvadim.FileUtils.DATA_FILE_EXT;
+import static ru.vk.itmo.test.ryabovvadim.FileUtils.MEMORY_SEGMENT_COMPARATOR;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena = Arena.ofAuto();
@@ -115,7 +115,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        storage.put(entry.key(), entry);
+        if (entry.value() == null) {
+            storage.remove(entry.key());
+        } else {
+            storage.put(entry.key(), entry);
+        }
         memoryTable.put(entry.key(), entry);
     }
 
@@ -127,14 +131,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void loadIfNotExists(MemorySegment key) {
-        if (config == null || storage.containsKey(key)) {
+        if (config == null || storage.containsKey(key) || memoryTable.containsKey(key)) {
             return;
         }
 
         for (SSTable ssTable : ssTables) {
             Entry<MemorySegment> entry = ssTable.findEntry(key);
             if (entry != null) {
-                storage.put(entry.key(), entry);
+                if (entry.value() != null) {
+                    storage.put(entry.key(), entry);
+                }
                 return;
             }
         }
@@ -164,7 +170,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     tmp.add(mainEntry);
                     ++i;
                 } else if (mainEntry == null || compareResult > 0) {
-                    if (!storage.containsKey(newEntry.key())) {
+                    if (!storage.containsKey(newEntry.key()) && !memoryTable.containsKey(newEntry.key())) {
                         tmp.add(newEntry);
                     }
                     ++j;
@@ -176,7 +182,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             entriesForUpsert = tmp;
         }
         
-        entriesForUpsert.forEach(entry -> storage.put(entry.key(), entry));
+        entriesForUpsert.forEach(entry -> {
+            if (entry.value() != null) {
+                storage.put(entry.key(), entry);
+            }
+        });
     }
 
     public void save(Path path) throws IOException {
@@ -184,13 +194,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
-        int maxTableNumber = ssTables.stream()
-            .map(SSTable::getName)
-            .mapToInt(Integer::parseInt)
-            .max()
-            .orElse(0);
+        synchronized (this) {
+            int maxTableNumber = ssTables.stream()
+                .map(SSTable::getName)
+                .mapToInt(Integer::parseInt)
+                .max()
+                .orElse(0);
 
-        int saveTableNumber = maxTableNumber + 1;
-        SSTable.save(path, Integer.toString(saveTableNumber), memoryTable.values(), arena);
+            int saveTableNumber = maxTableNumber + 1;
+            SSTable.save(path, Integer.toString(saveTableNumber), memoryTable.values(), arena);
+            memoryTable.clear();
+        }
     }
 }

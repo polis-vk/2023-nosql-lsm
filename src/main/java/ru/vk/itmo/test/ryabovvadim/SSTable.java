@@ -7,10 +7,10 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
-import java.util.List;
-import java.util.ArrayList;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
@@ -72,7 +72,7 @@ public class SSTable {
         }
         if (to != null) {
             int toOffsetIndex = binSearchIndex(to, false);
-            toIndex = toOffsetIndex < 0 ? -(toOffsetIndex + 1) + 1 : toOffsetIndex + 1;
+            toIndex = toOffsetIndex < 0 ? -toOffsetIndex : toOffsetIndex;
         }
         
         List<Entry<MemorySegment>> entries = new ArrayList<>();
@@ -112,8 +112,9 @@ public class SSTable {
     }
 
     private MemorySegment readKey(long offset) {
+        ++offset;
         byte sizeInfo = data.get(JAVA_BYTE, offset);
-        offset += 1;
+        ++offset;
         int keySizeSize = sizeInfo >> 4;
         int valueSizeSize = sizeInfo & 0xf;
 
@@ -129,6 +130,12 @@ public class SSTable {
     }
 
     private MemorySegment readValue(long offset) {
+        byte meta = data.get(JAVA_BYTE, offset);
+        if ((meta & SSTableMeta.REMOVE_VALUE) == SSTableMeta.REMOVE_VALUE) {
+            return null;            
+        }
+
+        offset += 1;
         byte sizeInfo = data.get(JAVA_BYTE, offset);
         offset += 1;
         int keySizeSize = sizeInfo >> 4;
@@ -150,7 +157,12 @@ public class SSTable {
         return data.asSlice(offset + keySize, valueSize);
     }
 
-    public static void save(Path prefix, String name, Collection<Entry<MemorySegment>> entries, Arena arena) throws IOException {
+    public static void save(
+        Path prefix,
+        String name,
+        Collection<Entry<MemorySegment>> entries,
+        Arena arena
+    ) throws IOException {
         Path dataFile = FileUtils.makePath(prefix, name, DATA_FILE_EXT);
         Path offsetsFile = FileUtils.makePath(prefix, name, OFFSETS_FILE_EXT);
 
@@ -158,16 +170,23 @@ public class SSTable {
             try (FileChannel offsetsFileChannel = FileChannel.open(offsetsFile, CREATE, WRITE, READ)) {
                 long dataSize = 0;
                 for (Entry<MemorySegment> entry : entries) {
+                    dataSize += 2;
                     MemorySegment key = entry.key();
                     MemorySegment value = entry.value();
-                    dataSize += 1;
-                    dataSize += NumberUtils.toBytes(key.byteSize()).length +
-                            NumberUtils.toBytes(value.byteSize()).length;
-                    dataSize += key.byteSize() + value.byteSize();
+
+                    dataSize += NumberUtils.toBytes(key.byteSize()).length + key.byteSize();
+                    if (value != null) {
+                        dataSize += NumberUtils.toBytes(value.byteSize()).length + value.byteSize();
+                    }
                 }
 
                 MemorySegment dataSegment = dataFileChannel.map(READ_WRITE, 0, dataSize, arena);
-                MemorySegment offsetsSegment = offsetsFileChannel.map(READ_WRITE, 0, JAVA_LONG.byteSize() * entries.size(), arena);
+                MemorySegment offsetsSegment = offsetsFileChannel.map(
+                    READ_WRITE,
+                    0,
+                    JAVA_LONG.byteSize() * entries.size(),
+                    arena
+                );
                 long dataSegmentOffset = 0;
                 long offsetsSegmentOffset = 0;
 
@@ -175,14 +194,21 @@ public class SSTable {
                     MemorySegment key = entry.key();
                     MemorySegment value = entry.value();
                     byte[] keySizeInBytes = NumberUtils.toBytes(key.byteSize());
-                    byte[] valueSizeInBytes = NumberUtils.toBytes(value.byteSize());
-                    byte sizeInfo = (byte) ((keySizeInBytes.length << 4) | valueSizeInBytes.length);
+                    byte[] valueSizeInBytes = value == null 
+                        ? new byte[0] 
+                        : NumberUtils.toBytes(value.byteSize());
 
                     offsetsSegment.set(JAVA_LONG, offsetsSegmentOffset, dataSegmentOffset);
                     offsetsSegmentOffset += JAVA_LONG.byteSize();
 
+                    byte meta = buildMeta(entry);
+                    byte sizeInfo = (byte) ((keySizeInBytes.length << 4) | valueSizeInBytes.length);
+
+                    dataSegment.set(JAVA_BYTE, dataSegmentOffset, meta);
+                    dataSegmentOffset += 1;
                     dataSegment.set(JAVA_BYTE, dataSegmentOffset, sizeInfo);
                     dataSegmentOffset += 1;
+
                     MemorySegment.copy(
                             keySizeInBytes,
                             0,
@@ -203,10 +229,26 @@ public class SSTable {
                     dataSegmentOffset += valueSizeInBytes.length;
                     MemorySegment.copy(key, 0, dataSegment, dataSegmentOffset, key.byteSize());
                     dataSegmentOffset += key.byteSize();
-                    MemorySegment.copy(value, 0, dataSegment, dataSegmentOffset, value.byteSize());
-                    dataSegmentOffset += value.byteSize();
+                    if (value != null) {
+                        MemorySegment.copy(value, 0, dataSegment, dataSegmentOffset, value.byteSize());
+                        dataSegmentOffset += value.byteSize();
+                    }
                 }
             }
         }
+    }
+    
+    private static byte buildMeta(Entry<MemorySegment> entry) {
+        byte meta = 0;
+
+        if (entry.value() == null) {
+            meta |= SSTableMeta.REMOVE_VALUE;
+        }
+        
+        return meta;
+    }
+    
+    private static class SSTableMeta {
+        private static final byte REMOVE_VALUE = 0x1;
     }
 }

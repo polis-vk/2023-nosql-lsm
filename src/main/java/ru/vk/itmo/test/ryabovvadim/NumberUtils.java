@@ -1,7 +1,6 @@
 package ru.vk.itmo.test.ryabovvadim;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 public class NumberUtils {
