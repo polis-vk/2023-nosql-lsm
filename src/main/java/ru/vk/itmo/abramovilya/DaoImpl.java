@@ -33,33 +33,32 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final List<FileChannel> indexFileChannels = new ArrayList<>();
     private final List<MemorySegment> indexMappedList = new ArrayList<>();
 
-    public DaoImpl(Config config) {
+    public DaoImpl(Config config) throws IOException {
         storagePath = config.basePath();
 
+        Files.createDirectories(storagePath);
         metaFilePath = storagePath.resolve("meta");
-        try {
-            if (!Files.exists(metaFilePath)) {
-                Files.writeString(metaFilePath, "-1", StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-            }
+        if (!Files.exists(metaFilePath)) {
+            Files.createFile(metaFilePath);
+            Files.writeString(metaFilePath, "0", StandardOpenOption.WRITE);
+        }
 
-            int totalSSTables = Integer.parseInt(Files.readString(metaFilePath));
-            for (int sstableNum = 0; sstableNum < totalSSTables; sstableNum++) {
-                Path sstablePath = storagePath.resolve(sstableBaseName + sstableNum);
-                Path indexPath = storagePath.resolve(indexBaseName + sstableNum);
+        int totalSSTables = Integer.parseInt(Files.readString(metaFilePath));
+        for (int sstableNum = 0; sstableNum < totalSSTables; sstableNum++) {
 
-                FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
-                sstableFileChannels.add(sstableFileChannel);
-                MemorySegment sstableMapped = sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
-                sstableMappedList.add(sstableMapped);
+            Path sstablePath = storagePath.resolve(sstableBaseName + sstableNum);
+            Path indexPath = storagePath.resolve(indexBaseName + sstableNum);
 
-                FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ);
-                indexFileChannels.add(indexFileChannel);
-                MemorySegment indexMapped = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
-                indexMappedList.add(indexMapped);
-            }
+            Files.createDirectories(sstablePath.getParent());
+            FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
+            sstableFileChannels.add(sstableFileChannel);
+            MemorySegment sstableMapped = sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
+            sstableMappedList.add(sstableMapped);
 
-        } catch (IOException e) {
-//            throw new UncheckedIOException(e);
+            FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ);
+            indexFileChannels.add(indexFileChannel);
+            MemorySegment indexMapped = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
+            indexMappedList.add(indexMapped);
         }
     }
 
@@ -164,7 +163,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         writeMapIntoFile();
-        incTotalSStablesAmount();
+        if (!map.isEmpty()) incTotalSStablesAmount();
     }
 
     private void incTotalSStablesAmount() throws IOException {
