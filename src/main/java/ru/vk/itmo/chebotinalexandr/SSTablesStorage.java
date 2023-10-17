@@ -10,8 +10,18 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.SortedMap;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class SSTablesStorage {
@@ -20,7 +30,7 @@ public class SSTablesStorage {
     private static final long TOMBSTONE = -1;
     private final Path basePath;
     private static final long OFFSET_FOR_SIZE = 0;
-    private List<MemorySegment> sstables;
+    private final List<MemorySegment> sstables;
     private final Arena arena;
 
     public SSTablesStorage(Config config) {
@@ -57,10 +67,10 @@ public class SSTablesStorage {
 
     private int parsePriority(Path path) {
         String fileName = path.getFileName().toString();
-        return Integer.parseInt(fileName.substring(fileName.indexOf("_") + 1, fileName.indexOf(".")));
+        return Integer.parseInt(fileName.substring(fileName.indexOf('_') + 1, fileName.indexOf('.')));
     }
 
-    private Comparator<Map.Entry<Path, Integer>>  priorityComparator() {
+    private Comparator<Map.Entry<Path, Integer>> priorityComparator() {
         return Comparator.comparingInt(Map.Entry::getValue);
     }
 
@@ -128,7 +138,6 @@ public class SSTablesStorage {
         return new SSTableIterator(sstable, keyIndexFrom, keyIndexTo);
     }
 
-
     public void write(SortedMap<MemorySegment, Entry<MemorySegment>> dataToFlush) throws IOException {
         long size = 0;
 
@@ -139,8 +148,8 @@ public class SSTablesStorage {
         size += Long.BYTES + Long.BYTES * dataToFlush.size(); //for metadata (header + key offsets)
 
         MemorySegment memorySegment;
-        try (Arena arena = Arena.ofConfined()) {
-            memorySegment = writeMappedSegment(size, arena);
+        try (Arena arenaForSave = Arena.ofConfined()) {
+            memorySegment = writeMappedSegment(size, arenaForSave);
 
             long offset = 0;
             memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE, dataToFlush.size());
@@ -160,16 +169,16 @@ public class SSTablesStorage {
     }
 
     private long writeEntry(Entry<MemorySegment> entry, MemorySegment dst, long offset) {
-        offset = writeSegment(entry.key(), dst, offset);
+        long newOffset = writeSegment(entry.key(), dst, offset);
 
         if (entry.value() == null) {
-            dst.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, TOMBSTONE);
-            offset += Long.BYTES;
+            dst.set(ValueLayout.JAVA_LONG_UNALIGNED, newOffset, TOMBSTONE);
+            newOffset += Long.BYTES;
         } else {
-            offset = writeSegment(entry.value(), dst, offset);
+            newOffset = writeSegment(entry.value(), dst, newOffset);
         }
 
-        return offset;
+        return newOffset;
     }
 
     private long writeSegment(MemorySegment src, MemorySegment dst, long offset) {
@@ -186,7 +195,7 @@ public class SSTablesStorage {
 
     private static List<Path> getPaths(Path basePath) throws IOException {
         try (Stream<Path> s = Files.list(basePath)) {
-            return s.filter(path -> path.toString().endsWith(SSTABLE_EXTENSION)).toList();
+            return s.filter(path -> path.toString().endsWith(SSTABLE_EXTENSION)).collect(Collectors.toList());
         }
     }
 

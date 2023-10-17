@@ -62,7 +62,7 @@ public class MusicTest extends BaseTest {
         dao.upsert(record(trackFrom("Ar1", "Al12", "T1111"), 49));
         dao.upsert(record(trackFrom("Ar1", "Al12", "T112"), 50));
         dao.upsert(record(trackFrom("Ar2", "Al21", "T211"), 62));
-        dao.upsert(record(trackFrom("Ar2", "Al21", "T2123"), 78));
+        dao.upsert(record(trackFrom("Ar2", "Al21", "T212"), 78));
 
         // Re-open the music database
         dao.close();
