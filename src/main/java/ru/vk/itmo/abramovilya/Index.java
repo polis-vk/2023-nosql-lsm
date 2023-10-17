@@ -14,8 +14,10 @@ import java.nio.file.StandardOpenOption;
 class Index implements Closeable, Table {
     private final int number;
     private final MemorySegment mappedIndexFile;
+    private final MemorySegment mappedStorageFile;
     private long offset;
-    private final FileChannel fileChannel;
+    private final FileChannel indexFileChannel;
+    private final FileChannel storageFileChannel;
     private final Path storagePath;
     private final Arena arena = Arena.ofShared();
     private final String sstableFileBaseName;
@@ -30,9 +32,13 @@ class Index implements Closeable, Table {
         this.offset = offset;
 
         try {
-            Path filePath = storagePath.resolve(indexFileBaseName + number);
-            fileChannel = FileChannel.open(filePath);
-            mappedIndexFile = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(filePath), arena);
+            Path indexFilePath = storagePath.resolve(indexFileBaseName + number);
+            indexFileChannel = FileChannel.open(indexFilePath);
+            mappedIndexFile = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexFilePath), arena);
+
+            Path storageFilePath = storagePath.resolve(sstableFileBaseName + number);
+            storageFileChannel = FileChannel.open(storageFilePath);
+            mappedStorageFile = storageFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storageFilePath), arena);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -63,23 +69,22 @@ class Index implements Closeable, Table {
 
     @Override
     public MemorySegment nextKey() {
-        offset += Long.BYTES;
-        long msSize = mappedIndexFile.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-        offset += Long.BYTES;
-        offset += msSize;
-
+        offset += 2 * Long.BYTES;
         if (offset >= mappedIndexFile.byteSize()) {
             return null;
         }
-        msSize = mappedIndexFile.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + Long.BYTES);
-        return mappedIndexFile.asSlice(offset + 2 * Long.BYTES, msSize);
+        long storageOffset = mappedIndexFile.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+
+        long msSize = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, storageOffset);
+        storageOffset += Long.BYTES;
+        return mappedStorageFile.asSlice(storageOffset, msSize);
     }
 
     @Override
     public void close() {
-        if (fileChannel.isOpen()) {
+        if (indexFileChannel.isOpen()) {
             try {
-                fileChannel.close();
+                indexFileChannel.close();
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }

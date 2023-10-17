@@ -28,7 +28,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena = Arena.ofShared();
     private final String sstableBaseName = "storage";
     private final String indexBaseName = "index";
-    private final String indexAboveIndexBaseName = "indexindex";
     private final Path metaFilePath;
 
 
@@ -148,14 +147,21 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         };
     }
 
-    private MemorySegment getKeyAtIndexOffset(long offset, int indexNum) throws IOException {
-        Path filePath = storagePath.resolve(indexBaseName + indexNum);
-        try (FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
-            offset += Long.BYTES;
-            MemorySegment mapped = fc.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(filePath), arena);
-            long msSize = mapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
-            return mapped.asSlice(offset, msSize);
+    private MemorySegment getKeyAtIndexOffset(long indexOffset, int indexNum) throws IOException {
+        Path storagePath = this.storagePath.resolve(sstableBaseName + indexNum);
+        Path indexPath = this.storagePath.resolve(indexBaseName + indexNum);
+        try (FileChannel storageFileChannel = FileChannel.open(storagePath, StandardOpenOption.READ);
+             FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ)
+        ) {
+
+            MemorySegment mappedStorage = storageFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storagePath), arena);
+            MemorySegment mappedIndex = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
+
+            long storageOffset = mappedIndex.get(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset);
+
+            long msSize = mappedStorage.get(ValueLayout.JAVA_LONG_UNALIGNED, storageOffset);
+            storageOffset += Long.BYTES;
+            return mappedStorage.asSlice(storageOffset, msSize);
         }
 
     }
@@ -164,43 +170,37 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     // Finds offset in index file to key such
     // that it is greater or equal to from
     private long findOffsetInIndex(MemorySegment from, MemorySegment to, int i) throws IOException {
-        Path indexFilePath = storagePath.resolve(indexBaseName + i);
-        Path indexIndexFilePath = storagePath.resolve(indexAboveIndexBaseName + i);
+        Path storageFilePath = storagePath.resolve(sstableBaseName + i);
+        Path indexFliePath = storagePath.resolve(indexBaseName + i);
 
-        try (FileChannel indexFileChannel = FileChannel.open(indexFilePath, StandardOpenOption.READ);
-             FileChannel indexIndexFileChannel = FileChannel.open(indexIndexFilePath, StandardOpenOption.READ)
+        try (FileChannel storageFileChannel = FileChannel.open(storageFilePath, StandardOpenOption.READ);
+             FileChannel indexFileChannel = FileChannel.open(indexFliePath, StandardOpenOption.READ)
         ) {
             long readOffset = 0;
-            MemorySegment indexMapped = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexFilePath), arena);
-            MemorySegment indexIndexMapped = indexIndexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexIndexFilePath), arena);
+            MemorySegment storageMapped = storageFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storageFilePath), arena);
+            MemorySegment indexMapped = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexFliePath), arena);
 
             if (from != null) {
-                FoundSegmentIndexIndexValue found = upperBound(from, indexMapped, indexIndexMapped, indexIndexFilePath);
+                FoundSegmentIndexIndexValue found = upperBound(from, storageMapped, indexMapped, indexFliePath);
                 MemorySegment foundMemorySegment = found.found();
                 if (compareMemorySegments(foundMemorySegment, from) < 0 || to != null && compareMemorySegments(foundMemorySegment, to) >= 0) {
                     return -1;
                 }
-                return indexIndexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, found.index() * 2 * Long.BYTES + Long.BYTES);
+                return found.index() * 2 * Long.BYTES + Long.BYTES;
             } else {
-                long firstKeySize = indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
-                readOffset += Long.BYTES;
-                readOffset += firstKeySize;
 
                 if (to == null) {
-                    readOffset += indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
-                    readOffset += Long.BYTES;
-
-                    return readOffset;
+                    return Long.BYTES;
                 } // from == null && to != null
 
-                MemorySegment firstKey = indexMapped.asSlice(readOffset - firstKeySize, firstKeySize);
-                readOffset += indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
+                long firstKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
                 readOffset += Long.BYTES;
+                MemorySegment firstKey = storageMapped.asSlice(readOffset, firstKeySize);
 
                 if (compareMemorySegments(firstKey, to) >= 0) {
                     return -1;
                 }
-                return readOffset;
+                return Long.BYTES;
             }
         }
     }
@@ -242,38 +242,35 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private Entry<MemorySegment> seekForValueInFile(MemorySegment key, int sstableNum) {
         Path storageFilePath = storagePath.resolve(sstableBaseName + sstableNum);
         Path indexFilePath = storagePath.resolve(indexBaseName + sstableNum);
-        Path indexIndexFilePath = storagePath.resolve(indexAboveIndexBaseName + sstableNum);
 
         if (!Files.exists(storageFilePath)) {
             return null;
         }
 
         try (FileChannel storageFileChannel = FileChannel.open(storageFilePath, StandardOpenOption.READ);
-             FileChannel indexFileChannel = FileChannel.open(indexFilePath, StandardOpenOption.READ);
-             FileChannel indexIndexFileChannel = FileChannel.open(indexIndexFilePath, StandardOpenOption.READ)
+             FileChannel indexFileChannel = FileChannel.open(indexFilePath, StandardOpenOption.READ)
         ) {
             MemorySegment storageMapped = storageFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(storageFilePath), arena);
             MemorySegment indexMapped = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexFilePath), arena);
-            MemorySegment indexIndexMapped = indexIndexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexIndexFilePath), arena);
 
-            FoundSegmentIndexIndexValue found = upperBound(key, indexMapped, indexIndexMapped, indexIndexFilePath);
+            FoundSegmentIndexIndexValue found = upperBound(key, storageMapped, indexMapped, indexFilePath);
             if (compareMemorySegments(found.found(), key) != 0) {
                 return null;
             } else {
-                return getEntryFromIndexIndexFile(storageMapped, indexMapped, indexIndexMapped, found.index());
+                return getEntryFromIndexFile(storageMapped, indexMapped, found.index());
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
     }
 
-    private FoundSegmentIndexIndexValue upperBound(MemorySegment key, MemorySegment indexMapped, MemorySegment indexIndexMapped, Path indexIndexFilePath) throws IOException {
+    private FoundSegmentIndexIndexValue upperBound(MemorySegment key, MemorySegment storageMapped, MemorySegment indexMapped, Path indexFilePath) throws IOException {
         long l = -1;
-        long r = indexIndexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, Files.size(indexIndexFilePath) - 2 * Long.BYTES);
+        long r = indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, Files.size(indexFilePath) - 2 * Long.BYTES);
 
         while (r - l > 1) {
             long m = (r + l) / 2;
-            MemorySegment ms = getKeyFromIndexIndexFile(indexMapped, indexIndexMapped, m);
+            MemorySegment ms = getKeyFromStorageFileAndEntryNum(storageMapped, indexMapped, m);
 
             if (compareMemorySegments(key, ms) > 0) {
                 l = m;
@@ -282,17 +279,15 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
 
-        MemorySegment found = getKeyFromIndexIndexFile(indexMapped, indexIndexMapped, r);
+        MemorySegment found = getKeyFromStorageFileAndEntryNum(storageMapped, indexMapped, r);
         return new FoundSegmentIndexIndexValue(found, r);
     }
 
     private record FoundSegmentIndexIndexValue(MemorySegment found, long index) {
     }
 
-    private Entry<MemorySegment> getEntryFromIndexIndexFile(MemorySegment storageMapped, MemorySegment indexMapped, MemorySegment indexIndexMapped, long m) {
-        long offsetInIndexFile = indexIndexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, 2 * Long.BYTES * m + Long.BYTES);
-
-        long offsetInStorageFile = indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetInIndexFile);
+    private Entry<MemorySegment> getEntryFromIndexFile(MemorySegment storageMapped, MemorySegment indexMapped, long entryNum) {
+        long offsetInStorageFile = indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, 2 * Long.BYTES * entryNum + Long.BYTES);
 
         long keySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetInStorageFile);
         offsetInStorageFile += Long.BYTES;
@@ -310,11 +305,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         return new BaseEntry<>(key, value);
     }
 
-    private MemorySegment getKeyFromIndexIndexFile(MemorySegment indexMapped, MemorySegment indexIndexMapped, long m) {
-        long offsetInIndexFile = indexIndexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, 2 * Long.BYTES * m + Long.BYTES);
+    private MemorySegment getKeyFromStorageFileAndEntryNum(MemorySegment storageMapped, MemorySegment indexMapped, long entryNum) {
+        long offsetInStorageFile = indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, 2 * Long.BYTES * entryNum + Long.BYTES);
 
-        long msSize = indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetInIndexFile + Long.BYTES);
-        return indexMapped.asSlice(offsetInIndexFile + 2 * Long.BYTES, msSize);
+        long msSize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetInStorageFile);
+        return storageMapped.asSlice(offsetInStorageFile + Long.BYTES, msSize);
     }
 
 
@@ -345,11 +340,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         int currSStableNum = getTotalSStables() + 1;
         Path sstablePath = storagePath.resolve(sstableBaseName + currSStableNum);
         Path indexPath = storagePath.resolve(indexBaseName + currSStableNum);
-        Path indexIndexPath = storagePath.resolve(indexAboveIndexBaseName + currSStableNum);
 
         long storageWriteOffset = 0;
         long indexWriteOffset = 0;
-        long indexIndexWriteOffset = 0;
         try (var storageChannel = FileChannel.open(sstablePath,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
@@ -360,49 +353,23 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                      StandardOpenOption.WRITE,
                      StandardOpenOption.CREATE);
 
-             var indexIndexChannel = FileChannel.open(indexIndexPath,
-                     StandardOpenOption.READ,
-                     StandardOpenOption.WRITE,
-                     StandardOpenOption.CREATE);
-
              var storageArena = Arena.ofConfined();
-             var indexArena = Arena.ofConfined();
-             var indexIndexArena = Arena.ofConfined()) {
+             var indexArena = Arena.ofConfined()) {
 
             MemorySegment mappedStorage = storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcMapByteSizeInFile(), storageArena);
             MemorySegment mappedIndex = indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcIndexByteSizeInFile(), indexArena);
-            MemorySegment mappedIndexIndex = indexIndexChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcIndexIndexByteSizeInFile(), indexIndexArena);
-
-            var firstKey = map.firstKey();
-            writeMemorySegment(firstKey, mappedIndex, indexWriteOffset);
-            indexWriteOffset += Long.BYTES;
-            indexWriteOffset += firstKey.byteSize();
-
-            var lastKey = map.lastKey();
-            writeMemorySegment(lastKey, mappedIndex, indexWriteOffset);
-            indexWriteOffset += Long.BYTES;
-            indexWriteOffset += lastKey.byteSize();
 
             long entryNum = 0;
             for (var entry : map.values()) {
-                writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
-
+                mappedIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, indexWriteOffset, entryNum);
+                indexWriteOffset += Long.BYTES;
                 mappedIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, indexWriteOffset, storageWriteOffset);
                 indexWriteOffset += Long.BYTES;
-                writeMemorySegment(entry.key(), mappedIndex, indexWriteOffset);
-                indexWriteOffset += Long.BYTES;
-                indexWriteOffset += entry.key().byteSize();
-
-                mappedIndexIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, indexIndexWriteOffset, entryNum);
-                indexIndexWriteOffset += Long.BYTES;
-                mappedIndexIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, indexIndexWriteOffset, indexWriteOffset - entry.key().byteSize() - 2 * Long.BYTES);
                 entryNum++;
 
-                indexIndexWriteOffset += Long.BYTES;
-
+                writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
                 storageWriteOffset += Long.BYTES;
                 storageWriteOffset += entry.key().byteSize();
-
                 writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
                 storageWriteOffset += Long.BYTES;
                 if (entry.value() != null) storageWriteOffset += entry.value().byteSize();
@@ -411,17 +378,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private long calcIndexIndexByteSizeInFile() {
-        return map.size() * 2L * Long.BYTES;
-    }
-
-
     private int getTotalSStables() throws IOException {
         return Integer.parseInt(Files.readString(metaFilePath));
     }
 
     private long calcIndexByteSizeInFile() {
-        return map.keySet().stream().mapToLong(k -> k.byteSize() + 2 * Long.BYTES).sum() + map.firstKey().byteSize() + map.lastKey().byteSize() + 2 * Long.BYTES;
+        return map.size() * Long.BYTES * 2L;
     }
 
     private long calcMapByteSizeInFile() {
