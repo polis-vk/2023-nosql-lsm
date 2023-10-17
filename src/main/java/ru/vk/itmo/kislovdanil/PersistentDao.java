@@ -21,6 +21,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public PersistentDao(Config config) throws IOException {
         this.config = config;
+        // SSTable constructor with rewrite=false reads table data from disk if it exists
         this.table = new SSTable(config.basePath(), comp, 0L, storage, false);
     }
 
