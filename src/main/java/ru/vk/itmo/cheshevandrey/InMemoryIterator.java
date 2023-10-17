@@ -20,7 +20,8 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
     private final MemorySegment to;
 
     private final Entry<MemorySegment>[][] cache;
-    private final int[] positions;
+    private final int[] storagePositions;
+    private final int[] cachePositions;
 
     private int loadedElementsCount;
 
@@ -37,16 +38,16 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
         this.to = to;
 
         cache = new Entry[ssTablesCount + 1][CACHE_CAPACITY];
-        positions = new int[ssTablesCount + 1];
+        storagePositions = new int[ssTablesCount];
+        cachePositions = new int[ssTablesCount + 1];
 
-        initStartState();
+        initState();
     }
 
     @Override
     public boolean hasNext() {
         if (loadedElementsCount == 0) {
-            collectFromMemTable();
-            collectFromStorage();
+            fillCache(0);
         }
 
         return loadedElementsCount != 0;
@@ -62,9 +63,14 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
         int savedPosition = -1;
         for (int i = ssTablesCount; i >= 0; i--) {
 
-            int position = positions[i];
-            if (position == -1) {
-                continue;
+            int position = cachePositions[i];
+
+            if (position == CACHE_CAPACITY) {
+                if (i == ssTablesCount) {
+                    fillCache(1);
+                } else {
+                    fillCache(-1);
+                }
             }
 
             Entry<MemorySegment> currEntry = cache[i][position];
@@ -78,7 +84,8 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
                     minEntry = currEntry;
                     savedPosition = i;
                 } else if (compareResult == 0) { // Entry по такому же ключу уже неактуальны.
-                    positions[i]++;
+                    cachePositions[i]++;
+                    loadedElementsCount--;
                 }
             } else {
                 minEntry = currEntry;
@@ -87,93 +94,109 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
         }
 
         if (savedPosition >= 0) {
-            positions[savedPosition]++;
+            cachePositions[savedPosition]++;
             loadedElementsCount--;
         }
         return minEntry;
     }
 
-    private void collectFromMemTable() {
+    private void fillCache(int condition) {
+        if (condition >= 0) {
+            fillCacheFromMemTable();
+        }
+        if (condition <= 0) {
+            for (int index = ssTablesCount - 1; index >= 0; index--) {
+                fillCacheFromStorage(index);
+            }
+        }
+    }
 
-        Entry<MemorySegment> currMemTableEntry;
+    private void fillCacheFromMemTable() {
+
         int index = 0;
-        boolean shouldSavePosition = true;
         while (index < CACHE_CAPACITY) {
+
+            Entry<MemorySegment> currMemTableEntry;
             if (memTableIterator.hasNext()) {
                 currMemTableEntry = memTableIterator.next();
             } else {
                 break;
             }
 
-            if (from != null) {
-                long mismatchFrom = segmentComparator.compare(currMemTableEntry.key(), from);
-                if (mismatchFrom < 0) {
-                    continue;
-                }
-            }
-            if (to != null) {
-                long mismatchTo = segmentComparator.compare(currMemTableEntry.key(), to);
-                if (mismatchTo > 0) {
-                    break;
-                }
+            int isFits = isFitsInInterval(currMemTableEntry.key());
+            if (isFits > 0) {
+                continue;
+            } else if (isFits < 0) {
+                break;
             }
 
             cache[ssTablesCount][index] = currMemTableEntry;
-
-            if (shouldSavePosition) {
-                positions[ssTablesCount] = index;
-                shouldSavePosition = false;
-            }
-
             loadedElementsCount++;
             index++;
         }
+
+        cachePositions[ssTablesCount] = (index > 0) ? 0 : -1;
 
         if (index < CACHE_CAPACITY - 1) {
             cache[ssTablesCount][index + 1] = null;
         }
     }
 
-    private void collectFromStorage() {
+    private void fillCacheFromStorage(int index) {
 
-        for (int i = ssTablesCount - 1; i >= 0; i--) {
-            int position = positions[i];
-            if (position == -1) {
-                continue;
-            }
-
-            MemorySegment ssTable = ssTables[i];
-            MemorySegment meta = metaTables[i];
-            int entryNumber = meta.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
-
-            int index = 0;
-            while (index < CACHE_CAPACITY && position < entryNumber) {
-
-                int keyOffset = getKeyOffsetByIndex(meta, index);
-                int keySize = getKeySize(meta, index, keyOffset);
-
-                if (to != null) {
-                    long mismatch = MemorySegment.mismatch(ssTable, keyOffset, keyOffset + keySize, to, 0, to.byteSize());
-                    if (mismatch > 0) {
-                        positions[i] = -1;
-                        break;
-                    }
-                }
-
-                MemorySegment key = ssTable.asSlice(keyOffset, keySize);
-                MemorySegment value = getValueSegment(ssTable, meta, position);
-
-                Entry<MemorySegment> insertEntry = new BaseEntry<>(key, value);
-                cache[i][index] = insertEntry;
-
-                loadedElementsCount++;
-                index++;
-                position++;
-            }
+        int storagePos = storagePositions[index];
+        if (storagePos == -1) {
+            return;
         }
+
+        MemorySegment ssTable = ssTables[index];
+        MemorySegment meta = metaTables[index];
+        int entryNumber = meta.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
+
+        int cachePos = 0;
+        while (cachePos < CACHE_CAPACITY && storagePos < entryNumber) {
+
+            int keyOffset = getKeyOffsetByIndex(meta, storagePos);
+            int keySize = getKeySize(meta, storagePos, keyOffset);
+
+            MemorySegment key = ssTable.asSlice(keyOffset, keySize);
+
+            int isFits = isFitsInInterval(key);
+            if (isFits > 0) {
+                storagePos++;
+                continue;
+            } else if (isFits < 0) {
+                break;
+            }
+
+            MemorySegment value = getValueSegment(ssTable, meta, storagePos);
+            cache[index][cachePos] = new BaseEntry<>(key, value);
+
+            loadedElementsCount++;
+            storagePos++;
+            cachePos++;
+        }
+
+        cachePositions[index] = (index > 0) ? 0 : -1;
     }
 
-    private void initStartState() throws IOException {
+    private int isFitsInInterval(MemorySegment key) {
+        if (from != null) {
+            long mismatch = segmentComparator.compare(key, from);
+            if (mismatch < 0) {
+                return 1;
+            }
+        }
+        if (to != null) {
+            long mismatchTo = segmentComparator.compare(key, to);
+            if (mismatchTo > 0) {
+                return -1;
+            }
+        }
+        return 0;
+    }
+
+    private void initState() throws IOException {
         for (int i = ssTablesCount - 1; i >= 0; i--) {
             if (ssTables[i] == null) {
                 createStorageSegment(i);
@@ -184,13 +207,7 @@ public class InMemoryIterator implements Iterator<Entry<MemorySegment>> {
             int pos = (from == null) ? 0 : findKeyPositionOrNearest(ssTable, meta, from);
             MemorySegment key = getKeySegment(ssTable, meta, pos);
 
-            positions[i] = pos;
-            if (to != null) {
-                int compareResult = segmentComparator.compare(key, to);
-                if (compareResult > 0) {
-                    positions[i] = -1;
-                }
-            }
+            storagePositions[i] = (isFitsInInterval(key) < 0) ? -1 : pos;
         }
     }
 }

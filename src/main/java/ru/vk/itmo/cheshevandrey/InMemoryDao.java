@@ -152,15 +152,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             long mismatch = MemorySegment.mismatch(ssTable, keyOffset, keyOffset + keySize, key, 0, key.byteSize());
 
             if (mismatch == -1) {
-                MemorySegment value = getValueSegment(ssTable, metaTable, pos);
-                if (value == null) {
-                    return null;
-                }
 
-                return new BaseEntry<>(
-                        key,
-                        value
-                );
+                MemorySegment value = getValueSegment(ssTable, metaTable, pos);
+                return (value == null) ? null : new BaseEntry<>(key, value);
             }
         }
         return null;
@@ -223,32 +217,31 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         createFileIfNotExists(ssTablePath);
         createFileIfNotExists(ssTableMetaPath);
 
-        try (BufferedWriter writer = Files.newBufferedWriter(
-                Paths.get(storageMetaPath.toAbsolutePath().toString()), Charset.defaultCharset()
-        )) {
-            writer.write(ssTablesCount + 1);
-        } catch (IOException e) {
-            logger.severe("Ошибка при записи количества sstable = " + ssTablesCount + ": " + e.getMessage());
-            throw e;
-        }
-
         try (
+                FileChannel storageMetaChannel = FileChannel.open(storageMetaPath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
                 FileChannel ssTableChannel = FileChannel.open(ssTablePath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
                 FileChannel metaChannel = FileChannel.open(ssTableMetaPath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)
         ) {
+            MemorySegment storageMeta = storageMetaChannel.map(FileChannel.MapMode.READ_WRITE, 0, Integer.BYTES, offHeapArena);
+            // Сохраняем количество ssTable.
+            storageMeta.set(ValueLayout.JAVA_INT_UNALIGNED, 0,ssTablesCount + 1);
+
+            // Вычисляем длину текущей ssTable.
             int ssTableSize = 0;
             for (Entry<MemorySegment> entry : memTable.values()) {
                 ssTableSize += (int) (entry.key().byteSize() + entry.value().byteSize());
             }
 
+            // Вычисляем длину текущей мета-таблицы.
             int metaSize = Integer.BYTES + 2 * Integer.BYTES * memTable.size();
 
             MemorySegment ssTable = ssTableChannel.map(FileChannel.MapMode.READ_WRITE, 0, ssTableSize, offHeapArena);
             MemorySegment meta = metaChannel.map(FileChannel.MapMode.READ_WRITE, 0, metaSize, offHeapArena);
 
-            // Сохраняем количество элементов.
+            // Сохраняем количество элементов ssTable в мета-таблицу.
             meta.set(ValueLayout.JAVA_INT_UNALIGNED, 0, memTable.size());
 
+            // Записываем entry в ssTable.
             metaSegmentOffset = Integer.BYTES;
             ssTableOffset = 0;
             for (Entry<MemorySegment> entry : memTable.values()) {
