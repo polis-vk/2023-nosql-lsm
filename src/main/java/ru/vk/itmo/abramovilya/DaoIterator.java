@@ -2,6 +2,9 @@ package ru.vk.itmo.abramovilya;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.abramovilya.table.MemTable;
+import ru.vk.itmo.abramovilya.table.SSTable;
+import ru.vk.itmo.abramovilya.table.TableEntry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -12,7 +15,7 @@ import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentNavigableMap;
 
 class DaoIterator implements Iterator<Entry<MemorySegment>> {
-    private final PriorityQueue<Table> priorityQueue = new PriorityQueue<>();
+    private final PriorityQueue<TableEntry> priorityQueue = new PriorityQueue<>();
     private final MemorySegment from;
     private final MemorySegment to;
     private final List<MemorySegment> sstableMappedList;
@@ -33,11 +36,11 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
         for (int i = 0; i < totalSStables; i++) {
             long offset = findOffsetInIndex(from, to, i);
             if (offset != -1) {
-                priorityQueue.add(new SSTable(i, offset, sstableMappedList.get(i), indexMappedList.get(i)));
+                priorityQueue.add(new SSTable(i, offset, sstableMappedList.get(i), indexMappedList.get(i)).currentEntry());
             }
         }
         if (!subMap.isEmpty()) {
-            priorityQueue.add(new MemTable(subMap));
+            priorityQueue.add(new MemTable(subMap).currentEntry());
         }
     }
 
@@ -67,40 +70,44 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
             throw new NoSuchElementException();
         }
 
-        Table minTable = priorityQueue.remove();
-        MemorySegment key = minTable.getKey();
-        MemorySegment value = minTable.getValue();
+        TableEntry minEntry = priorityQueue.remove();
+        MemorySegment key = minEntry.getKey();
+        MemorySegment value = minEntry.getValue();
         removeExpiredValues(key);
 
-        MemorySegment minPairNextKey = minTable.nextKey();
-        if (minPairNextKey != null && (to == null || DaoImpl.compareMemorySegments(minPairNextKey, to) < 0)) {
-            priorityQueue.add(minTable);
+        TableEntry minEntryTableNextEntry = minEntry.table().nextEntry();
+        if (minEntryTableNextEntry != null &&
+                (to == null || DaoImpl.compareMemorySegments(minEntryTableNextEntry.getKey(), to) < 0)) {
+            priorityQueue.add(minEntryTableNextEntry);
         }
         return new BaseEntry<>(key, value);
     }
 
     private void removeExpiredValues(MemorySegment minMemorySegment) {
         while (!priorityQueue.isEmpty() && priorityQueue.peek().getKey().mismatch(minMemorySegment) == -1) {
-            Table indexWithSameMin = priorityQueue.remove();
-            MemorySegment nextKey = indexWithSameMin.nextKey();
-            if (nextKey != null && (to == null || DaoImpl.compareMemorySegments(nextKey, to) < 0)) {
-                priorityQueue.add(indexWithSameMin);
+            TableEntry entryWithSameMin = priorityQueue.remove();
+            TableEntry entryWithSameMinNextEntry = entryWithSameMin.table().nextEntry();
+            if (entryWithSameMinNextEntry != null &&
+                    (to == null || DaoImpl.compareMemorySegments(entryWithSameMinNextEntry.getKey(), to) < 0)) {
+                priorityQueue.add(entryWithSameMinNextEntry);
             }
         }
     }
 
     private void cleanUpSStableQueue() {
         if (!priorityQueue.isEmpty()) {
-            Table minTable = priorityQueue.element();
-            MemorySegment key = minTable.getKey();
-            MemorySegment value = minTable.getValue();
+            TableEntry minEntry = priorityQueue.element();
+            MemorySegment key = minEntry.getKey();
+            MemorySegment value = minEntry.getValue();
 
             if (value == null) {
                 priorityQueue.remove();
                 removeExpiredValues(key);
-                MemorySegment minPairNextKey = minTable.nextKey();
-                if (minPairNextKey != null && (to == null || DaoImpl.compareMemorySegments(minPairNextKey, to) < 0)) {
-                    priorityQueue.add(minTable);
+
+                TableEntry minEntryNextKey = minEntry.table().nextEntry();
+                if (minEntryNextKey != null &&
+                        (to == null || DaoImpl.compareMemorySegments(minEntryNextKey.getKey(), to) < 0)) {
+                    priorityQueue.add(minEntryNextKey);
                 }
                 cleanUpSStableQueue();
             }

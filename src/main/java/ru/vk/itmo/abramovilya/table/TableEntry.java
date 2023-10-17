@@ -1,18 +1,20 @@
-package ru.vk.itmo.abramovilya;
+package ru.vk.itmo.abramovilya.table;
+
+import ru.vk.itmo.abramovilya.DaoImpl;
 
 import java.lang.foreign.MemorySegment;
 
-public interface Table extends Comparable<Table> {
+public interface TableEntry extends Comparable<TableEntry> {
     MemorySegment getValue();
 
     MemorySegment getKey();
 
-    MemorySegment nextKey();
-
     int number();
 
+    Table table();
+
     @Override
-    default int compareTo(Table other) {
+    default int compareTo(TableEntry other) {
         int compare = DaoImpl.compareMemorySegments(this.getKey(), other.getKey());
         if (compare != 0) {
             return compare;
