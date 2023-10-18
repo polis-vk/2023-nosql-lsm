@@ -6,6 +6,14 @@ import java.util.Comparator;
 
 public class MemorySegmentComparator implements Comparator<MemorySegment> {
 
+    private static final MemorySegmentComparator INSTANCE = new MemorySegmentComparator();
+
+    private MemorySegmentComparator() {
+    }
+
+    public static MemorySegmentComparator getInstance() {
+        return INSTANCE;
+    }
     @Override
     public int compare(MemorySegment ms1, MemorySegment ms2) {
         long mismatch = ms1.mismatch(ms2);
