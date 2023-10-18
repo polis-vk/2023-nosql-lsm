@@ -1,103 +1,37 @@
 package ru.vk.itmo.kovalevigor;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 
-public class SSTable {
+public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> {
 
-    private static final long INDEX_ENTRY_SIZE = 2 * ValueLayout.JAVA_LONG.byteSize();
     public static final Comparator<MemorySegment> COMPARATOR = UtilsMemorySegment::compare;
+    public static final Comparator<Entry<MemorySegment>> ENTRY_COMPARATOR = UtilsMemorySegment::compareEntry;
 
-    private final MemorySegment dataSegment;
     private final IndexList indexList;
 
-    private class IndexList extends AbstractList<MemorySegment> {
-
-        public static long MAX_BYTE_SIZE = Integer.MAX_VALUE * INDEX_ENTRY_SIZE;
-
-        private final MemorySegment segment;
-        private final long valuesOffset;
-
-        public IndexList(MemorySegment segment) {
-            if (segment.byteSize() > MAX_BYTE_SIZE) {
-                segment = segment.asSlice(0, MAX_BYTE_SIZE);
-            }
-            this.segment = segment;
-            valuesOffset = size() > 0 ? readMeta(0).valueOffset : 0;
-        }
-
-        private long getEntryOffset(final int index) {
-            if (size() <= index) {
-                return -1;
-            }
-            return INDEX_ENTRY_SIZE * index;
-        }
-
-        private long readOffset(final long offset) {
-            return segment.get(ValueLayout.JAVA_LONG, offset);
-        }
-
-        private EntryMeta readMeta(final int index) {
-            final long offset = getEntryOffset(index);
-            final long nextEntryOffset = getEntryOffset(index + 1);
-
-            final long keyOffset = readOffset(offset);
-            final long valueOffset = readOffset(offset + ValueLayout.JAVA_LONG.byteSize());
-
-            long keySize = valuesOffset - keyOffset;
-            long valueSize = dataSegment.byteSize() - valueOffset;
-            if (nextEntryOffset != -1) {
-                keySize = readOffset(nextEntryOffset) - keyOffset;
-                valueSize = readOffset(nextEntryOffset + ValueLayout.JAVA_LONG.byteSize()) - valueOffset;
-            }
-            return new EntryMeta(keyOffset, keySize, valueOffset, valueSize);
-        }
-
-        private MemorySegment readKey(final EntryMeta meta) {
-            return dataSegment.asSlice(meta.keyOffset, meta.keySize);
-        }
-
-        @Override
-        public MemorySegment get(final int index) {
-            return readKey(readMeta(index));
-        }
-
-        public Entry<MemorySegment> getEntry(final int index) {
-            final EntryMeta meta = readMeta(index);
-            final MemorySegment value = dataSegment.asSlice(meta.valueOffset, meta.valueSize);
-            return new BaseEntry<>(readKey(meta), value);
-        }
-
-        @Override
-        public int size() {
-            return (int)(segment.byteSize() / INDEX_ENTRY_SIZE);
-        }
-
-        public static void write(
-                final MemorySegment writer,
-                final long[][] offsets
-        ) {
-            long offset = 0;
-            for (final long[] entry: offsets) {
-                writer.set(ValueLayout.JAVA_LONG, offset, entry[0]);
-                writer.set(ValueLayout.JAVA_LONG, offset += ValueLayout.JAVA_LONG.byteSize(), entry[1]);
-                offset += ValueLayout.JAVA_LONG.byteSize();
-            }
-        }
+    private SSTable(final Path indexPath, final Path dataPath, final Arena arena) throws IOException {
+        indexList = new IndexList(
+                mapSegment(indexPath, arena),
+                mapSegment(dataPath, arena)
+        );
     }
 
-    public SSTable(final Path root, final String name, final Arena arena) throws IOException {
-        dataSegment = mapSegment(getDataPath(root, name), arena);
-        indexList = new IndexList(mapSegment(getIndexPath(root, name), arena));
+    public static SSTable create(final Path root, final String name, final Arena arena) throws IOException {
+        final Path indexPath = getIndexPath(root, name);
+        final Path dataPath = getDataPath(root, name);
+        if (Files.notExists(indexPath) || Files.notExists(dataPath)) {
+            return null;
+        }
+        return new SSTable(indexPath, dataPath, arena);
     }
 
     private static Path getDataPath(final Path root, final String name) {
@@ -122,15 +56,53 @@ public class SSTable {
         }
     }
 
+    private static final class KeyEntry implements Entry<MemorySegment> {
+
+        final MemorySegment key;
+
+        public KeyEntry(final MemorySegment key) {
+            this.key = key;
+        }
+
+        @Override
+        public MemorySegment key() {
+            return key;
+        }
+
+        @Override
+        public MemorySegment value() {
+            return null;
+        }
+    }
+
+    private int binarySearch(final MemorySegment key) {
+        return Collections.binarySearch(indexList, new KeyEntry(key), ENTRY_COMPARATOR);
+    }
+
+    @Override
     public Entry<MemorySegment> get(final MemorySegment key) throws IOException {
-        final int pos = Collections.binarySearch(indexList, key, COMPARATOR);
-        return pos >= 0 ? indexList.getEntry(pos) : null;
+        final int pos = binarySearch(key);
+        return pos >= 0 ? indexList.get(pos) : null;
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) throws IOException {
+        int startPos = 0;
+        if (from != null && (startPos = binarySearch(from)) < 0) {
+            startPos = -(startPos + 1);
+        }
+        int endPos = indexList.size();
+        if (to != null && (endPos = binarySearch(to)) < 0) {
+            endPos = -(endPos + 1);
+        }
+        return indexList.subList(startPos, endPos).iterator();
     }
 
     private static long getTotalMapSize(final SortedMap<MemorySegment, Entry<MemorySegment>> map) {
         long totalSize = 0;
         for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : map.entrySet()) {
-            totalSize += entry.getKey().byteSize() + entry.getValue().value().byteSize();
+            final MemorySegment value = entry.getValue().value();
+            totalSize += entry.getKey().byteSize() + (value == null ? 0 : value.byteSize());
         }
         return totalSize;
     }
@@ -141,6 +113,7 @@ public class SSTable {
             final String name
     ) throws IOException {
         long[][] offsets;
+        final long mapSize = getTotalMapSize(map);
         try (Arena arena = Arena.ofConfined(); FileChannel writerChannel = FileChannel.open(
                 getDataPath(path, name),
                 StandardOpenOption.CREATE,
@@ -150,7 +123,7 @@ public class SSTable {
             final MemorySegment memorySegment = writerChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
-                    getTotalMapSize(map),
+                    mapSize,
                     arena
             );
             offsets = new long[map.size()][2];
@@ -158,7 +131,7 @@ public class SSTable {
             int index = 0;
             long totalOffset = 0;
             for (final MemorySegment key : map.keySet()) {
-                offsets[index++][0] = totalOffset;
+                offsets[index][0] = totalOffset;
                 MemorySegment.copy(
                         key,
                         0,
@@ -167,19 +140,25 @@ public class SSTable {
                         key.byteSize()
                 );
                 totalOffset += key.byteSize();
+                index += 1;
             }
 
             index = 0;
             for (final Entry<MemorySegment> value : map.values()) {
-                offsets[index++][1] = totalOffset;
-                MemorySegment.copy(
-                        value.value(),
-                        0,
-                        memorySegment,
-                        totalOffset,
-                        value.value().byteSize()
-                );
-                totalOffset += value.value().byteSize();
+                if (value.value() != null) {
+                    offsets[index][1] = totalOffset;
+                    MemorySegment.copy(
+                            value.value(),
+                            0,
+                            memorySegment,
+                            totalOffset,
+                            value.value().byteSize()
+                    );
+                    totalOffset += value.value().byteSize();
+                } else {
+                    offsets[index][1] = -1;
+                }
+                index += 1;
             }
         }
 
@@ -192,10 +171,10 @@ public class SSTable {
             final MemorySegment memorySegment = writerChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
-                    INDEX_ENTRY_SIZE * map.size(),
+                    IndexList.getFileSize(map),
                     arena
             );
-            IndexList.write(memorySegment, offsets);
+            IndexList.write(memorySegment, offsets, mapSize);
         }
     }
 

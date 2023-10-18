@@ -12,29 +12,19 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final Arena memoryArena;
-    private final SSTable ssTable;
+    private final SSTableManager ssManager;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
-    public static final String SSTABLE_NAME = "sstable";
-    public final Path path;
 
     public DaoImpl(final Config config) throws IOException {
-        path = config.basePath();
-        memoryArena = Arena.ofShared();
         storage = new ConcurrentSkipListMap<>(SSTable.COMPARATOR);
-        if (Files.notExists(path.resolve(SSTABLE_NAME))) {
-            ssTable = null;
-        } else {
-            ssTable = new SSTable(path, SSTABLE_NAME, memoryArena);
-        }
-
-//        storage = new ConcurrentSkipListMap<>(ssTable.load(memoryArena, TABLE_SIZE_LIMIT));
+        ssManager = new SSTableManager(config.basePath());
     }
 
     private static <T> Iterator<T> getValuesIterator(final ConcurrentNavigableMap<?, T> map) {
@@ -43,15 +33,24 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
+        Iterator<Entry<MemorySegment>> iterator;
         if (from == null) {
             if (to == null) {
-                return all();
+                iterator = getValuesIterator(storage);
+            } else {
+                iterator = getValuesIterator(storage.headMap(to));
             }
-            return allTo(to);
         } else if (to == null) {
-            return allFrom(from);
+            iterator = getValuesIterator(storage.tailMap(from));
+        } else {
+            iterator = getValuesIterator(storage.subMap(from, to));
         }
-        return getValuesIterator(storage.subMap(from, to));
+        try {
+            System.out.println(5);
+            return new MergeIterator<>(List.of(new MemEntryShiftedIterator(iterator), new MemEntryShiftedIterator(ssManager.get(from, to))));
+        } catch (IOException e) {
+            return iterator;
+        }
     }
 
     @Override
@@ -61,34 +60,18 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> allFrom(final MemorySegment from) {
-        Objects.requireNonNull(from);
-        return getValuesIterator(storage.tailMap(from));
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> allTo(final MemorySegment to) {
-        Objects.requireNonNull(to);
-        return getValuesIterator(storage.headMap(to));
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> all() {
-        return getValuesIterator(storage);
-    }
-
-    @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
         Objects.requireNonNull(key);
         final Entry<MemorySegment> result = storage.get(key);
         if (result != null) {
+            if (result.value() == null) {
+                return null;
+            }
             return result;
         }
-        if (ssTable == null) {
-            return null;
-        }
+
         try {
-            return ssTable.get(key);
+            return ssManager.get(key);
         } catch (IOException e) {
             return null;
         }
@@ -96,13 +79,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        if (!memoryArena.scope().isAlive()) {
-            return;
-        }
         if (!storage.isEmpty()) {
-            SSTable.write(storage, path, SSTABLE_NAME);
+            ssManager.write(storage);
         }
-        memoryArena.close();
+        ssManager.close();
         storage.clear();
     }
 }

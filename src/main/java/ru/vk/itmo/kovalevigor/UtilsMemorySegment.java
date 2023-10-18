@@ -1,5 +1,7 @@
 package ru.vk.itmo.kovalevigor;
 
+import ru.vk.itmo.Entry;
+
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
@@ -23,5 +25,9 @@ public final class UtilsMemorySegment {
             return Long.compare(lhsSize, rhsSize);
         }
         return Byte.compare(getByte(lhs, mismatch), getByte(rhs, mismatch));
+    }
+
+    public static int compareEntry(final Entry<MemorySegment> lhs, final Entry<MemorySegment> rhs) {
+        return compare(lhs.key(), rhs.key());
     }
 }
