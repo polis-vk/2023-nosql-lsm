@@ -39,7 +39,7 @@ public final class MemorySegmentComparator {
         }
         return Byte.compare(
                 memorySegment1.get(ValueLayout.JAVA_BYTE, memorySegment1FromOffset + relativeOffset),
-                memorySegment2.get(ValueLayout.JAVA_BYTE,  relativeOffset)
+                memorySegment2.get(ValueLayout.JAVA_BYTE, relativeOffset)
         );
     }
 }

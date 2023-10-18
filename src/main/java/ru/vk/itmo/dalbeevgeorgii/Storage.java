@@ -21,7 +21,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-public class Storage implements Closeable {
+public final class Storage implements Closeable {
 
     private static final String DB_PREFIX = "data";
     private static final String DB_EXTENSION = ".db";
@@ -116,15 +116,14 @@ public class Storage implements Closeable {
         MemorySegment.copy(entry.key(), 0, newSSTable, newOffset, entry.key().byteSize());
         newOffset += entry.key().byteSize();
 
-        if (entry.value() != null) {
-            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, newOffset, entry.value().byteSize());
-            newOffset += Long.BYTES;
-
-            MemorySegment.copy(entry.value(), 0, newSSTable, newOffset, entry.value().byteSize());
-            newOffset += entry.value().byteSize();
-        } else {
+        if (entry.value() == null) {
             newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, newOffset, -1);
             newOffset += Long.BYTES;
+        } else {
+            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, newOffset, entry.value().byteSize());
+            newOffset += Long.BYTES;
+            MemorySegment.copy(entry.value(), 0, newSSTable, newOffset, entry.value().byteSize());
+            newOffset += entry.value().byteSize();
         }
         return newOffset;
     }
