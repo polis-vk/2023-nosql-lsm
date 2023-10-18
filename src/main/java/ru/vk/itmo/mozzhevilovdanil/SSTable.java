@@ -47,7 +47,6 @@ public class SSTable {
             return;
         }
 
-
         MemorySegment pageCurrent = getMemorySegment(size, tablePath);
         MemorySegment indexCurrent = getMemorySegment(indexSize, indexPath);
 
