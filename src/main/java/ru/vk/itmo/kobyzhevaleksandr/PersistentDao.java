@@ -19,19 +19,18 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
         new ConcurrentSkipListMap<>(new MemorySegmentComparator());
     private static final String TABLE_FILENAME = "ssTable.dat";
 
-    private final Arena arena = Arena.global();
+    private final Arena arena = Arena.ofShared();
     private final Config config;
     private final MemorySegment mappedSsTable;
 
-    public InMemoryDao() {
-        this.config = new Config(Path.of(""));
-        this.mappedSsTable = null;
+    public PersistentDao() {
+        this(new Config(Path.of("")));
     }
 
     /*
@@ -40,15 +39,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     If value is null then value_size = -1
      */
-    public InMemoryDao(Config config) throws IOException {
+    public PersistentDao(Config config) {
         this.config = config;
         Path tablePath = getTablePath();
         MemorySegment mappedTableSegment;
         try {
             long size = Files.size(tablePath);
-            mappedTableSegment = mapFile(tablePath, size, FileChannel.MapMode.READ_ONLY, StandardOpenOption.READ);
+            mappedTableSegment = mapFile(tablePath, size, FileChannel.MapMode.READ_ONLY,
+                arena, StandardOpenOption.READ);
         } catch (NoSuchFileException e) {
             mappedTableSegment = null;
+        } catch (IOException e) {
+            throw new ApplicationException("Can't access the file", e);
         }
         mappedSsTable = mappedTableSegment;
     }
@@ -86,7 +88,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 continue;
             }
 
-            if (key.mismatch(mappedSsTable.asSlice(offset, keySize)) == -1) {
+            if (MemorySegment.mismatch(key, 0, keySize, mappedSsTable, offset, offset + keySize) == -1) {
                 MemorySegment value;
                 if (valueSize == -1) {
                     value = null;
@@ -110,22 +112,29 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        long ssTableSize = 0;
-        long valueSize;
-        for (Entry<MemorySegment> entry : map.values()) {
-            valueSize = entry.value() == null ? 0 : entry.value().byteSize();
-            ssTableSize += Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize;
+        if (!arena.scope().isAlive()) {
+            return;
         }
+        arena.close();
 
-        Path tablePath = getTablePath();
-        MemorySegment mappedSsTableFile = mapFile(tablePath, ssTableSize, FileChannel.MapMode.READ_WRITE,
-            StandardOpenOption.READ, StandardOpenOption.WRITE,
-            StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        try (Arena writeArena = Arena.ofConfined()) {
+            long ssTableSize = 0;
+            for (Entry<MemorySegment> entry : map.values()) {
+                long valueSize = entry.value() == null ? 0 : entry.value().byteSize();
+                ssTableSize += Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize;
+            }
 
-        long offset = 0;
-        for (Entry<MemorySegment> entry : map.values()) {
-            offset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.key(), offset);
-            offset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.value(), offset);
+            Path tablePath = getTablePath();
+            MemorySegment mappedSsTableFile = mapFile(tablePath, ssTableSize,
+                FileChannel.MapMode.READ_WRITE, writeArena,
+                StandardOpenOption.READ, StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+
+            long offset = 0;
+            for (Entry<MemorySegment> entry : map.values()) {
+                offset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.key(), offset);
+                offset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.value(), offset);
+            }
         }
     }
 
@@ -133,14 +142,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return config.basePath().resolve(TABLE_FILENAME);
     }
 
-    private MemorySegment mapFile(Path filePath, long bytesSize, FileChannel.MapMode mapMode,
+    private static MemorySegment mapFile(Path filePath, long bytesSize, FileChannel.MapMode mapMode, Arena arena,
                                   OpenOption... options) throws IOException {
         try (FileChannel fileChannel = FileChannel.open(filePath, options)) {
             return fileChannel.map(mapMode, 0, bytesSize, arena);
         }
     }
 
-    private long writeSegmentToMappedTableFile(MemorySegment mappedTableFile, MemorySegment segment, long offset) {
+    private static long writeSegmentToMappedTableFile(MemorySegment mappedTableFile, MemorySegment segment, long offset) {
         if (segment == null) {
             mappedTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
             return Long.BYTES;
