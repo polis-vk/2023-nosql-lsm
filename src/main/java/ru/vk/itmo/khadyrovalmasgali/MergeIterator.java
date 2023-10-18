@@ -3,10 +3,7 @@ package ru.vk.itmo.khadyrovalmasgali;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
+import java.util.*;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -14,7 +11,7 @@ import static ru.vk.itmo.khadyrovalmasgali.PersistentDao.comparator;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
-    private final ConcurrentNavigableMap<MemorySegment, MergeIteratorEntry> priorityMap;
+    private final SortedMap<MemorySegment, MergeIteratorEntry> priorityMap;
     private final List<Iterator<Entry<MemorySegment>>> iters;
     private MergeIteratorEntry mentry;
 
@@ -23,7 +20,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             MemorySegment to,
             ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data,
             List<SSTable> sstables) {
-        priorityMap = new ConcurrentSkipListMap<>(comparator);
+        priorityMap = new TreeMap<>(comparator);
         iters = new ArrayList<>();
         Iterator<Entry<MemorySegment>> inMemoryIt;
         if (from == null && to == null) {
@@ -85,8 +82,10 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private void updateIter(Iterator<Entry<MemorySegment>> iter, int index) {
-        while (iter.hasNext()) {
+        boolean flag = iter.hasNext();
+        while (flag) {
             Entry<MemorySegment> next = iter.next();
+            flag = iter.hasNext();
             if (priorityMap.containsKey(next.key())) {
                 MergeIteratorEntry other = priorityMap.get(next.key());
                 if (other.index < index) {
@@ -96,7 +95,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
                 }
             }
             priorityMap.put(next.key(), new MergeIteratorEntry(next, index));
-            break;
+            flag = false;
         }
     }
 
