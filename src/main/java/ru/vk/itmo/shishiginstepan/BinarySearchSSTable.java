@@ -163,7 +163,7 @@ public class BinarySearchSSTable {
         if (m == -1) return null;
         var valOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES * 2 + Long.BYTES);
 
-        if ((m + 1) * 16 == indexSize) {
+        if ((m + 1) * Long.BYTES*2 == indexSize) {
             // Случай когда мы не можем посчитать размер значения тк не имеем оффсета следующего за ним элемента
             val = tableSegment.asSlice(valOffset, tableSize - valOffset);
         } else {
