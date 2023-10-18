@@ -15,6 +15,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -122,6 +124,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         Entry<MemorySegment> entry = memTable.get(key);
         if (entry != null) {
+            if (entry.value() == null) {
+                return null;
+            }
             return entry;
         }
 
@@ -147,14 +152,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             int pos = findKeyPositionOrNearest(ssTable, metaTable, key);
             int keyOffset = getKeyOffsetByIndex(metaTable, pos);
-            int keySize = getKeySize(metaTable, pos, keyOffset);
+            int keySize = getKeySize(ssTable, metaTable, pos, keyOffset);
 
             long mismatch = MemorySegment.mismatch(ssTable, keyOffset, keyOffset + keySize, key, 0, key.byteSize());
 
             if (mismatch == -1) {
 
                 MemorySegment value = getValueSegment(ssTable, metaTable, pos);
-                return (value == null) ? null : new BaseEntry<>(key, value);
+                return isNullValue(metaTable, pos) ? null : new BaseEntry<>(key, value);
             }
         }
         return null;
@@ -186,13 +191,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         int min = 0;
         int max = entryNumber;
-        int mid;
         int nearest = -1;
         while (min != max) {
-            mid = (min + max) / 2;
+            int mid = (min + max) / 2;
 
             int keyOffset = getKeyOffsetByIndex(meta, mid);
-            int keySize = getKeySize(meta, mid, keyOffset);
+            int keySize = getKeySize(ssTable, meta, mid, keyOffset);
 
             /// ??? non optimise
             MemorySegment currKey = ssTable.asSlice(keyOffset, keySize);
@@ -214,6 +218,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
 
+        if (memTable.isEmpty()) {
+            return;
+        }
+
         createFileIfNotExists(ssTablePath);
         createFileIfNotExists(ssTableMetaPath);
 
@@ -224,16 +232,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         ) {
             MemorySegment storageMeta = storageMetaChannel.map(FileChannel.MapMode.READ_WRITE, 0, Integer.BYTES, offHeapArena);
             // Сохраняем количество ssTable.
-            storageMeta.set(ValueLayout.JAVA_INT_UNALIGNED, 0,ssTablesCount + 1);
+            storageMeta.set(ValueLayout.JAVA_INT_UNALIGNED, 0, ssTablesCount + 1);
 
-            // Вычисляем длину текущей ssTable.
             int ssTableSize = 0;
             for (Entry<MemorySegment> entry : memTable.values()) {
-                ssTableSize += (int) (entry.key().byteSize() + entry.value().byteSize());
+                ssTableSize += (int) entry.key().byteSize();
+                if (entry.value() != null) {
+                    ssTableSize += (int) entry.value().byteSize();
+                }
             }
 
             // Вычисляем длину текущей мета-таблицы.
-            int metaSize = Integer.BYTES + 2 * Integer.BYTES * memTable.size();
+            int metaSize = Integer.BYTES * (1 + 2 * memTable.size());
 
             MemorySegment ssTable = ssTableChannel.map(FileChannel.MapMode.READ_WRITE, 0, ssTableSize, offHeapArena);
             MemorySegment meta = metaChannel.map(FileChannel.MapMode.READ_WRITE, 0, metaSize, offHeapArena);
@@ -245,21 +255,29 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             metaSegmentOffset = Integer.BYTES;
             ssTableOffset = 0;
             for (Entry<MemorySegment> entry : memTable.values()) {
-                saveSsTableValue(meta, ssTable, entry.key(), (int) entry.key().byteSize());
-                saveSsTableValue(meta, ssTable, entry.value(), (int) entry.value().byteSize());
+
+                int keySize = (int) entry.key().byteSize();
+                meta.set(ValueLayout.JAVA_INT_UNALIGNED, metaSegmentOffset, ssTableOffset);
+                MemorySegment.copy(entry.key(), 0, ssTable, ssTableOffset, keySize);
+                metaSegmentOffset += Integer.BYTES;
+
+                if (entry.value() != null) {
+                    ssTableOffset += keySize;
+                    int valueSize = (int) entry.value().byteSize();
+                    meta.set(ValueLayout.JAVA_INT_UNALIGNED, metaSegmentOffset, ssTableOffset);
+                    MemorySegment.copy(entry.value(), 0, ssTable, ssTableOffset, valueSize);
+                    ssTableOffset += valueSize;
+                } else {
+                    meta.set(ValueLayout.JAVA_INT_UNALIGNED, metaSegmentOffset, ssTableOffset);
+                    ssTableOffset += keySize;
+                }
+                metaSegmentOffset += Integer.BYTES;
             }
         } finally {
             if (offHeapArena.scope().isAlive()) {
                 offHeapArena.close();
             }
         }
-    }
-
-    private void saveSsTableValue(MemorySegment meta, MemorySegment ssTable, MemorySegment value, int valueSize) {
-        meta.set(ValueLayout.JAVA_INT_UNALIGNED, metaSegmentOffset, ssTableOffset);
-        MemorySegment.copy(value, 0, ssTable, ssTableOffset, valueSize);
-        ssTableOffset += valueSize;
-        metaSegmentOffset += Integer.BYTES;
     }
 
     private void createFileIfNotExists(Path path) throws IOException {
@@ -279,8 +297,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         memTable.put(entry.key(), entry);
     }
 
+
+    static boolean isNullValue(MemorySegment meta, int index) {
+        int keyOffset = getKeyOffsetByIndex(meta, index);
+        int valueOffset = getValueOffsetByIndex(meta, index);
+        return keyOffset == valueOffset;
+    }
+
     static int getKeyOffsetByIndex(MemorySegment meta, int index) {
-        int keyPosition = Integer.BYTES + index * 2 * Integer.BYTES;
+        int keyPosition = (1 + index * 2) * Integer.BYTES;
         return meta.get(ValueLayout.JAVA_INT_UNALIGNED, keyPosition);
     }
 
@@ -289,21 +314,30 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return meta.get(ValueLayout.JAVA_INT_UNALIGNED, valuePosition);
     }
 
-    static int getKeySize(MemorySegment meta, int index, int keyOffset) {
-        int valueOffset = getValueOffsetByIndex(meta, index);
-        return valueOffset - keyOffset;
+    static int getKeySize(MemorySegment ssTable, MemorySegment meta, int index, int keyOffset) {
+        int endOffset;
+        if (isNullValue(meta, index)) {
+            endOffset = getLimitValueOffset(meta, index, (int) ssTable.byteSize());
+        } else {
+            endOffset = getValueOffsetByIndex(meta, index);
+        }
+        return endOffset - keyOffset;
     }
 
-    static int getValueSize(MemorySegment meta, int index, int limitOffset) {
+    static int getLimitValueOffset(MemorySegment meta, int index, int limitOffset) {
         int entryNumber = meta.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
-
         int valueEndOffset;
         if (index == entryNumber - 1) {
             valueEndOffset = limitOffset;
         } else {
             valueEndOffset = getKeyOffsetByIndex(meta, index + 1);
         }
+        return valueEndOffset;
+    }
 
+    static int getValueSize(MemorySegment meta, int index, int limitOffset) {
+
+        int valueEndOffset = getLimitValueOffset(meta, index, limitOffset);
         int valueOffset = getValueOffsetByIndex(meta, index);
 
         return valueEndOffset - valueOffset;
@@ -311,7 +345,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     static MemorySegment getKeySegment(MemorySegment ssTable, MemorySegment meta, int index) {
         int keyOffset = getKeyOffsetByIndex(meta, index);
-        int keySize = getKeySize(meta, index, keyOffset);
+        int keySize = getKeySize(ssTable, meta, index, keyOffset);
         return ssTable.asSlice(keyOffset, keySize);
     }
 
