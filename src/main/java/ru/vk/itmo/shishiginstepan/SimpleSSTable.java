@@ -13,13 +13,11 @@ import java.nio.file.StandardOpenOption;
 import java.util.Collection;
 
 public class SimpleSSTable {
-    private final Path sstPath;
     private long size;
 
     private final MemorySegment segment;
 
     public int id;
-
 
     private static class SSTableCreationException extends RuntimeException {
         public SSTableCreationException(Throwable cause) {
@@ -33,25 +31,23 @@ public class SimpleSSTable {
         }
     }
 
-
     SimpleSSTable(Path path, Arena arena) {
         this.id = Integer.parseInt(path.getFileName().toString().substring(8));
-        this.sstPath = path;
         try {
-            if (Files.exists(sstPath)) {
-                this.size = Files.size(sstPath);
+            if (Files.exists(path)) {
+                this.size = Files.size(path);
             }
         } catch (IOException e) {
             throw new SSTableCreationException(e);
         }
-        try (FileChannel fileChannel = FileChannel.open(sstPath, StandardOpenOption.READ)) {
+        try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.READ)) {
             this.segment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
         } catch (IOException e) {
             throw new SSTableRWException(e);
         }
     }
 
-    public static Path WriteSSTable(Collection<Entry<MemorySegment>> entries, Path path, int id) {
+    public static Path writeSSTable(Collection<Entry<MemorySegment>> entries, Path path, int id) {
         Arena arena = Arena.ofShared();
         Path sstPath = Path.of(path.toAbsolutePath() + "/sstable_" + id);
         long dataSize = 0;

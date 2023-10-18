@@ -30,7 +30,8 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             return Byte.compare(b1, b2);
         }
     };
-    private static class IteratorWrapper implements Iterator<Entry<MemorySegment>>{
+
+    private static class IteratorWrapper implements Iterator<Entry<MemorySegment>> {
         private Entry<MemorySegment> prefetched;
         private final Iterator<Entry<MemorySegment>> iterator;
 
@@ -63,14 +64,14 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
         public void skip() {
             if (this.prefetched != null) {
-                this.prefetched=null;
+                this.prefetched = null;
                 return;
             }
             this.iterator.next();
         }
     }
 
-    public MergeIterator(List<Iterator<Entry<MemorySegment>>> iterators){
+    public MergeIterator(List<Iterator<Entry<MemorySegment>>> iterators) {
         // приоритет мержа будет определен порядком итераторов
         this.iterators = new ArrayList<IteratorWrapper>();
         iterators.forEach(iterator -> this.iterators.add(
@@ -81,7 +82,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public boolean hasNext() {
-        for (var iterator: iterators) {
+        for (var iterator : iterators) {
             if (iterator.hasNext()) return true;
         }
         return false;
@@ -90,18 +91,22 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> next() {
         Entry<MemorySegment> nextEntry = null;
-        for (var iterator: this.iterators){
-            if (!iterator.hasNext()) continue;
-            nextEntry = iterator.peekNext();
-            break;
+        for (var iterator : this.iterators) {
+            if (iterator.hasNext()){
+                nextEntry = iterator.peekNext();
+                break;
+            }
         }
-        for (var iterator: this.iterators) {
+        if (nextEntry == null) {
+            throw new RuntimeException("Empty iterator");
+        }
+        for (var iterator : this.iterators) {
             if (!iterator.hasNext()) continue;
             if (keyComparator.compare(nextEntry.key(), iterator.peekNext().key()) > 0) {
                 nextEntry = iterator.peekNext();
             }
         }
-        for (var iterator: this.iterators) {
+        for (var iterator : this.iterators) {
             if (!iterator.hasNext()) continue;
             if (keyComparator.compare(nextEntry.key(), iterator.peekNext().key()) == 0) {
                 iterator.skip();

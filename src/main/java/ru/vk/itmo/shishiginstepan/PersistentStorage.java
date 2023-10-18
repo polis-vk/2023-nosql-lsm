@@ -7,7 +7,13 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.NavigableSet;
 import java.util.concurrent.ConcurrentSkipListSet;
 
 public class PersistentStorage {
@@ -17,11 +23,23 @@ public class PersistentStorage {
             Comparator.comparingInt(ss -> -ss.id)
     );
 
+
+    private static class PersistentStorageCreationException extends RuntimeException {
+        public PersistentStorageCreationException(Throwable cause) {
+            super(cause);
+        }
+    }
+
     PersistentStorage(Path basePath) throws IOException {
         this.arena = Arena.ofShared();
         this.basePath = basePath;
         try (var sstablesFiles = Files.list(basePath)) {
-            sstablesFiles.filter(x -> !x.getFileName().toString().contains("_index")).map(path -> new BinarySearchSSTable(path, arena)).forEach(this.sstables::add);
+            sstablesFiles.filter(
+                x -> !x.getFileName().toString().contains("_index")
+            ).map(
+                path -> new BinarySearchSSTable(path, arena)).forEach(this.sstables::add);
+        } catch (IOException e) {
+            throw new PersistentStorageCreationException(e);
         }
     }
 
