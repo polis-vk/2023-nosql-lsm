@@ -128,10 +128,11 @@ public class SSTable implements Comparable<SSTable> {
                 segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + Long.BYTES));
     }
 
-    // Binary search in summary and index files. Returns index of least record greater than key
+    /* Binary search in summary and index files. Returns index of least record greater than key or equal.
+    Returns -1 if no such key */
     private long findByKey(MemorySegment key) {
-        long left = 0;
-        long right = size - 1;
+        long left = -1;  // Always less than key
+        long right = size; // Always greater or equal than key
         while (right - left > 1) {
             long middle = (right + left) / 2;
             Metadata currentEntryMetadata = new Metadata(middle);
@@ -143,21 +144,13 @@ public class SSTable implements Comparable<SSTable> {
                 left = middle;
             }
         }
-        for (long i = left; i <= right; i++) {
-            Metadata currentEntryMetadata = new Metadata(i);
-            MemorySegment curKey = currentEntryMetadata.readKey();
-            if (memSegComp.compare(curKey, key) >= 0) {
-                return i;
-            }
-        }
-        return -1;
+        return right == size ? -1 : right;
     }
 
     private long findByKeyExact(MemorySegment key) {
         long goe = findByKey(key);
-        if (goe == -1) return -1;
-        if (memSegComp.compare(readEntry(goe).key(), key) == 0) return goe;
-        return -1;
+        if (goe == -1 || memSegComp.compare(readEntry(goe).key(), key) != 0) return -1;
+        return goe;
     }
 
     private Entry<MemorySegment> readEntry(long index) {
