@@ -33,13 +33,22 @@ class BinarySearchSSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> next() {
-        var keyOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * Long.BYTES * 2);
-        var valOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * Long.BYTES * 2 + Long.BYTES);//TODO заменить по коменту из ПР
+        var keyOffset = this.indexSegment.get(
+                ValueLayout.JAVA_LONG_UNALIGNED,
+                this.currentEntryIndex * Long.BYTES * 2
+        );
+        var valOffset = this.indexSegment.get(
+                ValueLayout.JAVA_LONG_UNALIGNED,
+                this.currentEntryIndex * Long.BYTES * 2 + Long.BYTES
+        );
         long nextOffset;
         if (this.currentEntryIndex * Long.BYTES * 2 + Long.BYTES * 2 >= this.indexSegment.byteSize()) {
             nextOffset = this.tableSegment.byteSize();
         } else {
-            nextOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * Long.BYTES * 2 + Long.BYTES * 2);
+            nextOffset = this.indexSegment.get(
+                    ValueLayout.JAVA_LONG_UNALIGNED,
+                    this.currentEntryIndex * Long.BYTES * 2 + Long.BYTES * 2
+            );
         }
         this.currentEntryIndex++;
         return new BaseEntry<>(
