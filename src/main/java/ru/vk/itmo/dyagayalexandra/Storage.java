@@ -44,7 +44,9 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
             iterators = fileManager.createIterators(from, to);
         }
 
-        if (iterators != null) {
+        if (iterators == null) {
+            return memoryIterator;
+        } else {
             Iterator<Entry<MemorySegment>> mergeIterator = MergedIterator.createMergedIterator(
                     List.of(
                             new PeekingIterator(0, memoryIterator),
@@ -54,8 +56,6 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
             );
 
             return new SkipNullIterator(new PeekingIterator(0, mergeIterator), fileManager);
-        } else {
-            return memoryIterator;
         }
     }
 

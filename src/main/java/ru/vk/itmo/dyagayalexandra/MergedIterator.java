@@ -9,7 +9,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.PriorityQueue;
 
-public class MergedIterator implements Iterator<Entry<MemorySegment>> {
+public final class MergedIterator implements Iterator<Entry<MemorySegment>> {
 
     private final PriorityQueue<PeekingIterator> iterators;
     private final Comparator<Entry<MemorySegment>> comparator;

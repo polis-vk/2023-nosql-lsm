@@ -96,7 +96,8 @@ public class FileManager {
         }
     }
 
-    private Iterator<Entry<MemorySegment>> createFileIterator(Path ssTable, Path ssIndex, MemorySegment from, MemorySegment to) {
+    private Iterator<Entry<MemorySegment>> createFileIterator(Path ssTable, Path ssIndex,
+                                                              MemorySegment from, MemorySegment to) {
         long indexSize = ssTableIndexStorage.get(ssIndex);
         FileIterator fileIterator;
         try {
@@ -162,11 +163,12 @@ public class FileManager {
             long offset = 0;
             for (var entry : storage.entrySet()) {
                 Entry<MemorySegment> entryValue = entry.getValue();
-                int keyLength = (int) entryValue.key().byteSize();
                 int valueLength = 0;
                 if (entryValue.value() != null) {
                     valueLength = (int) entryValue.value().byteSize();
                 }
+
+                int keyLength = (int) entryValue.key().byteSize();
 
                 buffer.putLong(offset);
                 buffer.flip();
@@ -214,7 +216,8 @@ public class FileManager {
         return low;
     }
 
-    static Entry<MemorySegment> getCurrentEntry(long position, FileChannel table, FileChannel index) throws IOException {
+    static Entry<MemorySegment> getCurrentEntry(long position, FileChannel table,
+                                                FileChannel index) throws IOException {
         index.position((position + 1) * Long.BYTES);
         ByteBuffer bufferLong = ByteBuffer.allocate(Long.BYTES);
         index.read(bufferLong);

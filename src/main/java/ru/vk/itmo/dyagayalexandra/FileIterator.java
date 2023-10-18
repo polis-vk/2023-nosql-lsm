@@ -10,7 +10,6 @@ import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-
 public class FileIterator implements Iterator<Entry<MemorySegment>> {
 
     private final FileChannel channelTable;
@@ -20,7 +19,8 @@ public class FileIterator implements Iterator<Entry<MemorySegment>> {
     private long currentIndex;
     private final long endIndex;
 
-    public FileIterator(Path ssTable, Path ssIndex, MemorySegment from, MemorySegment to, long indexSize) throws IOException {
+    public FileIterator(Path ssTable, Path ssIndex, MemorySegment from,
+                        MemorySegment to, long indexSize) throws IOException {
         rafTable = new RandomAccessFile(String.valueOf(ssTable), "r");
         rafIndex = new RandomAccessFile(String.valueOf(ssIndex), "r");
         channelTable = rafTable.getChannel();
