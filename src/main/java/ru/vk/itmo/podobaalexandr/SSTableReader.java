@@ -3,36 +3,36 @@ package ru.vk.itmo.podobaalexandr;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.stream.Stream;
 
-public class SSTable {
+public class SSTableReader implements Closeable {
 
-    private final StringBuilder fileName = new StringBuilder("database_");
     private final List<MemorySegment> pages = new ArrayList<>();
-    private final Path filePath;
-    private long offsetV = 0;
     private Arena arena;
 
-    public SSTable(Path path) {
-        filePath = path;
-        arena = Arena.ofShared();
-
+    public SSTableReader(Path filePath) {
         boolean created = false;
-        int filesCount = 0;
 
-        if(Files.exists(filePath)) {
+        if (Files.exists(filePath)) {
+            arena = Arena.ofShared();
             try (Stream<Path> stream = Files.list(filePath).sorted()) {
                 List<Path> files = stream.toList();
-                filesCount = files.size();
                 for (Path file : files) {
                     try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ)) {
                         long size = Files.size(file);
@@ -51,24 +51,10 @@ public class SSTable {
             }
         }
 
-        fileName.append(String.format("%010d", filesCount));
     }
 
-    public Entry<MemorySegment> get(MemorySegment keySearch) {
-
-        Entry<MemorySegment> res = null;
-
-        for(MemorySegment page : pages) {
-            res = getFromPage(keySearch, page);
-            if (res != null) {
-                if (res.value() == null) {
-                    return null;
-                }
-                break;
-            }
-        }
-
-        return res;
+    public int size() {
+        return pages.size();
     }
 
     private int compareSegments(MemorySegment src, long srcToOffset,
@@ -123,61 +109,82 @@ public class SSTable {
         return new BaseEntry<>(key, value);
     }
 
-    public Collection<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to,
-                                                ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> mapMemory) {
+    public Entry<MemorySegment> get(MemorySegment keySearch) {
 
-        if (arena == null) {
-            return mapMemory.values();
+        Entry<MemorySegment> res = null;
+
+        for (MemorySegment page : pages) {
+            res = getFromPage(keySearch, page);
+            if (res != null) {
+                if (res.value() == null) {
+                    return null;
+                }
+                break;
+            }
         }
 
-        TreeMap<MemorySegment, Entry<MemorySegment>> entries = new TreeMap<>(mapMemory);
+        return res;
+    }
 
-        if (from != null && to != null) {
-            allPagesFromTo(entries, from, to);
-        } else if (from == null && to == null) {
-            allPages(entries);
-        } else if (from != null) {
-            allPagesFrom(entries, from);
-        } else {
-            allPagesTo(entries, to);
+    public Collection<Entry<MemorySegment>> allPagesFromTo(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map,
+                                MemorySegment from, MemorySegment to) {
+        if (size() == 0 || compareSegments(from, from.byteSize(), to, 0, to.byteSize()) >= 0) {
+            return map.values();
+        }
+
+        NavigableMap<MemorySegment, Entry<MemorySegment>> entries = new TreeMap<>(map);
+        for (MemorySegment page : pages) {
+            long keysSize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+            allPageFromTo(page, entries, Long.BYTES, keysSize, from, to);
         }
 
         return entries.values();
     }
 
-    private void allPagesFromTo(TreeMap<MemorySegment, Entry<MemorySegment>> entries,
-                                MemorySegment from, MemorySegment to) {
-        if (compareSegments(from, from.byteSize(), to, 0, to.byteSize()) < 0) {
-            for (MemorySegment page : pages) {
-                long keysSize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
-                allPageFromTo(page, entries, Long.BYTES, keysSize, from, to);
-            }
+    public Collection<Entry<MemorySegment>> allPagesTo(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map, MemorySegment to) {
+        if (size() == 0) {
+            return map.values();
         }
-    }
 
-    private void allPagesTo(TreeMap<MemorySegment, Entry<MemorySegment>> entries, MemorySegment to) {
+        NavigableMap<MemorySegment, Entry<MemorySegment>> entries = new TreeMap<>(map);
         for (MemorySegment page: pages) {
             long keysSize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
             allPageTo(page, entries, Long.BYTES, keysSize, to);
         }
+
+        return entries.values();
     }
 
-    private void allPagesFrom(TreeMap<MemorySegment, Entry<MemorySegment>> entries, MemorySegment from) {
+    public Collection<Entry<MemorySegment>> allPagesFrom(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map, MemorySegment from) {
+        if (size() == 0) {
+            return map.values();
+        }
+
+        NavigableMap<MemorySegment, Entry<MemorySegment>> entries = new TreeMap<>(map);
         for (MemorySegment page: pages) {
             long keysSize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
             allPageFrom(page, entries, Long.BYTES, keysSize, from);
         }
+
+        return entries.values();
     }
 
-    private void allPages(TreeMap<MemorySegment, Entry<MemorySegment>> entries) {
+    public Collection<Entry<MemorySegment>> allPages(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map) {
+        if (size() == 0) {
+            return map.values();
+        }
+
+        NavigableMap<MemorySegment, Entry<MemorySegment>> entries = new TreeMap<>(map);
         for (MemorySegment page: pages) {
             long keysSize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
             allPage(page, entries, Long.BYTES, keysSize);
         }
+
+        return entries.values();
     }
 
     //Invariant: FROM < TO
-    private void allPageFromTo(MemorySegment page, TreeMap<MemorySegment, Entry<MemorySegment>> entries,
+    private void allPageFromTo(MemorySegment page, NavigableMap<MemorySegment, Entry<MemorySegment>> entries,
                                long offset, long keysSize, MemorySegment from, MemorySegment to) {
         if (keysSize <= offset || offset == 0) {
             return;
@@ -210,7 +217,7 @@ public class SSTable {
 
             entries.putIfAbsent(last.key(), last);
             long rightOffset = page.get(ValueLayout.JAVA_BYTE, offset) == 1 ? offset + Byte.BYTES : 0;
-                allPageTo(page, entries, rightOffset, keysSize, to);
+            allPageTo(page, entries, rightOffset, keysSize, to);
         } else if (compareTo == 0) {
             offset += keySize + Long.BYTES;
             long offsetToL = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
@@ -226,7 +233,7 @@ public class SSTable {
         }
     }
 
-    private void allPageTo(MemorySegment page, TreeMap<MemorySegment, Entry<MemorySegment>> entries,
+    private void allPageTo(MemorySegment page, NavigableMap<MemorySegment, Entry<MemorySegment>> entries,
                            long offset, long keysSize, MemorySegment to) {
         if (keysSize <= offset || offset == 0) {
             return;
@@ -265,7 +272,7 @@ public class SSTable {
         }
     }
 
-    private void allPageFrom(MemorySegment page, TreeMap<MemorySegment, Entry<MemorySegment>> entries,
+    private void allPageFrom(MemorySegment page, NavigableMap<MemorySegment, Entry<MemorySegment>> entries,
                              long offset, long keysSize, MemorySegment from) {
         if (keysSize <= offset || offset == 0) {
             return;
@@ -301,11 +308,11 @@ public class SSTable {
             entries.putIfAbsent(last.key(), last);
 
             byte isRightHere = page.get(ValueLayout.JAVA_BYTE, offset);
-                allPage(page, entries, isRightHere == 1 ? offset + Byte.BYTES : 0, keysSize);
+            allPage(page, entries, isRightHere == 1 ? offset + Byte.BYTES : 0, keysSize);
         }
     }
 
-    private void allPage(MemorySegment page, TreeMap<MemorySegment, Entry<MemorySegment>> entries,
+    private void allPage(MemorySegment page, NavigableMap<MemorySegment, Entry<MemorySegment>> entries,
                          long offset, long keysSize) {
         if (keysSize <= offset || offset == 0) {
             return;
@@ -363,111 +370,16 @@ public class SSTable {
         return res;
     }
 
-    public void save(Collection<Entry<MemorySegment>> entries) {
-
-        if (arena != null) {
-            if (!arena.scope().isAlive()) {
-                return;
-            }
-
-            arena.close();
-        }
-
-        long offsetK = 0L;
-
-        for (Entry<MemorySegment> entry : entries) {
-            offsetK += entry.key().byteSize() + 3 * Long.BYTES + Byte.BYTES;
-            offsetV += entry.value() == null ? 0 : entry.value().byteSize();
-        }
-
-        offsetK += Long.BYTES;
-        offsetV += offsetK;
-
-        try {
-            if (!Files.exists(filePath)) {
-                Files.createDirectory(filePath);
-            }
-            if (!entries.isEmpty()) {
-                sureSave(entries, offsetK);
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+    @Override
+    public void close() {
+        arena.close();
     }
 
-    private void sureSave(Collection<Entry<MemorySegment>> entries, long offsetK) {
-        OpenOption[] options = {StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE};
-
-        try (Arena arenaWrite = Arena.ofConfined();
-             FileChannel fileChannel = FileChannel.open(filePath.resolve(String.valueOf(fileName)), options)) {
-
-            MemorySegment fileSegment = fileChannel
-                    .map(FileChannel.MapMode.READ_WRITE, 0, offsetV, arenaWrite);
-
-            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, offsetK);
-            log2Save(0, entries.size() - 1, fileSegment, entries.iterator(), offsetK);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+    public boolean isAlive() {
+        return arena.scope().isAlive();
     }
 
-    private long log2Save(int lo, int hi, MemorySegment fileSegment, Iterator<Entry<MemorySegment>> iterator,
-                          long startOffsetKey) {
-        if (hi < lo) {
-            return -1;
-        }
-
-        int mid = (lo + hi) >>> 1;
-
-        long offsetL = 0L;
-        long offsetR = 0L;
-
-        if (lo < mid) {
-            offsetL = log2Save(lo, mid - 1, fileSegment, iterator, startOffsetKey);
-        }
-
-        Entry<MemorySegment> entry = iterator.next();
-        MemorySegment key = entry.key();
-        MemorySegment value = entry.value();
-
-        if (mid < hi) {
-            offsetR = log2Save(mid + 1, hi, fileSegment, iterator, offsetL != 0 ? offsetL : startOffsetKey);
-        }
-
-        if (value != null) {
-            offsetV -= value.byteSize();
-            MemorySegment.copy(value, 0, fileSegment, offsetV, value.byteSize());
-        }
-
-        byte offsetToR = (byte) (offsetR == 0 ? 0 : 1);
-
-        long offsetKey;
-        if (offsetR != 0) {
-            offsetKey = offsetR;
-        } else {
-            if (offsetL != 0) {
-                offsetKey = offsetL;
-            } else {
-                offsetKey = startOffsetKey;
-            }
-        }
-
-        offsetKey -= Byte.BYTES;
-        fileSegment.set(ValueLayout.JAVA_BYTE, offsetKey, offsetToR);
-
-        offsetKey -= Long.BYTES;
-        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKey, offsetL);
-
-        offsetKey -= Long.BYTES;
-        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKey, value == null ? 0 : offsetV);
-
-        offsetKey -= key.byteSize();
-        MemorySegment.copy(key, 0, fileSegment, offsetKey, key.byteSize());
-
-        offsetKey -= Long.BYTES;
-        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKey, key.byteSize());
-
-        return offsetKey;
+    public boolean isArenaPresented() {
+        return arena != null;
     }
-
 }
