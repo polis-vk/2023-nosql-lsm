@@ -5,7 +5,6 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Comparator;
@@ -15,7 +14,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private static final Comparator<MemorySegment> comparator = new MyComparator();
+    private static final Comparator<MemorySegment> comparator = MemorySegmentUtils::compare;
 
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntryMap
             = new ConcurrentSkipListMap<>(comparator);
@@ -42,13 +41,13 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
             entries = ssTableReader.allPages(innerMap);
         } else if (from != null && to != null) {
             innerMap = innerMap.subMap(from, to);
-            entries = ssTableReader.allPagesFromTo(innerMap, from, to);
+            entries = ssTableReader.allPagesFromTo(from, to, innerMap);
         } else if (from != null) {
             innerMap = innerMap.tailMap(from);
-            entries = ssTableReader.allPagesFrom(innerMap, from);
+            entries = ssTableReader.allPagesFrom(from, innerMap);
         } else {
             innerMap = innerMap.headMap(to);
-            entries = ssTableReader.allPagesTo(innerMap, to);
+            entries = ssTableReader.allPagesTo(to, innerMap);
         }
 
         entries.removeIf(it -> it.value() == null);
@@ -81,29 +80,6 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
         }
 
         return ssTableReader.get(key);
-    }
-
-    private static class MyComparator implements Comparator<MemorySegment> {
-
-        @Override
-        public int compare(MemorySegment o1, MemorySegment o2) {
-
-            int sizeDiff = Long.compare(o1.byteSize(), o2.byteSize());
-
-            if (o1.byteSize() == 0 || o2.byteSize() == 0) {
-                return sizeDiff;
-            }
-
-            long mismatch = o1.mismatch(o2);
-
-            if (mismatch == o1.byteSize() || mismatch == o2.byteSize()) {
-                return sizeDiff;
-            }
-
-            return mismatch == -1
-                    ? 0
-                    : Byte.compare(o1.get(ValueLayout.JAVA_BYTE, mismatch), o2.get(ValueLayout.JAVA_BYTE, mismatch));
-        }
     }
 
 }
