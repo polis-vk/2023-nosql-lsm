@@ -55,10 +55,10 @@ public class SSTable {
             Path offsetFullPath = basePath.resolve(OFFSET_PREFIX + index);
             Path fileFullPath = basePath.resolve(FILE_PREFIX + index);
 
-            try (FileChannel fcData = FileChannel.open(offsetFullPath, StandardOpenOption.READ);
-                 FileChannel fcOffset = FileChannel.open(fileFullPath, StandardOpenOption.READ)) {
-                MemorySegment readSegmentOffset = fcData.map(READ_ONLY, 0, Files.size(offsetFullPath), readArena);
-                MemorySegment readSegmentData = fcOffset.map(READ_ONLY, 0, Files.size(fileFullPath), readArena);
+            try (FileChannel fcOffset = FileChannel.open(offsetFullPath, StandardOpenOption.READ);
+                 FileChannel fcData = FileChannel.open(fileFullPath, StandardOpenOption.READ)) {
+                MemorySegment readSegmentData = fcData.map(READ_ONLY, 0, Files.size(offsetFullPath), readArena);
+                MemorySegment readSegmentOffset = fcOffset.map(READ_ONLY, 0, Files.size(fileFullPath), readArena);
 
                 files.add(new BaseEntry<>(readSegmentOffset, readSegmentData));
             }
