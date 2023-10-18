@@ -1,4 +1,4 @@
-package ru.vk.itmo.novichkovandrew;
+package ru.vk.itmo.novichkovandrew.dao;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;

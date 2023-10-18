@@ -1,13 +1,15 @@
-package ru.vk.itmo.novichkovandrew;
+package ru.vk.itmo.novichkovandrew.dao;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.novichkovandrew.exceptions.FileChannelException;
+import ru.vk.itmo.novichkovandrew.Utils;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
-import java.nio.file.InvalidPathException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
@@ -25,19 +27,13 @@ public class PersistentDao extends InMemoryDao {
     };
 
     public PersistentDao(Path path) {
-        try {
-            this.path = path.resolve("data.txt");
-        } catch (InvalidPathException ex) {
-            throw new RuntimeException("Error resolving path: " + ex.getMessage());
-        }
+        this.path = path.resolve("data.txt");
         this.arena = Arena.ofConfined();
     }
 
     @Override
     public void flush() throws IOException {
-        try (FileChannel sst = FileChannel.open(path, openOptions);
-             Arena arena = Arena.ofConfined()
-        ) {
+        try (FileChannel sst = FileChannel.open(path, openOptions)) {
             long metaSize = super.getMetaDataSize();
             long sstOffset = 0L;
             long indexOffset = Utils.writeLong(sst, 0L, entriesMap.size());
@@ -74,12 +70,14 @@ public class PersistentDao extends InMemoryDao {
         if (entry != null) {
             return entry;
         }
+        if (Files.notExists(path)) {
+            return null;
+        }
         try (FileChannel sstChannel = FileChannel.open(path, StandardOpenOption.READ)) {
             return binarySearch(sstChannel, key);
         } catch (IOException e) {
-            System.err.printf("Couldn't open file %s: %s%n", path, e.getMessage());
+            throw new FileChannelException("Couldn't open file " + path, e);
         }
-        return null;
     }
 
     private Entry<MemorySegment> binarySearch(FileChannel sst, MemorySegment key) throws IOException {
