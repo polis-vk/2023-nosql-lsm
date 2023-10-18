@@ -20,7 +20,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Storage storage;
 
     public PersistentDao() {
-        this.storage = new Storage(new Config(Path.of("")));
+        this(new Config(Path.of("")));
     }
 
     public PersistentDao(Config config) {

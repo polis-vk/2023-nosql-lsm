@@ -121,10 +121,9 @@ public class Storage {
             long entriesCount = entries.size();
             long entriesStartIndex = Long.BYTES + Long.BYTES * entriesCount;
             long ssTableSize = 0;
-            long valueSize;
 
             for (Entry<MemorySegment> entry : entries) {
-                valueSize = entry.value() == null ? 0 : entry.value().byteSize();
+                long valueSize = entry.value() == null ? 0 : entry.value().byteSize();
                 ssTableSize += Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize;
             }
 
@@ -147,14 +146,14 @@ public class Storage {
         }
     }
 
-    private MemorySegment mapFile(Path filePath, long bytesSize, FileChannel.MapMode mapMode, Arena arena,
+    private static MemorySegment mapFile(Path filePath, long bytesSize, FileChannel.MapMode mapMode, Arena arena,
                                   OpenOption... options) throws IOException {
         try (FileChannel fileChannel = FileChannel.open(filePath, options)) {
             return fileChannel.map(mapMode, 0, bytesSize, arena);
         }
     }
 
-    private long writeSegmentToMappedTableFile(MemorySegment mappedTableFile, MemorySegment segment, long offset) {
+    private static long writeSegmentToMappedTableFile(MemorySegment mappedTableFile, MemorySegment segment, long offset) {
         if (segment == null) {
             mappedTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
             return Long.BYTES;
@@ -162,6 +161,16 @@ public class Storage {
         mappedTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, segment.byteSize());
         MemorySegment.copy(segment, 0, mappedTableFile, offset + Long.BYTES, segment.byteSize());
         return Long.BYTES + segment.byteSize();
+    }
+
+    private static Entry<MemorySegment> getEntryByIndex(MemorySegment mappedSsTable, long index) {
+        long entryPos = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + Long.BYTES * index);
+        long keySize = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, entryPos);
+        long valueSize = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, entryPos + Long.BYTES + keySize);
+        return new BaseEntry<>(
+            mappedSsTable.asSlice(entryPos + Long.BYTES, keySize),
+            valueSize == -1 ? null : mappedSsTable.asSlice(entryPos + Long.BYTES + keySize + Long.BYTES, valueSize)
+        );
     }
 
     private long binarySearchIndex(MemorySegment ssTable, MemorySegment key) {
@@ -184,15 +193,5 @@ public class Storage {
             }
         }
         return left;
-    }
-
-    private Entry<MemorySegment> getEntryByIndex(MemorySegment mappedSsTable, long index) {
-        long entryPos = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + Long.BYTES * index);
-        long keySize = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, entryPos);
-        long valueSize = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, entryPos + Long.BYTES + keySize);
-        return new BaseEntry<>(
-            mappedSsTable.asSlice(entryPos + Long.BYTES, keySize),
-            valueSize == -1 ? null : mappedSsTable.asSlice(entryPos + Long.BYTES + keySize + Long.BYTES, valueSize)
-        );
     }
 }
