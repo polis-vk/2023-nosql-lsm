@@ -2,13 +2,12 @@ package ru.vk.itmo.test.ryabovvadim;
 
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-public class GatheringIteratorWithPriority<T> implements FutureIterator<T> {
+public class SingleValueGatheringIterator<T> implements FutureIterator<T> {
     private final FutureIterator<T> delegate;
 
-    public GatheringIteratorWithPriority(Collection<FutureIterator<T>> iterators, Comparator<? super T> comparator) {
+    public SingleValueGatheringIterator(Collection<FutureIterator<T>> iterators, Comparator<? super T> comparator) {
         this.delegate = new LazyIterator<>(
             () -> {
                 FutureIterator<T> minIterator = null;
@@ -38,7 +37,15 @@ public class GatheringIteratorWithPriority<T> implements FutureIterator<T> {
 
                 return minIterator.next();
             },
-            () -> iterators.stream().anyMatch(Iterator::hasNext)
+            () -> {
+                for (var iterator : iterators) {
+                    if (iterator.hasNext()) {
+                        return true;
+                    }
+                }
+                
+                return false;
+            }
         );
     }
 

@@ -33,4 +33,6 @@ public class NumberUtils {
 
         return result;
     }
+    
+    private NumberUtils() {}
 }

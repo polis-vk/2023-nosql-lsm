@@ -1,20 +1,18 @@
 package ru.vk.itmo.test.ryabovvadim;
 
+import ru.vk.itmo.Entry;
+
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 
-import ru.vk.itmo.Entry;
-
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
-
-import java.io.IOException;
 
 public class FileUtils {
     public static final String DATA_FILE_EXT = "data";
     public static final String OFFSETS_FILE_EXT = "offsets";
-    public static final String BLOOM_FILE_EXT = "bloom";
 
     public static final Comparator<? super MemorySegment> MEMORY_SEGMENT_COMPARATOR = (firstSegment, secondSegment) -> {
         if (firstSegment == null) {
@@ -57,4 +55,6 @@ public class FileUtils {
             Files.createDirectories(parent);
         }
     }
+    
+    private FileUtils() {}
 }

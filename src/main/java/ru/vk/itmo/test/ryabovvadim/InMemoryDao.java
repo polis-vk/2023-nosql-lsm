@@ -13,23 +13,18 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.ListIterator;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.ConcurrentSkipListSet;
-import java.util.function.Supplier;
-import java.util.stream.Stream;
 
 import static ru.vk.itmo.test.ryabovvadim.FileUtils.DATA_FILE_EXT;
+import static ru.vk.itmo.test.ryabovvadim.FileUtils.ENTRY_COMPARATOR;
 import static ru.vk.itmo.test.ryabovvadim.FileUtils.MEMORY_SEGMENT_COMPARATOR;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -150,21 +145,22 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
         
-        return new GatheringIteratorWithPriority<>(
-            iterators, 
-            Comparator.comparing(Entry::key, MEMORY_SEGMENT_COMPARATOR)
-        );
+        return new SingleValueGatheringIterator<>(iterators, ENTRY_COMPARATOR);
     }
 
     private FutureIterator<Entry<MemorySegment>> makeIteratorWithSkipNulls(
-            Map<MemorySegment, Entry<MemorySegment>> entries, MemorySegment from, MemorySegment to
+            Map<MemorySegment, Entry<MemorySegment>> entries, 
+            MemorySegment from, 
+            MemorySegment to
     ) {
         Iterator<Entry<MemorySegment>> entriesIterator = entries.values().iterator();
-        LazyIterator<Entry<MemorySegment>> futureEntriesIterator = 
-            new LazyIterator<>(entriesIterator::next, entriesIterator::hasNext);
-        GatheringIteratorWithPriority<Entry<MemorySegment>> iterator = new GatheringIteratorWithPriority<>(
+        LazyIterator<Entry<MemorySegment>> futureEntriesIterator = new LazyIterator<>(
+            entriesIterator::next, 
+            entriesIterator::hasNext
+        );
+        SingleValueGatheringIterator<Entry<MemorySegment>> iterator = new SingleValueGatheringIterator<>(
             List.of(futureEntriesIterator, load(from, to)), 
-            FileUtils.ENTRY_COMPARATOR
+            ENTRY_COMPARATOR
         );
 
         return new FutureIterator<Entry<MemorySegment>>() {
@@ -205,7 +201,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        if (config != null && config.basePath() != null) {
+        if (existsPath()) {
             save(config.basePath());
             memoryTable.clear();
         }
@@ -218,18 +214,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         
         FileUtils.createParentDirectories(config.basePath());
         
-        int maxTableNumber = ssTables.stream()
+        long maxTableNumber = ssTables.stream()
             .map(SSTable::getName)
-            .mapToInt(Integer::parseInt)
+            .mapToLong(Long::parseLong)
             .max()
             .orElse(0);
-        int saveTableNumber = maxTableNumber + 1;
-
-        SSTable.save(path, Integer.toString(saveTableNumber), memoryTable.values(), arena);
+        SSTable.save(path, Long.toString(maxTableNumber + 1), memoryTable.values(), arena);
     }
     
     private boolean existsPath() {
         return config != null && config.basePath() != null;
     }
-    
 }
