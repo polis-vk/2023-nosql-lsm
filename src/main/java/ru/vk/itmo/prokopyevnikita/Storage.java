@@ -80,8 +80,10 @@ public class Storage implements Closeable {
         long indicesSize = (long) Long.BYTES * entries.size();
         long sizeOfNewSSTable = indicesSize + FILE_PREFIX;
         for (Entry<MemorySegment> entry : entries) {
-            sizeOfNewSSTable += 2 * Long.BYTES + entry.key().byteSize() +
-                    (entry.value() == null ? 0 : entry.value().byteSize());
+            sizeOfNewSSTable +=
+                    2 * Long.BYTES
+                            + entry.key().byteSize()
+                            + (entry.value() == null ? 0 : entry.value().byteSize());
         }
 
         try (Arena arenaSave = Arena.ofConfined();
@@ -118,15 +120,15 @@ public class Storage implements Closeable {
         MemorySegment.copy(entry.key(), 0, newSSTable, offsetData, entry.key().byteSize());
         offsetData += entry.key().byteSize();
 
-        if (entry.value() != null) {
+        if (entry.value() == null) {
+            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, -1);
+            offsetData += Long.BYTES;
+        } else {
             newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, entry.value().byteSize());
             offsetData += Long.BYTES;
 
             MemorySegment.copy(entry.value(), 0, newSSTable, offsetData, entry.value().byteSize());
             offsetData += entry.value().byteSize();
-        } else {
-            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, -1);
-            offsetData += Long.BYTES;
         }
         return offsetData;
     }

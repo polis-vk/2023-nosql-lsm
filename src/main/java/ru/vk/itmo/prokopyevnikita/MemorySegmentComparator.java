@@ -11,7 +11,9 @@ public final class MemorySegmentComparator {
         return compareWithOffsets(o1, 0, o1.byteSize(), o2, 0, o2.byteSize());
     }
 
-    public static int compareWithOffsets(MemorySegment o1, long o1FromOffset, long o1ToOffset, MemorySegment o2, long o2FromOffset, long o2ToOffset) {
+    public static int compareWithOffsets(
+            MemorySegment o1, long o1FromOffset, long o1ToOffset,
+            MemorySegment o2, long o2FromOffset, long o2ToOffset) {
         long relativeOffset = MemorySegment.mismatch(o1, o1FromOffset, o1ToOffset, o2, o2FromOffset, o2ToOffset);
         if (relativeOffset == -1) {
             return 0;
