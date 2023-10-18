@@ -1,6 +1,7 @@
 package ru.vk.itmo.proninvalentin.iterators;
 
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.proninvalentin.comparators.MemorySegmentComparator;
 import ru.vk.itmo.proninvalentin.utils.MemorySegmentUtils;
 
 import java.lang.foreign.MemorySegment;
@@ -13,13 +14,14 @@ public final class FileIterator implements Iterator<Entry<MemorySegment>> {
     private long curIndex = 0;
     private long endIndex = -1;
 
-    private FileIterator(MemorySegment readValuesMS,
+    public FileIterator(MemorySegment readValuesMS,
                          MemorySegment readOffsetsMS,
                          MemorySegment from,
-                         MemorySegment to,
-                         Comparator<MemorySegment> comparator) {
+                         MemorySegment to) {
         this.readValuesMS = readValuesMS;
         this.readOffsetsMS = readOffsetsMS;
+        Comparator<MemorySegment> comparator = MemorySegmentComparator.getInstance();
+
         if (from != null) {
             curIndex = MemorySegmentUtils.leftBinarySearch(readValuesMS, readOffsetsMS, from, comparator);
             if (curIndex == -1) {

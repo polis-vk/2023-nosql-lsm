@@ -3,6 +3,9 @@ package ru.vk.itmo.proninvalentin;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.proninvalentin.comparators.MemorySegmentComparator;
+import ru.vk.itmo.proninvalentin.iterators.FileIterator;
+import ru.vk.itmo.proninvalentin.iterators.PeekingPriorityIterator;
+import ru.vk.itmo.proninvalentin.iterators.PeekingPriorityIteratorImpl;
 import ru.vk.itmo.proninvalentin.utils.FileUtils;
 import ru.vk.itmo.proninvalentin.utils.MemorySegmentUtils;
 
@@ -36,8 +39,6 @@ public class FileDao implements Closeable {
     private final Arena readArena;
     private final Path basePath;
     private long countOfMemorySegments;
-    // Список файлов с оффсетами, нужен для создания итераторов по оффсетама
-    private final List<File> offsetsFiles;
 
     public FileDao(Config config) throws IOException {
         basePath = config.basePath();
@@ -47,7 +48,6 @@ public class FileDao implements Closeable {
             readArena = null;
             readValuesMSStorage = Collections.emptyList();
             readOffsetsMSStorage = Collections.emptyList();
-            offsetsFiles = Collections.emptyList();
             return;
         }
 
@@ -55,7 +55,6 @@ public class FileDao implements Closeable {
         readArena = Arena.ofShared();
         readValuesMSStorage = new ArrayList<>();
         readOffsetsMSStorage = new ArrayList<>();
-        offsetsFiles = new ArrayList<>();
         initReadMSLists();
     }
 
@@ -75,7 +74,6 @@ public class FileDao implements Closeable {
             if (file.getName().startsWith(VALUES_FILENAME_PREFIX)) {
                 readValuesMSStorage.add(getReadOnlyMappedMemory(file));
             } else if (file.getName().startsWith(OFFSETS_FILENAME_PREFIX)) {
-                offsetsFiles.add(file);
                 readOffsetsMSStorage.add(getReadOnlyMappedMemory(file));
             }
         }
@@ -85,6 +83,21 @@ public class FileDao implements Closeable {
                     "Directory in config must contain same number of files with prefix: \"%s\" and \"%s\""
                             .formatted(VALUES_FILENAME_PREFIX, OFFSETS_FILENAME_PREFIX));
         }
+    }
+
+    public List<PeekingPriorityIterator> getFilesIterators(MemorySegment from, MemorySegment to) {
+        List<PeekingPriorityIterator> filesIterators = new ArrayList<>();
+
+        for (int i = 0; i < readValuesMSStorage.size(); i++) {
+            filesIterators.add(new PeekingPriorityIteratorImpl(new FileIterator(
+                    readValuesMSStorage.get(i),
+                    readOffsetsMSStorage.get(i),
+                    from,
+                    to),
+                    i + 1));
+        }
+
+        return filesIterators;
     }
 
     // Замапить файл в MemorySegment для чтения

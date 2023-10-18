@@ -3,7 +3,7 @@ package ru.vk.itmo.proninvalentin;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.proninvalentin.comparators.MemorySegmentComparator;
-import ru.vk.itmo.proninvalentin.iterators.PeekingIterator;
+import ru.vk.itmo.proninvalentin.iterators.PeekingPriorityIteratorImpl;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
@@ -33,7 +33,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public PeekingIterator get(MemorySegment from, MemorySegment to) {
+    public PeekingPriorityIteratorImpl get(MemorySegment from, MemorySegment to) {
         Iterator<Entry<MemorySegment>> memoryIterator;
         if (from == null && to == null) {
             memoryIterator = all();
@@ -45,7 +45,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             memoryIterator = memorySegments.tailMap(from).headMap(to).values().iterator();
         }
 
-        return new PeekingIterator(memoryIterator, 0);
+        return new PeekingPriorityIteratorImpl(memoryIterator, 0);
     }
 
     @Override
