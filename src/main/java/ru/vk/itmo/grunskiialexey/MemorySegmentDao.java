@@ -130,30 +130,30 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
                         StandardOpenOption.READ,
                         StandardOpenOption.WRITE
                 );
-                Arena arena = Arena.ofConfined()
+                Arena writeArena = Arena.ofConfined()
         ) {
             long allSize = data.values().stream().mapToLong(entry ->
                     correctAlignedSize(entry.key().byteSize()) + correctAlignedSize(entry.value().byteSize()) + 2 * 4
             ).sum();
-            MemorySegment page = channel.map(FileChannel.MapMode.READ_WRITE, 0, allSize, arena);
+            MemorySegment writePage = channel.map(FileChannel.MapMode.READ_WRITE, 0, allSize, writeArena);
 
             long offset = 0;
             for (Entry<MemorySegment> entry : data.values()) {
                 long keyLength = entry.key().byteSize();
-                page.set(ValueLayout.JAVA_INT, offset, (int) keyLength);
+                writePage.set(ValueLayout.JAVA_INT, offset, (int) keyLength);
                 offset += 4;
                 MemorySegment.copy(
                         entry.key(), ValueLayout.JAVA_BYTE, 0,
-                        page, ValueLayout.JAVA_BYTE, offset, keyLength
+                        writePage, ValueLayout.JAVA_BYTE, offset, keyLength
                 );
                 offset += correctAlignedSize(keyLength);
 
                 long valueLength = entry.value().byteSize();
-                page.set(ValueLayout.JAVA_INT, offset, (int) valueLength);
+                writePage.set(ValueLayout.JAVA_INT, offset, (int) valueLength);
                 offset += 4;
                 MemorySegment.copy(
                         entry.value(), ValueLayout.JAVA_BYTE, 0,
-                        page, ValueLayout.JAVA_BYTE, offset, valueLength
+                        writePage, ValueLayout.JAVA_BYTE, offset, valueLength
                 );
                 offset += correctAlignedSize(valueLength);
             }
