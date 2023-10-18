@@ -22,7 +22,7 @@ public final class NumberUtils {
         long val = value;
         List<Byte> bytes = new ArrayList<>();
 
-        while (val> 0) {
+        while (val > 0) {
             bytes.add((byte) (val & 0xff));
             val >>= 8;
         }
