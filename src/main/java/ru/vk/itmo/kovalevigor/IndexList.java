@@ -1,13 +1,10 @@
 package ru.vk.itmo.kovalevigor;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.AbstractList;
-import java.util.ListIterator;
-import java.util.NoSuchElementException;
 import java.util.RandomAccess;
 import java.util.SortedMap;
 
@@ -48,6 +45,7 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
 
         private final MemorySegment key;
         private final int index;
+        private MemorySegment value;
 
         private LazyEntry(MemorySegment key, int index) {
             this.key = key;
@@ -61,72 +59,9 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
 
         @Override
         public MemorySegment value() {
-            return null;
+            return value == null ? (value = getValue(index)) : value;
         }
 
-        public Entry<MemorySegment> fullRead() {
-            return new BaseEntry<>(key, getValue(index));
-        }
-    }
-
-    private class IndexIterator implements ListIterator<Entry<MemorySegment>> {
-
-        private int cursor;
-
-        public IndexIterator(final int cursor) {
-            this.cursor = cursor;
-        }
-
-        @Override
-        public boolean hasNext() {
-            return cursor < size();
-        }
-
-        @Override
-        public Entry<MemorySegment> next() {
-            if (cursor >= size()) {
-                throw new NoSuchElementException();
-            }
-            return get(cursor++).fullRead();
-        }
-
-        @Override
-        public boolean hasPrevious() {
-            return cursor > 0;
-        }
-
-        @Override
-        public Entry<MemorySegment> previous() {
-            if (cursor <= 0) {
-                throw new NoSuchElementException();
-            }
-            return get(--cursor).fullRead();
-        }
-
-        @Override
-        public int nextIndex() {
-            return cursor;
-        }
-
-        @Override
-        public int previousIndex() {
-            return cursor - 1;
-        }
-
-        @Override
-        public void remove() {
-            throw new UnsupportedOperationException("remove");
-        }
-
-        @Override
-        public void set(final Entry<MemorySegment> memorySegmentEntry) {
-            throw new UnsupportedOperationException("set");
-        }
-
-        @Override
-        public void add(final Entry<MemorySegment> memorySegmentEntry) {
-            throw new UnsupportedOperationException("add");
-        }
     }
 
     private MemorySegment getValue(final int index) {
@@ -195,8 +130,4 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
         }
     }
 
-    @Override
-    public ListIterator<Entry<MemorySegment>> listIterator(final int index) {
-        return new IndexIterator(index);
-    }
 }
