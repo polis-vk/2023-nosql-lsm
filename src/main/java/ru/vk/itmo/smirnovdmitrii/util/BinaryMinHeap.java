@@ -1,6 +1,7 @@
 package ru.vk.itmo.smirnovdmitrii.util;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 
@@ -10,6 +11,12 @@ public class BinaryMinHeap<T> implements MinHeap<T> {
 
     public BinaryMinHeap(final Comparator<T> comparator) {
         this.comparator = comparator;
+    }
+
+    public BinaryMinHeap(final Collection<T> list, final Comparator<T> comparator) {
+        this(comparator);
+        this.list.addAll(list);
+        heapify();
     }
 
     @Override
@@ -28,7 +35,7 @@ public class BinaryMinHeap<T> implements MinHeap<T> {
         final T result = list.get(0);
         list.set(0, list.get(list.size() - 1));
         list.removeLast();
-        siftDown();
+        siftDown(0);
         return result;
     }
 
@@ -43,8 +50,8 @@ public class BinaryMinHeap<T> implements MinHeap<T> {
         return list.isEmpty();
     }
 
-    private void siftDown() {
-        int index = 0;
+    private void siftDown(final int i) {
+        int index = i;
         final int size = list.size();
         while (true) {
             final int leftIndex = index * 2 + 1;
@@ -77,6 +84,12 @@ public class BinaryMinHeap<T> implements MinHeap<T> {
             list.set(index, next);
             index = nextIndex;
         }
+    }
+
+    private void heapify() {
+       for (int i = list.size() / 2; i >= 0; i--) {
+           siftDown(i);
+       }
     }
 
 }

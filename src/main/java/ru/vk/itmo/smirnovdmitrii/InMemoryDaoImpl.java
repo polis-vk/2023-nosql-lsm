@@ -39,7 +39,7 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     }
 
     @Override
-    public SortedMap<MemorySegment, Entry<MemorySegment>> getMap() {
+    public SortedMap<MemorySegment, Entry<MemorySegment>> commit() {
         return storage;
     }
 

@@ -158,7 +158,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         block n
      */
     @Override
-    public void save(final Map<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
+    public synchronized void save(final Map<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
         Objects.requireNonNull(storage, "storage must be not null");
         if (storage.isEmpty()) {
             return;

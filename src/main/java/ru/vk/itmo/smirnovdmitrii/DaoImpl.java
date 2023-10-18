@@ -3,9 +3,9 @@ package ru.vk.itmo.smirnovdmitrii;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.smirnovdmitrii.util.BinaryMinHeap;
+import ru.vk.itmo.smirnovdmitrii.util.DaoIterator;
+import ru.vk.itmo.smirnovdmitrii.util.EqualsComparator;
 import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
-import ru.vk.itmo.smirnovdmitrii.util.MinHeap;
 import ru.vk.itmo.smirnovdmitrii.util.PeekingIterator;
 import ru.vk.itmo.smirnovdmitrii.util.WrappedIterator;
 
@@ -15,74 +15,9 @@ import java.util.Iterator;
 import java.util.Objects;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    final InMemoryDao<MemorySegment, Entry<MemorySegment>> inMemoryDao;
-    final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
-    final MemorySegmentComparator comparator = new MemorySegmentComparator();
-
-    private class DaoIterator implements Iterator<Entry<MemorySegment>> {
-
-        private final MinHeap<PeekingIterator<Entry<MemorySegment>>> heap
-                = new BinaryMinHeap<PeekingIterator<Entry<MemorySegment>>>(this::compare);
-
-        public void add(final PeekingIterator<Entry<MemorySegment>> iterator) {
-            if (iterator.hasNext()) {
-                heap.add(iterator);
-            }
-        }
-
-        private int compare(
-                final PeekingIterator<Entry<MemorySegment>> o1,
-                final PeekingIterator<Entry<MemorySegment>> o2
-        ) {
-            final int keyCompare = comparator.compare(o1.peek().key(), o2.peek().key());
-            if (keyCompare == 0) {
-                return Integer.compare(o1.getId(), o2.getId());
-            }
-            return keyCompare;
-        }
-
-        @Override
-        public boolean hasNext() {
-            advance();
-            return heap.min() != null;
-        }
-
-        @Override
-        public Entry<MemorySegment> next() {
-            advance();
-            final PeekingIterator<Entry<MemorySegment>> iterator = heap.removeMin();
-            final Entry<MemorySegment> result = iterator.next();
-            add(iterator);
-            final MemorySegment key = result.key();
-            while (!heap.isEmpty()) {
-                final PeekingIterator<Entry<MemorySegment>> currentIterator = heap.min();
-                if (!comparator.equals(currentIterator.peek().key(), key)) {
-                    break;
-                }
-                skip();
-            }
-            return result;
-        }
-
-        private void advance() {
-            if (heap.isEmpty()) {
-                return;
-            }
-            while (!heap.isEmpty() && heap.min().peek().value() == null) {
-                final MemorySegment key = heap.min().peek().key();
-                while (!heap.isEmpty() && comparator.equals(heap.min().peek().key(), key)) {
-                    skip();
-                }
-            }
-        }
-
-        private void skip() {
-            final PeekingIterator<Entry<MemorySegment>> iterator = heap.removeMin();
-            iterator.next();
-            add(iterator);
-        }
-
-    }
+    private final InMemoryDao<MemorySegment, Entry<MemorySegment>> inMemoryDao;
+    private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
+    private final EqualsComparator<MemorySegment> comparator = new MemorySegmentComparator();
 
     public DaoImpl() {
         inMemoryDao = new InMemoryDaoImpl();
@@ -99,12 +34,14 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         int id = 0;
         final PeekingIterator<Entry<MemorySegment>> inMemoryIterator
                 = new WrappedIterator<>(id++, inMemoryDao.get(from, to));
-        final DaoIterator daoIterator = new DaoIterator();
-        daoIterator.add(inMemoryIterator);
+        final DaoIterator.Builder<MemorySegment, Entry<MemorySegment>> builder
+                = new DaoIterator.Builder<MemorySegment, Entry<MemorySegment>>()
+                .addComparator(comparator)
+                .addIterator(inMemoryIterator);
         for (final Iterator<Entry<MemorySegment>> outMemoryIterator: outMemoryDao.get(from, to)) {
-            daoIterator.add(new WrappedIterator<>(id++, outMemoryIterator));
+            builder.addIterator(new WrappedIterator<>(id++, outMemoryIterator));
         }
-        return daoIterator;
+        return builder.build();
     }
 
     @Override
@@ -127,11 +64,13 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        outMemoryDao.save(inMemoryDao.getMap());
+        outMemoryDao.save(inMemoryDao.commit());
     }
 
     @Override
     public void close() throws IOException {
         flush();
+        outMemoryDao.close();
+        inMemoryDao.close();
     }
 }

@@ -2,9 +2,8 @@ package ru.vk.itmo.smirnovdmitrii.util;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Comparator;
 
-public final class MemorySegmentComparator implements Comparator<MemorySegment> {
+public final class MemorySegmentComparator implements EqualsComparator<MemorySegment> {
 
     @Override
     public int compare(final MemorySegment o1, final MemorySegment o2) {
@@ -19,6 +18,7 @@ public final class MemorySegmentComparator implements Comparator<MemorySegment> 
         return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, offset), o2.get(ValueLayout.JAVA_BYTE, offset));
     }
 
+    @Override
     public boolean equals(final MemorySegment o1, final MemorySegment o2) {
         return o1.mismatch(o2) == -1;
     }

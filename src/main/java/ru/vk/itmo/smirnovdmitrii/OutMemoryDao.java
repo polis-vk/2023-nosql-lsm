@@ -28,4 +28,7 @@ public interface OutMemoryDao<D, E extends Entry<D>> extends AutoCloseable {
      */
     List<Iterator<E>> get(D from, D to);
 
+    @Override
+    void close() throws IOException;
+
 }
