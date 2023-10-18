@@ -127,8 +127,8 @@ public class BinarySearchSSTable {
         while (l <= r) {
             m = l + (r - l) / 2;
 
-            var keyOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m * 16);
-            var valOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m * 16 + 8);
+            var keyOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES * 2);
+            var valOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES * 2 + Long.BYTES);
 
             var mismatch = MemorySegment.mismatch(key, 0, key.byteSize(), tableSegment, keyOffset, valOffset);
             if (mismatch == -1) {
@@ -159,13 +159,13 @@ public class BinarySearchSSTable {
         MemorySegment val;
         var m = this.searchEntryPosition(key, true);
         if (m == -1) return null;
-        var valOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m * 16 + 8);
+        var valOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES * 2 + Long.BYTES);
 
         if ((m + 1) * 16 == indexSize) {
             // Случай когда мы не можем посчитать размер значения тк не имеем оффсета следующего за ним элемента
             val = tableSegment.asSlice(valOffset, tableSize - valOffset);
         } else {
-            var nextOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, (m + 1) * 16);
+            var nextOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, (m + 1) * Long.BYTES * 2);
             val = tableSegment.asSlice(valOffset, nextOffset - valOffset);
         }
         return new BaseEntry<>(key, val);
@@ -181,7 +181,7 @@ public class BinarySearchSSTable {
             startIndex = this.searchEntryPosition(keyFrom, false);
         }
         if (keyTo == null) {
-            endIndex = this.indexSize / 16;
+            endIndex = this.indexSize / (Long.BYTES * 2);
         } else {
             endIndex = this.searchEntryPosition(keyTo, false);
         }
@@ -221,13 +221,13 @@ class BinarySearchSSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> next() {
-        var keyOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * 16);
-        var valOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * 16 + 8);//TODO заменить по коменту из ПР
+        var keyOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * Long.BYTES * 2);
+        var valOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * Long.BYTES * 2 + Long.BYTES);//TODO заменить по коменту из ПР
         long nextOffset;
-        if (this.currentEntryIndex * 16 + 16 >= this.indexSegment.byteSize()) {
+        if (this.currentEntryIndex * Long.BYTES * 2 + Long.BYTES * 2 >= this.indexSegment.byteSize()) {
             nextOffset = this.tableSegment.byteSize();
         } else {
-            nextOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * 16 + 16);
+            nextOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * Long.BYTES * 2 + Long.BYTES * 2);
         }
         this.currentEntryIndex++;
         return new BaseEntry<>(
