@@ -22,7 +22,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
 
-    public DaoImpl(Config config) {
+    public DaoImpl(Config config) throws IOException {
         this.config = config;
         storage = Storage.load(config);
     }
@@ -32,7 +32,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         lock.readLock().lock();
         try {
             if (from == null) {
-                from = MemorySegment.NULL;
+                return storage.getIterator(
+                        MemorySegment.NULL, to,
+                        getMemoryIterator(MemorySegment.NULL, to)
+                );
             }
 
             return storage.getIterator(from, to, getMemoryIterator(from, to));

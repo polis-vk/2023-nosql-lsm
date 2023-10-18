@@ -21,7 +21,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-public class Storage implements Closeable {
+public final class Storage implements Closeable {
 
     private static final String DB_PREFIX = "data";
     private static final String DB_EXTENSION = ".db";
@@ -34,7 +34,7 @@ public class Storage implements Closeable {
         this.ssTables = ssTables;
     }
 
-    public static Storage load(Config config) {
+    public static Storage load(Config config) throws IOException {
         Path path = config.basePath();
 
         List<MemorySegment> ssTables = new ArrayList<>();
@@ -52,13 +52,11 @@ public class Storage implements Closeable {
                             );
                             ssTables.add(segment);
                         } catch (IOException e) {
-                            throw new RuntimeException("Can't open file", e);
+                            throw new IllegalStateException("Can't open SSTable", e);
                         }
                     });
         } catch (NoSuchFileException e) {
-            // ignore
-        } catch (IOException e) {
-            throw new RuntimeException("Can't open directory", e);
+            return new Storage(arena, ssTables);
         }
 
         return new Storage(arena, ssTables);
@@ -114,23 +112,24 @@ public class Storage implements Closeable {
     }
 
     public static long saveEntrySegment(MemorySegment newSSTable, Entry<MemorySegment> entry, long offsetData) {
-        newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, entry.key().byteSize());
-        offsetData += Long.BYTES;
+        long offset = offsetData;
+        newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
+        offset += Long.BYTES;
 
-        MemorySegment.copy(entry.key(), 0, newSSTable, offsetData, entry.key().byteSize());
-        offsetData += entry.key().byteSize();
+        MemorySegment.copy(entry.key(), 0, newSSTable, offset, entry.key().byteSize());
+        offset += entry.key().byteSize();
 
         if (entry.value() == null) {
-            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, -1);
-            offsetData += Long.BYTES;
+            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
+            offset += Long.BYTES;
         } else {
-            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, entry.value().byteSize());
-            offsetData += Long.BYTES;
+            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.value().byteSize());
+            offset += Long.BYTES;
 
-            MemorySegment.copy(entry.value(), 0, newSSTable, offsetData, entry.value().byteSize());
-            offsetData += entry.value().byteSize();
+            MemorySegment.copy(entry.value(), 0, newSSTable, offset, entry.value().byteSize());
+            offset += entry.value().byteSize();
         }
-        return offsetData;
+        return offset;
     }
 
     private long binarySearchUpperBoundOrEquals(MemorySegment ssTable, MemorySegment key) {
@@ -149,7 +148,7 @@ public class Storage implements Closeable {
 
             int cmp = MemorySegmentComparator.compareWithOffsets(
                     ssTable, offset, offset + keySize,
-                    key, 0, key.byteSize());
+                    key);
             if (cmp < 0) {
                 left = mid + 1;
             } else if (cmp > 0) {
