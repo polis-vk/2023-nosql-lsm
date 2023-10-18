@@ -4,6 +4,9 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.test.osipovdaniil.EntryBoolPair;
+import ru.vk.itmo.test.osipovdaniil.MergeIterator;
+import ru.vk.itmo.test.osipovdaniil.Utils;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -14,45 +17,28 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private static final String SSTABLE = "sstable.txt";
+    private int numSavedSSTables = 0;
 
-    private final Path ssTablePath;
+    private final Path ssTablesPath;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentMap
-            = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+            = new ConcurrentSkipListMap<>(Utils::compareMemorySegments);
 
-    private static final MemorySegmentComparator memSegmentComparator = new MemorySegmentComparator();
-
-    private static final class MemorySegmentComparator implements Comparator<MemorySegment> {
-
-        @Override
-        public int compare(final MemorySegment a, final MemorySegment b) {
-            long mismatchOffset = a.mismatch(b);
-            if (mismatchOffset == -1) {
-                return 0;
-            } else if (mismatchOffset == a.byteSize()) {
-                return -1;
-            } else if (mismatchOffset == b.byteSize()) {
-                return 1;
-            } else {
-                return Byte.compare(a.getAtIndex(ValueLayout.JAVA_BYTE, mismatchOffset),
-                        b.getAtIndex(ValueLayout.JAVA_BYTE, mismatchOffset));
-            }
-        }
-    }
 
     public InMemoryDao() {
-        this.ssTablePath = null;
+        this.ssTablesPath = null;
     }
 
     public InMemoryDao(final Config config) {
-        this.ssTablePath = config.basePath().resolve(SSTABLE);
+        this.ssTablesPath = config.basePath().resolve(Utils.SSTABLE);
+        while (Files.exists(ssTablesPath.resolve(numSavedSSTables + Utils.SSTABLE))) {
+            numSavedSSTables++;
+        }
     }
 
     /**
@@ -64,15 +50,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
-        if (from == null && to == null) {
-            return memorySegmentMap.values().iterator();
-        } else if (from == null) {
-            return memorySegmentMap.headMap(to).values().iterator();
-        } else if (to == null) {
-            return memorySegmentMap.tailMap(from).values().iterator();
-        } else {
-            return memorySegmentMap.subMap(from, to).values().iterator();
-        }
+        return new MergeIterator(numSavedSSTables, ssTablesPath, from, to, memorySegmentMap);
     }
 
     /**
@@ -83,43 +61,64 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
-        final Entry<MemorySegment> memorySegmentEntry = memorySegmentMap.get(key);
-        if (memorySegmentEntry != null) {
-            return memorySegmentEntry;
+        if (memorySegmentMap.containsKey(key)) {
+            return memorySegmentMap.get(key);
         }
-        if (ssTablePath == null || !Files.exists(ssTablePath)) {
-            return null;
+        for (int i = numSavedSSTables - 1; i >= 0; --i) {
+            EntryBoolPair res = findInFile(ssTablesPath.resolve(numSavedSSTables + Utils.SSTABLE), key);
+            if (res.trueVal()) {
+                return res.entry();
+            }
         }
-        long offset = 0;
-        try (FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
-            long ssTableFileSize = Files.size(ssTablePath);
-            final MemorySegment mappedMemorySegment = fileChannel.map(
+        return null;
+    }
+
+    EntryBoolPair findInFile(final Path filePath, final MemorySegment key) {
+        try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ)) {
+            long ssTableFileSize = Files.size(filePath);
+            final MemorySegment mappedMemorySegment = channel.map(
                     FileChannel.MapMode.READ_ONLY, 0, ssTableFileSize, Arena.ofShared());
-            MemorySegment lastValue = null;
-            while (offset < ssTableFileSize) {
-                long keyLength = mappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
-                if (keyLength != key.byteSize()) {
-                    offset += keyLength;
-                    offset += mappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset) + Long.BYTES;
-                    continue;
+            final long entriesOffset = Long.BYTES + Long.BYTES * 2
+                    * mappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+            long minOffsetOffset = Long.BYTES;
+            long maxOffsetOffset = entriesOffset;
+            while (maxOffsetOffset - minOffsetOffset > Long.BYTES * 2) {
+                long mOffsetOffset = (maxOffsetOffset + minOffsetOffset) / 2;
+                long keySegOff = mappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, mOffsetOffset);
+                long valSegOff = mappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, mOffsetOffset + Long.BYTES);
+                int cmp = Utils.compareMemorySegments(key,
+                        mappedMemorySegment.asSlice(keySegOff, valSegOff - keySegOff));
+                if (cmp == 0) {
+                    final long nextKeyOffset = (mOffsetOffset + 2 * Long.BYTES == entriesOffset) ?
+                            mappedMemorySegment.byteSize() : mappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED,
+                            mOffsetOffset + 2 * Long.BYTES);
+                    final MemorySegment key1 = mappedMemorySegment.asSlice(keySegOff, valSegOff - keySegOff);
+                    final MemorySegment value = mappedMemorySegment.asSlice(valSegOff, nextKeyOffset - valSegOff);
+                    return new EntryBoolPair(new BaseEntry<>(key1, value), true);
                 }
-                final MemorySegment expectedKey = mappedMemorySegment.asSlice(offset, keyLength);
-                offset += keyLength;
-                long valueLength = mappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                if (memSegmentComparator.compare(key, expectedKey) == 0) {
-                    lastValue = mappedMemorySegment.asSlice(offset + Long.BYTES, valueLength);
+                if (Utils.compareMemorySegments(key,
+                        mappedMemorySegment.asSlice(keySegOff, valSegOff - keySegOff)) < 0) {
+                    maxOffsetOffset = mOffsetOffset;
+                } else {
+                    minOffsetOffset = mOffsetOffset;
                 }
-                offset += Long.BYTES + valueLength;
             }
-            if (lastValue != null) {
-                return new BaseEntry<>(key, lastValue);
+            long keySegOff = mappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, minOffsetOffset);
+            long valSegOff = mappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, minOffsetOffset + Long.BYTES);
+            final MemorySegment key1 = mappedMemorySegment.asSlice(keySegOff, valSegOff - keySegOff);
+            if (key1.mismatch(key) == -1) {
+                final long nextKeyOffset = (minOffsetOffset + 2 * Long.BYTES == entriesOffset) ?
+                        mappedMemorySegment.byteSize() : mappedMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED,
+                        minOffsetOffset + 2 * Long.BYTES);
+                final MemorySegment value = mappedMemorySegment.asSlice(valSegOff, nextKeyOffset - valSegOff);
+                return new EntryBoolPair(new BaseEntry<>(key1, value), true);
             }
-            return null;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+        return new EntryBoolPair(null, false);
     }
+
 
     /**
      * Inserts of replaces entry.
@@ -132,30 +131,55 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private long getSSTableFileSize() {
-        long sz = 0;
+        long sz = Integer.BYTES;
         for (final Entry<MemorySegment> entry : memorySegmentMap.values()) {
-            sz += entry.key().byteSize() + entry.value().byteSize() + 2 * Long.BYTES;
+            sz += entry.key().byteSize() + entry.value().byteSize() + 2 * Integer.BYTES;
         }
         return sz;
     }
 
+    private long writeOffsets(final MemorySegment dstMemorySegment) {
+        long offset = 0;
+        dstMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, memorySegmentMap.size());
+        offset += Integer.BYTES;
+        long entriesOffset = offset + Long.BYTES * memorySegmentMap.size() * 2L;
+        for (final Entry<MemorySegment> entry : memorySegmentMap.values()) {
+            dstMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entriesOffset);
+            offset += Integer.BYTES;
+            entriesOffset += entry.key().byteSize();
+            dstMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entriesOffset);
+            offset += Integer.BYTES;
+            entriesOffset += entry.value().byteSize();
+        }
+        return offset;
+    }
+
     @Override
-    public void close() throws IOException {
-        try (FileChannel fileChannel = FileChannel.open(ssTablePath,
+    public void flush() throws IOException {
+        try (FileChannel fileChannel = FileChannel.open(ssTablesPath.resolve(numSavedSSTables + Utils.SSTABLE),
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.CREATE);
-             Arena writeArena = Arena.ofConfined()) {
+             Arena writeArena = Arena.ofShared()) {
+            numSavedSSTables++;
             long fileSize = getSSTableFileSize();
             final MemorySegment mappedMemorySegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE, 0, fileSize, writeArena);
-            long offset = 0;
+            long offset = writeOffsets(mappedMemorySegment);
             for (final Entry<MemorySegment> entry : memorySegmentMap.values()) {
                 offset = writeMemorySegment(entry.key(), mappedMemorySegment, offset);
                 offset = writeMemorySegment(entry.value(), mappedMemorySegment, offset);
             }
             mappedMemorySegment.load();
+
+        }
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (!memorySegmentMap.isEmpty()) {
+            flush();
         }
     }
 
@@ -163,9 +187,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                                     final MemorySegment dstMemorySegment,
                                     final long offset) {
         long srcMemorySegmentSize = srcMemorySegment.byteSize();
-        dstMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, srcMemorySegmentSize);
-        MemorySegment.copy(srcMemorySegment, 0, dstMemorySegment, offset + Long.BYTES,
-                srcMemorySegmentSize);
-        return offset + Long.BYTES + srcMemorySegmentSize;
+        MemorySegment.copy(srcMemorySegment, 0, dstMemorySegment, offset, srcMemorySegmentSize);
+        return offset + srcMemorySegmentSize;
     }
 }
