@@ -29,7 +29,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String META_INFO_STORAGE_NAME = "metaInfoStorage";
     private static final String SSTABLE_NAME_PATTERN = "SSTable%d";
-    private static final String INDEX_NAME_SUFFIX_PATTERN = "-index%d";
+    private static final String INDEX_NAME_PATTERN = "index%d";
 
     private final Arena daoArena = Arena.ofConfined();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryStorage =
@@ -66,7 +66,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 for (int i = 0; i < sstableCount; i++) {
 
                     Path tablePath = config.basePath().resolve(SSTABLE_NAME_PATTERN.formatted(i));
-                    Path indexPath = config.basePath().resolve(INDEX_NAME_SUFFIX_PATTERN.formatted(i));
+                    Path indexPath = config.basePath().resolve(INDEX_NAME_PATTERN.formatted(i));
 
                     try (FileChannel sstableChannel = FileChannel.open(tablePath, StandardOpenOption.READ);
                          FileChannel indexChannel = FileChannel.open(indexPath, StandardOpenOption.READ)) {
@@ -84,10 +84,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     }
                 }
                 sstable = config.basePath().resolve(SSTABLE_NAME_PATTERN.formatted(sstableCount));
-                index = config.basePath().resolve(INDEX_NAME_SUFFIX_PATTERN.formatted(sstableCount));
+                index = config.basePath().resolve(INDEX_NAME_PATTERN.formatted(sstableCount));
             } else {
                 sstable = config.basePath().resolve(SSTABLE_NAME_PATTERN.formatted(0));
-                index = config.basePath().resolve(INDEX_NAME_SUFFIX_PATTERN.formatted(0));
+                index = config.basePath().resolve(INDEX_NAME_PATTERN.formatted(0));
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -117,6 +117,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             long entryIndex = findEntryIndex(sstableSegment, index, key);
             long keySize = index.get(ValueLayout.JAVA_LONG_UNALIGNED, entryIndex + Constants.INDEX_ROW_KEY_LENGTH_POSITION);
             long valueSize = index.get(ValueLayout.JAVA_LONG_UNALIGNED, entryIndex + Constants.INDEX_ROW_VALUE_LENGTH_POSITION);
+            if (valueSize == -1) {
+                return null;
+            }
             long offsetInFileSegment = index.get(ValueLayout.JAVA_LONG_UNALIGNED, entryIndex + Constants.INDEX_ROW_OFFSET_POSITION);
             MemorySegment entryKey = sstableSegment.asSlice(offsetInFileSegment, keySize);
 
@@ -205,7 +208,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             long sstableSize = 0;
             long indexSize = Constants.INDEX_ROW_SIZE * inMemoryStorage.size();
             for (Map.Entry<MemorySegment, Entry<MemorySegment>> e : inMemoryStorage.entrySet()) {
-                sstableSize += e.getKey().byteSize() + e.getValue().value().byteSize();
+                sstableSize += e.getKey().byteSize();
+
+                if (e.getValue().value() != null) {
+                    sstableSize += e.getValue().value().byteSize();
+                }
             }
 
             MemorySegment sstableSegment = sstableChannel.map(
@@ -230,15 +237,21 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 indexOffset += Integer.BYTES;
                 indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, e.getKey().byteSize());
                 indexOffset += Long.BYTES;
-                indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, e.getValue().value().byteSize());
+                if (e.getValue().value() == null) {
+                    indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, -1);
+                } else {
+                    indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, e.getValue().value().byteSize());
+                }
                 indexOffset += Long.BYTES;
                 indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, storageOffset);
                 indexOffset += Long.BYTES;
 
                 writeMemorySegment(sstableSegment, e.getKey(), storageOffset);
                 storageOffset += e.getKey().byteSize();
-                writeMemorySegment(sstableSegment, e.getValue().value(), storageOffset);
-                storageOffset += e.getValue().value().byteSize();
+                if (e.getValue().value() != null) {
+                    writeMemorySegment(sstableSegment, e.getValue().value(), storageOffset);
+                    storageOffset += e.getValue().value().byteSize();
+                }
             }
 
             MemorySegment metaInfoSegment = metaInfoChannel.map(

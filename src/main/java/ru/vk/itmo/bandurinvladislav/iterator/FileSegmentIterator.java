@@ -31,7 +31,7 @@ public class FileSegmentIterator implements MemorySegmentIterator {
 
     @Override
     public boolean hasNext() {
-        return sstableOffset <= sstableUpperBound;
+        return minKeyEntry != null;
     }
 
     @Override
@@ -52,11 +52,19 @@ public class FileSegmentIterator implements MemorySegmentIterator {
     }
 
     private Entry<MemorySegment> getNext() {
-        if (hasNext()) {
+        if (sstableOffset < sstableUpperBound) {
             long keySize = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED,
                     indexOffset + INDEX_ROW_KEY_LENGTH_POSITION);
             long valueSize = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED,
                     indexOffset + INDEX_ROW_VALUE_LENGTH_POSITION);
+
+
+            if (valueSize == -1) {
+                var result = new BaseEntry<>(sstableSegment.asSlice(sstableOffset, keySize), null);
+                sstableOffset += keySize;
+                indexOffset += INDEX_ROW_SIZE;
+                return result;
+            }
 
             var result = new BaseEntry<>(
                     sstableSegment.asSlice(sstableOffset, keySize),

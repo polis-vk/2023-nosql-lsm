@@ -13,7 +13,11 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private final PriorityQueue<MemorySegmentIterator> iterators = new PriorityQueue<>(new MemorySegmentIteratorComparator());
 
     public MergeIterator(List<MemorySegmentIterator> iteratorList) {
-        iteratorList.forEach(iterators::offer);
+        iteratorList.stream().filter(Iterator::hasNext).forEach(iterators::offer);
+        if (iterators.peek().peek().value() == null) {
+            MemorySegmentIterator peekIterator = iterators.peek();
+            updateQueue(iterators.poll(), peekIterator.next());
+        }
     }
 
     @Override
@@ -42,10 +46,12 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         while (!iterators.isEmpty()) {
             MemorySegmentIterator candidate = iterators.peek();
             Entry<MemorySegment> peek = candidate.peek();
+//            if (nextValue.value() == null && peek.value() == null || nextValue != null && nextValue.key().mismatch(peek.key()) == -1)
             if (nextValue.key().mismatch(peek.key()) != -1) {
                 break;
             }
             iterators.poll();
+            candidate.next();
 
             if (candidate.hasNext()) {
                 iterators.offer(candidate);
