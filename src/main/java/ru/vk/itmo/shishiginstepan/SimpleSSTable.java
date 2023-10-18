@@ -75,13 +75,13 @@ public class SimpleSSTable {
         for (var entry : entries) {
 
             segment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
-            offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+            offset += Long.BYTES;
 
             MemorySegment.copy(entry.key(), 0, segment, offset, entry.key().byteSize());
             offset += entry.key().byteSize();
 
             segment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.value().byteSize());
-            offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+            offset += Long.BYTES;
 
             MemorySegment.copy(entry.value(), 0, segment, offset, entry.value().byteSize());
             offset += entry.value().byteSize();
@@ -97,12 +97,12 @@ public class SimpleSSTable {
             if (-1 == MemorySegment.mismatch(key, 0, key.byteSize(), segment, offset, offset + keySize)) {
                 offset += keySize;
                 var valSize = segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+                offset += Long.BYTES;
                 return segment.asSlice(offset, valSize);
             }
             offset += keySize;
             offset += segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+            offset += Long.BYTES;
         }
         return null;
     }
