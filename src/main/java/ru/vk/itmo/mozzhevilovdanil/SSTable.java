@@ -21,7 +21,6 @@ import java.util.UUID;
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 import static ru.vk.itmo.mozzhevilovdanil.DatabaseUtils.binSearch;
 
-
 public class SSTable {
     private final Arena arena;
     private final MemorySegment readPage;
@@ -48,31 +47,9 @@ public class SSTable {
             return;
         }
 
-        boolean created = false;
-        MemorySegment pageCurrent;
-        try (FileChannel fileChannel = FileChannel.open(tablePath, StandardOpenOption.READ)) {
-            pageCurrent = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
-            created = true;
-        } catch (FileNotFoundException e) {
-            pageCurrent = null;
-        } finally {
-            if (!created) {
-                arena.close();
-            }
-        }
 
-        created = false;
-        MemorySegment indexCurrent;
-        try (FileChannel fileChannel = FileChannel.open(indexPath, StandardOpenOption.READ)) {
-            indexCurrent = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, indexSize, arena);
-            created = true;
-        } catch (FileNotFoundException e) {
-            indexCurrent = null;
-        } finally {
-            if (!created) {
-                arena.close();
-            }
-        }
+        MemorySegment pageCurrent = getMemorySegment(size, tablePath);
+        MemorySegment indexCurrent = getMemorySegment(indexSize, indexPath);
 
         readPage = pageCurrent;
         readIndex = indexCurrent;
@@ -84,15 +61,31 @@ public class SSTable {
         }
 
         long result = binSearch(readIndex, readPage, key);
-        if (result >= readIndex.byteSize()){
+        if (result >= readIndex.byteSize()) {
             return null;
         }
         long offset = readIndex.get(JAVA_LONG_UNALIGNED, result);
         long resultCompare = DatabaseUtils.compareInPlace(readPage, offset, key);
-        if (resultCompare != 0){
+        if (resultCompare != 0) {
             return null;
         }
         return entryAtOffset(offset);
+    }
+
+    private MemorySegment getMemorySegment(long size, Path path) throws IOException {
+        boolean created = false;
+        MemorySegment pageCurrent;
+        try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.READ)) {
+            pageCurrent = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
+            created = true;
+        } catch (FileNotFoundException e) {
+            pageCurrent = null;
+        } finally {
+            if (!created) {
+                arena.close();
+            }
+        }
+        return pageCurrent;
     }
 
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
@@ -141,13 +134,13 @@ public class SSTable {
 
         String randomTempPrefix = UUID.randomUUID().toString();
         Path tempTablePath = config.basePath().resolve(randomTempPrefix + ".db");
-        Path tempIndexPath = config.basePath().resolve( randomTempPrefix + ".index.db");
+        Path tempIndexPath = config.basePath().resolve(randomTempPrefix + ".index.db");
 
         long size = 0;
         long indexSize = 0;
         while (mergeIterator.hasNext()) {
             Entry<MemorySegment> entry = mergeIterator.next();
-            if (entry.value() == null){
+            if (entry.value() == null) {
                 continue;
             }
             size += entry.key().byteSize() + entry.value().byteSize() + 2L * Long.BYTES;
@@ -175,13 +168,15 @@ public class SSTable {
             while (mergeIterator.hasNext()) {
                 Entry<MemorySegment> entry = mergeIterator.next();
                 MemorySegment key = entry.key();
-                MemorySegment value = entry.value();
 
                 index.set(JAVA_LONG_UNALIGNED, indexOffset, offset);
                 indexOffset += Long.BYTES;
 
                 page.set(JAVA_LONG_UNALIGNED, offset, key.byteSize());
                 offset += Long.BYTES;
+
+                MemorySegment value = entry.value();
+
                 page.set(JAVA_LONG_UNALIGNED, offset, value.byteSize());
                 offset += Long.BYTES;
 
@@ -206,24 +201,23 @@ public class SSTable {
                 StandardOpenOption.CREATE);
     }
 
-    public Entry<MemorySegment> entryAtPosition(long position){
-        if (position >= readIndex.byteSize()){
+    public Entry<MemorySegment> entryAtPosition(long position) {
+        if (position >= readIndex.byteSize()) {
             return null;
         }
         long offset = readIndex.get(JAVA_LONG_UNALIGNED, position);
         return entryAtOffset(offset);
     }
 
-    public Entry<MemorySegment> entryAtOffset(long offset){
-        long keySize = readPage.get(JAVA_LONG_UNALIGNED, offset);
-        offset += Long.BYTES;
-        long valueSize = readPage.get(JAVA_LONG_UNALIGNED, offset);
-        offset += Long.BYTES;
-        MemorySegment key = readPage.asSlice(offset, keySize);
-        offset += keySize;
-        MemorySegment value = readPage.asSlice(offset, valueSize);
+    public Entry<MemorySegment> entryAtOffset(long offset) {
+        long innerOffset = offset;
+        long keySize = readPage.get(JAVA_LONG_UNALIGNED, innerOffset);
+        innerOffset += Long.BYTES;
+        long valueSize = readPage.get(JAVA_LONG_UNALIGNED, innerOffset);
+        innerOffset += Long.BYTES;
+        MemorySegment key = readPage.asSlice(innerOffset, keySize);
+        innerOffset += keySize;
+        MemorySegment value = readPage.asSlice(innerOffset, valueSize);
         return new BaseEntry<>(key, value);
     }
-
-
 }

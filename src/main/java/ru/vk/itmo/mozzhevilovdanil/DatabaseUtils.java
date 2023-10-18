@@ -10,12 +10,21 @@ import java.util.Iterator;
 public class DatabaseUtils {
     public static final Comparator<MemorySegment> comparator = DatabaseUtils::compare;
 
-    static public Iterator<Entry<MemorySegment>> mergeIterator(Iterator<Entry<MemorySegment>> storageIterator, Iterator<Entry<MemorySegment>> sstableIterator) {
-        return new Iterator<>() {
-            Entry<MemorySegment> peekStorageEntry = null;
-            Entry<MemorySegment> peekSSTableEntry = null;
+    private DatabaseUtils() {
+    }
 
-            private static Entry<MemorySegment> peekNextIfNull(Iterator<Entry<MemorySegment>> iterator, Entry<MemorySegment> peekEntry) {
+    static public Iterator<Entry<MemorySegment>> mergeIterator(
+            Iterator<Entry<MemorySegment>> storageIterator,
+            Iterator<Entry<MemorySegment>> sstableIterator
+    ) {
+        return new Iterator<>() {
+            Entry<MemorySegment> peekStorageEntry;
+            Entry<MemorySegment> peekSSTableEntry;
+
+            private static Entry<MemorySegment> peekNextIfNull(
+                    Iterator<Entry<MemorySegment>> iterator,
+                    Entry<MemorySegment> peekEntry
+            ) {
                 if (peekEntry == null && iterator.hasNext()) {
                     return iterator.next();
                 }
@@ -45,11 +54,13 @@ public class DatabaseUtils {
             }
 
             private boolean checkSameKeysOnPeek() {
-                return peekStorageEntry != null && peekSSTableEntry != null && comparator.compare(peekStorageEntry.key(), peekSSTableEntry.key()) == 0;
+                return peekStorageEntry != null && peekSSTableEntry != null
+                        && comparator.compare(peekStorageEntry.key(), peekSSTableEntry.key()) == 0;
             }
 
             private boolean checkSSTablePeekLessThanStorage() {
-                return peekSSTableEntry != null && comparator.compare(peekStorageEntry.key(), peekSSTableEntry.key()) > 0;
+                return peekSSTableEntry != null
+                        && comparator.compare(peekStorageEntry.key(), peekSSTableEntry.key()) > 0;
             }
 
             @Override
@@ -105,12 +116,12 @@ public class DatabaseUtils {
         return left * Long.BYTES;
     }
 
-    public static long compareInPlace(MemorySegment readPage, long offset, MemorySegment key) {
+    public static long compareInPlace(MemorySegment readPage, long offsetOfCompareValue, MemorySegment key) {
 
-        long keySize = readPage.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-        offset += 2 * Long.BYTES;
+        long keySize = readPage.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetOfCompareValue);
+        offsetOfCompareValue += 2 * Long.BYTES;
 
-        long mismatch = MemorySegment.mismatch(readPage, offset, offset + key.byteSize(), key, 0, key.byteSize());
+        long mismatch = MemorySegment.mismatch(readPage, offsetOfCompareValue, offsetOfCompareValue + key.byteSize(), key, 0, key.byteSize());
 
         if (mismatch == -1) {
             return Long.compare(keySize, key.byteSize());
@@ -124,7 +135,7 @@ public class DatabaseUtils {
             return 1;
         }
 
-        byte b1 = readPage.get(ValueLayout.JAVA_BYTE, offset + mismatch);
+        byte b1 = readPage.get(ValueLayout.JAVA_BYTE, offsetOfCompareValue + mismatch);
         byte b2 = key.get(ValueLayout.JAVA_BYTE, mismatch);
         return Byte.compare(b1, b2);
     }
