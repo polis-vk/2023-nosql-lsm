@@ -83,16 +83,28 @@ public class SSTablesStorage {
             long mid = (high - low) / 2 + low;
 
             long offset = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + mid * Byte.SIZE);
-
             long keySize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
-            MemorySegment midKey = readSegment.asSlice(offset, keySize);
 
-            int compare = NotOnlyInMemoryDao.comparator(midKey, key);
+            long mismatch = MemorySegment.mismatch(
+                    readSegment, offset, offset + keySize,
+                    key, 0, key.byteSize());
 
-            if (compare == 0) {
+            if (mismatch == -1)
                 return mid;
+
+            if (mismatch == keySize) {
+                low = mid;
+                continue;
             }
+            if (mismatch == key.byteSize()) {
+                high = mid;
+                continue;
+            }
+
+            int compare = Byte.compare(readSegment.get(ValueLayout.JAVA_BYTE, offset + mismatch),
+                    key.get(ValueLayout.JAVA_BYTE, mismatch));
+
             if (compare > 0) {
                 high = mid;
             } else {
@@ -102,6 +114,7 @@ public class SSTablesStorage {
 
         return low + 1;
     }
+
 
     //Merge iterator from all sstables in sstable storage
     public Iterator<Entry<MemorySegment>> iteratorsAll(MemorySegment from, MemorySegment to) {
