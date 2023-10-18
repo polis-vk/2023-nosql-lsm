@@ -6,7 +6,7 @@ import java.lang.foreign.MemorySegment;
 import java.util.Comparator;
 import java.util.Iterator;
 
-public class SkipDeletedIterator implements Iterator<Entry<MemorySegment>>{
+public class SkipDeletedIterator implements Iterator<Entry<MemorySegment>> {
     private Entry<MemorySegment> prefetched;
     private final Iterator<Entry<MemorySegment>> iterator;
 
@@ -26,7 +26,7 @@ public class SkipDeletedIterator implements Iterator<Entry<MemorySegment>>{
     @Override
     public boolean hasNext() {
         this.skipDeleted();
-        return this.iterator.hasNext() || this.prefetched!=null;
+        return this.iterator.hasNext() || this.prefetched != null;
     }
 
     @Override
@@ -49,9 +49,9 @@ public class SkipDeletedIterator implements Iterator<Entry<MemorySegment>>{
     }
 
     public void skipDeleted() {
-        if (this.iterator.hasNext()){
+        if (this.iterator.hasNext()) {
             var next = this.peekNext();
-            if (this.comparator.compare(next.value(), deletionMark)==0) {
+            if (this.comparator.compare(next.value(), deletionMark) == 0) {
                 this.prefetched = null;
                 this.skipDeleted();
             }

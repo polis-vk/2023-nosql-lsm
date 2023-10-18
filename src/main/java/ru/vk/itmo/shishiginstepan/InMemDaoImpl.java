@@ -81,10 +81,10 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (entry == null) {
             entry = persistentStorage.get(key);
         }
-        if (entry==null){
+        if (entry == null) {
             return null;
         }
-        if (keyComparator.compare(entry.value(), deletionMark)==0) {
+        if (keyComparator.compare(entry.value(), deletionMark) == 0) {
             return null;
         }
         return entry;
@@ -92,7 +92,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (entry.value()==null){
+        if (entry.value() == null) {
             this.memStorage.put(
                     entry.key(),
                     new BaseEntry<>(entry.key(), deletionMark)
@@ -108,6 +108,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.flush();
         this.persistentStorage.close();
     }
+
     @Override
     public void flush() {
         if (!this.memStorage.isEmpty()) {

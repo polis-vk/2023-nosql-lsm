@@ -16,7 +16,7 @@ public class SimpleSSTable {
     private final Path sstPath;
     private long size;
 
-    private MemorySegment segment;
+    private final MemorySegment segment;
 
     public int id;
 
@@ -50,11 +50,12 @@ public class SimpleSSTable {
             throw new SSTableRWException(e);
         }
     }
-    public static Path WriteSSTable(Collection<Entry<MemorySegment>> entries, Path path, int id){
+
+    public static Path WriteSSTable(Collection<Entry<MemorySegment>> entries, Path path, int id) {
         Arena arena = Arena.ofShared();
-        Path sstPath = Path.of(path.toAbsolutePath() + "/sstable_"+id);
+        Path sstPath = Path.of(path.toAbsolutePath() + "/sstable_" + id);
         long dataSize = 0;
-        for (var entry: entries) {
+        for (var entry : entries) {
             dataSize += entry.value().byteSize() + entry.key().byteSize() + 16;
         }
         try (var fileChannel = FileChannel.open(
@@ -63,18 +64,19 @@ public class SimpleSSTable {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.TRUNCATE_EXISTING
-        )){
-          var segment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, dataSize, arena);
-          writeEntries(entries, segment);
+        )) {
+            var segment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, dataSize, arena);
+            writeEntries(entries, segment);
         } catch (IOException e) {
             throw new SSTableRWException(e);
         }
         arena.close();
         return sstPath;
     }
+
     private static void writeEntries(Collection<Entry<MemorySegment>> entries, MemorySegment segment) {
         long offset = 0;
-        for (var entry:entries){
+        for (var entry : entries) {
 
             segment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
             offset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();

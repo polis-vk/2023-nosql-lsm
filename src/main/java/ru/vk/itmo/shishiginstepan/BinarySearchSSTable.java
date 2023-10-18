@@ -123,7 +123,7 @@ public class BinarySearchSSTable {
 
     private long searchEntryPosition(MemorySegment key, boolean exact) {
         long l = 0, r = this.indexSize / 16 - 1;
-        long m = -1;
+        long m;
         while (l <= r) {
             m = l + (r - l) / 2;
 
@@ -175,13 +175,13 @@ public class BinarySearchSSTable {
     public Iterator<Entry<MemorySegment>> scan(MemorySegment keyFrom, MemorySegment keyTo) {
         long startIndex;
         long endIndex;
-        if (keyFrom == null){
+        if (keyFrom == null) {
             startIndex = 0;
         } else {
             startIndex = this.searchEntryPosition(keyFrom, false);
         }
-        if (keyTo == null){
-            endIndex=this.indexSize/16;
+        if (keyTo == null) {
+            endIndex = this.indexSize / 16;
         } else {
             endIndex = this.searchEntryPosition(keyTo, false);
         }
@@ -200,6 +200,7 @@ class BinarySearchSSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     private final MemorySegment indexSegment;
     private final MemorySegment tableSegment;
+
     public BinarySearchSSTableIterator(
             MemorySegment indexSegment,
             MemorySegment tableSegment,
@@ -211,6 +212,7 @@ class BinarySearchSSTableIterator implements Iterator<Entry<MemorySegment>> {
         this.indexSegment = indexSegment;
         this.tableSegment = tableSegment;
     }
+
     @Override
     public boolean hasNext() {
         return this.currentEntryIndex != this.endEntryIndex;
@@ -219,18 +221,18 @@ class BinarySearchSSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> next() {
-        var keyOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex*16);
-        var valOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex*16+8);//TODO заменить по коменту из ПР
+        var keyOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * 16);
+        var valOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * 16 + 8);//TODO заменить по коменту из ПР
         long nextOffset;
-        if (this.currentEntryIndex*16+16 >= this.indexSegment.byteSize()){
+        if (this.currentEntryIndex * 16 + 16 >= this.indexSegment.byteSize()) {
             nextOffset = this.tableSegment.byteSize();
         } else {
-            nextOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex*16+16);
+            nextOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * 16 + 16);
         }
         this.currentEntryIndex++;
         return new BaseEntry<>(
-                this.tableSegment.asSlice(keyOffset, valOffset-keyOffset),
-                this.tableSegment.asSlice(valOffset, nextOffset-valOffset)
+                this.tableSegment.asSlice(keyOffset, valOffset - keyOffset),
+                this.tableSegment.asSlice(valOffset, nextOffset - valOffset)
         );
     }
 }
