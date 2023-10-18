@@ -34,4 +34,11 @@ public class Utils {
 
         return new BaseEntry<>(keySegment, valueSegment);
     }
+
+    public static String getIndexFromString(String fileName) {
+        String pattern = "data_";
+
+        int startIdx = fileName.indexOf(pattern) + pattern.length();
+        return fileName.substring(startIdx);
+    }
 }

@@ -3,17 +3,14 @@ package ru.vk.itmo.tuzikovalexandr;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.PriorityQueue;
+import java.util.*;
 
 public class RangeIterator implements Iterator<Entry<MemorySegment>> {
 
-    private final PriorityQueue<PeekIterator> iterators = new PriorityQueue<>(
+    private final Queue<PeekIterator> iterators = new PriorityQueue<>(
             MemorySegmentComparator::iteratorsCompare
     );
-    private MemorySegment previous;
+    private MemorySegment previousSegment;
 
     public RangeIterator(List<PeekIterator> iterators) {
         iterators.removeIf(i -> !i.hasNext());
@@ -26,12 +23,12 @@ public class RangeIterator implements Iterator<Entry<MemorySegment>> {
         while ((nextPeekIterator = iterators.peek()) != null) {
             Entry<MemorySegment> current = nextPeekIterator.peek();
             if (current.value() == null) {
-                previous = current.key();
+                previousSegment = current.key();
                 reInsert();
                 continue;
             }
 
-            if (!isEquals(current.key(), previous)) {
+            if (!isEquals(current.key(), previousSegment)) {
                 return true;
             }
             reInsert();
@@ -42,7 +39,7 @@ public class RangeIterator implements Iterator<Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> next() {
         Entry<MemorySegment> result = reInsert();
-        previous = result.key();
+        previousSegment = result.key();
         return result;
     }
 

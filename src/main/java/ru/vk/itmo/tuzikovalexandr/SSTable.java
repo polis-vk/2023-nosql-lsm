@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Stream;
 
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
@@ -30,23 +31,28 @@ public class SSTable {
     private final Arena readArena;
     private static final String FILE_PREFIX = "data_";
     private static final String OFFSET_PREFIX = "offset_";
-    private static final String INDEX_FILE = "index";
     private final Comparator<MemorySegment> comparator = MemorySegmentComparator::compare;
     private final List<BaseEntry<MemorySegment>> files = new ArrayList<>();
-    private final List<Long> listIndex;
+    private final List<String> listIndex;
 
     public SSTable(Config config) throws IOException {
         this.basePath = config.basePath();
+
+        if(Files.notExists(basePath)) {
+            listIndex = null;
+            readArena = null;
+            return;
+        }
 
         listIndex = getAllIndex();
 
         readArena = Arena.ofConfined();
 
-        if (listIndex == null) {
+        if (listIndex.isEmpty()) {
             return;
         }
 
-        for (Long index : listIndex) {
+        for (String index : listIndex) {
             Path offsetFullPath = basePath.resolve(OFFSET_PREFIX + index);
             MemorySegment readSegmentOffset = FileChannel.open(offsetFullPath, StandardOpenOption.READ)
                     .map(READ_ONLY, 0, Files.size(offsetFullPath), readArena);
@@ -81,17 +87,12 @@ public class SSTable {
         int index = 0;
 
         long instantNow = Instant.now().toEpochMilli();
+
         try (FileChannel fcData = FileChannel.open(basePath.resolve(FILE_PREFIX + instantNow), openOptions);
-             FileChannel fcOffset = FileChannel.open(basePath.resolve(OFFSET_PREFIX + instantNow), openOptions);
-             FileChannel fcIndex = FileChannel.open(basePath.resolve(INDEX_FILE), openOptions)) {
+             FileChannel fcOffset = FileChannel.open(basePath.resolve(OFFSET_PREFIX + instantNow), openOptions)) {
 
             MemorySegment writeSegmentData = fcData.map(READ_WRITE, 0, memorySize, Arena.ofConfined());
             MemorySegment writeSegmentOffset = fcOffset.map(READ_WRITE, 0, (long) offsets.length * Long.BYTES, Arena.ofConfined());
-
-            long indexFileSize = Files.size(basePath.resolve(INDEX_FILE)) + Long.BYTES;
-            MemorySegment writeSegmentIndex = fcIndex.map(READ_WRITE, 0, indexFileSize, Arena.ofConfined());
-
-            writeSegmentIndex.set(ValueLayout.JAVA_LONG, indexFileSize - Long.BYTES, instantNow);
 
             for (Entry<MemorySegment> entry : entries) {
                 MemorySegment key = entry.key();
@@ -131,7 +132,7 @@ public class SSTable {
 
             long offsetResult = binarySearch(key, offsetSegment, dataSegment);
 
-            if (offsetResult != -1) {
+            if (offsetResult >= 0) {
                 return Utils.getEntryByKeyOffset(offsetResult, offsetSegment, dataSegment);
             }
         }
@@ -144,48 +145,21 @@ public class SSTable {
             return null;
         }
 
-        boolean start = false;
-        boolean end = false;
-
-        long startKeyOffset;
-        long endKeyOffset;
-
         List<PeekIterator> iterator = new ArrayList<>();
 
         for (int i = listIndex.size() - 1; i >= 0; i--) {
             MemorySegment offsetSegment = files.get(i).key();
             MemorySegment dataSegment = files.get(i).value();
 
-            if (from != null) {
-                startKeyOffset = binarySearch(from, offsetSegment, dataSegment);
-            } else {
-                startKeyOffset = 0;
-                start = true;
+            long start = from == null ? 0 : Math.abs(binarySearch(from, offsetSegment, dataSegment));
+            long end = to == null ? offsetSegment.byteSize() - Long.BYTES * 2 :
+                    Math.abs(binarySearch(to, offsetSegment, dataSegment)) - Long.BYTES * 2;
+
+            if (start > end) {
+                continue;
             }
 
-            if (to != null) {
-                endKeyOffset = binarySearch(to, offsetSegment, dataSegment);
-            } else {
-                endKeyOffset = files.get(i).key().byteSize() - Long.BYTES * 2;
-            }
-
-            if (startKeyOffset == -1) {
-                startKeyOffset = 0;
-            } else {
-                start = true;
-            }
-
-            if (endKeyOffset == -1) {
-                endKeyOffset = files.get(i).key().byteSize() - Long.BYTES * 2;
-            } else {
-                end = true;
-            }
-
-            iterator.add(new PeekIterator(new FileIterator(offsetSegment, dataSegment, startKeyOffset, endKeyOffset), i));
-
-            if (start && end) {
-                break;
-            }
+            iterator.add(new PeekIterator(new FileIterator(offsetSegment, dataSegment, start, end), i));
         }
 
         return iterator;
@@ -203,7 +177,7 @@ public class SSTable {
 
             long offset = middle * Long.BYTES * 2;
             if (offset >= offsetSegment.byteSize()) {
-                return -1;
+                return -left * Long.BYTES * 2;
             }
 
             keyOffset = offsetSegment.get(ValueLayout.JAVA_LONG, offset);
@@ -224,7 +198,7 @@ public class SSTable {
             }
         }
 
-        return -1;
+        return -left * Long.BYTES * 2;
     }
 
     public boolean isNullIndexList() {
@@ -235,21 +209,16 @@ public class SSTable {
         return listIndex.size();
     }
 
-    private List<Long> getAllIndex() throws IOException {
-        Path indexPath = basePath.resolve(INDEX_FILE);
-        List<Long> index = new ArrayList<>();
+    private List<String> getAllIndex() throws IOException {
+        List<String> index = new ArrayList<>();
 
-        if (Files.notExists(indexPath)) {
-            return null;
-        }
-
-        try (FileChannel fcIndex = FileChannel.open(indexPath, StandardOpenOption.READ)) {
-            MemorySegment indexMemorySegment = fcIndex.map(READ_ONLY, 0, Files.size(indexPath), Arena.ofConfined());
-
-            int countIndex = (int) (Files.size(indexPath) / Long.BYTES);
-            for (int i = 0; i < countIndex; i++) {
-                index.add(indexMemorySegment.get(ValueLayout.JAVA_LONG, (long) i * Long.BYTES));
-            }
+        try (Stream<Path> fileStream = Files.list(basePath)) {
+            fileStream.forEach(path -> {
+                String fileName = path.getFileName().toString();
+                if (fileName.startsWith(FILE_PREFIX)) {
+                    index.add(Utils.getIndexFromString(fileName));
+                }
+            });
         }
 
         return index;

@@ -8,7 +8,6 @@ import java.util.Iterator;
 public class PeekIterator  implements Iterator<Entry<MemorySegment>> {
 
     private final long priority;
-
     private Entry<MemorySegment> current;
     private final Iterator<Entry<MemorySegment>> iterator;
 
