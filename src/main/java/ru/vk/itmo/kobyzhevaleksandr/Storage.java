@@ -153,7 +153,8 @@ public class Storage {
         }
     }
 
-    private static long writeSegmentToMappedTableFile(MemorySegment mappedTableFile, MemorySegment segment, long offset) {
+    private static long writeSegmentToMappedTableFile(MemorySegment mappedTableFile,
+                                                      MemorySegment segment, long offset) {
         if (segment == null) {
             mappedTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
             return Long.BYTES;
