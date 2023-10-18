@@ -24,10 +24,7 @@ public class MozzhevilovDao implements Dao<MemorySegment, Entry<MemorySegment>> 
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return mergeIterator(
-                getMap(from, to),
-                ssTable.get(from, to)
-        );
+        return mergeIterator(getMap(from, to), ssTable.get(from, to));
     }
 
     private Iterator<Entry<MemorySegment>> getMap(MemorySegment from, MemorySegment to) {

@@ -105,7 +105,7 @@ public class DatabaseUtils {
         return left * Long.BYTES;
     }
 
-    public static long compareInPlace(MemorySegment readPage, long offset, MemorySegment key){
+    public static long compareInPlace(MemorySegment readPage, long offset, MemorySegment key) {
 
         long keySize = readPage.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
         offset += 2 * Long.BYTES;
@@ -123,26 +123,28 @@ public class DatabaseUtils {
         if (mismatch == key.byteSize()) {
             return 1;
         }
+
         byte b1 = readPage.get(ValueLayout.JAVA_BYTE, offset + mismatch);
         byte b2 = key.get(ValueLayout.JAVA_BYTE, mismatch);
         return Byte.compare(b1, b2);
     }
 
-    private static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
-        long mismatch = memorySegment1.mismatch(memorySegment2);
+    private static int compare(MemorySegment lhs, MemorySegment rhs) {
+        long mismatch = lhs.mismatch(rhs);
         if (mismatch == -1) {
             return 0;
         }
 
-        if (mismatch == memorySegment1.byteSize()) {
+        if (mismatch == lhs.byteSize()) {
             return -1;
         }
 
-        if (mismatch == memorySegment2.byteSize()) {
+        if (mismatch == rhs.byteSize()) {
             return 1;
         }
-        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
-        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
+
+        byte b1 = lhs.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b2 = rhs.get(ValueLayout.JAVA_BYTE, mismatch);
         return Byte.compare(b1, b2);
     }
 }
