@@ -17,6 +17,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
@@ -43,8 +44,16 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public PersistentDao(Config config) {
         metaInfoStorage = config.basePath().resolve(META_INFO_STORAGE_NAME);
+        if (!Files.exists(metaInfoStorage)) {
+            try {
+                Files.createFile(metaInfoStorage);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
         try (FileChannel fileChannel = FileChannel.open(metaInfoStorage,
-                StandardOpenOption.READ)) {
+                StandardOpenOption.READ,
+                StandardOpenOption.CREATE)) {
             metaInfoSegment = fileChannel.map(
                     FileChannel.MapMode.READ_ONLY,
                     0,
@@ -126,19 +135,12 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private Iterator<Entry<MemorySegment>> getEntryIterator(MemorySegment fromKey, MemorySegment toKey) {
         ArrayList<MemorySegmentIterator> iteratorList = new ArrayList<>();
-        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> submap = getSubMap(fromKey, toKey);
-        iteratorList.add(new MemTableIterator(submap));
+        Iterator<Entry<MemorySegment>> iteratorInRange = getIteratorInRange(fromKey, toKey);
+        if (iteratorInRange.hasNext()) {
+            iteratorList.add(new MemTableIterator(iteratorInRange));
+        }
 
-//        long metaInfoOffset = Integer.BYTES;
         for (int i = 0; i < sstables.size(); i++) {
-//            long minKeySize = metaInfoSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, metaInfoOffset);
-//            metaInfoOffset += Long.BYTES;
-//            MemorySegment minKey = metaInfoSegment.asSlice(metaInfoOffset, minKeySize);
-//            metaInfoOffset += minKeySize;
-//            long maxKeySize = metaInfoSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, metaInfoOffset);
-//            metaInfoOffset += Long.BYTES;
-//            MemorySegment maxKey = metaInfoSegment.asSlice(metaInfoOffset, maxKeySize);
-//            metaInfoOffset += maxKeySize;
 
             MemorySegment mappedSSTable = sstables.get(i);
             MemorySegment mappedIndex = indexes.get(i);
@@ -158,22 +160,23 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     sstables.size() - i
                     ));
         }
+        if (iteratorList.isEmpty()) {
+            return Collections.emptyIterator();
+        }
         return new MergeIterator(iteratorList);
     }
 
-    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from,
-                                                                                  MemorySegment to) {
-        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> subMap;
+    private Iterator<Entry<MemorySegment>> getIteratorInRange(MemorySegment from,
+                                                              MemorySegment to) {
         if (from == null && to == null) {
-            subMap = inMemoryStorage;
+            return inMemoryStorage.values().iterator();
         } else if (from == null) {
-            subMap = inMemoryStorage.headMap(to, false);
+            return inMemoryStorage.headMap(to, false).values().iterator();
         } else if (to == null) {
-            subMap = inMemoryStorage.tailMap(from, true);
+            return inMemoryStorage.values().iterator();
         } else {
-            subMap = inMemoryStorage.subMap(from, true, to, false);
+            return inMemoryStorage.subMap(from, true, to, false).values().iterator();
         }
-        return subMap;
     }
 
     private void writeMemorySegment(MemorySegment fileSegment, MemorySegment data, long offset) {
@@ -186,7 +189,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.READ,
-                StandardOpenOption.APPEND);
+                StandardOpenOption.TRUNCATE_EXISTING);
              FileChannel sstableChannel = FileChannel.open(sstable,
                      StandardOpenOption.CREATE,
                      StandardOpenOption.WRITE,
@@ -200,7 +203,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
              Arena arena = Arena.ofConfined()) {
 
             long sstableSize = 0;
-            long indexSize = 2 * Long.BYTES + (long) inMemoryStorage.size();
+            long indexSize = Constants.INDEX_ROW_SIZE * inMemoryStorage.size();
             for (Map.Entry<MemorySegment, Entry<MemorySegment>> e : inMemoryStorage.entrySet()) {
                 sstableSize += e.getKey().byteSize() + e.getValue().value().byteSize();
             }
@@ -222,10 +225,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             int counter = 1;
             long storageOffset = 0;
             long indexOffset = 0;
-            MemorySegment minKey = inMemoryStorage.firstKey();
-            MemorySegment maxKey = inMemoryStorage.firstKey();
             for (Map.Entry<MemorySegment, Entry<MemorySegment>> e : inMemoryStorage.entrySet()) {
-                indexSegment.set(ValueLayout.JAVA_INT_UNALIGNED, indexOffset, counter);
+                indexSegment.set(ValueLayout.JAVA_INT_UNALIGNED, indexOffset, counter++);
                 indexOffset += Integer.BYTES;
                 indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, e.getKey().byteSize());
                 indexOffset += Long.BYTES;
@@ -234,23 +235,16 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, storageOffset);
                 indexOffset += Long.BYTES;
 
-                minKey = MEMORY_SEGMENT_COMPARATOR.compare(e.getKey(), minKey) < 0 ? e.getKey() : minKey;
-                maxKey = MEMORY_SEGMENT_COMPARATOR.compare(e.getKey(), maxKey) > 0 ? e.getKey() : maxKey;
-
                 writeMemorySegment(sstableSegment, e.getKey(), storageOffset);
                 storageOffset += e.getKey().byteSize();
                 writeMemorySegment(sstableSegment, e.getValue().value(), storageOffset);
                 storageOffset += e.getValue().value().byteSize();
             }
 
-            long metaInfoSize = metaInfoChannel.size() > 0 ?
-                    metaInfoChannel.size() + 2 * Long.BYTES + minKey.byteSize() + maxKey.byteSize()
-                    : Integer.BYTES + 2 * Long.BYTES + minKey.byteSize() + maxKey.byteSize();
-
             MemorySegment metaInfoSegment = metaInfoChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
-                    metaInfoSize,
+                    Integer.BYTES,
                     arena
             );
             metaInfoSegment.set(ValueLayout.JAVA_INT_UNALIGNED, 0, sstables.size() + 1);

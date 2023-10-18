@@ -3,6 +3,7 @@ package ru.vk.itmo.test.bandurinvladislav;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.bandurinvladislav.dao.InMemoryDao;
 import ru.vk.itmo.bandurinvladislav.dao.PersistentDao;
 import ru.vk.itmo.test.DaoFactory;
 
@@ -11,7 +12,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 3)
+@DaoFactory(stage = 2)
 public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override

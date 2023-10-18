@@ -3,26 +3,32 @@ package ru.vk.itmo.bandurinvladislav.iterator;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.Iterator;
 
 public class MemTableIterator implements MemorySegmentIterator {
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable;
+    private final Iterator<Entry<MemorySegment>> memTableIterator;
     private Entry<MemorySegment> minKeyEntry;
 
-    public MemTableIterator(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable) {
-        this.memTable = memTable;
-        this.minKeyEntry = memTable.pollFirstEntry().getValue();
+    public MemTableIterator(Iterator<Entry<MemorySegment>> memTableIterator) {
+        this.memTableIterator = memTableIterator;
+        if (memTableIterator.hasNext()) {
+            this.minKeyEntry = memTableIterator.next();
+        }
     }
 
     @Override
     public boolean hasNext() {
-        return !memTable.isEmpty();
+        return minKeyEntry != null;
     }
 
     @Override
     public Entry<MemorySegment> next() {
         var result = minKeyEntry;
-        minKeyEntry = memTable.pollFirstEntry().getValue();
+        if (!memTableIterator.hasNext()) {
+            minKeyEntry = null;
+        } else {
+            minKeyEntry = memTableIterator.next();
+        }
         return result;
     }
 
