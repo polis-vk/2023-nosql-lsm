@@ -47,7 +47,7 @@ public class SSTable extends AbstractTable {
                 arena.close();
             }
         } catch (IOException e) {
-            System.err.printf("Couldn't close file channel: %s%n", sstChannel);
+            throw new FileChannelException("Couldn't close file channel " + sstChannel, e);
         }
     }
 
@@ -60,7 +60,7 @@ public class SSTable extends AbstractTable {
     public TableIterator<MemorySegment> tableIterator(MemorySegment from, boolean fromInclusive,
                                                       MemorySegment to, boolean toInclusive) {
         return new TableIterator<>() {
-            int start = from == null ? 0 : binarySearch(from) + Boolean.compare(!fromInclusive, false);
+            int start = (from == null ? 0 : binarySearch(from)) + Boolean.compare(!fromInclusive, false);
             final int end = (to == null ? size : binarySearch(to)) + Boolean.compare(toInclusive, true);
 
             @Override
@@ -75,9 +75,7 @@ public class SSTable extends AbstractTable {
 
             @Override
             public Entry<MemorySegment> next() {
-                var entry = new BaseEntry<>(getKeyByIndex(start), getValueByIndex(start));
-                start++;
-                return entry;
+                return new BaseEntry<>(getKeyByIndex(start), getValueByIndex(start++));
             }
         };
     }
@@ -101,9 +99,10 @@ public class SSTable extends AbstractTable {
 
     private MemorySegment copyToArena(long valOffset, long nextOffset) {
         try (Arena mapArena = Arena.ofConfined()) {
-            MemorySegment back = this.arena.allocate(nextOffset - valOffset);
-            back.copyFrom(sstChannel.map(FileChannel.MapMode.READ_ONLY, valOffset, nextOffset - valOffset, mapArena));
-            return back;
+            var mappedMem = sstChannel.map(FileChannel.MapMode.READ_ONLY, valOffset, nextOffset - valOffset, mapArena);
+            var nativeMem = arena.allocate(mappedMem.byteSize());
+            Utils.copyToSegment(nativeMem, mappedMem, 0);
+            return nativeMem;
         } catch (IOException ex) {
             throw new FileChannelException("Couldn't map file from channel " + sstChannel, ex);
         }
