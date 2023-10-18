@@ -121,7 +121,14 @@ public class DatabaseUtils {
         long keySize = readPage.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetOfCompareValue);
         offsetOfCompareValue += 2 * Long.BYTES;
 
-        long mismatch = MemorySegment.mismatch(readPage, offsetOfCompareValue, offsetOfCompareValue + key.byteSize(), key, 0, key.byteSize());
+        long mismatch = MemorySegment.mismatch(
+                readPage,
+                offsetOfCompareValue,
+                offsetOfCompareValue + key.byteSize(),
+                key,
+                0,
+                key.byteSize()
+        );
 
         if (mismatch == -1) {
             return Long.compare(keySize, key.byteSize());
