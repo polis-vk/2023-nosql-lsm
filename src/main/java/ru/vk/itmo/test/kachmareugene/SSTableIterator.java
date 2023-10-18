@@ -105,19 +105,17 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         if (getHead() == null) {
             updateMp(minSStablesEntry.getKey());
             keeper = controller.getRow(minSStablesEntry.getValue());
-            if (keeper != null && keeper.value() == null) {
-                return false;
-            }
-            return true;
+            return keeper != null && keeper.value() == null;
         }
         return false;
     }
 
     private boolean isChangedByStructures(Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry) {
-        if (getHead() == null) {
+        var curHead = getHead();
+        if (curHead == null) {
             return false;
         }
-        int res = comp.compare(getHead().key(), minSStablesEntry.getKey());
+        int res = comp.compare(curHead.key(), minSStablesEntry.getKey());
 
         if (res < 0) {
             keeper = moveAndGet();
@@ -126,7 +124,6 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
         updateMp(minSStablesEntry.getKey());
         keeper = (res > 0) ? controller.getRow(minSStablesEntry.getValue()) : moveAndGetOnce();
-
         return keeper.value() != null;
     }
 
