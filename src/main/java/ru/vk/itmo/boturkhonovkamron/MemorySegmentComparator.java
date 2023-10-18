@@ -5,7 +5,7 @@ import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
 /**
- * Реализация компаратора для сравнения объектов типа MemorySegment.
+ * Comparator realization to compare MemorySegment objects.
  *
  * @author Kamron Boturkhonov
  * @since 2023.09.27
@@ -15,7 +15,7 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
     @Override
     public int compare(final MemorySegment left, final MemorySegment right) {
         if (left == null || right == null) {
-            return left == null ? -1 : 1;
+            throw new IllegalArgumentException("Null key is not allowed");
         }
         if (left.equals(right)) {
             return 0;
@@ -27,6 +27,6 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
             return Byte.compare(left.get(ValueLayout.JAVA_BYTE, mismatch),
                     right.get(ValueLayout.JAVA_BYTE, mismatch));
         }
-        return (int) (leftSize - rightSize);
+        return Long.compare(leftSize, rightSize);
     }
 }
