@@ -16,23 +16,22 @@ import java.util.Comparator;
 import java.util.NavigableMap;
 
 public class SSTable implements Comparable<SSTable> {
-    // Contains offset and size for every key in index file
+    // Contains offset and size for every key and every value in index file
     private MemorySegment summaryFile;
-    // Contains keys and for each key contains offset and size of assigned value
+    // Contains keys
     private MemorySegment indexFile;
     // Contains values
     private MemorySegment dataFile;
     private final Comparator<MemorySegment> memSegComp;
-    private final Arena filesArena;
+    private final Arena filesArena = Arena.ofAuto();
     private final long tableId;
 
     private final long size;
 
     public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
                    NavigableMap<MemorySegment, Entry<MemorySegment>> memTable,
-                   boolean rewrite, Arena filesArena) throws IOException {
+                   boolean rewrite) throws IOException {
         this.tableId = tableId;
-        this.filesArena = filesArena;
         Path ssTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
         Path summaryFilePath = ssTablePath.resolve("summary");
@@ -130,11 +129,12 @@ public class SSTable implements Comparable<SSTable> {
                 segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + Long.BYTES));
     }
 
-    // Binary search in summary and index files. Returns index of least record greater than key
+    /* Binary search in summary and index files. Returns index of least record greater than key or equal.
+    Returns -1 if no such key */
     private long findByKey(MemorySegment key) {
-        long left = 0;
-        long right = size - 1;
-        while (right - left > 2) {
+        long left = -1; // Always less than key
+        long right = size; // Always greater or equal than key
+        while (right - left > 1) {
             long middle = (right + left) / 2;
             Metadata currentEntryMetadata = new Metadata(middle);
             MemorySegment curKey = currentEntryMetadata.readKey();
@@ -145,21 +145,13 @@ public class SSTable implements Comparable<SSTable> {
                 left = middle;
             }
         }
-        for (long i = left; i <= right; i++) {
-            Metadata currentEntryMetadata = new Metadata(i);
-            MemorySegment curKey = currentEntryMetadata.readKey();
-            if (memSegComp.compare(curKey, key) >= 0) {
-                return i;
-            }
-        }
-        return -1;
+        return right == size ? -1 : right; // If right == size, then key is bigger than any SSTable key
     }
 
     private long findByKeyExact(MemorySegment key) {
         long goe = findByKey(key);
-        if (goe == -1) return -1;
-        if (memSegComp.compare(readEntry(goe).key(), key) == 0) return goe;
-        return -1;
+        if (goe == -1 || memSegComp.compare(readEntry(goe).key(), key) != 0) return -1;
+        return goe;
     }
 
     private Entry<MemorySegment> readEntry(long index) {
@@ -220,7 +212,6 @@ public class SSTable implements Comparable<SSTable> {
             return tableId;
         }
     }
-
     @Override
     public int compareTo(SSTable o) {
         return Long.compare(o.tableId, this.tableId);

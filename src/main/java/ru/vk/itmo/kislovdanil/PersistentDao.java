@@ -3,6 +3,7 @@ package ru.vk.itmo.kislovdanil;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+
 import ru.vk.itmo.kislovdanil.exceptions.DBException;
 import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;
 import ru.vk.itmo.kislovdanil.iterators.MergeIterator;
@@ -36,8 +37,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         String[] ssTablesIds = basePathDirectory.list();
         if (ssTablesIds == null) return;
         for (String tableID : ssTablesIds) {
+            // SSTable constructor with rewrite=false reads table data from disk if it exists
             tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID),
-                    storage, false, daoArena));
+                    storage, false));
         }
         tables.sort(SSTable::compareTo);
     }
@@ -83,8 +85,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void flush() throws IOException {
         if (!storage.isEmpty()) {
             lastTimestamp = Math.max(lastTimestamp + 1, System.currentTimeMillis());
+            // SSTable constructor with rewrite=true writes MemTable data on disk deleting old data if it exists
             tables.add(new SSTable(config.basePath(), comparator,
-                    lastTimestamp, storage, true, daoArena));
+                    lastTimestamp, storage, true));
         }
     }
 
