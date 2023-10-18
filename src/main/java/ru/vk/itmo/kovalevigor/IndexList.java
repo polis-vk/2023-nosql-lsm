@@ -76,7 +76,7 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
         return META_INFO_SIZE + map.size() * INDEX_ENTRY_SIZE;
     }
 
-    private static long writeLong(final MemorySegment writer, final long offset ,final long value) {
+    private static long writeLong(final MemorySegment writer, final long offset, final long value) {
         writer.set(ValueLayout.JAVA_LONG, offset, value);
         return offset + ValueLayout.JAVA_LONG.byteSize();
     }

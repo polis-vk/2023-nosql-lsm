@@ -75,11 +75,19 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void close() throws IOException {
+    public void flush() throws IOException {
         if (!storage.isEmpty()) {
             ssManager.write(storage);
         }
-        ssManager.close();
-        storage.clear();
+    }
+
+    @Override
+    public void close() throws IOException {
+        try {
+            flush();
+        } finally {
+            storage.clear();
+            ssManager.close();
+        }
     }
 }
