@@ -69,7 +69,6 @@ public class FileDao implements Closeable {
         for (File file : Arrays.stream(listOfFiles)
                 .filter(File::isFile)
                 .sorted(Comparator.comparing(x -> FileUtils.parseIndexFromFileName(x.getName())))
-                .sorted(Comparator.reverseOrder())
                 .collect(Collectors.toList())) {
             if (file.getName().startsWith(VALUES_FILENAME_PREFIX)) {
                 readValuesMSStorage.add(getReadOnlyMappedMemory(file));
@@ -85,16 +84,16 @@ public class FileDao implements Closeable {
         }
     }
 
-    public List<PeekingPriorityIterator> getFilesIterators(MemorySegment from, MemorySegment to) {
+    public List<PeekingPriorityIterator> getFileIterators(MemorySegment from, MemorySegment to) {
         List<PeekingPriorityIterator> filesIterators = new ArrayList<>();
 
-        for (int i = 0; i < readValuesMSStorage.size(); i++) {
+        for (int i = readValuesMSStorage.size() - 1, priority = 1; i >= 0; i--, priority++) {
             filesIterators.add(new PeekingPriorityIteratorImpl(new FileIterator(
                     readValuesMSStorage.get(i),
                     readOffsetsMSStorage.get(i),
                     from,
                     to),
-                    i + 1));
+                    priority));
         }
 
         return filesIterators;
@@ -109,7 +108,7 @@ public class FileDao implements Closeable {
 
     // Найти указанный ключ во всех файлах со значениями
     Entry<MemorySegment> read(MemorySegment msKey) {
-        for (int i = 0; i < readValuesMSStorage.size(); i++) {
+        for (int i = readValuesMSStorage.size() - 1; i >= 0; i--) {
             MemorySegment readValuesMS = readValuesMSStorage.get(i);
             MemorySegment readOffsetsMS = readOffsetsMSStorage.get(i);
 

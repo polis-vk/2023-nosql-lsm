@@ -25,8 +25,17 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         var nonEmptyFileIterators = inFileIterators.stream().filter(Iterator::hasNext).toList();
         nonEmptyFileIterators.forEach(Iterator::next);
         iterators.addAll(inFileIterators.stream().filter(x -> x.getCurrent() != null).toList());
-        moveNextAndSaveActualEntry();
+        saveActualEntryAndmoveNext();
+//        System.out.println("Iterators:");
+//        iterators.forEach(it -> System.out.println(it.getPriority() + ":" + printEntry(it.getCurrent())));
     }
+
+//    private String printEntry(Entry<MemorySegment> entry) {
+//        if(entry == null){
+//            return "NULL";
+//        }
+//        return ("[" + new DaoFactoryImpl().toString(entry.key()) + ":" + new DaoFactoryImpl().toString(entry.value()) + "]");
+//    }
 
     @Override
     public boolean hasNext() {
@@ -36,27 +45,28 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> next() {
         Entry<MemorySegment> result = actualEntry;
-        moveNextAndSaveActualEntry();
+        saveActualEntryAndmoveNext();
         return result;
     }
 
-    private void moveNextAndSaveActualEntry() {
+    private void saveActualEntryAndmoveNext() {
         Entry<MemorySegment> result = null;
 
         while (result == null && !iterators.isEmpty()) {
             PeekingPriorityIterator iterator = iterators.poll();
             result = iterator.getCurrent();
 
-            addIteratorsWithSameKeyToHeap(result);
+            refreshIteratorsWithSameEntryKey(result);
             refreshIterator(iterator);
 
             result = result.value() == null ? null : result;
         }
 
         actualEntry = result;
+//        System.out.println("Actual entry: " + printEntry(actualEntry));
     }
 
-    private void addIteratorsWithSameKeyToHeap(Entry<MemorySegment> current) {
+    private void refreshIteratorsWithSameEntryKey(Entry<MemorySegment> current) {
         while (!iterators.isEmpty() && msComparator.compare(iterators.peek().getCurrent().key(), current.key()) == 0) {
             refreshIterator(iterators.remove());
         }
