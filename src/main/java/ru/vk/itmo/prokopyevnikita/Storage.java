@@ -59,7 +59,7 @@ public final class Storage implements Closeable {
         return new Storage(arena, ssTables);
     }
 
-    public static void save(Config config, Collection<Entry<MemorySegment>> entries, Storage storage) {
+    public static void save(Config config, Collection<Entry<MemorySegment>> entries, Storage storage) throws IOException {
         if (storage.arena.scope().isAlive()) {
             throw new IllegalStateException("Previous arena is alive");
         }
@@ -102,8 +102,6 @@ public final class Storage implements Closeable {
                 offsetData = saveEntrySegment(newSSTable, entry, offsetData);
             }
 
-        } catch (IOException e) {
-            throw new RuntimeException("Can't create new SSTable", e);
         }
     }
 
