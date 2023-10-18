@@ -131,7 +131,7 @@ public class SSTable implements Comparable<SSTable> {
     /* Binary search in summary and index files. Returns index of least record greater than key or equal.
     Returns -1 if no such key */
     private long findByKey(MemorySegment key) {
-        long left = -1;  // Always less than key
+        long left = -1; // Always less than key
         long right = size; // Always greater or equal than key
         while (right - left > 1) {
             long middle = (right + left) / 2;
@@ -144,7 +144,7 @@ public class SSTable implements Comparable<SSTable> {
                 left = middle;
             }
         }
-        return right == size ? -1 : right;
+        return right == size ? -1 : right; // If right == size, then key is bigger than any SSTable key
     }
 
     private long findByKeyExact(MemorySegment key) {
