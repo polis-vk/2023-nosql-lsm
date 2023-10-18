@@ -7,14 +7,15 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.ArrayList;
 import java.util.NavigableSet;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class PersistentStorage {
     private final Arena arena;
@@ -28,12 +29,11 @@ public class PersistentStorage {
         this.basePath = basePath;
         try (var sstablesFiles = Files.list(basePath)) {
             sstablesFiles.filter(
-                x -> !x.getFileName().toString().contains("_index")
+                    x -> !x.getFileName().toString().contains("_index")
             ).map(
-                path -> new BinarySearchSSTable(path, arena)).forEach(this.sstables::add);
+                    path -> new BinarySearchSSTable(path, arena)).forEach(this.sstables::add);
         } catch (IOException e) {
-            System.out.println("Failed reading SSTABLE (probably deleted)");
-            System.out.println(e.toString());
+            Logger.getAnonymousLogger().log(Level.WARNING, "Failed reading SSTABLE (probably deleted)");
         }
     }
 

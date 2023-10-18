@@ -12,23 +12,20 @@ import java.util.List;
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private final List<IteratorWrapper> iterators;
 
-    private final Comparator<MemorySegment> keyComparator = new Comparator<MemorySegment>() {
-        @Override
-        public int compare(MemorySegment o1, MemorySegment o2) {
-            var mismatch = o1.mismatch(o2);
-            if (mismatch == -1) {
-                return 0;
-            }
-            if (mismatch == o1.byteSize()) {
-                return -1;
-            }
-            if (mismatch == o2.byteSize()) {
-                return 1;
-            }
-            byte b1 = o1.get(ValueLayout.JAVA_BYTE, mismatch);
-            byte b2 = o2.get(ValueLayout.JAVA_BYTE, mismatch);
-            return Byte.compare(b1, b2);
+    private final Comparator<MemorySegment> keyComparator = (o1, o2) -> {
+        var mismatch = o1.mismatch(o2);
+        if (mismatch == -1) {
+            return 0;
         }
+        if (mismatch == o1.byteSize()) {
+            return -1;
+        }
+        if (mismatch == o2.byteSize()) {
+            return 1;
+        }
+        byte b1 = o1.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b2 = o2.get(ValueLayout.JAVA_BYTE, mismatch);
+        return Byte.compare(b1, b2);
     };
 
     private static class IteratorWrapper implements Iterator<Entry<MemorySegment>> {
@@ -79,7 +76,6 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         ));
     }
 
-
     @Override
     public boolean hasNext() {
         for (var iterator : iterators) {
@@ -92,13 +88,13 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     public Entry<MemorySegment> next() {
         Entry<MemorySegment> nextEntry = null;
         for (var iterator : this.iterators) {
-            if (iterator.hasNext()){
+            if (iterator.hasNext()) {
                 nextEntry = iterator.peekNext();
                 break;
             }
         }
         if (nextEntry == null) {
-            throw new RuntimeException("Empty iterator");
+            throw new EmptyIteratorAccessed();
         }
         for (var iterator : this.iterators) {
             if (!iterator.hasNext()) continue;
@@ -113,5 +109,8 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             }
         }
         return nextEntry;
+    }
+
+    private static class EmptyIteratorAccessed extends RuntimeException {
     }
 }
