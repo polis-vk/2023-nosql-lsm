@@ -3,12 +3,15 @@ package ru.vk.itmo.korzhvladislav;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Set;
@@ -20,7 +23,8 @@ import static java.nio.file.StandardOpenOption.READ;
 // SSTable
 public class PersistentDao extends InMemoryDao {
     private final Path dataFilePath;
-    private final Arena arena = Arena.ofConfined();
+    private final Arena arena;
+    private final MemorySegment memorySegment;
     private static final String DATA_FILE_NAME = "sstable.txt";
     private static final Set<StandardOpenOption> READ_WRITE_OPTIONS = Set.of(
             READ,
@@ -28,13 +32,37 @@ public class PersistentDao extends InMemoryDao {
             StandardOpenOption.CREATE,
             StandardOpenOption.TRUNCATE_EXISTING);
 
-    public PersistentDao(Path path) throws UncheckedIOException {
+    public PersistentDao(Path path) throws IOException {
         dataFilePath = path.resolve(DATA_FILE_NAME);
+        arena = Arena.ofConfined();
+
+        long size;
+        try {
+            size = Files.size(dataFilePath);
+        } catch (NoSuchFileException e) {
+            memorySegment = null;
+            return;
+        }
+
+        boolean created = false;
+        MemorySegment pageCurrent;
+        try (FileChannel fileChannel = FileChannel.open(dataFilePath, StandardOpenOption.READ)) {
+            pageCurrent = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
+            created = true;
+        } catch (FileNotFoundException e) {
+            pageCurrent = null;
+        } finally {
+            if (!created) {
+                arena.close();
+            }
+        }
+
+        memorySegment = pageCurrent;
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> entry = getDataStore().get(key);
+        Entry<MemorySegment> entry = super.get(key);
         if (entry != null) {
             return entry;
         }
@@ -43,22 +71,23 @@ public class PersistentDao extends InMemoryDao {
 
     private Entry<MemorySegment> searchKey(MemorySegment key) {
         long offset = 0;
-        MemorySegment dataSegment;
-        try (FileChannel dataChannel = FileChannel.open(dataFilePath, READ)) {
-            dataSegment = dataChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(dataFilePath), arena);
-        } catch (IOException e) {
-            return null;
-        }
-        while (offset < dataSegment.byteSize()) {
-            long keySize;
-            long valueSize;
-            keySize = dataSegment.get(JAVA_LONG_UNALIGNED, offset);
-            offset += keySize + Long.BYTES;
-            valueSize = dataSegment.get(JAVA_LONG_UNALIGNED, offset);
-            if (dataSegment.mismatch(key) == -1) {
-                return new BaseEntry<>(key, dataSegment.asSlice(offset + Long.BYTES, valueSize));
+        while (offset < memorySegment.byteSize()) {
+            long keySize = memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            offset += Long.BYTES;
+            long valueSize = memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            offset += Long.BYTES;
+
+            if (keySize != key.byteSize()) {
+                offset += keySize + valueSize;
+                continue;
             }
-            offset += valueSize + Long.BYTES;
+
+            long mismatch = MemorySegment.mismatch(memorySegment, offset, offset + key.byteSize(), key, 0, key.byteSize());
+            if (mismatch == -1) {
+                MemorySegment slice = memorySegment.asSlice(offset + keySize, valueSize);
+                return new BaseEntry<>(key, slice);
+            }
+            offset += keySize + valueSize;
         }
         return null;
     }
