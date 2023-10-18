@@ -1,5 +1,7 @@
 package ru.vk.itmo.novichkovandrew;
 
+import ru.vk.itmo.novichkovandrew.exceptions.WriteFailureException;
+
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
@@ -21,18 +23,18 @@ public final class Utils {
      * but simply counts the number of files in the directory.
      */
     public static int filesCount(Path path) {
-        try (Stream<Path> files = Files.list(path)) {
-            return Math.toIntExact(files.count());
-        } catch (ArithmeticException ex) {
-            System.err.printf("Overflow in amount of files by path %s%n", path);
-        } catch (IOException ex) {
-            System.err.printf("Couldn't calc amount of files in directory %s: %s", path, ex.getMessage());
+        if (Files.exists(path)) {
+            try (Stream<Path> files = Files.list(path)) {
+                return Math.toIntExact(files.count());
+            } catch (IOException ex) {
+                throw new RuntimeException("Something went wrong while count files in directory " + path, ex);
+            }
         }
         return -1;
     }
 
     /**
-     * Copy from one MemorySegment to another and return new offset of two segments.
+     * Copy from one MemorySegment to2 another and return new offset of two segments.
      */
     public static long copyToSegment(MemorySegment to, MemorySegment from, long offset) {
         MemorySegment source = from == null ? MemorySegment.NULL : from;
@@ -53,11 +55,7 @@ public final class Utils {
             int bytes = channel.write(buffer);
             return offset + bytes;
         } catch (IOException ex) {
-            RuntimeException runtimeException = new RuntimeException(
-                    String.format("Exception while writing long from position %s: %s", offset, ex.getMessage())
-            );
-            runtimeException.addSuppressed(ex);
-            throw runtimeException;
+            throw new WriteFailureException("Failed to write long" + value + "value from position" + offset, ex);
         }
     }
 
@@ -72,11 +70,7 @@ public final class Utils {
             buffer.flip();
             return buffer.getLong();
         } catch (IOException ex) {
-            RuntimeException runtimeException = new RuntimeException(
-                    String.format("Exception while reading long from position %s: %s", offset, ex.getMessage())
-            );
-            runtimeException.addSuppressed(ex);
-            throw runtimeException;
+            throw new WriteFailureException("Failed to write long value from position" + offset, ex);
         }
     }
 }

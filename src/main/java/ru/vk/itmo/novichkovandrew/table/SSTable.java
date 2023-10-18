@@ -3,6 +3,7 @@ package ru.vk.itmo.novichkovandrew.table;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.Utils;
+import ru.vk.itmo.novichkovandrew.exceptions.FileChannelException;
 import ru.vk.itmo.novichkovandrew.iterator.TableIterator;
 
 import java.io.IOException;
@@ -34,9 +35,7 @@ public class SSTable extends AbstractTable {
             this.sstNumber = sstNumber;
             this.arena = Arena.ofConfined();
         } catch (IOException ex) {
-            RuntimeException runtimeException = new RuntimeException("Couldn't create FileChannel by path" + path);
-            runtimeException.addSuppressed(ex);
-            throw runtimeException;
+            throw new FileChannelException("Couldn't create FileChannel by path" + path, ex);
         }
     }
 
@@ -44,7 +43,9 @@ public class SSTable extends AbstractTable {
     public void close() {
         try {
             this.sstChannel.close();
-            this.arena.close();
+            if (arena.scope().isAlive()) {
+                arena.close();
+            }
         } catch (IOException e) {
             System.err.printf("Couldn't close file channel: %s%n", sstChannel);
         }
@@ -59,8 +60,8 @@ public class SSTable extends AbstractTable {
     public TableIterator<MemorySegment> tableIterator(MemorySegment from, boolean fromInclusive,
                                                       MemorySegment to, boolean toInclusive) {
         return new TableIterator<>() {
-            int start = setFrom();
-            final int end = setTo();
+            int start = from == null ? 0 : binarySearch(from) + Boolean.compare(!fromInclusive, false);
+            final int end = (to == null ? size : binarySearch(to)) + Boolean.compare(toInclusive, true);
 
             @Override
             public int getTableNumber() {
@@ -74,22 +75,9 @@ public class SSTable extends AbstractTable {
 
             @Override
             public Entry<MemorySegment> next() {
-                MemorySegment key = getKeyByIndex(start);
+                var entry = new BaseEntry<>(getKeyByIndex(start), getValueByIndex(start));
                 start++;
-                return new BaseEntry<>(key, getValueByIndex(start));
-            }
-
-            private int setFrom() {
-                int position = from == null ? 0 : binarySearch(from);
-                if (!fromInclusive && comparator.compare(getKeyByIndex(position), from) == 0) {
-                    position++;
-                }
-                return position;
-            }
-
-            private int setTo() {
-                int position = to == null ? size : binarySearch(to);
-                return position + Boolean.compare(toInclusive, true); // TODO: reverse?
+                return entry;
             }
         };
     }
@@ -112,16 +100,12 @@ public class SSTable extends AbstractTable {
     }
 
     private MemorySegment copyToArena(long valOffset, long nextOffset) {
-        try (Arena arena = Arena.ofConfined()) {
+        try (Arena mapArena = Arena.ofConfined()) {
             MemorySegment back = this.arena.allocate(nextOffset - valOffset);
-            back.copyFrom(sstChannel.map(FileChannel.MapMode.READ_ONLY, valOffset, nextOffset - valOffset, arena));
+            back.copyFrom(sstChannel.map(FileChannel.MapMode.READ_ONLY, valOffset, nextOffset - valOffset, mapArena));
             return back;
         } catch (IOException ex) {
-            RuntimeException runtimeException = new RuntimeException(
-                    String.format("Couldn't map file from channel %s: %s", sstChannel, ex.getMessage())
-            );
-            runtimeException.addSuppressed(ex);
-            throw runtimeException;
+            throw new FileChannelException("Couldn't map file from channel " + sstChannel, ex);
         }
     }
 
