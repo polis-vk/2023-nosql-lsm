@@ -7,8 +7,15 @@ import java.util.Comparator;
 public class MemorySegmentComparator implements Comparator<MemorySegment> {
     @Override
     public int compare(MemorySegment segmentOne, MemorySegment segmentTwo) {
+        return compareWithOffset(segmentOne, segmentTwo, 0, segmentTwo.byteSize());
+    }
 
-        long offsetInBytes = segmentOne.mismatch(segmentTwo);
+    public int compareWithOffset(MemorySegment segmentOne, MemorySegment segmentTwo, long fromOffset, long toOffset) {
+
+        long offsetInBytes = MemorySegment.mismatch(
+                segmentOne, 0, segmentOne.byteSize(),
+                segmentTwo, fromOffset, toOffset
+        );
         long segmentOneSizeInBytes = segmentOne.byteSize();
         long segmentTwoSizeInBytes = segmentTwo.byteSize();
 
