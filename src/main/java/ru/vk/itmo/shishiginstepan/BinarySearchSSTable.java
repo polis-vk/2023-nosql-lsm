@@ -124,7 +124,7 @@ public class BinarySearchSSTable {
 
     private long searchEntryPosition(MemorySegment key, boolean exact) {
         long l = 0;
-        long r = this.indexSize / Long.BYTES*2 - 1;
+        long r = this.indexSize / (Long.BYTES * 2) - 1;
         long m;
         while (l <= r) {
             m = l + (r - l) / 2;

@@ -52,7 +52,7 @@ public class SimpleSSTable {
         Path sstPath = Path.of(path.toAbsolutePath() + "/sstable_" + id);
         long dataSize = 0;
         for (var entry : entries) {
-            dataSize += entry.value().byteSize() + entry.key().byteSize() + Long.BYTES*2;
+            dataSize += entry.value().byteSize() + entry.key().byteSize() + Long.BYTES * 2;
         }
         try (var fileChannel = FileChannel.open(
                 sstPath,
