@@ -3,7 +3,7 @@ package ru.vk.itmo.test.kachmareugene;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.*; 
+import java.util.*;
 
 public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
@@ -11,11 +11,13 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private final SSTablesController controller;
     private final Comparator<MemorySegment> comp = new MemSegComparatorNull();
     private final SortedMap<MemorySegment, SSTableRowInfo> mp = new TreeMap<>(comp);
-    private final MemorySegment from, to;
-    private Entry<MemorySegment> head = null;
-    private Entry<MemorySegment> keeper = null;
+    private final MemorySegment from;
+    private final MemorySegment to;
+    private Entry<MemorySegment> head;
+    private Entry<MemorySegment> keeper;
 
-    public SSTableIterator(Iterator<Entry<MemorySegment>> it, SSTablesController controller, MemorySegment from, MemorySegment to) {
+    public SSTableIterator(Iterator<Entry<MemorySegment>> it, SSTablesController controller,
+                           MemorySegment from, MemorySegment to) {
         memTableIterator = it;
         this.controller = controller;
 
@@ -25,6 +27,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         positioningIterator();
 
     }
+
     private void insertNew(SSTableRowInfo info) {
         Entry<MemorySegment> kv = controller.getRow(info);
 
@@ -38,8 +41,8 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         }
         SSTableRowInfo old = mp.get(kv.key());
 
-        SSTableRowInfo oldInfo = old.SSTableInd > info.SSTableInd ? info: old ;
-        SSTableRowInfo newInfo = old.SSTableInd < info.SSTableInd ? info : old;
+        SSTableRowInfo oldInfo = old.ssTableInd > info.ssTableInd ? info : old ;
+        SSTableRowInfo newInfo = old.ssTableInd < info.ssTableInd ? info : old;
 
         mp.put(controller.getRow(newInfo).key(), newInfo);
 
@@ -64,16 +67,15 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private Entry<MemorySegment> getHead() {
-        if (head == null) {
-            if (memTableIterator.hasNext()) {
-                head = memTableIterator.next();
-                if (comp.compare(head.key(), to) >= 0) {
-                    head = null;
-                }
+        if (head == null && memTableIterator.hasNext()) {
+            head = memTableIterator.next();
+            if (comp.compare(head.key(), to) >= 0) {
+                head = null;
             }
         }
         return head;
     }
+
     private Entry<MemorySegment> moveAndGet() {
         var ans = head;
         do {
@@ -117,7 +119,6 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
             mp.remove(minSStablesEntry.getKey());
             insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
             keeper = moveAndGet();
-            return;
         }
     }
 
@@ -130,7 +131,8 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private Map.Entry<MemorySegment, SSTableRowInfo> getFirstMin() {
         Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry = mp.firstEntry();
 
-        while (!mp.isEmpty() && (minSStablesEntry.getValue().isDeletedData() || !isBetween(minSStablesEntry.getKey()))) {
+        while (!mp.isEmpty() &&
+                (minSStablesEntry.getValue().isDeletedData() || !isBetween(minSStablesEntry.getKey()))) {
             mp.remove(minSStablesEntry.getKey());
             insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
 

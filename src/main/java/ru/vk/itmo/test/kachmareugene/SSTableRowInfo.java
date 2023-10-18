@@ -5,15 +5,16 @@ public class SSTableRowInfo {
     long valueOffset;
     long keySize;
     long rowShift;
-    private long valueSize;
-    int SSTableInd;
+    private final long valueSize;
+    int ssTableInd;
 
-    public SSTableRowInfo(long keyOffset, long keySize, long valueOffset, long valueSize, int SSTableInd, long rowShift) {
+    public SSTableRowInfo(long keyOffset, long keySize, long valueOffset,
+                          long valueSize, int ssTableInd, long rowShift) {
         this.keyOffset = keyOffset;
         this.valueOffset = valueOffset;
         this.keySize = keySize;
         this.valueSize = valueSize;
-        this.SSTableInd = SSTableInd;
+        this.ssTableInd = ssTableInd;
         this.rowShift = rowShift;
     }
 

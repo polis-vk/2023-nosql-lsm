@@ -6,7 +6,9 @@ import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.util.*;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -20,6 +22,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public InMemoryDao() {
         this.controller = new SSTablesController(new MemSegComparatorNull());
     }
+
     public InMemoryDao(Config conf) {
         this.controller = new SSTablesController(conf.basePath(), new MemSegComparatorNull());
     }
