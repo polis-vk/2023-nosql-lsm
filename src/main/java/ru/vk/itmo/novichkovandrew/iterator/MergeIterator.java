@@ -7,8 +7,8 @@ import java.lang.foreign.MemorySegment;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.PriorityQueue;
 import java.util.Queue;
-import java.util.concurrent.PriorityBlockingQueue;
 import java.util.stream.Collectors;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
@@ -22,7 +22,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         this.queue = iterators.stream()
                 .map(it -> new Candidate<>(it, memoryComparator))
                 .filter(Candidate::nonLast)
-                .collect(Collectors.toCollection(PriorityBlockingQueue::new));
+                .collect(Collectors.toCollection(PriorityQueue::new));
         entry = getEntry();
     }
 

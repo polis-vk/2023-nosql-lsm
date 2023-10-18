@@ -72,7 +72,7 @@ public class TablesOrganizer implements Closeable {
                 for (Entry<MemorySegment> entry : memTable) {
                     long keyOffset = sstOffset + metaSize;
                     long valueOffset = keyOffset + entry.key().byteSize();
-                    valueOffset *= (memTable.isTombstone(entry.key()) ? -1 : 1);
+                    valueOffset *= memTable.isTombstone(entry.key()) ? -1 : 1;
                     indexOffset = writePosToFile(sst, indexOffset, keyOffset, valueOffset);
                     sstOffset = copyToSegment(sstMap, entry.key(), sstOffset);
                     sstOffset = copyToSegment(sstMap, entry.value(), sstOffset);
@@ -109,7 +109,7 @@ public class TablesOrganizer implements Closeable {
                 .collect(Collectors.toList());
     }
 
-    private Path sstTablePath(long suffix) {
+    private synchronized Path sstTablePath(long suffix) {
         String fileName = String.format("data-%s.txt", suffix);
         return path.resolve(Path.of(fileName));
     }

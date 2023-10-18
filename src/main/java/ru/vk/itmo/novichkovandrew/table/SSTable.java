@@ -16,7 +16,6 @@ import java.util.Objects;
 public class SSTable extends AbstractTable {
 
     private final FileChannel sstChannel;
-    private final Arena arena;
     /**
      * Constable size of SSTable.
      */
@@ -26,6 +25,7 @@ public class SSTable extends AbstractTable {
      * Unique number of this SST.
      */
     private final int sstNumber;
+    private final Arena arena;
 
     public SSTable(Path path, int sstNumber) {
         try {
@@ -99,8 +99,10 @@ public class SSTable extends AbstractTable {
         Objects.checkIndex(index, size);
         long keyOffset = getKeyOffset(index);
         long valueOffset = Math.abs(getValueOffset(index));
-        try {
-            return sstChannel.map(FileChannel.MapMode.READ_ONLY, keyOffset, valueOffset - keyOffset, arena);
+        try (Arena arena = Arena.ofConfined()){
+            MemorySegment back = this.arena.allocate(valueOffset - keyOffset);
+            back.copyFrom(sstChannel.map(FileChannel.MapMode.READ_ONLY, keyOffset, valueOffset - keyOffset, arena));
+            return back;
         } catch (IOException ex) {
             throw new RuntimeException(
                     String.format("Couldn't map file from channel %s: %s", sstChannel, ex.getMessage())
@@ -115,8 +117,10 @@ public class SSTable extends AbstractTable {
             return null;
         }
         long nextKeyOffset = getKeyOffset(index + 1);
-        try {
-            return sstChannel.map(FileChannel.MapMode.READ_ONLY, valueOffset, nextKeyOffset - valueOffset, arena);
+        try (Arena arena = Arena.ofConfined()){
+            MemorySegment back = this.arena.allocate(nextKeyOffset - valueOffset);
+            back.copyFrom(sstChannel.map(FileChannel.MapMode.READ_ONLY, valueOffset, nextKeyOffset - valueOffset, arena));
+            return back;
         } catch (IOException ex) {
             throw new RuntimeException(
                     String.format("Couldn't map file from channel %s: %s", sstChannel, ex.getMessage())
