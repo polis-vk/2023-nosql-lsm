@@ -58,7 +58,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         mp.put(entry.key(), entry);
     }
 
-
     @Override
     public void close() throws IOException {
         controller.dumpMemTableToSStable(mp);
