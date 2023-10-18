@@ -11,13 +11,15 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 public class Storage implements Closeable {
 
@@ -27,7 +29,7 @@ public class Storage implements Closeable {
     private final Arena arena;
     private final List<MemorySegment> ssTables;
 
-    public Storage(Arena arena, List<MemorySegment> ssTables) {
+    private Storage(Arena arena, List<MemorySegment> ssTables) {
         this.arena = arena;
         this.ssTables = ssTables;
     }
@@ -42,7 +44,7 @@ public class Storage implements Closeable {
             files
                     .filter(p -> p.getFileName().toString().startsWith(DB_PREFIX))
                     .filter(p -> p.getFileName().toString().endsWith(DB_EXTENSION))
-                    .sorted()
+                    .sorted(Comparator.reverseOrder())
                     .forEach(p -> {
                         try (FileChannel channel = FileChannel.open(p, StandardOpenOption.READ)) {
                             MemorySegment segment = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
@@ -51,28 +53,30 @@ public class Storage implements Closeable {
                             throw new RuntimeException("Can't open file", e);
                         }
                     });
+        } catch (NoSuchFileException e) {
+            // ignore
         } catch (IOException e) {
-            throw new RuntimeException("Can't load storage", e);
+            throw new RuntimeException("Can't open directory", e);
         }
 
-        Collections.reverse(ssTables);
         return new Storage(arena, ssTables);
     }
 
     public static void save(Config config, Collection<Entry<MemorySegment>> entries, Storage storage) {
         if (storage.arena.scope().isAlive()) {
-            storage.arena.close();
+            throw new IllegalStateException("Previous arena is alive");
         }
 
         if (entries.isEmpty()) {
             return;
         }
 
-        int nextSSTable = storage.ssTables.size() + 1;
-        Path path = config.basePath().resolve(DB_PREFIX + nextSSTable + DB_EXTENSION);
+        int nextSSTable = storage.ssTables.size();
+        String indexWithZeroPadding = String.format("%010d", nextSSTable);
+        Path path = config.basePath().resolve(DB_PREFIX + indexWithZeroPadding + DB_EXTENSION);
 
-        long indicesSize = (long) Long.BYTES * (entries.size() + 1);
-        long sizeOfNewSSTable = indicesSize;
+        long indicesSize = (long) Long.BYTES * entries.size();
+        long sizeOfNewSSTable = indicesSize + FILE_PREFIX;
         for (Entry<MemorySegment> entry : entries) {
             sizeOfNewSSTable += 2 * Long.BYTES + entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize());
         }
@@ -89,12 +93,13 @@ public class Storage implements Closeable {
 
             newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, entries.size());
 
-            long offsetIndex = Long.BYTES;
-            long offsetData = indicesSize;
+            long offsetIndex = FILE_PREFIX;
+            long offsetData = indicesSize + FILE_PREFIX;
             for (Entry<MemorySegment> entry : entries) {
                 newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, offsetData);
                 offsetIndex += Long.BYTES;
-                offsetData += saveEntrySegment(newSSTable, entry, offsetData);
+
+                offsetData = saveEntrySegment(newSSTable, entry, offsetData);
             }
 
         } catch (IOException e) {
@@ -105,11 +110,14 @@ public class Storage implements Closeable {
     public static long saveEntrySegment(MemorySegment newSSTable, Entry<MemorySegment> entry, long offsetData) {
         newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, entry.key().byteSize());
         offsetData += Long.BYTES;
+
         MemorySegment.copy(entry.key(), 0, newSSTable, offsetData, entry.key().byteSize());
         offsetData += entry.key().byteSize();
+
         if (entry.value() != null) {
             newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, entry.value().byteSize());
             offsetData += Long.BYTES;
+
             MemorySegment.copy(entry.value(), 0, newSSTable, offsetData, entry.value().byteSize());
             offsetData += entry.value().byteSize();
         } else {
@@ -121,15 +129,22 @@ public class Storage implements Closeable {
 
     private long binarySearchUpperBoundOrEquals(MemorySegment ssTable, MemorySegment key) {
         long left = 0;
-        long right = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, 0) - 1;
+        long right = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        if (key == null) {
+            return right;
+        }
+        right--;
         while (left <= right) {
             long mid = (left + right) / 2;
 
-            long offset = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES * (mid + FILE_PREFIX));
+            long offset = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, FILE_PREFIX + Long.BYTES * mid);
             long keySize = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            offset += Long.BYTES;
 
-            MemorySegment keySegment = ssTable.asSlice(offset + Long.BYTES, keySize);
-            int cmp = MemorySegmentComparator.INSTANCE.compare(keySegment, key);
+            int cmp = MemorySegmentComparator.compareWithOffsets(
+                    ssTable, offset, offset + keySize,
+                    key, 0, key.byteSize()
+            );
             if (cmp < 0) {
                 left = mid + 1;
             } else if (cmp > 0) {
@@ -142,7 +157,7 @@ public class Storage implements Closeable {
     }
 
     private Entry<MemorySegment> getEntryByIndex(MemorySegment ssTable, long index) {
-        long offset = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES * (index + FILE_PREFIX));
+        long offset = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, FILE_PREFIX + Long.BYTES * index);
         long keySize = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
 
         MemorySegment keySegment = ssTable.asSlice(offset + Long.BYTES, keySize);
@@ -159,7 +174,7 @@ public class Storage implements Closeable {
         return new BaseEntry<>(keySegment, valueSegment);
     }
 
-    public Iterator<Entry<MemorySegment>> iterator(MemorySegment ssTable, MemorySegment from, MemorySegment to) {
+    public Iterator<Entry<MemorySegment>> iterateThroughSSTable(MemorySegment ssTable, MemorySegment from, MemorySegment to) {
         long left = binarySearchUpperBoundOrEquals(ssTable, from);
         long right = binarySearchUpperBoundOrEquals(ssTable, to);
 
@@ -173,13 +188,28 @@ public class Storage implements Closeable {
 
             @Override
             public Entry<MemorySegment> next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException("No next element");
+                }
                 return getEntryByIndex(ssTable, current++);
             }
         };
     }
 
+    public Iterator<Entry<MemorySegment>> getIterator(MemorySegment from, MemorySegment to, Iterator<Entry<MemorySegment>> memoryIterator) {
+        List<OrderedPeekIterator<Entry<MemorySegment>>> peekIterators = new ArrayList<>();
+        peekIterators.add(new OrderedPeekIteratorImpl(0, memoryIterator));
+        int order = 1;
+        for (MemorySegment sstable : ssTables) {
+            Iterator<Entry<MemorySegment>> iterator = iterateThroughSSTable(sstable, from, to);
+            peekIterators.add(new OrderedPeekIteratorImpl(order, iterator));
+            order++;
+        }
+        return new MergeSkipNullValuesIterator(peekIterators);
+    }
+
     @Override
-    public void close() throws IOException {
+    public void close() {
         if (arena.scope().isAlive()) {
             arena.close();
         }
