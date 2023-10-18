@@ -27,7 +27,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final String sstableBaseName = "storage";
     private final String indexBaseName = "table";
     private final Path metaFilePath;
-
     private final List<FileChannel> sstableFileChannels = new ArrayList<>();
     private final List<MemorySegment> sstableMappedList = new ArrayList<>();
     private final List<FileChannel> indexFileChannels = new ArrayList<>();
@@ -45,11 +44,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         int totalSSTables = Integer.parseInt(Files.readString(metaFilePath));
         for (int sstableNum = 0; sstableNum < totalSSTables; sstableNum++) {
-
             Path sstablePath = storagePath.resolve(sstableBaseName + sstableNum);
             Path indexPath = storagePath.resolve(indexBaseName + sstableNum);
 
-            Files.createDirectories(sstablePath.getParent());
             FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
             sstableFileChannels.add(sstableFileChannel);
             MemorySegment sstableMapped = sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
@@ -103,21 +100,22 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         MemorySegment storageMapped = sstableMappedList.get(sstableNum);
         MemorySegment indexMapped = indexMappedList.get(sstableNum);
 
-        FoundSegmentIndexIndexValue found = upperBound(key, storageMapped, indexMapped, indexMapped.byteSize());
-        if (compareMemorySegments(found.found(), key) != 0) {
+        long foundIndex = upperBound(key, storageMapped, indexMapped, indexMapped.byteSize());
+        MemorySegment foundKey = getKeyFromStorage(storageMapped, indexMapped, foundIndex);
+        if (compareMemorySegments(foundKey, key) != 0) {
             return null;
         } else {
-            return getEntryFromIndexFile(storageMapped, indexMapped, found.index());
+            return getEntryFromIndexFile(storageMapped, indexMapped, foundIndex);
         }
     }
 
-    static FoundSegmentIndexIndexValue upperBound(MemorySegment key, MemorySegment storageMapped, MemorySegment indexMapped, long indexSize) {
+    static long upperBound(MemorySegment key, MemorySegment storageMapped, MemorySegment indexMapped, long indexSize) {
         long l = -1;
         long r = indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, indexSize - 2 * Long.BYTES);
 
         while (r - l > 1) {
             long m = (r + l) / 2;
-            MemorySegment ms = getKeyFromStorageFileAndEntryNum(storageMapped, indexMapped, m);
+            MemorySegment ms = getKeyFromStorage(storageMapped, indexMapped, m);
 
             if (compareMemorySegments(key, ms) > 0) {
                 l = m;
@@ -125,12 +123,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 r = m;
             }
         }
-
-        MemorySegment found = getKeyFromStorageFileAndEntryNum(storageMapped, indexMapped, r);
-        return new FoundSegmentIndexIndexValue(found, r);
-    }
-
-    record FoundSegmentIndexIndexValue(MemorySegment found, long index) {
+        return r;
     }
 
     private Entry<MemorySegment> getEntryFromIndexFile(MemorySegment storageMapped, MemorySegment indexMapped, long entryNum) {
@@ -152,7 +145,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         return new BaseEntry<>(key, value);
     }
 
-    private static MemorySegment getKeyFromStorageFileAndEntryNum(MemorySegment storageMapped, MemorySegment indexMapped, long entryNum) {
+    static MemorySegment getKeyFromStorage(MemorySegment storageMapped, MemorySegment indexMapped, long entryNum) {
         long offsetInStorageFile = indexMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, 2 * Long.BYTES * entryNum + Long.BYTES);
 
         long msSize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetInStorageFile);
