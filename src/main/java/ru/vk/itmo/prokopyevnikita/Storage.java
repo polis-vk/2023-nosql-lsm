@@ -47,7 +47,9 @@ public class Storage implements Closeable {
                     .sorted(Comparator.reverseOrder())
                     .forEach(p -> {
                         try (FileChannel channel = FileChannel.open(p, StandardOpenOption.READ)) {
-                            MemorySegment segment = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
+                            MemorySegment segment = channel.map(
+                                    FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena
+                            );
                             ssTables.add(segment);
                         } catch (IOException e) {
                             throw new RuntimeException("Can't open file", e);
@@ -78,16 +80,18 @@ public class Storage implements Closeable {
         long indicesSize = (long) Long.BYTES * entries.size();
         long sizeOfNewSSTable = indicesSize + FILE_PREFIX;
         for (Entry<MemorySegment> entry : entries) {
-            sizeOfNewSSTable += 2 * Long.BYTES + entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize());
+            sizeOfNewSSTable += 2 * Long.BYTES + entry.key().byteSize() +
+                    (entry.value() == null ? 0 : entry.value().byteSize());
         }
 
-
         try (Arena arenaSave = Arena.ofConfined();
-             var channel = FileChannel.open(path,
+             var channel = FileChannel.open(
+                     path,
                      StandardOpenOption.READ,
                      StandardOpenOption.WRITE,
                      StandardOpenOption.CREATE,
-                     StandardOpenOption.TRUNCATE_EXISTING)) {
+                     StandardOpenOption.TRUNCATE_EXISTING)
+        ) {
 
             MemorySegment newSSTable = channel.map(FileChannel.MapMode.READ_WRITE, 0, sizeOfNewSSTable, arenaSave);
 
@@ -143,8 +147,7 @@ public class Storage implements Closeable {
 
             int cmp = MemorySegmentComparator.compareWithOffsets(
                     ssTable, offset, offset + keySize,
-                    key, 0, key.byteSize()
-            );
+                    key, 0, key.byteSize());
             if (cmp < 0) {
                 left = mid + 1;
             } else if (cmp > 0) {
@@ -174,7 +177,11 @@ public class Storage implements Closeable {
         return new BaseEntry<>(keySegment, valueSegment);
     }
 
-    public Iterator<Entry<MemorySegment>> iterateThroughSSTable(MemorySegment ssTable, MemorySegment from, MemorySegment to) {
+    public Iterator<Entry<MemorySegment>> iterateThroughSSTable(
+            MemorySegment ssTable,
+            MemorySegment from,
+            MemorySegment to
+    ) {
         long left = binarySearchUpperBoundOrEquals(ssTable, from);
         long right = binarySearchUpperBoundOrEquals(ssTable, to);
 
@@ -196,7 +203,11 @@ public class Storage implements Closeable {
         };
     }
 
-    public Iterator<Entry<MemorySegment>> getIterator(MemorySegment from, MemorySegment to, Iterator<Entry<MemorySegment>> memoryIterator) {
+    public Iterator<Entry<MemorySegment>> getIterator(
+            MemorySegment from,
+            MemorySegment to,
+            Iterator<Entry<MemorySegment>> memoryIterator
+    ) {
         List<OrderedPeekIterator<Entry<MemorySegment>>> peekIterators = new ArrayList<>();
         peekIterators.add(new OrderedPeekIteratorImpl(0, memoryIterator));
         int order = 1;
