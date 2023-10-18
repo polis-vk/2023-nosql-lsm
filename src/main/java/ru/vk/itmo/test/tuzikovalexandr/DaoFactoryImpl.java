@@ -22,7 +22,12 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
 
         ByteBuffer byteBuffer = memorySegment.asByteBuffer();
 
-        return byteBuffer == null ? null : new String(byteBuffer.array(), byteBuffer.arrayOffset(), byteBuffer.remaining(), StandardCharsets.UTF_8);
+        return byteBuffer == null ? null : new String(
+                byteBuffer.array(),
+                byteBuffer.arrayOffset(),
+                byteBuffer.remaining(),
+                StandardCharsets.UTF_8
+        );
     }
 
     @Override
