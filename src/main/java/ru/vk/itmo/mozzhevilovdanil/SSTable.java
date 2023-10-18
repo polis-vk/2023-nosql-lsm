@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.SortedMap;
 import java.util.UUID;
 
@@ -97,7 +98,7 @@ public class SSTable {
 
                 @Override
                 public Entry<MemorySegment> next() {
-                    return null;
+                    throw new NoSuchElementException("next on empty iterator");
                 }
             };
         }
@@ -116,7 +117,7 @@ public class SSTable {
             @Override
             public Entry<MemorySegment> next() {
                 if (!hasNext()) {
-                    return null;
+                    throw new NoSuchElementException("next on empty iterator");
                 }
                 Entry<MemorySegment> entry = entryAtPosition(currentOffset);
                 currentOffset += Long.BYTES;
