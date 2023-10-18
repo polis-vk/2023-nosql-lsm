@@ -105,14 +105,18 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         if (getHead() == null) {
             updateMp(minSStablesEntry.getKey());
             keeper = controller.getRow(minSStablesEntry.getValue());
-            if (keeper != null && keeper.value() == null) {return false;}
+            if (keeper != null && keeper.value() == null) {
+                return false;
+            }
             return true;
         }
         return false;
     }
 
     private boolean isChangedByStructures(Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry) {
-        if (getHead() == null) {return false;}
+        if (getHead() == null) {
+            return false;
+        }
         int res = comp.compare(getHead().key(), minSStablesEntry.getKey());
 
         if (res < 0) {
@@ -123,10 +127,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         updateMp(minSStablesEntry.getKey());
         keeper = (res > 0) ? controller.getRow(minSStablesEntry.getValue()) : moveAndGetOnce();
 
-        if (keeper.value() != null) {
-            return true;
-        }
-        return false;
+        return keeper.value() != null;
     }
 
     private void changeState() {
@@ -138,6 +139,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
             }
         }
     }
+
     private void updateMp(MemorySegment key) {
         insertNew(controller.getNextInfo(mp.remove(key), to));
     }
