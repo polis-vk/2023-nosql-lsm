@@ -24,8 +24,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<>(DaoImpl::compareMemorySegments);
     private final Path storagePath;
     private final Arena arena = Arena.ofShared();
-    private static final String sstableBaseName = "storage";
-    private static final String indexBaseName = "table";
+    private static final String SSTABLE_BASE_NAME = "storage";
+    private static final String INDEX_BASE_NAME = "table";
     private final Path metaFilePath;
     private final List<FileChannel> sstableFileChannels = new ArrayList<>();
     private final List<MemorySegment> sstableMappedList = new ArrayList<>();
@@ -44,8 +44,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         int totalSSTables = Integer.parseInt(Files.readString(metaFilePath));
         for (int sstableNum = 0; sstableNum < totalSSTables; sstableNum++) {
-            Path sstablePath = storagePath.resolve(sstableBaseName + sstableNum);
-            Path indexPath = storagePath.resolve(indexBaseName + sstableNum);
+            Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + sstableNum);
+            Path indexPath = storagePath.resolve(INDEX_BASE_NAME + sstableNum);
 
             FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
             sstableFileChannels.add(sstableFileChannel);
@@ -110,10 +110,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    static int upperBound(MemorySegment key,
-                          MemorySegment storageMapped,
-                          MemorySegment indexMapped,
-                          long indexSize) {
+    static int upperBound(MemorySegment key, MemorySegment storageMapped, MemorySegment indexMapped, long indexSize) {
         int l = -1;
         int r = indexMapped.get(ValueLayout.JAVA_INT_UNALIGNED, indexSize - Long.BYTES - Integer.BYTES);
 
@@ -130,9 +127,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         return r;
     }
 
-    static MemorySegment getKeyFromStorage(MemorySegment storageMapped,
-                                           MemorySegment indexMapped,
-                                           int entryNum) {
+    static MemorySegment getKeyFromStorage(MemorySegment storageMapped, MemorySegment indexMapped, int entryNum) {
         long offsetInStorageFile = indexMapped.get(
                 ValueLayout.JAVA_LONG_UNALIGNED,
                 (long) (Integer.BYTES + Long.BYTES) * entryNum + Integer.BYTES
@@ -197,8 +192,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         int currSStableNum = getTotalSStables();
-        Path sstablePath = storagePath.resolve(sstableBaseName + currSStableNum);
-        Path indexPath = storagePath.resolve(indexBaseName + currSStableNum);
+        Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + currSStableNum);
+        Path indexPath = storagePath.resolve(INDEX_BASE_NAME + currSStableNum);
 
         long storageWriteOffset = 0;
         long indexWriteOffset = 0;
@@ -292,9 +287,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         } else if (offset == segment2.byteSize()) {
             return 1;
         }
-        return Byte.compare(
-                segment1.get(ValueLayout.JAVA_BYTE, offset),
-                segment2.get(ValueLayout.JAVA_BYTE, offset)
-        );
+        return Byte.compare(segment1.get(ValueLayout.JAVA_BYTE, offset), segment2.get(ValueLayout.JAVA_BYTE, offset));
     }
 }

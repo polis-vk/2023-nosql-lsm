@@ -8,11 +8,7 @@ import ru.vk.itmo.abramovilya.table.TableEntry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.PriorityQueue;
-import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.*;
 
 import static ru.vk.itmo.abramovilya.DaoImpl.getKeyFromStorage;
 
@@ -28,17 +24,22 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
                 MemorySegment to,
                 List<MemorySegment> sstableMappedList,
                 List<MemorySegment> indexMappedList,
-                ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable) {
+                NavigableMap<MemorySegment, Entry<MemorySegment>> memTable) {
         this.from = from;
         this.to = to;
         this.sstableMappedList = sstableMappedList;
         this.indexMappedList = indexMappedList;
 
-        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> subMap = getSubMap(memTable);
+        NavigableMap<MemorySegment, Entry<MemorySegment>> subMap = getSubMap(memTable);
         for (int i = 0; i < totalSStables; i++) {
             long offset = findOffsetInIndex(from, to, i);
             if (offset != -1) {
-                priorityQueue.add(new SSTable(i, offset, sstableMappedList.get(i), indexMappedList.get(i)).currentEntry());
+                priorityQueue.add(new SSTable(
+                        i,
+                        offset,
+                        sstableMappedList.get(i),
+                        indexMappedList.get(i)
+                ).currentEntry());
             }
         }
         if (!subMap.isEmpty()) {
@@ -47,16 +48,17 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
         cleanUpSStableQueue();
     }
 
-    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map) {
-        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> subMap;
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(
+            NavigableMap<MemorySegment, Entry<MemorySegment>> map) {
+        NavigableMap<MemorySegment, Entry<MemorySegment>> subMap;
         if (from == null && to == null) {
             subMap = map;
         } else if (from == null) {
-            subMap = map.headMap(to);
+            subMap = map.headMap(to, false);
         } else if (to == null) {
-            subMap = map.tailMap(from);
+            subMap = map.tailMap(from, true);
         } else {
-            subMap = map.subMap(from, to);
+            subMap = map.subMap(from, true, to, false);
         }
         return subMap;
     }
