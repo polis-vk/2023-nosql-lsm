@@ -11,12 +11,11 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -40,25 +39,23 @@ public final class Storage implements Closeable {
         List<MemorySegment> ssTables = new ArrayList<>();
         Arena arena = Arena.ofShared();
 
-        try (var files = Files.list(path)) {
-            files
-                    .filter(p -> p.getFileName().toString().startsWith(DB_PREFIX))
-                    .filter(p -> p.getFileName().toString().endsWith(DB_EXTENSION))
-                    .sorted(Comparator.reverseOrder())
-                    .forEach(p -> {
-                        try (FileChannel channel = FileChannel.open(p, StandardOpenOption.READ)) {
-                            MemorySegment segment = channel.map(
-                                    FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena
-                            );
-                            ssTables.add(segment);
-                        } catch (IOException e) {
-                            throw new IllegalStateException("Can't open SSTable", e);
-                        }
-                    });
-        } catch (NoSuchFileException e) {
-            return new Storage(arena, ssTables);
+        for (int i = 0; ; i++) {
+            Path p = path.resolve(DB_PREFIX + i + DB_EXTENSION);
+            if (Files.exists(p)) {
+                try (FileChannel channel = FileChannel.open(p, StandardOpenOption.READ)) {
+                    MemorySegment segment = channel.map(
+                            FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena
+                    );
+                    ssTables.add(segment);
+                } catch (IOException e) {
+                    throw new IllegalStateException("Can't open SSTable", e);
+                }
+            } else {
+                break;
+            }
         }
 
+        Collections.reverse(ssTables);
         return new Storage(arena, ssTables);
     }
 
@@ -72,8 +69,7 @@ public final class Storage implements Closeable {
         }
 
         int nextSSTable = storage.ssTables.size();
-        String indexWithZeroPadding = String.format("%010d", nextSSTable);
-        Path path = config.basePath().resolve(DB_PREFIX + indexWithZeroPadding + DB_EXTENSION);
+        Path path = config.basePath().resolve(DB_PREFIX + nextSSTable + DB_EXTENSION);
 
         long indicesSize = (long) Long.BYTES * entries.size();
         long sizeOfNewSSTable = indicesSize + FILE_PREFIX;
