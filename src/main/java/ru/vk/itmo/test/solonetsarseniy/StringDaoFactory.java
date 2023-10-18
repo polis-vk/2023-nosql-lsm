@@ -1,32 +1,42 @@
 package ru.vk.itmo.test.solonetsarseniy;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.solonetsarseniy.InMemoryDao;
-import ru.vk.itmo.solonetsarseniy.transformer.StringMemorySegmentTransformer;
-import ru.vk.itmo.solonetsarseniy.transformer.Transformer;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.nio.charset.StandardCharsets;
 
-@DaoFactory
+@DaoFactory(stage = 2)
 public class StringDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
-    private final Transformer<String, MemorySegment> transformer = new StringMemorySegmentTransformer();
-
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        boolean nullConfig = config == null || config.basePath() == null;
+        if (nullConfig) return createDao();
+        return new InMemoryDao(config);
     }
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        return transformer.toTarget(memorySegment);
+        if (memorySegment == null) {
+            return null;
+        }
+
+        byte[] array = memorySegment.toArray(ValueLayout.JAVA_BYTE);
+        return new String(array, StandardCharsets.UTF_8);
     }
 
     @Override
     public MemorySegment fromString(String data) {
-        if (data == null) return null;
-        return transformer.toSource(data);
+        return data == null
+            ? null
+            : MemorySegment.ofArray(
+                data.getBytes(StandardCharsets.UTF_8)
+            );
     }
 
     @Override
