@@ -75,7 +75,7 @@ public class SSTable {
             long prevOffset = reader.getOffset();
             Entry<MemorySegment> entry = reader.readEntry();
             while (entry != null) {
-                if (COMPARATOR.compare(key, entry.key()) == 0) {
+                if (UtilsMemorySegment.findDiff(key, entry.key()) == -1) {
                     return MemoryEntryReader.mapEntry(
                             readerChannel,
                             prevOffset,
