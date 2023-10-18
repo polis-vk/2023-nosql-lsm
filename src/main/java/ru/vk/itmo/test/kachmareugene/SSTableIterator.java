@@ -1,9 +1,15 @@
 package ru.vk.itmo.test.kachmareugene;
 
+
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.*;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.SortedMap;
+import java.util.Map;
+import java.util.List;
+import java.util.TreeMap;
 
 public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
@@ -41,7 +47,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         }
         SSTableRowInfo old = mp.get(kv.key());
 
-        SSTableRowInfo oldInfo = old.ssTableInd > info.ssTableInd ? info : old ;
+        SSTableRowInfo oldInfo = old.ssTableInd > info.ssTableInd ? info : old;
         SSTableRowInfo newInfo = old.ssTableInd < info.ssTableInd ? info : old;
 
         mp.put(controller.getRow(newInfo).key(), newInfo);
@@ -95,14 +101,16 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
                 return;
             }
 
-            if (getHead() == null) {
+            var curHead = getHead();
+
+            if (curHead == null) {
                 mp.remove(minSStablesEntry.getKey());
                 insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
                 keeper = controller.getRow(minSStablesEntry.getValue());
                 return;
             }
 
-            int res = comp.compare(getHead().key(), minSStablesEntry.getKey());
+            int res = comp.compare(curHead.key(), minSStablesEntry.getKey());
 
             if (res < 0) {
                 keeper = moveAndGet();
@@ -131,8 +139,8 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private Map.Entry<MemorySegment, SSTableRowInfo> getFirstMin() {
         Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry = mp.firstEntry();
 
-        while (!mp.isEmpty() &&
-                (minSStablesEntry.getValue().isDeletedData() || !isBetween(minSStablesEntry.getKey()))) {
+        while (!mp.isEmpty() && (minSStablesEntry.getValue().isDeletedData() ||
+                !isBetween(minSStablesEntry.getKey()))) {
             mp.remove(minSStablesEntry.getKey());
             insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
 

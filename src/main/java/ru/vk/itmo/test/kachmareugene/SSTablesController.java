@@ -21,7 +21,9 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.stream.Stream;
 
-import static java.nio.file.StandardOpenOption.*;
+import static java.nio.file.StandardOpenOption.WRITE;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.CREATE;
 
 public class SSTablesController {
 
@@ -59,13 +61,9 @@ public class SSTablesController {
             tabels.forEach(t -> {
                 try (FileChannel channel = FileChannel.open(t, READ)) {
                     storage.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arenaForReading));
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
+                } catch (IOException ignore) {}
             });
-        } catch (IOException e) {
-            throw new RuntimeException(String.format("Cannot open %s %s", fileNamePref, e.getMessage()));
-        }
+        } catch (IOException ignore) {}
     }
 
     private boolean greaterThen(MemorySegment mappedIndex, long lineInBytesOffset,
@@ -77,7 +75,7 @@ public class SSTablesController {
     }
 
     //Gives offset for line in index file
-    private long searchKeyInFile(MemorySegment mappedIndex,  MemorySegment mappedData, MemorySegment key) {
+    private long searchKeyInFile(MemorySegment mappedIndex, MemorySegment mappedData, MemorySegment key) {
         long l = -1;
         long r = mappedIndex.byteSize() / ONE_LINE_SIZE;
 
