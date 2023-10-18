@@ -22,13 +22,11 @@ public class SSTable implements Comparable<SSTable> {
     private MemorySegment mappedIndexes;
     private long keysCount;
     private final long timestamp;
-    //    private Arena arena;
     public static final String SSTABLE_NAME_PREFIX = "ss";
     public static final String INDEX_NAME_PREFIX = "ind";
     public static final String META_NAME_PREFIX = "meta";
 
     public SSTable(Path path, String timestamp, Logger logger, Arena arena) {
-//        this.arena = arena;
         this.timestamp = Long.parseLong(timestamp);
         Path dataPath = path.resolve(SSTABLE_NAME_PREFIX + timestamp);
         Path indexesPath = path.resolve(INDEX_NAME_PREFIX + timestamp);
