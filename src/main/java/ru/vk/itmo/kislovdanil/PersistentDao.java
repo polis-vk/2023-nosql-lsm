@@ -3,7 +3,6 @@ package ru.vk.itmo.kislovdanil;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-
 import ru.vk.itmo.kislovdanil.exceptions.DBException;
 import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;
 import ru.vk.itmo.kislovdanil.iterators.MergeIterator;

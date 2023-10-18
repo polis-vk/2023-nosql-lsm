@@ -92,7 +92,7 @@ public class SSTable implements Comparable<SSTable> {
 
     // Sequentially writes every entity data in SStable keeping files data consistent
     private void write(NavigableMap<MemorySegment, Entry<MemorySegment>> memTable,
-                      Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
+                       Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
         prepareForWriting(summaryFilePath);
         prepareForWriting(indexFilePath);
         prepareForWriting(dataFilePath);
@@ -212,6 +212,7 @@ public class SSTable implements Comparable<SSTable> {
             return tableId;
         }
     }
+
     @Override
     public int compareTo(SSTable o) {
         return Long.compare(o.tableId, this.tableId);
