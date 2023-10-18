@@ -23,6 +23,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         updateCurrentEntry();
     }
 
+    // Get next entry (skip all entries with null value)
     private void updateCurrentEntry() {
         MemorySegment value = null;
         MemorySegment key = null;
@@ -36,6 +37,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         currentEntry = (value == null) ? null : new BaseEntry<>(key, value);
     }
 
+    // Move iterator to next value keeping invariant (several iterators mustn't point to equal keys at the same time)
     private void moveIterator(DatabaseIterator iter) {
         while (iter.hasNext()) {
             Entry<MemorySegment> entry = iter.next();
