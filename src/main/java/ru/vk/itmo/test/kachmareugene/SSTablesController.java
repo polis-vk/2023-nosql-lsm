@@ -3,6 +3,7 @@ package ru.vk.itmo.test.kachmareugene;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -57,11 +58,11 @@ public class SSTablesController {
                 try (FileChannel channel = FileChannel.open(t, READ)) {
                     storage.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arenaForReading));
                 } catch (IOException e) {
-                    System.err.println(e.getMessage());
+                    throw new UncheckedIOException(e);
                 }
             });
         } catch (IOException e) {
-            System.err.println(e.getMessage());
+            throw new UncheckedIOException(e);
         }
     }
 
