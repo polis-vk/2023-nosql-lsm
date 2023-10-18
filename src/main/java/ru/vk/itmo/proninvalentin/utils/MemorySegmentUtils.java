@@ -13,7 +13,13 @@ public final class MemorySegmentUtils {
     private MemorySegmentUtils() {
     }
 
-    public static MemorySegment getBySizeOffset(MemorySegment readValuesMS, long sizeOffset) {
+    public static MemorySegment getKeyBySizeOffset(MemorySegment readValuesMS, long sizeOffset) {
+        long valueSize = readValuesMS.get(ValueLayout.JAVA_LONG_UNALIGNED, sizeOffset);
+        long valueOffset = sizeOffset + Long.BYTES;
+        return readValuesMS.asSlice(valueOffset, valueSize);
+    }
+
+    public static MemorySegment getValueBySizeOffset(MemorySegment readValuesMS, long sizeOffset) {
         long valueSize = readValuesMS.get(ValueLayout.JAVA_LONG_UNALIGNED, sizeOffset);
         if (valueSize == TOMBSTONE_VALUE) {
             return null;
@@ -26,9 +32,9 @@ public final class MemorySegmentUtils {
                                                            MemorySegment readOffsetsMS,
                                                            long index) {
         long entryOffset = getEntryOffsetByIndex(readOffsetsMS, index);
-        MemorySegment key = getBySizeOffset(readValuesMS, entryOffset);
+        MemorySegment key = getKeyBySizeOffset(readValuesMS, entryOffset);
         long valueSizeOffset = entryOffset + Long.BYTES + key.byteSize();
-        MemorySegment value = getBySizeOffset(readValuesMS, valueSizeOffset);
+        MemorySegment value = getValueBySizeOffset(readValuesMS, valueSizeOffset);
         if (value == null) {
             return new BaseEntry<>(MemorySegment.ofArray(key.toArray(ValueLayout.JAVA_BYTE)), null);
         } else {
@@ -57,7 +63,7 @@ public final class MemorySegmentUtils {
             long m = l + (r - l) / 2;
 
             long keySizeOffset = readOffsetsMS.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES);
-            MemorySegment key = getBySizeOffset(readValuesMS, keySizeOffset);
+            MemorySegment key = getKeyBySizeOffset(readValuesMS, keySizeOffset);
 
             if (comparator.compare(key, desiredKey) == 0) {
                 return m;
@@ -85,7 +91,7 @@ public final class MemorySegmentUtils {
             long m = l + (r - l) / 2;
 
             long keySizeOffset = readOffsetsMS.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES);
-            MemorySegment key = getBySizeOffset(readValuesMS, keySizeOffset);
+            MemorySegment key = getKeyBySizeOffset(readValuesMS, keySizeOffset);
 
             if (comparator.compare(key, desiredKey) == 0) {
                 return m;
@@ -98,7 +104,7 @@ public final class MemorySegmentUtils {
 
         // Если найденный ключ оказался меньше нужного, то мы говорим, что ничего не нашли
         long keySizeOffset = readOffsetsMS.get(ValueLayout.JAVA_LONG_UNALIGNED, l * Long.BYTES);
-        MemorySegment key = getBySizeOffset(readValuesMS, keySizeOffset);
+        MemorySegment key = getKeyBySizeOffset(readValuesMS, keySizeOffset);
         if (key != null && comparator.compare(key, desiredKey) < 0) {
             return -1;
         }

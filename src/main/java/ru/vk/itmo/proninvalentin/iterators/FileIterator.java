@@ -11,13 +11,13 @@ import java.util.Iterator;
 public final class FileIterator implements Iterator<Entry<MemorySegment>> {
     private final MemorySegment readValuesMS;
     private final MemorySegment readOffsetsMS;
-    private long curIndex = 0;
+    private long curIndex;
     private long endIndex = -1;
 
     public FileIterator(MemorySegment readValuesMS,
-                         MemorySegment readOffsetsMS,
-                         MemorySegment from,
-                         MemorySegment to) {
+                        MemorySegment readOffsetsMS,
+                        MemorySegment from,
+                        MemorySegment to) {
         this.readValuesMS = readValuesMS;
         this.readOffsetsMS = readOffsetsMS;
         Comparator<MemorySegment> comparator = MemorySegmentComparator.getInstance();
