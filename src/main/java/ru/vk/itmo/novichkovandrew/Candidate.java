@@ -5,7 +5,6 @@ import ru.vk.itmo.novichkovandrew.iterator.TableIterator;
 
 import java.util.Comparator;
 
-
 public class Candidate<T> implements Comparable<Candidate<T>> {
     private Entry<T> entry;
     private final TableIterator<T> iterator;
@@ -14,7 +13,7 @@ public class Candidate<T> implements Comparable<Candidate<T>> {
     public Candidate(TableIterator<T> iterator, Comparator<T> comparator) {
         this.iterator = iterator;
         this.comparator = comparator;
-        update();
+        this.entry = iterator.hasNext() ? iterator.next() : null;
     }
 
     public Entry<T> entry() {

@@ -54,7 +54,6 @@ public class MemTable extends AbstractTable implements Iterable<Entry<MemorySegm
         };
     }
 
-
     public long byteSize() {
         return this.byteSize.get();
     }
@@ -69,7 +68,6 @@ public class MemTable extends AbstractTable implements Iterable<Entry<MemorySegm
     public long getMetaDataSize() {
         return 2L * (entriesMap.size() + 1) * Long.BYTES + Long.BYTES;
     }
-
 
     private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, boolean fromInclusive,
                                                                         MemorySegment to, boolean toInclusive) {
@@ -90,7 +88,6 @@ public class MemTable extends AbstractTable implements Iterable<Entry<MemorySegm
         entriesMap.clear();
         byteSize.set(0);
     }
-
 
     public boolean isTombstone(MemorySegment key) {
         return entriesMap.containsKey(key) && entriesMap.get(key).value() == null;

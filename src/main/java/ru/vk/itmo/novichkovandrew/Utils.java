@@ -1,9 +1,6 @@
 package ru.vk.itmo.novichkovandrew;
 
-import ru.vk.itmo.Entry;
-
 import java.io.IOException;
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -11,7 +8,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.stream.Stream;
 
-public class Utils {
+public final class Utils {
+    /**
+     * No instances.
+     */
+    private Utils() {
+    }
 
     /**
      * Executes amount of files by path.
@@ -51,9 +53,11 @@ public class Utils {
             int bytes = channel.write(buffer);
             return offset + bytes;
         } catch (IOException ex) {
-            throw new RuntimeException(
+            RuntimeException runtimeException = new RuntimeException(
                     String.format("Exception while writing long from position %s: %s", offset, ex.getMessage())
             );
+            runtimeException.addSuppressed(ex);
+            throw runtimeException;
         }
     }
 
@@ -68,9 +72,11 @@ public class Utils {
             buffer.flip();
             return buffer.getLong();
         } catch (IOException ex) {
-            throw new RuntimeException(
+            RuntimeException runtimeException = new RuntimeException(
                     String.format("Exception while reading long from position %s: %s", offset, ex.getMessage())
             );
+            runtimeException.addSuppressed(ex);
+            throw runtimeException;
         }
     }
 }

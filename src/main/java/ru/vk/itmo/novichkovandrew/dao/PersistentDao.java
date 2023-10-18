@@ -37,7 +37,6 @@ public class PersistentDao extends InMemoryDao {
         return organizer.mergeIterator(from, true, to, false);
     }
 
-
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         return organizer.mergeIterator(key, true, key, true).next();

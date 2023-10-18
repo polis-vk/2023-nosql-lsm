@@ -30,7 +30,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         memTable.upsert(entry);
     }
 
-
     @Override
     public void close() throws IOException {
         memTable.close();

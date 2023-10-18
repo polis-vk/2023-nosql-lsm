@@ -34,7 +34,9 @@ public class SSTable extends AbstractTable {
             this.sstNumber = sstNumber;
             this.arena = Arena.ofConfined();
         } catch (IOException ex) {
-            throw new RuntimeException("Couldn't create FileChannel by path" + path);
+            RuntimeException runtimeException = new RuntimeException("Couldn't create FileChannel by path" + path);
+            runtimeException.addSuppressed(ex);
+            throw runtimeException;
         }
     }
 
@@ -48,12 +50,10 @@ public class SSTable extends AbstractTable {
         }
     }
 
-
     @Override
     public int size() {
         return size;
     }
-
 
     @Override
     public TableIterator<MemorySegment> tableIterator(MemorySegment from, boolean fromInclusive,
@@ -75,9 +75,8 @@ public class SSTable extends AbstractTable {
             @Override
             public Entry<MemorySegment> next() {
                 MemorySegment key = getKeyByIndex(start);
-                MemorySegment value = getValueByIndex(start);
                 start++;
-                return new BaseEntry<>(key, value);
+                return new BaseEntry<>(key, getValueByIndex(start));
             }
 
             private int setFrom() {
@@ -99,15 +98,7 @@ public class SSTable extends AbstractTable {
         Objects.checkIndex(index, size);
         long keyOffset = getKeyOffset(index);
         long valueOffset = Math.abs(getValueOffset(index));
-        try (Arena arena = Arena.ofConfined()){
-            MemorySegment back = this.arena.allocate(valueOffset - keyOffset);
-            back.copyFrom(sstChannel.map(FileChannel.MapMode.READ_ONLY, keyOffset, valueOffset - keyOffset, arena));
-            return back;
-        } catch (IOException ex) {
-            throw new RuntimeException(
-                    String.format("Couldn't map file from channel %s: %s", sstChannel, ex.getMessage())
-            );
-        }
+        return copyToArena(keyOffset, valueOffset);
     }
 
     private MemorySegment getValueByIndex(int index) {
@@ -117,14 +108,20 @@ public class SSTable extends AbstractTable {
             return null;
         }
         long nextKeyOffset = getKeyOffset(index + 1);
-        try (Arena arena = Arena.ofConfined()){
-            MemorySegment back = this.arena.allocate(nextKeyOffset - valueOffset);
-            back.copyFrom(sstChannel.map(FileChannel.MapMode.READ_ONLY, valueOffset, nextKeyOffset - valueOffset, arena));
+        return copyToArena(valueOffset, nextKeyOffset);
+    }
+
+    private MemorySegment copyToArena(long valOffset, long nextOffset) {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment back = this.arena.allocate(nextOffset - valOffset);
+            back.copyFrom(sstChannel.map(FileChannel.MapMode.READ_ONLY, valOffset, nextOffset - valOffset, arena));
             return back;
         } catch (IOException ex) {
-            throw new RuntimeException(
+            RuntimeException runtimeException = new RuntimeException(
                     String.format("Couldn't map file from channel %s: %s", sstChannel, ex.getMessage())
             );
+            runtimeException.addSuppressed(ex);
+            throw runtimeException;
         }
     }
 
