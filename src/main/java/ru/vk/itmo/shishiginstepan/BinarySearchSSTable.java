@@ -70,7 +70,7 @@ public class BinarySearchSSTable {
         long indexSize = 0;
         for (var entry : entries) {
             dataSize += entry.value().byteSize() + entry.key().byteSize();
-            indexSize += 16; //todo: заменить по коментам из ПР
+            indexSize += Long.BYTES * 2;
         }
         try (var fileChannel = FileChannel.open(
                 sstPath,
@@ -124,7 +124,7 @@ public class BinarySearchSSTable {
 
     private long searchEntryPosition(MemorySegment key, boolean exact) {
         long l = 0;
-        long r = this.indexSize / 16 - 1;
+        long r = this.indexSize / Long.BYTES*2 - 1;
         long m;
         while (l <= r) {
             m = l + (r - l) / 2;
