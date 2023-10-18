@@ -218,6 +218,7 @@ public class SSTable {
                 }
             });
         }
+        index.sort(String::compareTo);
 
         return index;
     }
