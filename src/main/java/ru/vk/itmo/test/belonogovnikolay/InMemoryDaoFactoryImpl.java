@@ -1,5 +1,6 @@
 package ru.vk.itmo.test.belonogovnikolay;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.belonogovnikolay.InMemoryTreeDao;
@@ -10,7 +11,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-@DaoFactory
+@DaoFactory(stage = 2, week = 2)
 public class InMemoryDaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     /**
      * Creates new instance of Dao.
@@ -21,6 +22,12 @@ public class InMemoryDaoFactoryImpl implements DaoFactory.Factory<MemorySegment,
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
         return InMemoryTreeDao.newInstance();
     }
+
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
+        return InMemoryTreeDao.newInstance(config);
+    }
+
 
     /**
      * Converts data represented in MemorySegment format to String format.
