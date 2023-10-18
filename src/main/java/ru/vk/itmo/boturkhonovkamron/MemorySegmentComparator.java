@@ -15,8 +15,11 @@ public enum MemorySegmentComparator implements Comparator<MemorySegment> {
     COMPARATOR {
         @Override
         public int compare(final MemorySegment left, final MemorySegment right) {
-            if (left == null || right == null) {
-                throw new IllegalArgumentException("Null key is not allowed");
+            if (left == null) {
+                return -1;
+            }
+            if (right == null) {
+                return 1;
             }
             if (left.equals(right)) {
                 return 0;

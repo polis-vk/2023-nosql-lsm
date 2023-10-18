@@ -17,7 +17,7 @@ import java.nio.charset.StandardCharsets;
  * @author Kamron Boturkhonov
  * @since 2023.09.26
  */
-@DaoFactory(stage = 2)
+@DaoFactory(stage = 3)
 public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
