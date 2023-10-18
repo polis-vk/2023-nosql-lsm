@@ -102,7 +102,9 @@ public class SSTable {
              FileChannel fcOffset = FileChannel.open(basePath.resolve(OFFSET_PREFIX + instantNow), openOptions)) {
 
             MemorySegment writeSegmentData = fcData.map(READ_WRITE, 0, memorySize, Arena.ofConfined());
-            MemorySegment writeSegmentOffset = fcOffset.map(READ_WRITE, 0, (long) offsets.length * Long.BYTES, Arena.ofConfined());
+            MemorySegment writeSegmentOffset = fcOffset.map(
+                    READ_WRITE, 0, (long) offsets.length * Long.BYTES, Arena.ofConfined()
+            );
 
             for (Entry<MemorySegment> entry : entries) {
                 MemorySegment key = entry.key();
