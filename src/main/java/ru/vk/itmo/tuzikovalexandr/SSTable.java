@@ -31,8 +31,8 @@ public class SSTable {
     private final Arena readArena;
     private static final String FILE_PREFIX = "data_";
     private static final String OFFSET_PREFIX = "offset_";
-    private final Comparator<MemorySegment> comparator = MemorySegmentComparator::compare;
-    private final List<BaseEntry<MemorySegment>> files = new ArrayList<>();
+    private final Comparator<MemorySegment> comparator;
+    private final List<BaseEntry<MemorySegment>> files;
     private final List<String> listIndex;
 
     public SSTable(Config config) throws IOException {
@@ -41,16 +41,15 @@ public class SSTable {
         if(Files.notExists(basePath)) {
             listIndex = null;
             readArena = null;
+            files = null;
+            comparator = null;
             return;
         }
 
         listIndex = getAllIndex();
-
         readArena = Arena.ofConfined();
-
-        if (listIndex.isEmpty()) {
-            return;
-        }
+        files = new ArrayList<>();
+        comparator = MemorySegmentComparator::compare;
 
         for (String index : listIndex) {
             Path offsetFullPath = basePath.resolve(OFFSET_PREFIX + index);
@@ -166,24 +165,21 @@ public class SSTable {
     }
     private long binarySearch(MemorySegment key, MemorySegment offsetSegment, MemorySegment dataSegment) {
         long left = 0;
-        long middle;
         long right = offsetSegment.byteSize() / Long.BYTES - 1;
-        long keyOffset;
-        long keySize;
 
         while (left <= right) {
 
-            middle = (right - left) / 2 + left;
+            long middle = (right - left) / 2 + left;
 
             long offset = middle * Long.BYTES * 2;
             if (offset >= offsetSegment.byteSize()) {
                 return -left * Long.BYTES * 2;
             }
 
-            keyOffset = offsetSegment.get(ValueLayout.JAVA_LONG, offset);
+            long keyOffset = offsetSegment.get(ValueLayout.JAVA_LONG, offset);
 
             offset = middle * Long.BYTES * 2 + Long.BYTES;
-            keySize = offsetSegment.get(ValueLayout.JAVA_LONG, offset) - keyOffset;
+            long keySize = offsetSegment.get(ValueLayout.JAVA_LONG, offset) - keyOffset;
 
             MemorySegment keySegment = dataSegment.asSlice(keyOffset, keySize);
 
@@ -201,11 +197,12 @@ public class SSTable {
         return -left * Long.BYTES * 2;
     }
 
-    public boolean isNullIndexList() {
-        return listIndex == null;
-    }
+    public boolean isNullIndexList() { return listIndex == null; }
 
     public long getIndexListSize() {
+        if (isNullIndexList()) {
+            return 0;
+        }
         return listIndex.size();
     }
 

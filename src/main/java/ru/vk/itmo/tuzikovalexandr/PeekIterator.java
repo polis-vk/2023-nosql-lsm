@@ -8,7 +8,7 @@ import java.util.Iterator;
 public class PeekIterator  implements Iterator<Entry<MemorySegment>> {
 
     private final long priority;
-    private Entry<MemorySegment> current;
+    private Entry<MemorySegment> currentEntry;
     private final Iterator<Entry<MemorySegment>> iterator;
 
     public PeekIterator(Iterator<Entry<MemorySegment>> iterator, long priority) {
@@ -18,21 +18,21 @@ public class PeekIterator  implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public boolean hasNext() {
-        return current != null || iterator.hasNext();
+        return currentEntry != null || iterator.hasNext();
     }
 
     @Override
     public Entry<MemorySegment> next() {
         Entry<MemorySegment> next = peek();
-        current = null;
+        currentEntry = null;
         return next;
     }
 
     public Entry<MemorySegment> peek() {
-        if (current == null) {
-            current = iterator.next();
+        if (currentEntry == null) {
+            currentEntry = iterator.next();
         }
-        return current;
+        return currentEntry;
     }
 
     public long getPriority() {
