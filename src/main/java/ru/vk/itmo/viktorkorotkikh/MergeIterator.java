@@ -18,7 +18,6 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
         return new MergeIteratorWithTombstoneFilter(new MergeIterator(memTableIterator, ssTableIterators));
     }
 
-
     private MergeIterator(LSMPointerIterator memTableIterator, List<? extends LSMPointerIterator> ssTableIterators) {
         this.lsmPointerIterators = new PriorityQueue<>(
                 ssTableIterators.size() + 1,

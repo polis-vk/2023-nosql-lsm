@@ -119,7 +119,6 @@ public final class SSTable implements Closeable {
                     arena
             );
 
-
             mappedSSTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, entries.size());
 
             long offset = entriesDataOffset;
@@ -137,7 +136,11 @@ public final class SSTable implements Closeable {
             }
 
             mappedSSTableFile.force();
-            Files.move(tmpSSTable, basePath.resolve(FILE_NAME + fileIndex + FILE_EXTENSION), StandardCopyOption.ATOMIC_MOVE);
+            Files.move(
+                    tmpSSTable,
+                    basePath.resolve(FILE_NAME + fileIndex + FILE_EXTENSION),
+                    StandardCopyOption.ATOMIC_MOVE
+            );
         }
     }
 

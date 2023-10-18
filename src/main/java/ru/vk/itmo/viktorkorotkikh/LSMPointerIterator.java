@@ -5,7 +5,8 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 
-abstract sealed class LSMPointerIterator implements Iterator<Entry<MemorySegment>> permits LSMDaoImpl.MemTableIterator, SSTable.SSTableIterator {
+abstract sealed class LSMPointerIterator
+        implements Iterator<Entry<MemorySegment>> permits LSMDaoImpl.MemTableIterator, SSTable.SSTableIterator {
 
     abstract int getPriority();
 
