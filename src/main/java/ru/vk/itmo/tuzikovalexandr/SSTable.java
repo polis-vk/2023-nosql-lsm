@@ -73,6 +73,7 @@ public class SSTable {
         }
     }
 
+    // storage format: offsetFile |keyOffset|valueOffset| dataFile |key|value|
     public void saveMemData(Collection<Entry<MemorySegment>> entries) throws IOException {
         if (!readArena.scope().isAlive()) {
             return;
