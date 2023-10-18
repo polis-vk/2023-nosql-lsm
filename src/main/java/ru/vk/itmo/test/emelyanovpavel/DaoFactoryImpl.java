@@ -13,7 +13,7 @@ import java.lang.foreign.MemorySegment;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-@DaoFactory(stage = 2)
+@DaoFactory(stage = 3)
 public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
@@ -26,7 +26,7 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
         if (config == null || config.basePath() == null) {
             return createDao();
         }
-        return new PersistentDaoImpl(config.basePath());
+        return new InMemoryDaoImpl(config.basePath());
     }
 
     @Override
