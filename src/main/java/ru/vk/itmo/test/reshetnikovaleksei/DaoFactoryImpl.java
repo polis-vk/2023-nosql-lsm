@@ -3,8 +3,7 @@ package ru.vk.itmo.test.reshetnikovaleksei;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.reshetnikovaleksei.InMemoryDao;
-import ru.vk.itmo.reshetnikovaleksei.PersistentDao;
+import ru.vk.itmo.reshetnikovaleksei.DaoImpl;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -12,7 +11,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 2)
+@DaoFactory(stage = 3)
 public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public String toString(MemorySegment memorySegment) {
@@ -35,11 +34,11 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+        return null;
     }
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new PersistentDao(config);
+        return new DaoImpl(config);
     }
 }
