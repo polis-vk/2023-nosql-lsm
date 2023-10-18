@@ -3,12 +3,7 @@ package ru.vk.itmo.khadyrovalmasgali;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.SortedMap;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.concurrent.ConcurrentNavigableMap;
 
 import static ru.vk.itmo.khadyrovalmasgali.PersistentDao.comparator;
@@ -59,9 +54,8 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private void updateEntry() {
         mentry = null;
         while (!priorityMap.isEmpty() && mentry == null) {
-            MergeIteratorEntry item = priorityMap.firstEntry().getValue();
+            MergeIteratorEntry item = priorityMap.pollFirstEntry().getValue();
             updateIter(iters.get(item.index), item.index);
-            priorityMap.remove(item.entry.key());
             if (item.entry.value() != null) {
                 mentry = item;
             }
@@ -79,27 +73,30 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             throw new NoSuchElementException("Merge Iterator has no elements left.");
         }
         Entry<MemorySegment> result = mentry.entry;
-        Iterator<Entry<MemorySegment>> iter = iters.get(mentry.index);
-        updateIter(iter, mentry.index);
         updateEntry();
         return result;
     }
 
-    private void updateIter(Iterator<Entry<MemorySegment>> iter, int index) {
-        boolean flag = iter.hasNext();
-        while (flag) {
-            Entry<MemorySegment> next = iter.next();
-            flag = iter.hasNext();
-            if (priorityMap.containsKey(next.key())) {
-                MergeIteratorEntry other = priorityMap.get(next.key());
-                if (other.index < index) {
-                    continue;
-                } else {
-                    updateIter(iters.get(other.index), other.index);
+    private void updateIter(Iterator<Entry<MemorySegment>> it, int index) {
+        Queue<Iterator<Entry<MemorySegment>>> q = new ArrayDeque<>();
+        q.add(it);
+        while (!q.isEmpty()) {
+            Iterator<Entry<MemorySegment>> curIter = q.poll();
+            boolean flag = curIter.hasNext();
+            while (flag) {
+                Entry<MemorySegment> next = curIter.next();
+                flag = curIter.hasNext();
+                if (priorityMap.containsKey(next.key())) {
+                    MergeIteratorEntry other = priorityMap.get(next.key());
+                    if (other.index < index) {
+                        continue;
+                    } else {
+                        q.add(iters.get(other.index));
+                    }
                 }
+                priorityMap.put(next.key(), new MergeIteratorEntry(next, index));
+                flag = false;
             }
-            priorityMap.put(next.key(), new MergeIteratorEntry(next, index));
-            flag = false;
         }
     }
 
