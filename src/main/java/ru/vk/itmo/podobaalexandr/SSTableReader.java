@@ -27,8 +27,8 @@ public class SSTableReader implements Closeable {
 
         if (Files.exists(filePath)) {
             arena = Arena.ofShared();
-            try (Stream<Path> stream = Files.list(filePath).sorted()) {
-                List<Path> files = stream.toList();
+            try (Stream<Path> stream = Files.list(filePath)) {
+                List<Path> files = stream.sorted().toList();
                 for (Path file : files) {
                     SSTable ssTable = new SSTable(file, arena);
                     ssTables.addFirst(ssTable);
