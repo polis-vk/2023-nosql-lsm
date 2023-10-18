@@ -1,6 +1,5 @@
 package ru.vk.itmo.test.grunskiialexey;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
@@ -39,9 +38,6 @@ public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment
 
     @Override
     public Entry<MemorySegment> fromBaseEntry(Entry<MemorySegment> baseEntry) {
-        return new BaseEntry<>(
-                baseEntry.key(),
-                baseEntry.value()
-        );
+        return baseEntry;
     }
 }
