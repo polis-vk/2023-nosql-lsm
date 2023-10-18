@@ -10,7 +10,6 @@ import ru.vk.itmo.kislovdanil.iterators.MergeIterator;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
@@ -25,7 +24,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Config config;
     private final List<SSTable> tables = new ArrayList<>();
     private final Comparator<MemorySegment> comparator = new MemSegComparator();
-    private final Arena daoArena = Arena.ofAuto();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(comparator);
 
