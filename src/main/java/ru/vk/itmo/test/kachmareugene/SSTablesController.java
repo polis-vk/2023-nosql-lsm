@@ -26,7 +26,7 @@ import static java.nio.file.StandardOpenOption.WRITE;
 
 public class SSTablesController {
     private final Path ssTablesDir;
-    private final static DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss.SSSSS");
+    private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss.SSSSS");
     private final List<MemorySegment> ssTables = new ArrayList<>();
     private final List<MemorySegment> ssTablesIndexes = new ArrayList<>();
     private static final String SS_TABLE_COMMON_PREF = "ssTable";
@@ -56,12 +56,12 @@ public class SSTablesController {
             tabels.forEach(t -> {
                 try (FileChannel channel = FileChannel.open(t, READ)) {
                     storage.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arenaForReading));
-                } catch (IOException ignore) {
-                    System.err.println();;
+                } catch (IOException e) {
+                    System.err.println(e.getMessage());
                 }
             });
-        } catch (IOException ignore) {
-            ;
+        } catch (IOException e) {
+            System.err.println(e.getMessage());
         }
     }
 
