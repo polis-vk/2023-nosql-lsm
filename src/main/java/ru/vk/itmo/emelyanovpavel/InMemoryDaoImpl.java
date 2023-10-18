@@ -8,24 +8,13 @@ import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-import static java.lang.foreign.ValueLayout.JAVA_BYTE;
-
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(
-            (o1, o2) -> {
-                long offset = o1.mismatch(o2);
-                if (offset == -1) {
-                    return 0;
-                }
-                if (offset == o1.byteSize()) {
-                    return -1;
-                }
-                if (offset == o2.byteSize()) {
-                    return 1;
-                }
-                return Byte.compare(o1.get(JAVA_BYTE, offset), o2.get(JAVA_BYTE, offset));
-            });
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
+
+    public InMemoryDaoImpl() {
+        storage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+    }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
