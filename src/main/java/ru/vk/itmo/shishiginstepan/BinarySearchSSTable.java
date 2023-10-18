@@ -146,8 +146,8 @@ public class BinarySearchSSTable {
                 }
                 byte b1 = key.get(ValueLayout.JAVA_BYTE, mismatch);
                 byte b2 = tableSegment.get(ValueLayout.JAVA_BYTE, keyOffset + mismatch);
-                mismatch = Byte.compare(b1, b2);
-                if (mismatch < 0) {
+                var keysBytesCompared = Byte.compare(b1, b2);
+                if (keysBytesCompared < 0) {
                     r = m - 1;
                 } else {
                     l = m + 1;
