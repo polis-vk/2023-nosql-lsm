@@ -3,7 +3,10 @@ package ru.vk.itmo.khadyrovalmasgali;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -11,7 +14,7 @@ import static ru.vk.itmo.khadyrovalmasgali.PersistentDao.comparator;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
-    private final TreeMap<MemorySegment, MergeIteratorEntry> priorityMap;
+    private final ConcurrentNavigableMap<MemorySegment, MergeIteratorEntry> priorityMap;
     private final List<Iterator<Entry<MemorySegment>>> iters;
     private MergeIteratorEntry mentry;
 
@@ -20,7 +23,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             MemorySegment to,
             ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data,
             List<SSTable> sstables) {
-        priorityMap = new TreeMap<>(comparator);
+        priorityMap = new ConcurrentSkipListMap<>(comparator);
         iters = new ArrayList<>();
         Iterator<Entry<MemorySegment>> inMemoryIt;
         if (from == null && to == null) {
@@ -55,8 +58,9 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private void updateEntry() {
         mentry = null;
         while (!priorityMap.isEmpty() && mentry == null) {
-            MergeIteratorEntry item = priorityMap.pollFirstEntry().getValue();
+            MergeIteratorEntry item = priorityMap.firstEntry().getValue();
             updateIter(iters.get(item.index), item.index);
+            priorityMap.remove(item.entry.key());
             if (item.entry.value() != null) {
                 mentry = item;
             }

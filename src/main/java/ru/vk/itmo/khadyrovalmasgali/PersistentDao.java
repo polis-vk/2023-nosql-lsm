@@ -10,7 +10,6 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -29,6 +28,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final Logger logger = Logger.getLogger(PersistentDao.class.getName());
     private final Config config;
     private final Arena arena;
+    long tableCount;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data;
     public static final Comparator<MemorySegment> comparator = (o1, o2) -> {
         long mismatch = o1.mismatch(o2);
@@ -47,6 +47,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public PersistentDao(final Config config) {
         this.config = config;
+        tableCount = 0;
         arena = Arena.ofShared();
         data = new ConcurrentSkipListMap<>(comparator);
         sstables = loadData();
@@ -77,10 +78,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (data.isEmpty()) {
             return;
         }
-        long timestamp = System.currentTimeMillis();
-        try (FileChannel dataChannel = getFileChannel(SSTABLE_NAME_PREFIX, timestamp);
-             FileChannel indexesChannel = getFileChannel(INDEX_NAME_PREFIX, timestamp);
-             FileChannel metaChanel = getFileChannel(META_NAME_PREFIX, timestamp)) {
+        long tableNum = tableCount + 1;
+        try (FileChannel dataChannel = getFileChannel(SSTABLE_NAME_PREFIX, tableNum);
+             FileChannel indexesChannel = getFileChannel(INDEX_NAME_PREFIX, tableNum);
+             FileChannel metaChanel = getFileChannel(META_NAME_PREFIX, tableNum)) {
             long dataSize = 0;
             long indexesSize = (long) data.size() * Long.BYTES;
             for (Entry<MemorySegment> entry : data.values()) {
@@ -129,8 +130,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         ArrayList<SSTable> result = new ArrayList<>();
         if (files != null) {
             for (File f : files) {
-                String timestamp = f.getName().substring(2);
-                result.add(new SSTable(config.basePath(), timestamp, logger, arena));
+                String tableNum = f.getName().substring(2);
+                tableCount = Math.max(Long.parseLong(tableNum), tableCount);
+                result.add(new SSTable(config.basePath(), tableNum, logger, arena));
             }
         }
         result.sort(SSTable::compareTo);
@@ -160,10 +162,4 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         MemorySegment.copy(msegment, 0, mappedSegment, offset + Long.BYTES, msize);
         return offset + Long.BYTES + msize;
     }
-
-//    public static void main(String[] args) {
-//        Path path = Path.of(System.getProperty("user.dir")).resolve("main_build");
-//        Config config = new Config(path);
-//        Dao<String, Entry<String>>
-//    }
 }
