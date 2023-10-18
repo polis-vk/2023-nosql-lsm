@@ -19,26 +19,26 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class Storage implements Dao<MemorySegment, Entry<MemorySegment>>  {
+public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    protected final NavigableMap<MemorySegment, Entry<MemorySegment>> storage;
+    protected final NavigableMap<MemorySegment, Entry<MemorySegment>> dataStorage;
     private final Path path;
     private FileInputStream fis;
     private BufferedInputStream reader;
 
     public Storage() {
-        storage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+        dataStorage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
         path = null;
     }
 
     public Storage(Config config) {
-        storage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+        dataStorage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
         path = config.basePath().resolve("storage.txt");
         try {
             fis = new FileInputStream(String.valueOf(path));
             reader = new BufferedInputStream(fis);
         } catch (IOException e) {
-            throw new IllegalArgumentException("Failed to open the file.");
+            throw new IllegalArgumentException("Failed to open the file.", e);
         }
     }
 
@@ -46,13 +46,13 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>>  {
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         Collection<Entry<MemorySegment>> values;
         if (from == null && to == null) {
-            values = storage.values();
+            values = dataStorage.values();
         } else if (from == null) {
-            values = storage.headMap(to).values();
+            values = dataStorage.headMap(to).values();
         } else if (to == null) {
-            values = storage.tailMap(from).values();
+            values = dataStorage.tailMap(from).values();
         } else {
-            values = storage.subMap(from, to).values();
+            values = dataStorage.subMap(from, to).values();
         }
 
         return values.iterator();
@@ -60,7 +60,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>>  {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        storage.put(entry.key(), entry);
+        dataStorage.put(entry.key(), entry);
     }
 
     @Override
@@ -80,7 +80,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>>  {
 
         try (FileOutputStream fos = new FileOutputStream(String.valueOf(path));
              BufferedOutputStream writer = new BufferedOutputStream(fos)) {
-            for (var entry : storage.values()) {
+            for (var entry : dataStorage.values()) {
                 writer.write((byte) entry.key().byteSize());
                 writer.write(entry.key().toArray(ValueLayout.JAVA_BYTE));
                 writer.write((byte) entry.value().byteSize());
@@ -93,12 +93,13 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>>  {
     }
 
     private Entry<MemorySegment> getEntry(MemorySegment key) throws IOException {
-        Entry<MemorySegment> entry = storage.get(key);
+        Entry<MemorySegment> entry = dataStorage.get(key);
         if (entry != null) {
             return entry;
         }
 
-        while (reader.available() != 0) {
+        Entry<MemorySegment> result = null;
+        while (reader.available() != 0 && result == null) {
             int keyLength = reader.read();
             if (keyLength != key.byteSize()) {
                 reader.skipNBytes(keyLength);
@@ -114,7 +115,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>>  {
 
             int valueLength = reader.read();
             byte[] valueBytes = reader.readNBytes(valueLength);
-            return new BaseEntry<>(key, MemorySegment.ofArray(valueBytes));
+            result = new BaseEntry<>(key, MemorySegment.ofArray(valueBytes));
         }
 
         return null;
