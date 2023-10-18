@@ -44,8 +44,10 @@ public class SSTable {
         long keySize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
         offsetLocal += Long.BYTES;
 
-        long compareFrom = MemorySegmentUtils.compareSegments(from, from.byteSize(), page, offsetLocal, offsetLocal + keySize);
-        long compareTo = MemorySegmentUtils.compareSegments(to, to.byteSize(), page, offsetLocal, offsetLocal + keySize);
+        int compareFrom = MemorySegmentUtils
+                .compareSegments(from, from.byteSize(), page, offsetLocal, offsetLocal + keySize);
+        int compareTo = MemorySegmentUtils
+                .compareSegments(to, to.byteSize(), page, offsetLocal, offsetLocal + keySize);
 
         if (compareFrom < 0 && compareTo > 0) {
             last = MemorySegmentUtils.getKeyValueFromOffset(page, offsetLocal, keySize, keysSize);
@@ -94,7 +96,8 @@ public class SSTable {
         long keySize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
         offsetLocal += Long.BYTES;
 
-        int compare = MemorySegmentUtils.compareSegments(to, to.byteSize(), page, offsetLocal, offsetLocal + keySize);
+        int compare = MemorySegmentUtils
+                .compareSegments(to, to.byteSize(), page, offsetLocal, offsetLocal + keySize);
 
         if (compare == 0) {
             offsetLocal += keySize + Long.BYTES;
@@ -134,7 +137,8 @@ public class SSTable {
         long keySize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
         offsetLocal += Long.BYTES;
 
-        int compare = MemorySegmentUtils.compareSegments(from, from.byteSize(), page, offsetLocal, offsetLocal + keySize);
+        int compare = MemorySegmentUtils
+                .compareSegments(from, from.byteSize(), page, offsetLocal, offsetLocal + keySize);
 
         if (compare == 0) {
             last = MemorySegmentUtils.getKeyValueFromOffset(page, offsetLocal, keySize, keysSize);
@@ -195,8 +199,8 @@ public class SSTable {
             long keySize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
 
-            int compare = MemorySegmentUtils.compareSegments(keySearch, keySearch.byteSize(),
-                    page, offset, offset + keySize);
+            int compare = MemorySegmentUtils
+                    .compareSegments(keySearch, keySearch.byteSize(), page, offset, offset + keySize);
 
             if (compare == 0) {
                 res = MemorySegmentUtils.getKeyValueFromOffset(page, offset, keySize, keysSize);

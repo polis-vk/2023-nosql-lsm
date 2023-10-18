@@ -39,15 +39,15 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
         if (from == null && to == null) {
             entries = ssTableReader.allPages(innerMap);
-        } else if (from != null && to != null) {
-            innerMap = innerMap.subMap(from, to);
-            entries = ssTableReader.allPagesFromTo(from, to, innerMap);
-        } else if (from != null) {
+        } else if (from == null) {
+            innerMap = innerMap.headMap(to);
+            entries = ssTableReader.allPagesTo(to, innerMap);
+        } else if (to == null) {
             innerMap = innerMap.tailMap(from);
             entries = ssTableReader.allPagesFrom(from, innerMap);
         } else {
-            innerMap = innerMap.headMap(to);
-            entries = ssTableReader.allPagesTo(to, innerMap);
+            innerMap = innerMap.subMap(from, to);
+            entries = ssTableReader.allPagesFromTo(from, to, innerMap);
         }
 
         entries.removeIf(it -> it.value() == null);

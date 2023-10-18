@@ -6,7 +6,7 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class MemorySegmentUtils {
+public final class MemorySegmentUtils {
 
     private MemorySegmentUtils() {
 

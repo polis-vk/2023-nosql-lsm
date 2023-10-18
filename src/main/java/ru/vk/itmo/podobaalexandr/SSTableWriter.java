@@ -18,7 +18,7 @@ public class SSTableWriter {
 
     private final String fileName;
     private final Path filePath;
-    private long offsetV = 0;
+    private long offsetV;
 
     public SSTableWriter(Path path, int fileCount) {
         filePath = path;
@@ -82,7 +82,7 @@ public class SSTableWriter {
         Entry<MemorySegment> entry = iterator.next();
 
         if (mid < hi) {
-            offsetR = log2Save(mid + 1, hi, fileSegment, iterator, offsetL != 0 ? offsetL : startOffsetKey);
+            offsetR = log2Save(mid + 1, hi, fileSegment, iterator, offsetL == 0 ? startOffsetKey : offsetL);
         }
 
         MemorySegment value = entry.value();
@@ -95,14 +95,14 @@ public class SSTableWriter {
         byte offsetToR = (byte) (offsetR == 0 ? 0 : 1);
 
         long offsetKey;
-        if (offsetR != 0) {
-            offsetKey = offsetR;
-        } else {
-            if (offsetL != 0) {
-                offsetKey = offsetL;
-            } else {
+        if (offsetR == 0) {
+            if (offsetL == 0) {
                 offsetKey = startOffsetKey;
+            } else {
+                offsetKey = offsetL;
             }
+        } else {
+            offsetKey = offsetR;
         }
 
         offsetKey -= Byte.BYTES;
