@@ -90,8 +90,9 @@ public class SSTablesStorage {
                     readSegment, offset, offset + keySize,
                     key, 0, key.byteSize());
 
-            if (mismatch == -1)
+            if (mismatch == -1) {
                 return mid;
+            }
 
             if (mismatch == keySize) {
                 low = mid;
@@ -114,7 +115,6 @@ public class SSTablesStorage {
 
         return low + 1;
     }
-
 
     //Merge iterator from all sstables in sstable storage
     public Iterator<Entry<MemorySegment>> iteratorsAll(MemorySegment from, MemorySegment to) {
