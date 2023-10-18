@@ -13,23 +13,27 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
+import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import static ru.vk.itmo.test.ryabovvadim.FileUtils.DATA_FILE_EXT;
 import static ru.vk.itmo.test.ryabovvadim.FileUtils.MEMORY_SEGMENT_COMPARATOR;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final Arena arena = Arena.ofAuto();
+    private final Arena arena = Arena.ofShared();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable =
         new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
     private final Config config;
@@ -41,12 +45,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao(Config config) {
         this.config = config;
-        if (config == null || config.basePath() == null) {
+        if (!existsPath()) {
             return;
         }
 
         try {
-            Set<String> dataFileNames = new HashSet<>();
+            NavigableSet<Long> dataFileNumbers = new TreeSet<>(Comparator.reverseOrder());
             Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
@@ -54,19 +58,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
                     int indexDataExtension = fileName.indexOf("." + DATA_FILE_EXT);
                     if (indexDataExtension >= 0) {
-                        dataFileNames.add(fileName.substring(0, indexDataExtension));
+                        dataFileNumbers.add(Long.parseLong(fileName.substring(0, indexDataExtension)));
                     }
 
                     return FileVisitResult.CONTINUE;
                 }
             });
 
-            List<Integer> numbers = dataFileNames.stream()
-                .map(Integer::parseInt)
-                .sorted(Comparator.reverseOrder())
-                .toList();
-            for (var number : numbers) {
-                ssTables.add(new SSTable(config.basePath(), Integer.toString(number), arena));
+            for (long number : dataFileNumbers) {
+                ssTables.add(new SSTable(config.basePath(), Long.toString(number), arena));
             }
         } catch (IOException ex) {
             throw new RuntimeException(ex);
@@ -79,7 +79,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         
         if (result == null) {
             result = load(key);
-        } else if (result.value() == null) {
+        }
+        if (result != null && result.value() == null) {
             result = null;
         }
 
@@ -92,9 +93,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return all();
         }
 
-        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> loadEntries = load(from, null);
-        loadEntries.putAll(memoryTable.tailMap(from));
-        return new SkipDeletedEntriesIterator<>(loadEntries.values().iterator());
+        return makeIteratorWithSkipNulls(memoryTable.tailMap(from), from, null);
     }
 
     @Override
@@ -102,16 +101,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (to == null) {
             return all();
         }
-        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> loadEntries = load(null, to); 
-        loadEntries.putAll(memoryTable.headMap(to));
-        return new SkipDeletedEntriesIterator<>(loadEntries.values().iterator());
+
+        return makeIteratorWithSkipNulls(memoryTable.headMap(to), null, to);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> all() {
-        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> loadEntries = load(null, null);
-        loadEntries.putAll(memoryTable);
-        return new SkipDeletedEntriesIterator<>(loadEntries.values().iterator());
+        return makeIteratorWithSkipNulls(memoryTable, null, null);
     }
 
     @Override
@@ -123,13 +119,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return allFrom(from);
         }
 
-        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> loadEntries = load(from, to);
-        loadEntries.putAll(memoryTable.subMap(from, to));
-        return new SkipDeletedEntriesIterator<>(loadEntries.values().iterator());
+        return makeIteratorWithSkipNulls(memoryTable.subMap(from, to), from, to);
     }
 
     private Entry<MemorySegment> load(MemorySegment key) {
-        if (config == null) {
+        if (!existsPath()) {
             return null;
         }
 
@@ -143,23 +137,62 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> load(MemorySegment from, MemorySegment to) {
-        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> loadEntries =
-            new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
-
-        if (config == null) {
-            return loadEntries;
-        }
+    private FutureIterator<Entry<MemorySegment>> load(MemorySegment from, MemorySegment to) {
+        List<FutureIterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
         
         for (SSTable ssTable : ssTables) {
-            for (Entry<MemorySegment> entry : ssTable.findEntries(from, to)) {
-                if (!loadEntries.containsKey(entry.key())) {
-                    loadEntries.put(entry.key(), entry);
-                }
+            FutureIterator<Entry<MemorySegment>> iterator = ssTable.findEntries(from, to);
+            if (iterator.hasNext()) {
+                iterators.add(iterator);
             }
         }
         
-        return loadEntries;
+        return new GatheringIteratorWithPriority<>(
+            iterators, 
+            Comparator.comparing(Entry::key, MEMORY_SEGMENT_COMPARATOR)
+        );
+    }
+
+    private FutureIterator<Entry<MemorySegment>> makeIteratorWithSkipNulls(
+            Map<MemorySegment, Entry<MemorySegment>> entries, MemorySegment from, MemorySegment to
+    ) {
+        Iterator<Entry<MemorySegment>> entriesIterator = entries.values().iterator();
+        LazyIterator<Entry<MemorySegment>> futureEntriesIterator = 
+            new LazyIterator<>(entriesIterator::next, entriesIterator::hasNext);
+        GatheringIteratorWithPriority<Entry<MemorySegment>> iterator = new GatheringIteratorWithPriority<>(
+            List.of(futureEntriesIterator, load(from, to)), 
+            FileUtils.ENTRY_COMPARATOR
+        );
+
+        return new FutureIterator<Entry<MemorySegment>>() {
+            @Override
+            public Entry<MemorySegment> showNext() {
+                skipNulls();
+                return iterator.showNext();
+            }
+
+            @Override
+            public boolean hasNext() {
+                skipNulls();
+                return iterator.hasNext();
+            }
+
+            @Override
+            public Entry<MemorySegment> next() {
+                skipNulls();
+                return iterator.next();
+            }
+            
+            private void skipNulls() {
+                while (iterator.hasNext()) {
+                    if (iterator.showNext().value() == null) {
+                        iterator.next();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        };
     }
 
     @Override
@@ -180,6 +213,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
         
+        FileUtils.createParentDirectories(config.basePath());
+        
         int maxTableNumber = ssTables.stream()
             .map(SSTable::getName)
             .mapToInt(Integer::parseInt)
@@ -190,42 +225,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         SSTable.save(path, Integer.toString(saveTableNumber), memoryTable.values(), arena);
     }
     
-    private static class SkipDeletedEntriesIterator<T extends Entry<?>> implements Iterator<T> {
-        private final Iterator<T> iterator;
-        private T skippedElement = null;
-
-        public SkipDeletedEntriesIterator(Iterator<T> iterator) {
-            this.iterator = iterator;
-        }
-
-        @Override
-        public boolean hasNext() {
-            skipNulls();
-            return skippedElement != null;
-        }
-
-        @Override
-        public T next() {
-            skipNulls();
-            T result = skippedElement;
-            skippedElement = null;
-            
-            return result == null ? iterator.next() : result;
-        }        
-        
-        private void skipNulls() {
-            if (skippedElement != null) {
-                return;
-            }
-
-            while (iterator.hasNext()) {
-                T val = iterator.next();                
-                
-                if (val.value() != null) {
-                    skippedElement = val;
-                    break;
-                }
-            }
-        }
+    private boolean existsPath() {
+        return config != null && config.basePath() != null;
     }
+    
 }

@@ -6,10 +6,14 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
@@ -27,7 +31,7 @@ public class SSTable {
 
     private final String name;
     private final MemorySegment data;
-    private final long[] offsets;
+    private final List<Long> offsets;
     private final int countRecords;
 
     public SSTable(Path prefix, String name, Arena arena) throws IOException {
@@ -41,28 +45,28 @@ public class SSTable {
                 this.data = dataFileChannel.map(READ_ONLY, 0, dataFileChannel.size(), arena);
 
                 int countRecords = (int) (offsetsFileChannel.size() / JAVA_LONG.byteSize());
-                this.offsets = new long[countRecords];
+                this.offsets = new ArrayList<>();
                 MemorySegment offsetsSegment = offsetsFileChannel.map(READ_ONLY, 0, offsetsFileChannel.size(), arena);
 
                 for (int i = 0; i < countRecords; ++i) {
-                    offsets[i] = offsetsSegment.get(JAVA_LONG, i * JAVA_LONG.byteSize());
+                    offsets.add(offsetsSegment.get(JAVA_LONG, i * JAVA_LONG.byteSize()));
                 }
 
-                this.countRecords = offsets.length;
+                this.countRecords = offsets.size();
             }
         }
     }
-
+    
     public Entry<MemorySegment> findEntry(MemorySegment key) {
         int offsetIndex = binSearchIndex(key, true);
         
         if (offsetIndex < 0) {
             return null;
         }
-        return new BaseEntry<MemorySegment>(key, readValue(offsets[offsetIndex]));
+        return new BaseEntry<MemorySegment>(key, readValue(offsets.get(offsetIndex)));
     }
     
-    public List<Entry<MemorySegment>> findEntries(MemorySegment from, MemorySegment to) {
+    public FutureIterator<Entry<MemorySegment>> findEntries(MemorySegment from, MemorySegment to) {
         int fromIndex = 0;
         int toIndex = countRecords;
         
@@ -75,15 +79,14 @@ public class SSTable {
             toIndex = toOffsetIndex < 0 ? -toOffsetIndex : toOffsetIndex;
         }
         
-        List<Entry<MemorySegment>> entries = new ArrayList<>();
-        for (int i = fromIndex; i < toIndex; ++i) {
-            entries.add(new BaseEntry<MemorySegment>(
-                readKey(offsets[i]),
-                readValue(offsets[i])
-            ));    
-        }
-        
-        return entries;
+        Iterator<Long> offsetsIterator = offsets.subList(fromIndex, toIndex).iterator();
+        return new LazyIterator<>(
+            () -> {
+                long offset = offsetsIterator.next();
+                return new BaseEntry<>(readKey(offset), readValue(offset));
+            },
+            offsetsIterator::hasNext
+        );
     }
 
     public String getName() {
@@ -96,7 +99,7 @@ public class SSTable {
 
         while (l + 1 < r) {
             int mid = (l + r) / 2;
-            MemorySegment curKey = readKey(offsets[mid]);
+            MemorySegment curKey = readKey(offsets.get(mid));
             int compareResult = MEMORY_SEGMENT_COMPARATOR.compare(curKey, key);
 
             if (compareResult == 0) {

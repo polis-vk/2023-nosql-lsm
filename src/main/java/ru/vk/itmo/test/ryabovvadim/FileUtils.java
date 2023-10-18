@@ -1,17 +1,22 @@
 package ru.vk.itmo.test.ryabovvadim;
 
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 
+import ru.vk.itmo.Entry;
+
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
+
+import java.io.IOException;
 
 public class FileUtils {
     public static final String DATA_FILE_EXT = "data";
     public static final String OFFSETS_FILE_EXT = "offsets";
     public static final String BLOOM_FILE_EXT = "bloom";
 
-    public static final Comparator<MemorySegment> MEMORY_SEGMENT_COMPARATOR = (firstSegment, secondSegment) -> {
+    public static final Comparator<? super MemorySegment> MEMORY_SEGMENT_COMPARATOR = (firstSegment, secondSegment) -> {
         if (firstSegment == null) {
             return secondSegment == null ? 0 : -1;
         } else if (secondSegment == null) {
@@ -35,7 +40,21 @@ public class FileUtils {
         return Byte.compare(firstSegment.get(JAVA_BYTE, mismatchOffset), secondSegment.get(JAVA_BYTE, mismatchOffset));
     };
 
+    public static final Comparator<? super Entry<MemorySegment>> ENTRY_COMPARATOR =
+        Comparator.comparing(Entry::key, MEMORY_SEGMENT_COMPARATOR);
+
     public static Path makePath(Path prefix, String name, String extension) {
         return Path.of(prefix.toString(), name + "." + extension);
+    }
+    
+    public static void createParentDirectories(Path path) throws IOException {
+        if (path == null || path.getParent() == null) {
+            return;
+        }
+        
+        Path parent = path.getParent();
+        if (Files.notExists(parent)) {
+            Files.createDirectories(parent);
+        }
     }
 }
