@@ -19,7 +19,7 @@ public class SSTable implements Table {
 
     @Override
     public SSTableEntry nextEntry() {
-        indexFileOffset += 2 * Long.BYTES;
+        indexFileOffset += Integer.BYTES + Long.BYTES;
         if (indexFileOffset >= mappedIndexFile.byteSize()) {
             return null;
         }

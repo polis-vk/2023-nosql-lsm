@@ -114,15 +114,15 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
         MemorySegment indexMapped = indexMappedList.get(i);
 
         if (from != null) {
-            long foundIndex = DaoImpl.upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
+            int foundIndex = DaoImpl.upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
             MemorySegment foundMemorySegment = getKeyFromStorage(storageMapped, indexMapped, foundIndex);
             if (DaoImpl.compareMemorySegments(foundMemorySegment, from) < 0 || (to != null && DaoImpl.compareMemorySegments(foundMemorySegment, to) >= 0)) {
                 return -1;
             }
-            return foundIndex * 2 * Long.BYTES + Long.BYTES;
+            return (long) foundIndex *  (Integer.BYTES + Long.BYTES) + Integer.BYTES;
         } else {
             if (to == null) {
-                return Long.BYTES;
+                return Integer.BYTES;
             }
 
             long firstKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
@@ -132,7 +132,7 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
             if (DaoImpl.compareMemorySegments(firstKey, to) >= 0) {
                 return -1;
             }
-            return Long.BYTES;
+            return Integer.BYTES;
         }
     }
 }
