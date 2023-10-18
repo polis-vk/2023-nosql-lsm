@@ -12,18 +12,19 @@ public final class NumberUtils {
 
         long result = 0L;
         for (byte value : bytes) {
-            result = (result << 8) + value;
+            result = (result << 8) + (value & 0xff);
         }
 
         return result;
     }
 
     public static byte[] toBytes(long value) {
+        long val = value;
         List<Byte> bytes = new ArrayList<>();
 
-        while (value > 0) {
-            bytes.add((byte) (value & 0xff));
-            value >>= 8;
+        while (val> 0) {
+            bytes.add((byte) (val & 0xff));
+            val >>= 8;
         }
 
         byte[] result = new byte[bytes.size()];

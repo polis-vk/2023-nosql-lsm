@@ -12,35 +12,7 @@ public class SingleValueGatheringIterator<T> implements FutureIterator<T> {
         Comparator<? super T> comparator
     ) {
         this.delegate = new LazyIterator<>(
-            () -> {
-                FutureIterator<T> minIterator = null;
-                for (var iterator : iterators) {
-                    if (!iterator.hasNext()) {
-                        continue;
-                    }
-
-                    if (minIterator == null || 
-                        comparator.compare(minIterator.showNext(), iterator.showNext()) > 0
-                    ) {
-                        minIterator = iterator;
-                    }
-                }
-                
-                if (minIterator == null) {
-                    throw new NoSuchElementException();
-                }
-
-                for (var iterator : iterators) {
-                    if (!iterator.hasNext() || iterator == minIterator) {
-                        continue;
-                    }
-                    if (comparator.compare(minIterator.showNext(), iterator.showNext()) == 0) {
-                        iterator.next();                        
-                    }
-                }
-
-                return minIterator.next();
-            },
+            () -> nextImpl(iterators, comparator),
             () -> {
                 for (var iterator : iterators) {
                     if (iterator.hasNext()) {
@@ -66,5 +38,35 @@ public class SingleValueGatheringIterator<T> implements FutureIterator<T> {
     @Override
     public T next() {
         return delegate.next();
+    }
+    
+    private T nextImpl(Collection<FutureIterator<T>> iterators, Comparator<? super T> comparator) {
+        FutureIterator<T> minIterator = null;
+        for (var iterator : iterators) {
+            if (!iterator.hasNext()) {
+                continue;
+            }
+
+            if (minIterator == null 
+                || comparator.compare(minIterator.showNext(), iterator.showNext()) > 0
+            ) {
+                minIterator = iterator;
+            }
+        }
+        
+        if (minIterator == null) {
+            throw new NoSuchElementException();
+        }
+
+        for (var iterator : iterators) {
+            if (!iterator.hasNext() || iterator == minIterator) {
+                continue;
+            }
+            if (comparator.compare(minIterator.showNext(), iterator.showNext()) == 0) {
+                iterator.next();                        
+            }
+        }
+
+        return minIterator.next();
     }
 }

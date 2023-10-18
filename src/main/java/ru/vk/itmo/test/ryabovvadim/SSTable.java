@@ -22,8 +22,8 @@ import static java.nio.file.StandardOpenOption.WRITE;
 public class SSTable {
     private final String name;
     private final MemorySegment data;
-    private final List<Long> offsets;
     private final int countRecords;
+    private final List<Long> offsets;
 
     public SSTable(Path prefix, String name, Arena arena) throws IOException {
         this.name = name;
@@ -35,7 +35,7 @@ public class SSTable {
             try (FileChannel offsetsFileChannel = FileChannel.open(offsetsFile, READ)) {
                 this.data = dataFileChannel.map(MapMode.READ_ONLY, 0, dataFileChannel.size(), arena);
 
-                int countRecords = (int) (offsetsFileChannel.size() / ValueLayout.JAVA_LONG.byteSize());
+                this.countRecords = (int) (offsetsFileChannel.size() / ValueLayout.JAVA_LONG.byteSize());
                 this.offsets = new ArrayList<>();
                 MemorySegment offsetsSegment = offsetsFileChannel.map(
                     MapMode.READ_ONLY, 
@@ -50,8 +50,6 @@ public class SSTable {
                         i * ValueLayout.JAVA_LONG.byteSize()
                     ));
                 }
-
-                this.countRecords = offsets.size();
             }
         }
     }
@@ -62,7 +60,7 @@ public class SSTable {
         if (offsetIndex < 0) {
             return null;
         }
-        return new BaseEntry<MemorySegment>(key, readValue(offsets.get(offsetIndex)));
+        return new BaseEntry<>(key, readValue(offsets.get(offsetIndex)));
     }
     
     public FutureIterator<Entry<MemorySegment>> findEntries(MemorySegment from, MemorySegment to) {
