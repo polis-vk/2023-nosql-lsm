@@ -7,7 +7,6 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -45,7 +44,7 @@ public class PersistentDao extends InMemoryDao {
 
         boolean created = false;
         MemorySegment pageCurrent;
-        try (FileChannel fileChannel = FileChannel.open(dataFilePath, StandardOpenOption.READ)) {
+        try (FileChannel fileChannel = FileChannel.open(dataFilePath, READ)) {
             pageCurrent = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
             created = true;
         } catch (FileNotFoundException e) {
@@ -71,9 +70,9 @@ public class PersistentDao extends InMemoryDao {
     private Entry<MemorySegment> searchKey(MemorySegment key) {
         long offset = 0;
         while (offset < memorySegment.byteSize()) {
-            long keySize = memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            long keySize = memorySegment.get(JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
-            long valueSize = memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            long valueSize = memorySegment.get(JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
 
             if (keySize != key.byteSize()) {
@@ -81,7 +80,10 @@ public class PersistentDao extends InMemoryDao {
                 continue;
             }
 
-            long mismatch = MemorySegment.mismatch(memorySegment, offset, offset + key.byteSize(), key, 0, key.byteSize());
+            long mismatch = MemorySegment.mismatch(memorySegment, offset, offset + key.byteSize(),
+                    key,
+                    0,
+                    key.byteSize());
             if (mismatch == -1) {
                 MemorySegment slice = memorySegment.asSlice(offset + keySize, valueSize);
                 return new BaseEntry<>(key, slice);
