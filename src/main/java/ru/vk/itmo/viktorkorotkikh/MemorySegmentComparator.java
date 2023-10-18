@@ -31,23 +31,34 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
             MemorySegment srcSegment,
             long srcFromOffset,
             long srcToOffset,
-            MemorySegment dstSegment
+            MemorySegment dstSegment,
+            long dstFromOffset,
+            long dstToOffset
     ) {
         long mismatch = MemorySegment
-                .mismatch(srcSegment, srcFromOffset, srcToOffset, dstSegment, 0, dstSegment.byteSize());
+                .mismatch(srcSegment, srcFromOffset, srcToOffset, dstSegment, dstFromOffset, dstToOffset);
         if (mismatch == -1) { // equals
             return 0;
         }
 
-        if (mismatch == srcToOffset - srcFromOffset) { // keyFromSSTable is smaller memory segment
+        if (mismatch == srcToOffset - srcFromOffset) { // keyFromSrcMemorySegment is smaller memory segment
             return -1;
         }
 
-        if (mismatch == dstSegment.byteSize()) { // key is smaller memory segment
+        if (mismatch == dstSegment.byteSize()) { // keyFromDstMemorySegment is smaller memory segment
             return 1;
         }
         byte o1 = srcSegment.get(ValueLayout.JAVA_BYTE, srcFromOffset + mismatch);
-        byte o2 = dstSegment.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte o2 = dstSegment.get(ValueLayout.JAVA_BYTE, dstFromOffset + mismatch);
         return o1 - o2;
+    }
+
+    public int compare(
+            MemorySegment srcSegment,
+            long srcFromOffset,
+            long srcToOffset,
+            MemorySegment dstSegment
+    ) {
+        return compare(srcSegment, srcFromOffset, srcToOffset, dstSegment, 0, dstSegment.byteSize());
     }
 }

@@ -4,17 +4,17 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.DaoFactory;
-import ru.vk.itmo.viktorkorotkikh.InMemoryDaoImpl;
+import ru.vk.itmo.viktorkorotkikh.LSMDaoImpl;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 2)
+@DaoFactory(stage = 3)
 public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new InMemoryDaoImpl(config.basePath());
+        return new LSMDaoImpl(config.basePath());
     }
 
     @Override
@@ -23,6 +23,12 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
             return null;
         }
         return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
+    }
+
+    public String toString(Entry<MemorySegment> memorySegment) {
+        var key = toString(memorySegment.key());
+        var value = toString(memorySegment.value());
+        return "{" + key + ":" + value + "}";
     }
 
     @Override

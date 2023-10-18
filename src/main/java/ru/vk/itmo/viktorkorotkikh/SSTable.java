@@ -10,10 +10,15 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.stream.Stream;
 
 public final class SSTable implements Closeable {
 
@@ -30,33 +35,62 @@ public final class SSTable implements Closeable {
     private static final long METADATA_SIZE = Long.BYTES;
 
     private static final long ENTRY_METADATA_SIZE = Long.BYTES;
+    private final int index;
 
-    private SSTable(Arena arena, MemorySegment mappedSSTableFile) {
+    private SSTable(Arena arena, MemorySegment mappedSSTableFile, int index) {
         this.arena = arena;
         this.mappedSSTableFile = mappedSSTableFile;
+        this.index = index;
     }
 
-    public static SSTable load(Path basePath) throws IOException {
-        Arena arena = null;
-        MemorySegment mappedSSTableFile;
-        Path filePath = basePath.resolve(FILE_NAME + FILE_EXTENSION);
-        if (!Files.exists(filePath)) {
-            return null;
+    public static List<SSTable> load(Path basePath) throws IOException {
+        List<Path> ssTablePaths;
+        try (Stream<Path> paths = Files.walk(basePath, 1)) {
+            ssTablePaths = paths.filter(Files::isRegularFile)
+                    .filter(filePath -> filePath.getFileName().toString().endsWith(FILE_EXTENSION))
+                    .toList().reversed();
+        } catch (NoSuchFileException e) {
+            return new ArrayList<>();
         }
-        try (FileChannel fileChannel = FileChannel.open(filePath, StandardOpenOption.READ)) {
-            arena = Arena.ofShared();
-            mappedSSTableFile = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0L, fileChannel.size(), arena);
-        } catch (Exception e) {
-            if (arena != null) {
-                arena.close();
+        List<SSTable> ssTables = new ArrayList<>(ssTablePaths.size());
+        for (int i = 0; i < ssTablePaths.size(); i++) {
+            Path ssTablePath = ssTablePaths.get(i);
+            Arena arena;
+            MemorySegment mappedSSTableFile;
+            try (FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
+                arena = Arena.ofShared();
+                mappedSSTableFile = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0L, fileChannel.size(), arena);
+                ssTables.add(new SSTable(arena, mappedSSTableFile, i));
+            } catch (IOException e) {
+                ssTables.forEach(SSTable::close);
+                throw new SSTableReadException(e);
             }
-            throw e;
         }
-        return new SSTable(arena, mappedSSTableFile);
+        return ssTables;
     }
 
-    public static void save(Collection<Entry<MemorySegment>> entries, Path basePath) throws IOException {
-        Path tmpSSTable = basePath.resolve(FILE_NAME + FILE_EXTENSION + TMP_FILE_EXTENSION);
+    public SSTableIterator iterator(MemorySegment from, MemorySegment to) {
+        long fromPosition = getMinKeySizeOffset();
+        long toPosition = getMaxKeySizeOffset();
+        if (from != null) {
+            fromPosition = getEntryOffset(from, SearchOption.GTE);
+            if (fromPosition == -1) {
+                return new SSTableIterator(0, -1);
+            }
+        }
+        if (to != null) {
+            toPosition = getEntryOffset(to, SearchOption.LT);
+            if (toPosition == -1) {
+                return new SSTableIterator(0, -1);
+            }
+        }
+
+        return new SSTableIterator(fromPosition, toPosition);
+    }
+
+    public static void save(Collection<Entry<MemorySegment>> entries, int fileIndex, Path basePath) throws IOException {
+        if (entries.isEmpty()) return;
+        Path tmpSSTable = basePath.resolve(FILE_NAME + fileIndex + FILE_EXTENSION + TMP_FILE_EXTENSION);
 
         Files.deleteIfExists(tmpSSTable);
         Files.createFile(tmpSSTable);
@@ -103,11 +137,14 @@ public final class SSTable implements Closeable {
             }
 
             mappedSSTableFile.force();
-            Files.move(tmpSSTable, basePath.resolve(FILE_NAME + FILE_EXTENSION), StandardCopyOption.ATOMIC_MOVE);
+            Files.move(tmpSSTable, basePath.resolve(FILE_NAME + fileIndex + FILE_EXTENSION), StandardCopyOption.ATOMIC_MOVE);
         }
     }
 
     private static long getEntrySize(Entry<MemorySegment> entry) {
+        if (entry.value() == null) {
+            return Long.BYTES + entry.key().byteSize() + Long.BYTES;
+        }
         return Long.BYTES + entry.key().byteSize() + Long.BYTES + entry.value().byteSize();
     }
 
@@ -116,6 +153,10 @@ public final class SSTable implements Closeable {
             MemorySegment memorySegmentToWrite,
             long offset
     ) {
+        if (memorySegmentToWrite == null) {
+            ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
+            return Long.BYTES;
+        }
         long memorySegmentToWriteSize = memorySegmentToWrite.byteSize();
         // write memorySegment size and memorySegment
         ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, memorySegmentToWriteSize);
@@ -130,20 +171,38 @@ public final class SSTable implements Closeable {
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-        long entryOffset = getEntryOffset(key);
+        long entryOffset = getEntryOffset(key, SearchOption.EQ);
         if (entryOffset == -1) {
             return null;
         }
+        return getByIndex(entryOffset);
+    }
 
-        long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, entryOffset);
-        MemorySegment savedKey = mappedSSTableFile.asSlice(entryOffset + Long.BYTES, keySize);
+    private Entry<MemorySegment> getByIndex(long index) {
+        long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, index);
+        MemorySegment savedKey = mappedSSTableFile.asSlice(index + Long.BYTES, keySize);
 
-        long valueOffset = entryOffset + Long.BYTES + keySize;
+        long valueOffset = index + Long.BYTES + keySize;
         long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
+        if (valueSize == -1) {
+            return new BaseEntry<>(savedKey, null);
+        }
         return new BaseEntry<>(savedKey, mappedSSTableFile.asSlice(valueOffset + Long.BYTES, valueSize));
     }
 
-    private long getEntryOffset(MemorySegment key) {
+    private long getMinKeySizeOffset() {
+        return mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, METADATA_SIZE);
+    }
+
+    private long getMaxKeySizeOffset() {
+        long entriesSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        return mappedSSTableFile.get(
+                ValueLayout.JAVA_LONG_UNALIGNED,
+                METADATA_SIZE + (entriesSize - 1) * ENTRY_METADATA_SIZE
+        );
+    }
+
+    private long getEntryOffset(MemorySegment key, SearchOption searchOption) {
         // binary search
         long entriesSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
         long left = 0;
@@ -166,14 +225,91 @@ public final class SSTable implements Closeable {
             } else if (keyComparison > 0) {
                 right = mid - 1;
             } else {
-                return keySizeOffset;
+                return switch (searchOption) {
+                    case EQ, GTE -> keySizeOffset;
+                    case LT -> keySizeOffset - Long.BYTES;
+                };
             }
         }
-        return -1;
+
+        return switch (searchOption) {
+            case EQ -> -1;
+            case GTE -> {
+                if (left == entriesSize) {
+                    yield -1;
+                } else {
+                    yield mappedSSTableFile.get(
+                            ValueLayout.JAVA_LONG_UNALIGNED,
+                            METADATA_SIZE + left * ENTRY_METADATA_SIZE
+                    );
+                }
+            }
+            case LT -> mappedSSTableFile.get(
+                    ValueLayout.JAVA_LONG_UNALIGNED,
+                    METADATA_SIZE + right * ENTRY_METADATA_SIZE
+            );
+        };
     }
 
     @Override
     public void close() {
         arena.close();
+    }
+
+    private enum SearchOption {
+        EQ, GTE, LT
+    }
+
+    public final class SSTableIterator extends LSMPointerIterator {
+        private long fromPosition;
+        private final long toPosition;
+
+        private SSTableIterator(long fromPosition, long toPosition) {
+            this.fromPosition = fromPosition;
+            this.toPosition = toPosition;
+        }
+
+        @Override
+        int getPriority() {
+            return index;
+        }
+
+        @Override
+        public MemorySegment getPointerSrc() {
+            return mappedSSTableFile;
+        }
+
+        @Override
+        public long getPointerSrcOffset() {
+            return fromPosition + Long.BYTES;
+        }
+
+        @Override
+        boolean isPointerOnTombstone() {
+            long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
+            long valueOffset = fromPosition + Long.BYTES + keySize;
+            long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
+            return valueSize == -1;
+        }
+
+        @Override
+        public long getPointerSrcSize() {
+            return mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
+        }
+
+        @Override
+        public boolean hasNext() {
+            return fromPosition <= toPosition;
+        }
+
+        @Override
+        public Entry<MemorySegment> next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            Entry<MemorySegment> entry = getByIndex(fromPosition);
+            fromPosition += getEntrySize(entry);
+            return entry;
+        }
     }
 }
