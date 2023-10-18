@@ -3,7 +3,7 @@ package ru.vk.itmo.novichkovandrew.table;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.Utils;
-import ru.vk.itmo.novichkovandrew.iterator.PeekTableIterator;
+import ru.vk.itmo.novichkovandrew.iterator.TableIterator;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -11,11 +11,9 @@ import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Comparator;
-import java.util.Iterator;
 import java.util.Objects;
 
-public class SortedStringTableMap implements TableMap<MemorySegment, MemorySegment> {
+public class SSTable extends AbstractTable {
 
     private final FileChannel sstChannel;
     private final Arena arena;
@@ -29,14 +27,11 @@ public class SortedStringTableMap implements TableMap<MemorySegment, MemorySegme
      */
     private final int sstNumber;
 
-    private final Comparator<MemorySegment> comparator;
-
-    public SortedStringTableMap(Path path, int sstNumber, Comparator<MemorySegment> comparator) {
+    public SSTable(Path path, int sstNumber) {
         try {
             this.sstChannel = FileChannel.open(path, StandardOpenOption.READ);
             this.size = Math.toIntExact(Utils.readLong(sstChannel, 0L));
             this.sstNumber = sstNumber;
-            this.comparator = comparator;
             this.arena = Arena.ofConfined();
         } catch (IOException ex) {
             throw new RuntimeException("Couldn't create FileChannel by path" + path);
@@ -55,67 +50,50 @@ public class SortedStringTableMap implements TableMap<MemorySegment, MemorySegme
 
 
     @Override
-    public MemorySegment ceilKey(MemorySegment key) {
-        int index = binarySearch(key);
-        return getKeyByIndex(index);
-    }
-
-
-    @Override
-    public Entry<MemorySegment> getEntry(MemorySegment key) {
-        int index = binarySearch(key);
-        MemorySegment rawKey = getKeyByIndex(index);
-        if (comparator.compare(rawKey, key) != 0) {
-            return null;
-        }
-        MemorySegment value = getValueByIndex(index);
-        return new BaseEntry<>(key, value);
-    }
-
-
-    @Override
     public int size() {
         return size;
     }
 
-    @Override
-    public PeekTableIterator<MemorySegment> keyIterator(MemorySegment from, MemorySegment to) {
-        Iterator<MemorySegment> iterator = new Iterator<>() {
-            int index = binarySearch(from);
-            MemorySegment current = getIfRanged(index);
 
-            private MemorySegment getIfRanged(int index) {
-                if (index >= size) return null;
-                MemorySegment value = getKeyByIndex(index);
-                return comparator.compare(from, value) <= 0 && comparator.compare(value, to) < 0 ? value : null;
+    @Override
+    public TableIterator<MemorySegment> tableIterator(MemorySegment from, boolean fromInclusive,
+                                                      MemorySegment to, boolean toInclusive) {
+        return new TableIterator<>() {
+            int start = setFrom();
+            final int end = setTo();
+
+            @Override
+            public int getTableNumber() {
+                return sstNumber;
             }
 
             @Override
             public boolean hasNext() {
-                return current != null;
+                return start < size && start <= end;
             }
 
             @Override
-            public MemorySegment next() {
-                MemorySegment key = current;
-                index++;
-                current = getIfRanged(index);
-                return key;
+            public Entry<MemorySegment> next() {
+                MemorySegment key = getKeyByIndex(start);
+                MemorySegment value = getValueByIndex(start);
+                start++;
+                return new BaseEntry<>(key, value);
+            }
+
+            private int setFrom() {
+                int position = from == null ? 0 : binarySearch(from);
+                if (!fromInclusive && comparator.compare(getKeyByIndex(position), from) == 0) {
+                    position++;
+                }
+                return position;
+            }
+
+            private int setTo() {
+                int position = to == null ? size : binarySearch(to);
+                return position + Boolean.compare(toInclusive, true); // TODO: reverse?
             }
         };
-        return new PeekTableIterator<>(iterator, sstNumber);
     }
-
-    @Override
-    public boolean contains(MemorySegment key) {
-        return comparator.compare(key, ceilKey(key)) == 0;
-    }
-
-    @Override
-    public boolean isTombstone(Entry<MemorySegment> entry) {
-        return entry.value() == null && contains(entry.key());
-    }
-
 
     private MemorySegment getKeyByIndex(int index) {
         Objects.checkIndex(index, size);
@@ -149,11 +127,11 @@ public class SortedStringTableMap implements TableMap<MemorySegment, MemorySegme
     private int binarySearch(MemorySegment key) {
         int l = 0;
         int r = size - 1;
-        while (l < r) {
+        while (l <= r) {
             int mid = l + (r - l) / 2;
             MemorySegment middle = getKeyByIndex(mid);
             if (comparator.compare(key, middle) <= 0) {
-                r = mid;
+                r = mid - 1;
             } else {
                 l = mid + 1;
             }

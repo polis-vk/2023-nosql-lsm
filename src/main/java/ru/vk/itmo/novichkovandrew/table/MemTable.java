@@ -1,37 +1,27 @@
 package ru.vk.itmo.novichkovandrew.table;
 
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.novichkovandrew.iterator.PeekTableIterator;
+import ru.vk.itmo.novichkovandrew.iterator.TableIterator;
 
 import java.lang.foreign.MemorySegment;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 
-public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterable<Entry<MemorySegment>> {
+public class MemTable extends AbstractTable implements Iterable<Entry<MemorySegment>> {
 
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> entriesMap;
-    private long byteSize;
+    private final AtomicLong byteSize;
 
-    public MemTable(Comparator<MemorySegment> comparator) {
+    public MemTable() {
         this.entriesMap = new ConcurrentSkipListMap<>(comparator);
-        this.byteSize = 0L;
+        this.byteSize = new AtomicLong();
     }
 
     public void upsert(Entry<MemorySegment> entry) {
-        byteSize += (entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()));
+        byteSize.addAndGet(entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()));
         entriesMap.put(entry.key(), entry);
-    }
-
-    @Override
-    public Entry<MemorySegment> getEntry(MemorySegment key) {
-        return entriesMap.get(key);
-    }
-
-    @Override
-    public MemorySegment ceilKey(MemorySegment key) {
-        return entriesMap.ceilingKey(key);
     }
 
     @Override
@@ -40,17 +30,33 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
     }
 
     @Override
-    public PeekTableIterator<MemorySegment> keyIterator(MemorySegment from, MemorySegment to) {
-        return new PeekTableIterator<>(getSubMap(from, to).keySet().iterator(), Integer.MAX_VALUE);
+    public TableIterator<MemorySegment> tableIterator(MemorySegment from, boolean fromInclusive,
+                                                      MemorySegment to, boolean toInclusive) {
+
+        return new TableIterator<>() {
+            final Iterator<Entry<MemorySegment>> it = getSubMap(from, fromInclusive, to, toInclusive)
+                    .values().iterator();
+
+            @Override
+            public int getTableNumber() {
+                return Integer.MAX_VALUE;
+            }
+
+            @Override
+            public boolean hasNext() {
+                return it.hasNext();
+            }
+
+            @Override
+            public Entry<MemorySegment> next() {
+                return it.next();
+            }
+        };
     }
 
-    @Override
-    public boolean contains(MemorySegment key) {
-        return entriesMap.containsKey(key);
-    }
 
     public long byteSize() {
-        return this.byteSize;
+        return this.byteSize.get();
     }
 
     /**
@@ -65,15 +71,16 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
     }
 
 
-    private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, MemorySegment to) {
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, boolean fromInclusive,
+                                                                        MemorySegment to, boolean toInclusive) {
         if (from != null && to != null) {
-            return entriesMap.subMap(from, to);
+            return entriesMap.subMap(from, fromInclusive, to, toInclusive);
         }
         if (from != null) {
-            return entriesMap.tailMap(from, true);
+            return entriesMap.tailMap(from, fromInclusive);
         }
         if (to != null) {
-            return entriesMap.headMap(to, false);
+            return entriesMap.headMap(to, toInclusive);
         }
         return entriesMap;
     }
@@ -81,16 +88,16 @@ public class MemTable implements TableMap<MemorySegment, MemorySegment>, Iterabl
     @Override
     public void close() {
         entriesMap.clear();
-        byteSize = 0L;
+        byteSize.set(0);
+    }
+
+
+    public boolean isTombstone(MemorySegment key) {
+        return entriesMap.containsKey(key) && entriesMap.get(key).value() == null;
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> iterator() {
         return entriesMap.values().iterator();
-    }
-
-    @Override
-    public boolean isTombstone(Entry<MemorySegment> entry) {
-        return entry.value() == null && contains(entry.key());
     }
 }
