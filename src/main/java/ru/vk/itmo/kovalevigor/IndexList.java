@@ -5,7 +5,9 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
+import java.util.AbstractList;
+import java.util.RandomAccess;
+import java.util.SortedMap;
 
 public class IndexList extends AbstractList<Entry<MemorySegment>> implements RandomAccess {
 
@@ -17,11 +19,13 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
     private final MemorySegment dataSegment;
     private final long valuesOffset;
 
-    public IndexList(MemorySegment indexSegment, final MemorySegment dataSegment) {
+    public IndexList(final MemorySegment indexSegment, final MemorySegment dataSegment) {
         if (indexSegment.byteSize() > MAX_BYTE_SIZE) {
-            indexSegment = indexSegment.asSlice(0, MAX_BYTE_SIZE);
+            this.indexSegment = indexSegment.asSlice(0, MAX_BYTE_SIZE);
+        } else {
+            this.indexSegment = indexSegment;
         }
-        this.indexSegment = indexSegment;
+
         this.dataSegment = dataSegment;
 
         this.valuesOffset = readOffset(0);
@@ -72,6 +76,11 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
         return META_INFO_SIZE + map.size() * INDEX_ENTRY_SIZE;
     }
 
+    private static long writeLong(final MemorySegment writer, final long offset ,final long value) {
+        writer.set(ValueLayout.JAVA_LONG, offset, value);
+        return offset + ValueLayout.JAVA_LONG.byteSize();
+    }
+
     public static void write(
             final MemorySegment writer,
             final long[][] offsets,
@@ -87,17 +96,10 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
             }
         }
 
-        writer.set(
-                ValueLayout.JAVA_LONG,
-                0,
-                offsets.length > 0 ? Math.abs(offsets[0][1]) : 0
-        );
-
-        long offset = META_INFO_SIZE;
+        long offset = writeLong(writer, 0, offsets.length > 0 ? Math.abs(offsets[0][1]) : 0);
         for (final long[] entry: offsets) {
-            writer.set(ValueLayout.JAVA_LONG, offset, entry[0]);
-            writer.set(ValueLayout.JAVA_LONG, offset += ValueLayout.JAVA_LONG.byteSize(), entry[1]);
-            offset += ValueLayout.JAVA_LONG.byteSize();
+            offset = writeLong(writer, offset, entry[0]);
+            offset = writeLong(writer, offset, entry[1]);
         }
     }
 

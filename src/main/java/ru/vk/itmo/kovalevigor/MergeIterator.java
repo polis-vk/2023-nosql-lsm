@@ -1,16 +1,16 @@
 package ru.vk.itmo.kovalevigor;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.PriorityQueue;
-import java.util.ArrayList;
 
 public abstract class MergeIterator<E, T extends Iterator<E>> implements Iterator<E> {
 
     protected final PriorityQueue<T> queue;
 
-    public MergeIterator(final Collection<? extends T> collection) {
+    protected MergeIterator(final Collection<? extends T> collection) {
         final List<T> filteredCollection = new ArrayList<>(collection.size());
         for (final T iterator : collection) {
             if (iterator.hasNext()) {

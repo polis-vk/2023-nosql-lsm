@@ -2,7 +2,7 @@ package ru.vk.itmo.kovalevigor;
 
 import java.util.Iterator;
 
-public class ShiftedIterator<E> implements Iterator<E>{
+public class ShiftedIterator<E> implements Iterator<E> {
 
     private final Iterator<E> iterator;
     protected E value;
@@ -19,7 +19,6 @@ public class ShiftedIterator<E> implements Iterator<E>{
         this.value = this.iterator.hasNext() ? this.iterator.next() : null;
         this.finished = this.value == null;
     }
-
 
     @Override
     public boolean hasNext() {

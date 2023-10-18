@@ -9,7 +9,11 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.SortedMap;
 
 public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> {
 
@@ -146,7 +150,9 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
 
             index = 0;
             for (final Entry<MemorySegment> value : map.values()) {
-                if (value.value() != null) {
+                if (value.value() == null) {
+                    offsets[index][1] = -1;
+                } else {
                     offsets[index][1] = totalOffset;
                     MemorySegment.copy(
                             value.value(),
@@ -156,8 +162,6 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
                             value.value().byteSize()
                     );
                     totalOffset += value.value().byteSize();
-                } else {
-                    offsets[index][1] = -1;
                 }
                 index += 1;
             }
