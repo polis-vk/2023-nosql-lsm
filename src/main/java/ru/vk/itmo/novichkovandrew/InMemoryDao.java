@@ -9,6 +9,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     protected final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> entriesMap;
@@ -26,6 +27,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 second.getAtIndex(ValueLayout.JAVA_BYTE, missIndex)
         );
     };
+
+    protected final AtomicLong tableByteSize = new AtomicLong(0);
 
     public InMemoryDao() {
         this.entriesMap = new ConcurrentSkipListMap<>(comparator);
@@ -56,6 +59,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
+        tableByteSize.addAndGet(entry.key().byteSize() + entry.value().byteSize());
         entriesMap.put(entry.key(), entry);
+    }
+
+    protected long getMetaDataSize() {
+        return 2L * (entriesMap.size() + 1) * Long.BYTES + Long.BYTES;
     }
 }
