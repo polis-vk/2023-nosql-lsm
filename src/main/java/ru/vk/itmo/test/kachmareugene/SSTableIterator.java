@@ -149,11 +149,9 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     private Map.Entry<MemorySegment, SSTableRowInfo> getFirstMin() {
         Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry = mp.firstEntry();
-
         while (!mp.isEmpty() && !isBetween(minSStablesEntry.getKey())) {
             mp.remove(minSStablesEntry.getKey());
             insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
-
             minSStablesEntry = mp.firstEntry();
         }
         return minSStablesEntry;
