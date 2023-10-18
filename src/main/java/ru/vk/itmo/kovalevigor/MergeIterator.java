@@ -6,13 +6,13 @@ import java.util.List;
 import java.util.PriorityQueue;
 import java.util.ArrayList;
 
-public class MergeIterator<E> implements Iterator<E> {
+public abstract class MergeIterator<E, T extends Iterator<E>> implements Iterator<E> {
 
-    protected final PriorityQueue<Iterator<E>> queue;
+    protected final PriorityQueue<T> queue;
 
-    public MergeIterator(final Collection<? extends Iterator<E>> collection) {
-        final List<Iterator<E>> filteredCollection = new ArrayList<>(collection.size());
-        for (final Iterator<E> iterator : collection) {
+    public MergeIterator(final Collection<? extends T> collection) {
+        final List<T> filteredCollection = new ArrayList<>(collection.size());
+        for (final T iterator : collection) {
             if (iterator.hasNext()) {
                 filteredCollection.add(iterator);
             }
@@ -27,28 +27,23 @@ public class MergeIterator<E> implements Iterator<E> {
 
     @Override
     public E next() {
-        final Iterator<E> iterator = queue.remove();
+        final T iterator = queue.remove();
 
-        Iterator<E> nextIterator = queue.peek();
-        while (nextIterator != null && cmp(iterator, nextIterator) == 0) {
-            shiftAdd(queue.poll());
+        T nextIterator = queue.peek();
+        while (nextIterator != null && checkEquals(iterator, nextIterator)) {
+            shiftAdd(queue.remove());
             nextIterator = queue.peek();
         }
         return shiftAdd(iterator);
     }
 
-    private E shiftAdd(final Iterator<E> iterator) {
+    protected abstract boolean checkEquals(T lhs, T rhs);
+
+    private E shiftAdd(final T iterator) {
         final E value = iterator.next();
         if (iterator.hasNext()) {
             queue.add(iterator);
         }
         return value;
-    }
-
-    @SuppressWarnings("unchecked")
-    private <T extends Iterator<E>> int cmp(final T lhs, final T rhs) {
-        return queue.comparator() == null
-                ? ((Comparable<T>) lhs).compareTo(rhs)
-                : queue.comparator().compare(lhs, rhs);
     }
 }

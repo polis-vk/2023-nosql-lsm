@@ -10,7 +10,7 @@ import java.util.*;
 public class IndexList extends AbstractList<Entry<MemorySegment>> implements RandomAccess {
 
     public static final long INDEX_ENTRY_SIZE = 2 * ValueLayout.JAVA_LONG.byteSize();
-    public static final long META_INFO_SIZE = 2 * ValueLayout.JAVA_LONG.byteSize();
+    public static final long META_INFO_SIZE = ValueLayout.JAVA_LONG.byteSize();
     public static long MAX_BYTE_SIZE = META_INFO_SIZE + Integer.MAX_VALUE * INDEX_ENTRY_SIZE;
 
     private final MemorySegment indexSegment;
@@ -24,7 +24,7 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
         this.indexSegment = indexSegment;
         this.dataSegment = dataSegment;
 
-        this.valuesOffset = readOffset(ValueLayout.JAVA_LONG.byteSize());
+        this.valuesOffset = readOffset(0);
     }
 
     private long getEntryOffset(final int index) {
@@ -46,20 +46,18 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
         final long valueOffset = readOffset(offset + ValueLayout.JAVA_LONG.byteSize());
         final long nextEntryOffset = getEntryOffset(index + 1);
 
-        long keySize = valuesOffset - keyOffset;
-        if (nextEntryOffset != -1) {
-            keySize = readOffset(nextEntryOffset) - keyOffset;
-        }
+        long keySize = (nextEntryOffset == -1 ? valuesOffset : readOffset(nextEntryOffset)) - keyOffset;
+
         final MemorySegment value;
-        if (valueOffset != -1) {
-            long valueSize = dataSegment.byteSize() - valueOffset;
-            if (nextEntryOffset != -1) {
-                valueSize = readOffset(nextEntryOffset + ValueLayout.JAVA_LONG.byteSize()) - valueOffset;
-            }
+        if (valueOffset > 0) {
+            long valueSize = (nextEntryOffset == -1
+                    ? dataSegment.byteSize()
+                    : Math.abs(readOffset(nextEntryOffset + ValueLayout.JAVA_LONG.byteSize()))) - valueOffset;
             value = dataSegment.asSlice(valueOffset, valueSize);
         } else {
             value = null;
         }
+
         final MemorySegment key = dataSegment.asSlice(keyOffset, keySize);
 
         return new BaseEntry<>(key, value);
@@ -80,16 +78,21 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
             final long fileSize
     ) {
 
-        long valuesOffset = fileSize;
-        for (final long[] entry: offsets) {
-            if (entry[1] != -1) {
-                valuesOffset = entry[1];
-                break;
+        long nextOffset = fileSize;
+        for (int i = offsets.length - 1; i >= 0; i--) {
+            if (offsets[i][1] == -1) {
+                offsets[i][1] = -nextOffset;
+            } else {
+                nextOffset = offsets[i][1];
             }
         }
 
-        writer.set(ValueLayout.JAVA_LONG, 0, META_INFO_SIZE);
-        writer.set(ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG.byteSize(), valuesOffset);
+        writer.set(
+                ValueLayout.JAVA_LONG,
+                0,
+                offsets.length > 0 ? Math.abs(offsets[0][1]) : 0
+        );
+
         long offset = META_INFO_SIZE;
         for (final long[] entry: offsets) {
             writer.set(ValueLayout.JAVA_LONG, offset, entry[0]);

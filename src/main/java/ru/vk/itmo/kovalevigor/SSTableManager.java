@@ -50,12 +50,12 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) throws IOException {
 
-        List<ShiftedIterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
-        for (final SSTable ssTable: ssTables) {
-            iterators.add(new MemEntryShiftedIterator(ssTable.get(from, to)));
+        List<PriorityShiftedIterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
+        for (int i = 0; i < ssTables.size(); i++) {
+            iterators.add(new MemEntryPriorityIterator(i, ssTables.get(i).get(from, to)));
         }
 
-        return new MergeIterator<>(iterators);
+        return new MergeEntryIterator(iterators);
     }
 
     @Override

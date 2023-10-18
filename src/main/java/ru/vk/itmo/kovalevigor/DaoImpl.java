@@ -46,8 +46,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             iterator = getValuesIterator(storage.subMap(from, to));
         }
         try {
-            System.out.println(5);
-            return new MergeIterator<>(List.of(new MemEntryShiftedIterator(iterator), new MemEntryShiftedIterator(ssManager.get(from, to))));
+            return new MergeEntryIterator(List.of(
+                    new MemEntryPriorityIterator(0, iterator),
+                    new MemEntryPriorityIterator(1, ssManager.get(from, to))
+            ));
         } catch (IOException e) {
             return iterator;
         }
