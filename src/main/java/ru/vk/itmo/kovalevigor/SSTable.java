@@ -117,6 +117,7 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
         try (Arena arena = Arena.ofConfined(); FileChannel writerChannel = FileChannel.open(
                 getDataPath(path, name),
                 StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE)
         ) {
@@ -165,6 +166,7 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
         try (Arena arena = Arena.ofConfined(); FileChannel writerChannel = FileChannel.open(
                 getIndexPath(path, name),
                 StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE)
         ) {
