@@ -52,11 +52,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                String fileName = file.getFileName().toString();
-
-                int indexDataExtension = fileName.indexOf("." + DATA_FILE_EXT);
-                if (indexDataExtension >= 0) {
-                    dataFileNumbers.add(Long.parseLong(fileName.substring(0, indexDataExtension)));
+                if (file.getFileName().toString().indexOf("." + DATA_FILE_EXT) >= 0) {
+                    dataFileNumbers.add(Long.parseLong(
+                        file.getFileName().toString().substring(
+                            0, 
+                            file.getFileName().toString().indexOf("." + DATA_FILE_EXT)
+                        )
+                    ));
                 }
 
                 return FileVisitResult.CONTINUE;
