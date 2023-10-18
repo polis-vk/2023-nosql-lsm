@@ -16,12 +16,9 @@ public final class Utils {
             long offsetResult, MemorySegment offsetSegment, MemorySegment dataSegment) {
 
         long keyOffset = offsetSegment.get(ValueLayout.JAVA_LONG, offsetResult);
-
         long offset = offsetResult + Long.BYTES;
-        long keySize = offsetSegment.get(ValueLayout.JAVA_LONG, offset) - keyOffset;
-        MemorySegment keySegment = dataSegment.asSlice(keyOffset, keySize);
-
         long valueOffset = offsetSegment.get(ValueLayout.JAVA_LONG, offset);
+        long keySize = valueOffset - keyOffset;
 
         MemorySegment valueSegment;
         offset += Long.BYTES;
@@ -37,6 +34,8 @@ public final class Utils {
         if (valueSegment.byteSize() == Long.BYTES && valueSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0) == -1) {
             valueSegment = null;
         }
+
+        MemorySegment keySegment = dataSegment.asSlice(keyOffset, keySize);
 
         return new BaseEntry<>(keySegment, valueSegment);
     }
