@@ -8,7 +8,10 @@ import ru.vk.itmo.abramovilya.table.TableEntry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentNavigableMap;
 
 import static ru.vk.itmo.abramovilya.DaoImpl.getKeyFromStorage;
@@ -71,14 +74,14 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
 
         TableEntry minEntry = priorityQueue.remove();
         MemorySegment key = minEntry.getKey();
-        MemorySegment value = minEntry.getValue();
         removeExpiredValues(key);
 
         TableEntry minEntryTableNextEntry = minEntry.table().nextEntry();
-        if (minEntryTableNextEntry != null &&
-                (to == null || DaoImpl.compareMemorySegments(minEntryTableNextEntry.getKey(), to) < 0)) {
+        if (minEntryTableNextEntry != null
+                && (to == null || DaoImpl.compareMemorySegments(minEntryTableNextEntry.getKey(), to) < 0)) {
             priorityQueue.add(minEntryTableNextEntry);
         }
+        MemorySegment value = minEntry.getValue();
         cleanUpSStableQueue();
         return new BaseEntry<>(key, value);
     }
@@ -88,8 +91,8 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
             TableEntry entryWithSameMin = priorityQueue.remove();
 
             TableEntry entryWithSameMinNext = entryWithSameMin.table().nextEntry();
-            if (entryWithSameMinNext != null &&
-                    (to == null || DaoImpl.compareMemorySegments(entryWithSameMinNext.getKey(), to) < 0)) {
+            if (entryWithSameMinNext != null
+                    && (to == null || DaoImpl.compareMemorySegments(entryWithSameMinNext.getKey(), to) < 0)) {
                 priorityQueue.add(entryWithSameMinNext);
             }
         }
@@ -101,8 +104,8 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
             removeExpiredValues(minEntry.getKey());
 
             TableEntry minEntryNext = minEntry.table().nextEntry();
-            if (minEntryNext != null &&
-                    (to == null || DaoImpl.compareMemorySegments(minEntryNext.getKey(), to) < 0)) {
+            if (minEntryNext != null
+                    && (to == null || DaoImpl.compareMemorySegments(minEntryNext.getKey(), to) < 0)) {
                 priorityQueue.add(minEntryNext);
             }
         }
@@ -113,26 +116,24 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
         MemorySegment storageMapped = sstableMappedList.get(i);
         MemorySegment indexMapped = indexMappedList.get(i);
 
-        if (from != null) {
-            int foundIndex = DaoImpl.upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
-            MemorySegment foundMemorySegment = getKeyFromStorage(storageMapped, indexMapped, foundIndex);
-            if (DaoImpl.compareMemorySegments(foundMemorySegment, from) < 0 || (to != null && DaoImpl.compareMemorySegments(foundMemorySegment, to) >= 0)) {
-                return -1;
-            }
-            return (long) foundIndex *  (Integer.BYTES + Long.BYTES) + Integer.BYTES;
-        } else {
-            if (to == null) {
-                return Integer.BYTES;
-            }
-
+        if (from == null && to == null) {
+            return Integer.BYTES;
+        } else if (from == null) {
             long firstKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
             readOffset += Long.BYTES;
             MemorySegment firstKey = storageMapped.asSlice(readOffset, firstKeySize);
-
             if (DaoImpl.compareMemorySegments(firstKey, to) >= 0) {
                 return -1;
             }
             return Integer.BYTES;
+        } else {
+            int foundIndex = DaoImpl.upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
+            MemorySegment foundMemorySegment = getKeyFromStorage(storageMapped, indexMapped, foundIndex);
+            if (DaoImpl.compareMemorySegments(foundMemorySegment, from) < 0
+                    || (to != null && DaoImpl.compareMemorySegments(foundMemorySegment, to) >= 0)) {
+                return -1;
+            }
+            return (long) foundIndex * (Integer.BYTES + Long.BYTES) + Integer.BYTES;
         }
     }
 }

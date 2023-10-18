@@ -16,7 +16,6 @@ public class SSTable implements Table {
         this.mappedIndexFile = mappedIndexFile;
     }
 
-
     @Override
     public SSTableEntry nextEntry() {
         indexFileOffset += Integer.BYTES + Long.BYTES;
