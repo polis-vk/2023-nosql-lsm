@@ -59,7 +59,10 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
 
         @Override
         public MemorySegment value() {
-            return value == null ? (value = getValue(index)) : value;
+            if (value == null) {
+                value = getValue(index);
+            }
+            return value;
         }
 
     }
