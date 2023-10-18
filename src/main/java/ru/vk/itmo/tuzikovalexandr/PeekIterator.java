@@ -5,7 +5,7 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 
-public class PeekIterator  implements Iterator<Entry<MemorySegment>> {
+public class PeekIterator implements Iterator<Entry<MemorySegment>> {
 
     private final long priority;
     private Entry<MemorySegment> currentEntry;

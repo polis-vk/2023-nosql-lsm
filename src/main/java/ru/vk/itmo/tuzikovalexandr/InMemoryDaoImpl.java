@@ -66,7 +66,9 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> all() { return memory.values().iterator(); }
+    public Iterator<Entry<MemorySegment>> all() {
+        return memory.values().iterator();
+    }
 
     @Override
     public void flush() throws IOException {

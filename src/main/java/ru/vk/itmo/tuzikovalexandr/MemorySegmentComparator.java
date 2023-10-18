@@ -3,9 +3,10 @@ package ru.vk.itmo.tuzikovalexandr;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class MemorySegmentComparator {
+public final class MemorySegmentComparator {
 
-    private MemorySegmentComparator() {}
+    private MemorySegmentComparator() {
+    }
 
     public static int compare(MemorySegment o1, MemorySegment o2) {
         long offset = o1.mismatch(o2);

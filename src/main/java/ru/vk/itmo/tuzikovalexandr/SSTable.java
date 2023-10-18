@@ -14,7 +14,11 @@ import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
@@ -38,7 +42,7 @@ public class SSTable {
     public SSTable(Config config) throws IOException {
         this.basePath = config.basePath();
 
-        if(Files.notExists(basePath)) {
+        if (Files.notExists(basePath)) {
             listIndex = null;
             readArena = null;
             files = null;
@@ -57,8 +61,13 @@ public class SSTable {
 
             try (FileChannel fcOffset = FileChannel.open(offsetFullPath, StandardOpenOption.READ);
                  FileChannel fcData = FileChannel.open(fileFullPath, StandardOpenOption.READ)) {
-                MemorySegment readSegmentOffset = fcOffset.map(READ_ONLY, 0, Files.size(offsetFullPath), readArena);
-                MemorySegment readSegmentData = fcData.map(READ_ONLY, 0, Files.size(fileFullPath), readArena);
+
+                MemorySegment readSegmentOffset = fcOffset.map(
+                        READ_ONLY, 0, Files.size(offsetFullPath), readArena
+                );
+                MemorySegment readSegmentData = fcData.map(
+                        READ_ONLY, 0, Files.size(fileFullPath), readArena
+                );
 
                 files.add(new BaseEntry<>(readSegmentOffset, readSegmentData));
             }
@@ -80,7 +89,8 @@ public class SSTable {
             memorySize += entry.key().byteSize();
             if (entry.value() != null) {
                 memorySize += entry.value().byteSize();
-            } else {
+            }
+            if (entry.value() == null) {
                 memorySize += Long.BYTES;
             }
         }
@@ -96,17 +106,17 @@ public class SSTable {
 
             for (Entry<MemorySegment> entry : entries) {
                 MemorySegment key = entry.key();
-                MemorySegment value = entry.value();
-
                 offsets[index] = offsetData;
-                MemorySegment.copy(key, 0, writeSegmentData, offsetData, key.byteSize());
+                MemorySegment.copy(key, 0, writeSegmentData, offsetData, entry.key().byteSize());
                 offsetData += key.byteSize();
 
+                MemorySegment value = entry.value();
                 offsets[index + 1] = offsetData;
                 if (value != null) {
-                    MemorySegment.copy(value, 0, writeSegmentData, offsetData, value.byteSize());
+                    MemorySegment.copy(value, 0, writeSegmentData, offsetData, entry.value().byteSize());
                     offsetData += value.byteSize();
-                } else {
+                }
+                if (value == null) {
                     writeSegmentData.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, -1L);
                     offsetData += Long.BYTES;
                 }
@@ -142,7 +152,7 @@ public class SSTable {
 
     public List<PeekIterator> readDataFromTo(MemorySegment from, MemorySegment to) {
         if (listIndex == null) {
-            return null;
+            return new ArrayList<>();
         }
 
         List<PeekIterator> iterator = new ArrayList<>();
@@ -164,6 +174,7 @@ public class SSTable {
 
         return iterator;
     }
+
     private long binarySearch(MemorySegment key, MemorySegment offsetSegment, MemorySegment dataSegment) {
         long left = 0;
         long right = offsetSegment.byteSize() / Long.BYTES - 1;
@@ -198,7 +209,9 @@ public class SSTable {
         return -left * Long.BYTES * 2;
     }
 
-    public boolean isNullIndexList() { return listIndex == null; }
+    public boolean isNullIndexList() {
+        return listIndex == null;
+    }
 
     public long getIndexListSize() {
         if (isNullIndexList()) {

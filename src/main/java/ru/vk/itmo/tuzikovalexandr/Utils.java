@@ -6,13 +6,17 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class Utils {
-    public static Entry<MemorySegment> getEntryByKeyOffset(long offsetResult, MemorySegment offsetSegment, MemorySegment dataSegment) {
+public final class Utils {
+    private Utils() {
+    }
+
+    public static Entry<MemorySegment> getEntryByKeyOffset(
+            long offsetResult, MemorySegment offsetSegment, MemorySegment dataSegment) {
+
         long keyOffset = offsetSegment.get(ValueLayout.JAVA_LONG, offsetResult);
 
         long offset = offsetResult + Long.BYTES;
         long keySize = offsetSegment.get(ValueLayout.JAVA_LONG, offset) - keyOffset;
-        MemorySegment keySegment = dataSegment.asSlice(keyOffset, keySize);
 
         MemorySegment valueSegment;
 
@@ -31,6 +35,7 @@ public class Utils {
         if (valueSegment.byteSize() == Long.BYTES && valueSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0) == -1) {
             valueSegment = null;
         }
+        MemorySegment keySegment = dataSegment.asSlice(keyOffset, keySize);
 
         return new BaseEntry<>(keySegment, valueSegment);
     }
