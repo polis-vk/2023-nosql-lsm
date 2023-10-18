@@ -10,6 +10,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -155,9 +156,14 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return offset + Long.BYTES;
         }
         mappedSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, msegment.byteSize());
-        offset += Long.BYTES;
         long msize = msegment.byteSize();
-        MemorySegment.copy(msegment, 0, mappedSegment, offset, msize);
-        return offset + msize;
+        MemorySegment.copy(msegment, 0, mappedSegment, offset + Long.BYTES, msize);
+        return offset + Long.BYTES + msize;
     }
+
+//    public static void main(String[] args) {
+//        Path path = Path.of(System.getProperty("user.dir")).resolve("main_build");
+//        Config config = new Config(path);
+//        Dao<String, Entry<String>>
+//    }
 }

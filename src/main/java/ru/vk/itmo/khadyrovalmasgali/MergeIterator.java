@@ -3,10 +3,7 @@ package ru.vk.itmo.khadyrovalmasgali;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
+import java.util.*;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -14,16 +11,16 @@ import static ru.vk.itmo.khadyrovalmasgali.PersistentDao.comparator;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
-    private final ConcurrentSkipListMap<MemorySegment, MergeIteratorEntry> priorityMap;
-    private final ArrayList<Iterator<Entry<MemorySegment>>> iters;
-    private MergeIteratorEntry mentry = null;
+    private final TreeMap<MemorySegment, MergeIteratorEntry> priorityMap;
+    private final List<Iterator<Entry<MemorySegment>>> iters;
+    private MergeIteratorEntry mentry;
 
     public MergeIterator(
             MemorySegment from,
             MemorySegment to,
             ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data,
             List<SSTable> sstables) {
-        priorityMap = new ConcurrentSkipListMap<>(comparator);
+        priorityMap = new TreeMap<>(comparator);
         iters = new ArrayList<>();
         Iterator<Entry<MemorySegment>> inMemoryIt;
         if (from == null && to == null) {
@@ -57,12 +54,11 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     private void updateEntry() {
         mentry = null;
-        while (!priorityMap.isEmpty()) {
+        while (!priorityMap.isEmpty() && mentry == null) {
             MergeIteratorEntry item = priorityMap.pollFirstEntry().getValue();
             updateIter(iters.get(item.index), item.index);
             if (item.entry.value() != null) {
                 mentry = item;
-                break;
             }
         }
     }
@@ -113,7 +109,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private static class InMemoryIteratorWrapper implements Iterator<Entry<MemorySegment>> {
 
         private final Iterator<Entry<MemorySegment>> it;
-        private Entry<MemorySegment> entry = null;
+        private Entry<MemorySegment> entry;
 
         public InMemoryIteratorWrapper(Iterator<Entry<MemorySegment>> it) {
             this.it = it;

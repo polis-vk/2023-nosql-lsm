@@ -102,11 +102,13 @@ public class SSTable implements Comparable<SSTable> {
 
     private class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
-        private long left = 0;
-        private long right = keysCount;
-        private Entry<MemorySegment> entry = null;
+        private long left;
+        private long right;
+        private Entry<MemorySegment> entry;
 
         public SSTableIterator(MemorySegment from, MemorySegment to) {
+            left = 0;
+            right = keysCount;
             if (from != null) {
                 left = findIndex(from);
                 if (left < 0) {
