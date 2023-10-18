@@ -1,8 +1,11 @@
 package ru.vk.itmo.grunskiialexey;
 
+import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
@@ -10,7 +13,8 @@ import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -43,9 +47,30 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         this.filePath = null;
     }
 
-    public MemorySegmentDao(List<Entry<MemorySegment>> listEntries, Path filePath) {
-        listEntries.forEach(entry -> data.put(entry.key(), entry));
-        this.filePath = filePath;
+    public MemorySegmentDao(Config config) throws IOException {
+        this.filePath = Paths.get(config.basePath().toString(), "file");
+        Files.createDirectories(filePath.getParent());
+        if (Files.exists(filePath)) {
+            try (FileInputStream ch = new FileInputStream(filePath.toFile())) {
+                List<Entry<MemorySegment>> list = new ArrayList<>();
+                byte[] array = new byte[4];
+                while (ch.read(array) > 0) {
+                    int lengthKey = ByteBuffer.wrap(array).getInt();
+                    byte[] key = new byte[lengthKey];
+                    ch.read(key);
+                    ch.read(array);
+                    int lengthValue = ByteBuffer.wrap(array).getInt();
+                    byte[] value = new byte[lengthValue];
+                    ch.read(value);
+                    list.add(new BaseEntry<>(
+                            MemorySegment.ofArray(key),
+                            MemorySegment.ofArray(value)
+                    ));
+                }
+
+                list.forEach(entry -> data.put(entry.key(), entry));
+            }
+        }
     }
 
     @Override
