@@ -43,7 +43,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     private final MemorySegment page;
 
     public MemorySegmentDao(Config config) throws IOException {
-        this.filePath = Paths.get(config.basePath().toString(), "file.db");
+        this.filePath = Paths.get(config.basePath().toString(), "maintain-info.db");
         arena = Arena.ofShared();
 
         long size;
@@ -54,7 +54,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             return;
         }
 
-        MemorySegment currentPage = null;
+        MemorySegment currentPage = MemorySegment.NULL;
         try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ)) {
             currentPage = channel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
         } catch (IOException e) {
@@ -112,11 +112,79 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (entry.value() == null) {
-            data.remove(entry.key());
-        } else {
-            data.put(entry.key(), entry);
+        data.put(entry.key(), entry);
+    }
+
+    @Override
+    public void flush() throws IOException {
+        int ssTableIndex = getAndIncrementSsTableCount();
+
+        Path file = Paths.get(ssTableIndex + "-ss-table.db");
+        Path fileMap = Paths.get(ssTableIndex + "-ss-table-map.db");
+        try (
+                FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.READ, StandardOpenOption.WRITE);
+                FileChannel mapChannel = FileChannel.open(fileMap, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.READ, StandardOpenOption.WRITE);
+                Arena arena = Arena.ofConfined()
+        ) {
+            MemorySegment writePage = channel.map(FileChannel.MapMode.READ_WRITE, 0, getFileByteLength(), arena);
+            MemorySegment mapPage = mapChannel.map(FileChannel.MapMode.READ_WRITE, 0, 4L * data.size(), arena);
+
+            long offset = 0;
+            long mapIndex = 0;
+            for (Entry<MemorySegment> entry : data.values()) {
+                mapPage.setAtIndex(ValueLayout.JAVA_INT, mapIndex++, (int) offset);
+                long keyLength = entry.key().byteSize();
+                writePage.set(ValueLayout.JAVA_INT, offset, (int) keyLength);
+                offset += 4;
+                MemorySegment.copy(
+                        entry.key(), ValueLayout.JAVA_BYTE, 0,
+                        writePage, ValueLayout.JAVA_BYTE, offset, keyLength
+                );
+                offset += correctAlignedSize(keyLength);
+
+                if (entry.value() == null) {
+                    writePage.set(ValueLayout.JAVA_INT, offset, -1);
+                    offset += 4;
+                } else {
+                    long valueLength = entry.value().byteSize();
+                    writePage.set(ValueLayout.JAVA_INT, offset, (int) valueLength);
+                    offset += 4;
+                    MemorySegment.copy(
+                            entry.value(), ValueLayout.JAVA_BYTE, 0,
+                            writePage, ValueLayout.JAVA_BYTE, offset, valueLength
+                    );
+                    offset += correctAlignedSize(valueLength);
+                }
+            }
         }
+    }
+
+    private int getAndIncrementSsTableCount() throws IOException {
+        int ssTableIndex;
+        if (!Files.exists(filePath)) {
+            ssTableIndex = 0;
+        } else {
+            try (
+                    FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ);
+                    Arena readArena = Arena.ofConfined()
+            ) {
+                ssTableIndex = channel.map(FileChannel.MapMode.READ_ONLY, 0, 4, readArena).get(ValueLayout.JAVA_INT, 0);
+            }
+        }
+
+        try (
+                FileChannel channel = FileChannel.open(filePath, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE);
+                Arena writeArena = Arena.ofConfined()
+        ) {
+            channel.map(FileChannel.MapMode.READ_WRITE, 0, 4, writeArena).set(ValueLayout.JAVA_INT, 0, ssTableIndex + 1);
+        }
+        return ssTableIndex;
+    }
+
+    private long getFileByteLength() {
+        return data.values().stream().mapToLong(entry -> 2 * 4
+                + correctAlignedSize(entry.key().byteSize())
+                + (entry.value() == null ? 0 : correctAlignedSize(entry.value().byteSize()))).sum();
     }
 
     @Override
@@ -127,41 +195,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
         arena.close();
 
-        try (
-                FileChannel channel = FileChannel.open(
-                        filePath,
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.WRITE
-                );
-                Arena writeArena = Arena.ofConfined()
-        ) {
-            long allSize = data.values().stream().mapToLong(entry ->
-                    correctAlignedSize(entry.key().byteSize()) + correctAlignedSize(entry.value().byteSize()) + 2 * 4
-            ).sum();
-            MemorySegment writePage = channel.map(FileChannel.MapMode.READ_WRITE, 0, allSize, writeArena);
-
-            long offset = 0;
-            for (Entry<MemorySegment> entry : data.values()) {
-                long keyLength = entry.key().byteSize();
-                writePage.set(ValueLayout.JAVA_INT, offset, (int) keyLength);
-                offset += 4;
-                MemorySegment.copy(
-                        entry.key(), ValueLayout.JAVA_BYTE, 0,
-                        writePage, ValueLayout.JAVA_BYTE, offset, keyLength
-                );
-                offset += correctAlignedSize(keyLength);
-
-                long valueLength = entry.value().byteSize();
-                writePage.set(ValueLayout.JAVA_INT, offset, (int) valueLength);
-                offset += 4;
-                MemorySegment.copy(
-                        entry.value(), ValueLayout.JAVA_BYTE, 0,
-                        writePage, ValueLayout.JAVA_BYTE, offset, valueLength
-                );
-                offset += correctAlignedSize(valueLength);
-            }
-        }
+        flush();
     }
 
     private long correctAlignedSize(long offset) {
