@@ -1,4 +1,4 @@
-package ru.vk.itmo.bandurinvladislav;
+package ru.vk.itmo.bandurinvladislav.dao;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
