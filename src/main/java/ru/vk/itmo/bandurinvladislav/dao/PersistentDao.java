@@ -149,12 +149,29 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             MemorySegment mappedIndex = indexes.get(i);
 
             long fromIndexOffset = fromKey == null ? 0 : findEntryIndex(mappedSSTable, mappedIndex, fromKey);
-            long fromSSTableOffset = fromKey == null ? 0 : mappedIndex.get(ValueLayout.JAVA_LONG_UNALIGNED,
+//            long fromSSTableOffset = fromKey == null ? 0 : mappedIndex.get(ValueLayout.JAVA_LONG_UNALIGNED,
+//                    fromIndexOffset + Constants.INDEX_ROW_OFFSET_POSITION);
+            long fromSSTableOffset;
+            if (fromIndexOffset > 0) {
+                fromIndexOffset += Constants.INDEX_ROW_SIZE;
+            }
+            fromSSTableOffset = mappedIndex.get(ValueLayout.JAVA_LONG_UNALIGNED,
                     fromIndexOffset + Constants.INDEX_ROW_OFFSET_POSITION);
 
             long toIndexOffset = toKey == null ? mappedIndex.byteSize() : findEntryIndex(mappedSSTable, mappedIndex, toKey);
-            long toSSTableOffset = toKey == null ? mappedSSTable.byteSize() : mappedIndex.get(ValueLayout.JAVA_LONG_UNALIGNED,
-                    toIndexOffset + Constants.INDEX_ROW_OFFSET_POSITION);
+            long toSSTableOffset;
+            if (toIndexOffset < mappedIndex.byteSize()) {
+                toIndexOffset += Constants.INDEX_ROW_SIZE;
+                if (toIndexOffset < mappedIndex.byteSize()) {
+                    toSSTableOffset = toKey == null ? mappedSSTable.byteSize() : mappedIndex.get(ValueLayout.JAVA_LONG_UNALIGNED,
+                            toIndexOffset + Constants.INDEX_ROW_OFFSET_POSITION);
+                } else {
+                    toSSTableOffset = mappedSSTable.byteSize();
+                }
+            } else {
+                toSSTableOffset = mappedSSTable.byteSize();
+            }
+
 
             iteratorList.add(new FileSegmentIterator(
                     mappedSSTable,
