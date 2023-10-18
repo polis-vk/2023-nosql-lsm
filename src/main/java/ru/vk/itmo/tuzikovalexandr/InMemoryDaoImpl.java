@@ -6,7 +6,6 @@ import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
@@ -35,12 +34,12 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
             memoryIterator = memory.subMap(from, true, to, false).values().iterator();
         }
 
-        List<PeekIterator> iterators = new ArrayList<>();
-        iterators.add(new PeekIterator(memoryIterator, ssTable.getIndexListSize() + 1));
-
-        if (!ssTable.isNullIndexList()) {
-            iterators.addAll(ssTable.readDataFromTo(from, to));
+        if (ssTable.isNullIndexList()) {
+            return memoryIterator;
         }
+
+        List<PeekIterator> iterators = ssTable.readDataFromTo(from, to);
+        iterators.add(new PeekIterator(memoryIterator, ssTable.getIndexListSize() + 1));
 
         return new RangeIterator(iterators);
     }

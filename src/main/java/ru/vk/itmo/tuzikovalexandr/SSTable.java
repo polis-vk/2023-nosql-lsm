@@ -13,7 +13,6 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -37,7 +36,7 @@ public class SSTable {
     private static final String OFFSET_PREFIX = "offset_";
     private final Comparator<MemorySegment> comparator;
     private final List<BaseEntry<MemorySegment>> files;
-    private final List<String> listIndex;
+    private final List<Integer> listIndex;
 
     public SSTable(Config config) throws IOException {
         this.basePath = config.basePath();
@@ -55,7 +54,7 @@ public class SSTable {
         files = new ArrayList<>();
         comparator = MemorySegmentComparator::compare;
 
-        for (String index : listIndex) {
+        for (Integer index : listIndex) {
             Path offsetFullPath = basePath.resolve(OFFSET_PREFIX + index);
             Path fileFullPath = basePath.resolve(FILE_PREFIX + index);
 
@@ -96,14 +95,15 @@ public class SSTable {
         }
         int index = 0;
 
-        long instantNow = Instant.now().toEpochMilli();
+        int fileIndex = getNewFIleIndex();
 
-        try (FileChannel fcData = FileChannel.open(basePath.resolve(FILE_PREFIX + instantNow), openOptions);
-             FileChannel fcOffset = FileChannel.open(basePath.resolve(OFFSET_PREFIX + instantNow), openOptions)) {
+        try (FileChannel fcData = FileChannel.open(basePath.resolve(FILE_PREFIX + fileIndex), openOptions);
+             FileChannel fcOffset = FileChannel.open(basePath.resolve(OFFSET_PREFIX + fileIndex), openOptions);
+             Arena writeArena = Arena.ofConfined()) {
 
-            MemorySegment writeSegmentData = fcData.map(READ_WRITE, 0, memorySize, Arena.ofConfined());
+            MemorySegment writeSegmentData = fcData.map(READ_WRITE, 0, memorySize, writeArena);
             MemorySegment writeSegmentOffset = fcOffset.map(
-                    READ_WRITE, 0, (long) offsets.length * Long.BYTES, Arena.ofConfined()
+                    READ_WRITE, 0, (long) offsets.length * Long.BYTES, writeArena
             );
 
             for (Entry<MemorySegment> entry : entries) {
@@ -222,19 +222,26 @@ public class SSTable {
         return listIndex.size();
     }
 
-    private List<String> getAllIndex() throws IOException {
-        List<String> index = new ArrayList<>();
+    private List<Integer> getAllIndex() throws IOException {
+        List<Integer> index = new ArrayList<>();
 
         try (Stream<Path> fileStream = Files.list(basePath)) {
             fileStream.forEach(path -> {
                 String fileName = path.getFileName().toString();
                 if (fileName.startsWith(FILE_PREFIX)) {
-                    index.add(Utils.getIndexFromString(fileName));
+                    index.add(Utils.getIntIndexFromString(fileName));
                 }
             });
         }
-        index.sort(String::compareTo);
+        index.sort(Integer::compare);
 
         return index;
+    }
+
+    private int getNewFIleIndex() {
+        if (isNullIndexList()) {
+            return 1;
+        }
+        return listIndex.size() + 1;
     }
 }
