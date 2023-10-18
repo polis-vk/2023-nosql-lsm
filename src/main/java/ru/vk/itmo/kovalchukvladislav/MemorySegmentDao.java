@@ -4,34 +4,14 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.util.Comparator;
 
 public class MemorySegmentDao extends AbstractInMemoryDao<MemorySegment, Entry<MemorySegment>> {
-    private static final ValueLayout.OfByte VALUE_LAYOUT = ValueLayout.JAVA_BYTE;
     private static final Serializer MEMORY_SEGMENT_SERIALIZER = new Serializer();
-    private static final Comparator<? super MemorySegment> COMPARATOR = getComparator();
 
-    public MemorySegmentDao(Config config) {
-        super(config, COMPARATOR, MEMORY_SEGMENT_SERIALIZER);
-    }
-
-    private static Comparator<? super MemorySegment> getComparator() {
-        return (Comparator<MemorySegment>) (a, b) -> {
-            long diffIndex = a.mismatch(b);
-            if (diffIndex == -1) {
-                return 0;
-            } else if (diffIndex == a.byteSize()) {
-                return -1;
-            } else if (diffIndex == b.byteSize()) {
-                return 1;
-            }
-
-            byte byteA = a.getAtIndex(VALUE_LAYOUT, diffIndex);
-            byte byteB = b.getAtIndex(VALUE_LAYOUT, diffIndex);
-            return Byte.compare(byteA, byteB);
-        };
+    public MemorySegmentDao(Config config) throws IOException {
+        super(config, MemorySegmentComparator.INSTANCE, MEMORY_SEGMENT_SERIALIZER);
     }
 
     private static class Serializer implements MemorySegmentSerializer<MemorySegment, Entry<MemorySegment>> {
@@ -47,6 +27,9 @@ public class MemorySegmentDao extends AbstractInMemoryDao<MemorySegment, Entry<M
 
         @Override
         public long size(MemorySegment value) {
+            if (value == null) {
+                return 0;
+            }
             return value.byteSize();
         }
 

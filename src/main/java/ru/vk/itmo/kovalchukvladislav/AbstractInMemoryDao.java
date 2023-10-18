@@ -4,10 +4,7 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.File;
 import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -18,14 +15,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.logging.Logger;
 
 /**
  * Saves state (two files) when closed in <code>config.basePath()</code><br> directory.
  *
- * <p>Directory contains two files:
+ * <p>State contains two files:
  * <li>
  * <tt>db</tt> with sorted by key entries
  * </li>
@@ -33,29 +30,68 @@ import java.util.logging.Logger;
  * <tt>offsets</tt> with keys offsets at <tt>db</tt>(in bytes)
  * </li>
  *
- * <p>This allows use binary search after <tt>db</tt> reading (usually file much less)
+ * <p>This allows use binary search after <tt>db</tt> reading
  */
 public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<D, E> {
-    private static final String DB_FILENAME = "db";
-    private static final int SIZE_LENGTH = Long.BYTES;
-    private static final String OFFSETS_FILENAME = "offsets";
     private static final ValueLayout.OfLong LONG_LAYOUT = ValueLayout.JAVA_LONG_UNALIGNED;
+    private static final String DB_FILENAME_PREFIX = "db_";
+    private static final String OFFSETS_FILENAME_PREFIX = "offsets_";
+    private static final String METADATA_FILENAME = "metadata";
+    private static final int SIZE_LENGTH = Long.BYTES;
 
     private final Path basePath;
-    private volatile boolean closed;
-    private volatile MemorySegment storageOffsets;
+    private final Path metadataPath;
+    private final Arena arena = Arena.ofShared();
     private final Comparator<? super D> comparator;
     private final ConcurrentNavigableMap<D, E> dao;
     private final MemorySegmentSerializer<D, E> serializer;
-    private final Logger logger = Logger.getLogger("InMemoryDao");
+
+    private final int storagesCount;
+    private final FileChannel[] dbFileChannels;
+    private final FileChannel[] offsetChannels;
+    private final MemorySegment[] dbMappedSegments;
+    private final MemorySegment[] offsetMappedSegments;
 
     protected AbstractInMemoryDao(Config config,
                                   Comparator<? super D> comparator,
-                                  MemorySegmentSerializer<D, E> serializer) {
+                                  MemorySegmentSerializer<D, E> serializer) throws IOException {
         this.comparator = comparator;
         this.serializer = serializer;
         this.dao = new ConcurrentSkipListMap<>(comparator);
-        this.basePath = config.basePath();
+        this.basePath = Objects.requireNonNull(config.basePath());
+        Files.createDirectories(basePath);
+        this.metadataPath = basePath.resolve(METADATA_FILENAME);
+
+        this.storagesCount = getCountFromMetadataOrCreate();
+        this.dbFileChannels = new FileChannel[storagesCount];
+        this.offsetChannels = new FileChannel[storagesCount];
+        this.dbMappedSegments = new MemorySegment[storagesCount];
+        this.offsetMappedSegments = new MemorySegment[storagesCount];
+
+        for (int i = 0; i < storagesCount; i++) {
+            readFileAndMapToSegment(DB_FILENAME_PREFIX, i, dbFileChannels, dbMappedSegments);
+            readFileAndMapToSegment(OFFSETS_FILENAME_PREFIX, i, offsetChannels, offsetMappedSegments);
+        }
+    }
+
+    private int getCountFromMetadataOrCreate() throws IOException {
+        if (!Files.exists(metadataPath)) {
+            Files.writeString(metadataPath, "0", StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+            return 0;
+        }
+        return Integer.parseInt(Files.readString(metadataPath));
+    }
+
+    private void readFileAndMapToSegment(String filenamePrefix, int index,
+                                         FileChannel[] dstChannel,
+                                         MemorySegment[] dstSegment) throws IOException {
+        Path path = basePath.resolve(filenamePrefix + index);
+
+        FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.READ);
+        MemorySegment mappedSegment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(path), arena);
+
+        dstChannel[index] = fileChannel;
+        dstSegment[index] = mappedSegment;
     }
 
     @Override
@@ -63,7 +99,7 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
         if (from == null && to == null) {
             return all();
         } else if (from == null) {
-            return allToUnsafe(to);
+            return allTo(to);
         } else if (to == null) {
             return allFromUnsafe(from);
         }
@@ -74,20 +110,15 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
     public E get(D key) {
         E e = dao.get(key);
         if (e != null) {
-            return e;
+            return e.value() == null ? null : e;
         }
-        E fromFile = findInStorage(key);
-        if (fromFile == null) {
-            return null;
+        for (int i = storagesCount - 1; i >= 0; i--) {
+            E fromFile = findInStorage(key, i);
+            if (fromFile != null) {
+                return fromFile.value() == null ? null : fromFile;
+            }
         }
-        E previousValue = dao.putIfAbsent(key, fromFile);
-        if (previousValue != null) {
-            // If new value was putted while we were looking for in storage, just return it
-            // Maybe should return previousValue, as value which was stored when method called
-            // But this is concurrency, there are no guarantees
-            return previousValue;
-        }
-        return fromFile;
+        return null;
     }
 
     @Override
@@ -132,15 +163,27 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
 
     @Override
     public synchronized void flush() throws IOException {
-        writeData();
-        this.storageOffsets = null;
+        if (!dao.isEmpty()) {
+            writeData();
+            Files.writeString(metadataPath, String.valueOf(storagesCount + 1));
+        }
     }
 
     @Override
     public synchronized void close() throws IOException {
-        if (!closed) {
-            flush();
-            closed = true;
+        if (arena.scope().isAlive()) {
+            arena.close();
+        }
+        flush();
+        closeChannels(dbFileChannels);
+        closeChannels(offsetChannels);
+    }
+
+    private void closeChannels(FileChannel[] channels) throws IOException {
+        for (FileChannel channel : channels) {
+            if (channel.isOpen()) {
+                channel.close();
+            }
         }
     }
 
@@ -150,6 +193,9 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
 
     private D readValue(MemorySegment memorySegment, long offset) {
         long size = memorySegment.get(LONG_LAYOUT, offset);
+        if (size == 0) {
+            return null;
+        }
         MemorySegment valueSegment = memorySegment.asSlice(offset + SIZE_LENGTH, size);
         return serializer.toValue(valueSegment);
     }
@@ -158,103 +204,53 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
     private long writeValue(D value, MemorySegment memorySegment, long offset) {
         MemorySegment valueSegment = serializer.fromValue(value);
         long size = valueSegment.byteSize();
-
         memorySegment.set(LONG_LAYOUT, offset, size);
-        MemorySegment.copy(valueSegment, 0, memorySegment, offset + SIZE_LENGTH, size);
+        if (size != 0) {
+            MemorySegment.copy(valueSegment, 0, memorySegment, offset + SIZE_LENGTH, size);
+        }
         return offset + SIZE_LENGTH + size;
     }
 
-    //  ===================================
-    //  Reading offsets and data
-    //  ===================================
+    private E findInStorage(D key, int index) {
+        MemorySegment storage = dbMappedSegments[index];
+        MemorySegment offsets = offsetMappedSegments[index];
 
-    /**
-     * Read offsets from file.<br>
-     * If file doesn't exist will be <code>MemorySegment.NULL</code>
-     */
-    private synchronized void readOffsets() {
-        if (storageOffsets != null) {
-            return;
+        long upperBoundOffset = findUpperBoundOffset(key, storage, offsets);
+        if (upperBoundOffset == -1) {
+            return null;
         }
-        File offsetsFile = basePath.resolve(OFFSETS_FILENAME).toFile();
-        if (!offsetsFile.exists()) {
-            logger.warning(() ->
-                    "Previous saved data in path: " + offsetsFile.getPath() + " didn't found."
-                    + "It's ok if this storage launches first time or didn't save data before"
-            );
-            this.storageOffsets = MemorySegment.NULL;
-            return;
+        D upperBoundKey = readValue(storage, upperBoundOffset);
+        if (comparator.compare(upperBoundKey, key) == 0) {
+            D value = readValue(storage, upperBoundOffset + SIZE_LENGTH + serializer.size(upperBoundKey));
+            return serializer.createEntry(upperBoundKey, value);
         }
-
-        try (RandomAccessFile file = new RandomAccessFile(offsetsFile, "r");
-             FileChannel channel = file.getChannel()) {
-
-            this.storageOffsets = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), Arena.ofAuto());
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return null;
     }
 
-    private E findInStorage(D key) {
-        // null means that wasn't read
-        if (storageOffsets == null) {
-            readOffsets();
-        }
-        // MemorySegment.NULL means that file doesn't exist (ex. first launch, no need trying to read again
-        if (storageOffsets == MemorySegment.NULL) {
-            return null;
-        }
+    /**
+     * Returns offset that storage.get(LONG_LAYOUT, offset).key() >= key<br>
+     * -1 otherwise
+     */
+    private long findUpperBoundOffset(D key, MemorySegment storage, MemorySegment offsets) {
+        long entriesCount = offsets.byteSize() / SIZE_LENGTH;
+        long left = -1;
+        long right = entriesCount;
 
-        File databaseFile = basePath.resolve(DB_FILENAME).toFile();
-        if (!databaseFile.exists()) {
-            logger.severe(() ->
-                    "Previous saved data in path: " + databaseFile.getPath()
-                    + " didn't found, + but offsets file exist."
-            );
-            return null;
-        }
+        while (left + 1 < right) {
+            long middle = left + (right - left) / 2;
+            long middleOffset = offsets.getAtIndex(LONG_LAYOUT, middle);
+            D middleKey = readValue(storage, middleOffset);
 
-        try (RandomAccessFile file = new RandomAccessFile(databaseFile, "r");
-             FileChannel channel = file.getChannel()) {
-            Arena arena = Arena.ofAuto();
-            MemorySegment fileSegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
-            
-            // binary search
-            D foundedKey = null;
-            long leftOffsetIndex = -1; // offset of element <= key
-            long rightOffsetIndex = storageOffsets.byteSize() / Long.BYTES; // offset of element > key
-
-            while (leftOffsetIndex + 1 < rightOffsetIndex) {
-                long middleOffsetIndex = leftOffsetIndex + (rightOffsetIndex - leftOffsetIndex) / 2;
-                long middleOffset = storageOffsets.getAtIndex(LONG_LAYOUT, middleOffsetIndex);
-
-                D currentKey = readValue(fileSegment, middleOffset);
-                int compared = comparator.compare(currentKey, key);
-
-                if (compared < 0) {
-                    leftOffsetIndex = middleOffsetIndex;
-                } else if (compared > 0) {
-                    rightOffsetIndex = middleOffsetIndex;
-                } else {
-                    leftOffsetIndex = middleOffsetIndex;
-                    foundedKey = currentKey;
-                    break;
-                }
+            if (comparator.compare(middleKey, key) < 0) {
+                left = middle;
+            } else {
+                right = middle;
             }
-            if (foundedKey == null) {
-                // not found, element at leftOffset < key
-                return null;
-            }
-
-            long valueOffset = storageOffsets.getAtIndex(LONG_LAYOUT, leftOffsetIndex);
-            valueOffset += SIZE_LENGTH;
-            valueOffset += serializer.size(foundedKey);
-            D value = readValue(fileSegment, valueOffset);
-
-            return serializer.createEntry(foundedKey, value);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
         }
+        if (right == entriesCount) {
+            return -1;
+        }
+        return offsets.getAtIndex(LONG_LAYOUT, right);
     }
 
     //  ===================================
@@ -262,11 +258,8 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
     //  ===================================
 
     private void writeData() throws IOException {
-        // Merge data from disk with memory DAO and write updated file
-        addDataFromStorage();
-
-        Path dbPath = basePath.resolve(DB_FILENAME);
-        Path offsetsPath = basePath.resolve(OFFSETS_FILENAME);
+        Path dbPath = basePath.resolve(DB_FILENAME_PREFIX + storagesCount);
+        Path offsetsPath = basePath.resolve(OFFSETS_FILENAME_PREFIX + storagesCount);
 
         OpenOption[] options = new OpenOption[] {
                 StandardOpenOption.READ,
@@ -297,38 +290,6 @@ public abstract class AbstractInMemoryDao<D, E extends Entry<D>> implements Dao<
             offsetsSegment.load();
         }
     }
-
-    private void addDataFromStorage() throws IOException {
-        Path dbPath = basePath.resolve(DB_FILENAME);
-        if (!Files.exists(dbPath)) {
-            return;
-        }
-
-        try (FileChannel db = FileChannel.open(dbPath, StandardOpenOption.READ);
-             Arena arena = Arena.ofConfined()) {
-
-            long dbSize = db.size();
-            MemorySegment dbMemorySegment = db.map(FileChannel.MapMode.READ_ONLY, 0, dbSize, arena);
-
-            long offset = 0;
-            while (offset < dbSize) {
-                D key = readValue(dbMemorySegment, offset);
-                offset += SIZE_LENGTH;
-                offset += serializer.size(key);
-
-                D value = readValue(dbMemorySegment, offset);
-                offset += SIZE_LENGTH;
-                offset += serializer.size(value);
-
-                E entry = serializer.createEntry(key, value);
-                dao.putIfAbsent(key, entry);
-            }
-        }
-    }
-
-    //  ===================================
-    //  Some util methods
-    //  ===================================
 
     private long getDAOBytesSize() {
         long size = 0;
