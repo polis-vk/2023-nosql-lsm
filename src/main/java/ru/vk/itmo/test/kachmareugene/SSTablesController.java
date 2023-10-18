@@ -181,7 +181,7 @@ public class SSTablesController {
                      FileChannel.open(ssTablesDir.resolve(SS_TABLE_COMMON_PREF + formatter.format(time)), options);
              FileChannel indexChannel =
                      FileChannel.open(ssTablesDir.resolve(INDEX_COMMON_PREF + formatter.format(time)), options);
-            Arena saveArena = Arena.ofConfined()) {
+             Arena saveArena = Arena.ofConfined()) {
 
             long ssTableLenght = 0L;
             long indexLength = mp.size() * ONE_LINE_SIZE;
