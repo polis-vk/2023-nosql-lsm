@@ -53,6 +53,11 @@ public class SSTablesController {
     }
 
     private void openFiles(Path dir, String fileNamePref, List<MemorySegment> storage) {
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
         try (Stream<Path> tabels = Files.find(dir, 1,
                 (path, ignore) -> path.getFileName().toString().startsWith(fileNamePref))) {
             final List<Path> list = new ArrayList<>(tabels.toList());

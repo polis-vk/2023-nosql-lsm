@@ -90,40 +90,54 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         return ans;
     }
 
+    private Entry<MemorySegment> moveAndGetOnce() {
+        getHead();
+        var ans = head;
+        head = null;
+        return ans;
+    }
+
     private void changeState() {
-        Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry = getFirstMin();
+        while (true) {
 
-        if (minSStablesEntry == null) {
-            keeper = moveAndGet();
-            return;
-        }
+            Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry = getFirstMin();
 
-        var curHead = getHead();
+            if (minSStablesEntry == null) {
+                keeper = moveAndGet();
+                return;
+            }
 
-        if (curHead == null) {
+            var curHead = getHead();
+
+            if (curHead == null) {
+                mp.remove(minSStablesEntry.getKey());
+                insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
+                keeper = controller.getRow(minSStablesEntry.getValue());
+                return;
+            }
+
+            int res = comp.compare(curHead.key(), minSStablesEntry.getKey());
+
+            if (res < 0) {
+                keeper = moveAndGet();
+                return;
+            }
+
+            if (res > 0) {
+                mp.remove(minSStablesEntry.getKey());
+                insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
+                keeper = controller.getRow(minSStablesEntry.getValue());
+                return;
+            }
+
+            keeper = moveAndGetOnce();
             mp.remove(minSStablesEntry.getKey());
             insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
-            keeper = controller.getRow(minSStablesEntry.getValue());
-            return;
+
+            if (keeper.value() != null) {
+                break;
+            }
         }
-
-        int res = comp.compare(curHead.key(), minSStablesEntry.getKey());
-
-        if (res < 0) {
-            keeper = moveAndGet();
-            return;
-        }
-
-        if (res > 0) {
-            mp.remove(minSStablesEntry.getKey());
-            insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
-            keeper = controller.getRow(minSStablesEntry.getValue());
-            return;
-        }
-
-        mp.remove(minSStablesEntry.getKey());
-        insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
-        keeper = moveAndGet();
     }
 
     private boolean isBetween(MemorySegment who) {
