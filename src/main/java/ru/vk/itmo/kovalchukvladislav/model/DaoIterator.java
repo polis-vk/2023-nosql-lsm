@@ -39,11 +39,11 @@ public class DaoIterator<D, E extends Entry<D>> implements Iterator<E> {
                                                       List<MemorySegment> storageSegments,
                                                       List<MemorySegment> offsetsSegments) {
         int storagesCount = storageSegments.size();
-        final List<StorageIterator> storageIterators = new ArrayList<>(storagesCount);
+        final List<StorageIterator> iterators = new ArrayList<>(storagesCount);
         for (int i = 0; i < storagesCount; i++) {
-            storageIterators.add(new StorageIterator(storageSegments.get(i), offsetsSegments.get(i), from, to));
+            iterators.add(new StorageIterator(storageSegments.get(i), offsetsSegments.get(i), from, to));
         }
-        return storageIterators;
+        return iterators;
     }
 
     @Override
