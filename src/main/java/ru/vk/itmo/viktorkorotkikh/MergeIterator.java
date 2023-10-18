@@ -33,13 +33,6 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
         }
     }
 
-    private boolean isOnTombstone() {
-        if (!hasNext()) {
-            throw new NoSuchElementException();
-        }
-        return lsmPointerIterators.peek().isPointerOnTombstone();
-    }
-
     @Override
     public boolean hasNext() {
         return !lsmPointerIterators.isEmpty();
@@ -70,7 +63,7 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private static final class MergeIteratorWithTombstoneFilter implements Iterator<Entry<MemorySegment>> {
 
         private final MergeIterator mergeIterator;
-        private boolean haveNext;
+        private Entry<MemorySegment> current;
 
         private MergeIteratorWithTombstoneFilter(MergeIterator mergeIterator) {
             this.mergeIterator = mergeIterator;
@@ -78,17 +71,16 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
         @Override
         public boolean hasNext() {
-            if (haveNext) {
+            if (current != null) {
                 return true;
             }
 
             while (mergeIterator.hasNext()) {
-                if (mergeIterator.isOnTombstone()) {
-                    mergeIterator.next();
-                    continue;
+                Entry<MemorySegment> entry = mergeIterator.next();
+                if (entry.value() != null) {
+                    this.current = entry;
+                    return true;
                 }
-                haveNext = true;
-                return true;
             }
 
             return false;
@@ -99,8 +91,8 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
-            Entry<MemorySegment> next = mergeIterator.next();
-            haveNext = false;
+            Entry<MemorySegment> next = current;
+            current = null;
             return next;
         }
     }
