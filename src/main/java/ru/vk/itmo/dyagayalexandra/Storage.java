@@ -5,8 +5,8 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.BufferedInputStream;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -19,19 +19,27 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class Storage implements Dao<MemorySegment, Entry<MemorySegment>>  {
 
     protected final NavigableMap<MemorySegment, Entry<MemorySegment>> storage;
-
     private final Path path;
+    private FileInputStream fis;
+    private BufferedInputStream reader;
 
-    public InMemoryDao() {
-        this(null);
+    public Storage() {
+        storage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+        path = null;
     }
 
-    public InMemoryDao(Config config) {
+    public Storage(Config config) {
         storage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
         path = config.basePath().resolve("storage.txt");
+        try {
+            fis = new FileInputStream(String.valueOf(path));
+            reader = new BufferedInputStream(fis);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Failed to open the file.");
+        }
     }
 
     @Override
@@ -79,28 +87,34 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 writer.write(entry.value().toArray(ValueLayout.JAVA_BYTE));
             }
         }
+
+        fis.close();
+        reader.close();
     }
 
     private Entry<MemorySegment> getEntry(MemorySegment key) throws IOException {
-        if (storage.containsKey(key)) {
-            return storage.get(key);
+        Entry<MemorySegment> entry = storage.get(key);
+        if (entry != null) {
+            return entry;
         }
 
-        MemorySegmentComparator comparator = new MemorySegmentComparator();
-
-        try (FileInputStream fis = new FileInputStream(String.valueOf(path));
-             BufferedInputStream reader = new BufferedInputStream(fis)) {
-
-            while (reader.available() != 0) {
-                int keyLength = reader.read();
-                byte[] keyBytes = reader.readNBytes(keyLength);
-                int valueLength = reader.read();
-                byte[] valueBytes = reader.readNBytes(valueLength);
-
-                if (comparator.compare(MemorySegment.ofArray(keyBytes), key) == 0) {
-                    return new BaseEntry<>(key, MemorySegment.ofArray(valueBytes));
-                }
+        while (reader.available() != 0) {
+            int keyLength = reader.read();
+            if (keyLength != key.byteSize()) {
+                reader.skipNBytes(keyLength);
+                reader.skipNBytes(reader.read());
+                continue;
             }
+
+            byte[] keyBytes = reader.readNBytes(keyLength);
+            if (!key.equals(MemorySegment.ofArray(keyBytes))) {
+                reader.skipNBytes(reader.read());
+                continue;
+            }
+
+            int valueLength = reader.read();
+            byte[] valueBytes = reader.readNBytes(valueLength);
+            return new BaseEntry<>(key, MemorySegment.ofArray(valueBytes));
         }
 
         return null;
