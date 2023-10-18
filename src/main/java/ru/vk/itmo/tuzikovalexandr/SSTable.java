@@ -57,8 +57,8 @@ public class SSTable {
 
             try (FileChannel fcOffset = FileChannel.open(offsetFullPath, StandardOpenOption.READ);
                  FileChannel fcData = FileChannel.open(fileFullPath, StandardOpenOption.READ)) {
-                MemorySegment readSegmentData = fcData.map(READ_ONLY, 0, Files.size(offsetFullPath), readArena);
-                MemorySegment readSegmentOffset = fcOffset.map(READ_ONLY, 0, Files.size(fileFullPath), readArena);
+                MemorySegment readSegmentOffset = fcOffset.map(READ_ONLY, 0, Files.size(offsetFullPath), readArena);
+                MemorySegment readSegmentData = fcData.map(READ_ONLY, 0, Files.size(fileFullPath), readArena);
 
                 files.add(new BaseEntry<>(readSegmentOffset, readSegmentData));
             }
