@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.stream.Stream;
+import java.util.Collections;
 
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.READ;
@@ -54,7 +55,9 @@ public class SSTablesController {
     private void openFiles(Path dir, String fileNamePref, List<MemorySegment> storage) {
         try (Stream<Path> tabels = Files.find(dir, 1,
                 (path, ignore) -> path.getFileName().toString().startsWith(fileNamePref))) {
-            tabels.forEach(t -> {
+            final List<Path> list = new ArrayList<>(tabels.toList());
+            Collections.sort(list);
+            list.forEach(t -> {
                 try (FileChannel channel = FileChannel.open(t, READ)) {
                     storage.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arenaForReading));
                 } catch (IOException e) {
@@ -171,7 +174,7 @@ public class SSTablesController {
 
     public void dumpMemTableToSStable(SortedMap<MemorySegment, Entry<MemorySegment>> mp) throws IOException {
 
-        if (ssTablesDir == null) {
+        if (ssTablesDir == null || mp.isEmpty()) {
             arenaForReading.close();
             return;
         }

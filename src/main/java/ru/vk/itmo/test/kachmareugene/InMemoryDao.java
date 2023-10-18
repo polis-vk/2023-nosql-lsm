@@ -53,6 +53,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return mp.get(key);
         }
         var res = controller.getRow(controller.searchInSStables(key));
+        if (res == null) {
+            return null;
+        }
         return res.value() == null ? null : res;
     }
 
