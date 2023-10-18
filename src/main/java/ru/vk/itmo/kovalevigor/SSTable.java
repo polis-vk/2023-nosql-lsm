@@ -86,7 +86,7 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) throws IOException {
         final int pos = binarySearch(key);
-        return pos >= 0 ? indexList.get(pos) : null;
+        return pos >= 0 ? indexList.get(pos).fullRead() : null;
     }
 
     @Override

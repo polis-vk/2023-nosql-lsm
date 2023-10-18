@@ -6,6 +6,8 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.AbstractList;
+import java.util.ListIterator;
+import java.util.NoSuchElementException;
 import java.util.RandomAccess;
 import java.util.SortedMap;
 
@@ -42,15 +44,95 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
         return indexSegment.get(ValueLayout.JAVA_LONG, offset);
     }
 
-    @Override
-    public Entry<MemorySegment> get(final int index) {
-        final long offset = getEntryOffset(index);
+    public class LazyEntry implements Entry<MemorySegment> {
 
-        final long keyOffset = readOffset(offset);
+        private final MemorySegment key;
+        private final int index;
+
+        private LazyEntry(MemorySegment key, int index) {
+            this.key = key;
+            this.index = index;
+        }
+
+        @Override
+        public MemorySegment key() {
+            return key;
+        }
+
+        @Override
+        public MemorySegment value() {
+            return null;
+        }
+
+        public Entry<MemorySegment> fullRead() {
+            return new BaseEntry<>(key, getValue(index));
+        }
+    }
+
+    private class IndexIterator implements ListIterator<Entry<MemorySegment>> {
+
+        private int cursor;
+
+        public IndexIterator(final int cursor) {
+            this.cursor = cursor;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return cursor < size();
+        }
+
+        @Override
+        public Entry<MemorySegment> next() {
+            if (cursor >= size()) {
+                throw new NoSuchElementException();
+            }
+            return get(cursor++).fullRead();
+        }
+
+        @Override
+        public boolean hasPrevious() {
+            return cursor > 0;
+        }
+
+        @Override
+        public Entry<MemorySegment> previous() {
+            if (cursor <= 0) {
+                throw new NoSuchElementException();
+            }
+            return get(--cursor).fullRead();
+        }
+
+        @Override
+        public int nextIndex() {
+            return cursor;
+        }
+
+        @Override
+        public int previousIndex() {
+            return cursor - 1;
+        }
+
+        @Override
+        public void remove() {
+            throw new UnsupportedOperationException("remove");
+        }
+
+        @Override
+        public void set(final Entry<MemorySegment> memorySegmentEntry) {
+            throw new UnsupportedOperationException("set");
+        }
+
+        @Override
+        public void add(final Entry<MemorySegment> memorySegmentEntry) {
+            throw new UnsupportedOperationException("add");
+        }
+    }
+
+    private MemorySegment getValue(final int index) {
+        final long offset = getEntryOffset(index);
         final long valueOffset = readOffset(offset + ValueLayout.JAVA_LONG.byteSize());
         final long nextEntryOffset = getEntryOffset(index + 1);
-
-        long keySize = (nextEntryOffset == -1 ? valuesOffset : readOffset(nextEntryOffset)) - keyOffset;
 
         final MemorySegment value;
         if (valueOffset > 0) {
@@ -61,10 +143,20 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
         } else {
             value = null;
         }
+        return value;
+    }
+
+    @Override
+    public LazyEntry get(final int index) {
+        final long offset = getEntryOffset(index);
+
+        final long keyOffset = readOffset(offset);
+        final long nextEntryOffset = getEntryOffset(index + 1);
+
+        long keySize = (nextEntryOffset == -1 ? valuesOffset : readOffset(nextEntryOffset)) - keyOffset;
 
         final MemorySegment key = dataSegment.asSlice(keyOffset, keySize);
-
-        return new BaseEntry<>(key, value);
+        return new LazyEntry(key, index);
     }
 
     @Override
@@ -103,4 +195,8 @@ public class IndexList extends AbstractList<Entry<MemorySegment>> implements Ran
         }
     }
 
+    @Override
+    public ListIterator<Entry<MemorySegment>> listIterator(final int index) {
+        return new IndexIterator(index);
+    }
 }
