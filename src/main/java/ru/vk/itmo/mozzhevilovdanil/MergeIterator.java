@@ -24,7 +24,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private static Entry<MemorySegment> peekNextIfNull(
-            java.util.Iterator<Entry<MemorySegment>> iterator,
+            Iterator<Entry<MemorySegment>> iterator,
             Entry<MemorySegment> peekEntry
     ) {
         if (peekEntry == null && iterator.hasNext()) {

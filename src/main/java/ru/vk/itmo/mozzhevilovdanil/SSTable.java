@@ -55,6 +55,22 @@ public class SSTable {
         readIndex = indexCurrent;
     }
 
+    private MemorySegment getMemorySegment(long size, Path path) throws IOException {
+        boolean created = false;
+        MemorySegment pageCurrent;
+        try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.READ)) {
+            pageCurrent = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
+            created = true;
+        } catch (FileNotFoundException e) {
+            pageCurrent = null;
+        } finally {
+            if (!created) {
+                arena.close();
+            }
+        }
+        return pageCurrent;
+    }
+
     public Entry<MemorySegment> get(MemorySegment key) {
         if (readPage == null) {
             return null;
@@ -70,22 +86,6 @@ public class SSTable {
             return null;
         }
         return entryAtOffset(offset);
-    }
-
-    private MemorySegment getMemorySegment(long size, Path path) throws IOException {
-        boolean created = false;
-        MemorySegment pageCurrent;
-        try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.READ)) {
-            pageCurrent = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
-            created = true;
-        } catch (FileNotFoundException e) {
-            pageCurrent = null;
-        } finally {
-            if (!created) {
-                arena.close();
-            }
-        }
-        return pageCurrent;
     }
 
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {

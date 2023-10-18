@@ -4,7 +4,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
-public class DatabaseUtils {
+public final class DatabaseUtils {
     public static final Comparator<MemorySegment> comparator = DatabaseUtils::compare;
 
     private DatabaseUtils() {
@@ -29,15 +29,15 @@ public class DatabaseUtils {
         return left * Long.BYTES;
     }
 
-    public static long compareInPlace(MemorySegment readPage, long offsetOfCompareValue, MemorySegment key) {
-
-        long keySize = readPage.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetOfCompareValue);
-        offsetOfCompareValue += 2 * Long.BYTES;
+    public static long compareInPlace(MemorySegment readPage, long offset, MemorySegment key) {
+        long localOffset = offset;
+        long keySize = readPage.get(ValueLayout.JAVA_LONG_UNALIGNED, localOffset);
+        localOffset += 2 * Long.BYTES;
 
         long mismatch = MemorySegment.mismatch(
                 readPage,
-                offsetOfCompareValue,
-                offsetOfCompareValue + key.byteSize(),
+                localOffset,
+                localOffset + key.byteSize(),
                 key,
                 0,
                 key.byteSize()
@@ -55,7 +55,7 @@ public class DatabaseUtils {
             return 1;
         }
 
-        byte b1 = readPage.get(ValueLayout.JAVA_BYTE, offsetOfCompareValue + mismatch);
+        byte b1 = readPage.get(ValueLayout.JAVA_BYTE, localOffset + mismatch);
         byte b2 = key.get(ValueLayout.JAVA_BYTE, mismatch);
         return Byte.compare(b1, b2);
     }
