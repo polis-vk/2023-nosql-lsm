@@ -43,7 +43,7 @@ public class SaveMapIterator implements SavingIterator {
         }
         final Entry<MemorySegment> res = currEntry;
         currEntry = iterator.hasNext() ? iterator.next() : null;
-        return currEntry;
+        return res;
     }
 
     @Override
