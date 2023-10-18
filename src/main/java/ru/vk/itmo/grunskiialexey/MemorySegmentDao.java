@@ -37,15 +37,10 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         byte byte2 = o2.get(ValueLayout.JAVA_BYTE, firstMismatch);
         return Byte.compare(byte1, byte2);
     };
-
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> data =
             new ConcurrentSkipListMap<>(comparator);
 
     private final Path filePath;
-
-    public MemorySegmentDao() {
-        this.filePath = null;
-    }
 
     public MemorySegmentDao(Config config) throws IOException {
         this.filePath = Paths.get(config.basePath().toString(), "file");
