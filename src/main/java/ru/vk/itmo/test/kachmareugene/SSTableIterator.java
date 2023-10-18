@@ -1,6 +1,5 @@
 package ru.vk.itmo.test.kachmareugene;
 
-
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
@@ -83,7 +82,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private Entry<MemorySegment> moveAndGet() {
-        var ans = head;
+        Entry<MemorySegment> ans;
         do {
             getHead();
             ans = head;

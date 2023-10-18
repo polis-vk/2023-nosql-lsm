@@ -2,7 +2,6 @@ package ru.vk.itmo.test.kachmareugene;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -26,11 +25,8 @@ import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 public class SSTablesController {
-
     private final Path ssTablesDir;
-
-    private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss.SSSSS");
-
+    private final static DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss.SSSSS");
     private final List<MemorySegment> ssTables = new ArrayList<>();
     private final List<MemorySegment> ssTablesIndexes = new ArrayList<>();
     private static final String SS_TABLE_COMMON_PREF = "ssTable";
@@ -44,7 +40,6 @@ public class SSTablesController {
     public SSTablesController(Path dir, Comparator<MemorySegment> com) {
         this.ssTablesDir = dir;
         this.segComp = com;
-
 
         openFiles(dir, SS_TABLE_COMMON_PREF, ssTables);
         openFiles(dir, INDEX_COMMON_PREF, ssTablesIndexes);
@@ -62,7 +57,7 @@ public class SSTablesController {
                 try (FileChannel channel = FileChannel.open(t, READ)) {
                     storage.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arenaForReading));
                 } catch (IOException ignore) {
-                    ;
+                    System.err.println();;
                 }
             });
         } catch (IOException ignore) {
@@ -121,11 +116,9 @@ public class SSTablesController {
     public SSTableRowInfo searchInSStables(MemorySegment key) {
         for (int i = ssTablesIndexes.size() - 1; i >= 0; i--) {
             long ind = searchKeyInFile(ssTablesIndexes.get(i), ssTables.get(i), key);
-            if (ind < 0) {
-                continue;
+            if (ind >= 0) {
+                return createRowInfo(i, ind);
             }
-
-            return createRowInfo(i, ind);
         }
         return null;
     }
