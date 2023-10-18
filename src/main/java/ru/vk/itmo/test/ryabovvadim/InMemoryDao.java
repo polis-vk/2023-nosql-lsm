@@ -34,40 +34,37 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Config config;
     private final List<SSTable> ssTables = new ArrayList<>();
 
-    public InMemoryDao() {
+    public InMemoryDao() throws IOException {
         this(null);
     }
 
-    public InMemoryDao(Config config) {
+    public InMemoryDao(Config config) throws IOException {
         this.config = config;
         if (!existsPath()) {
             return;
         }
 
-        try {
-            if (Files.notExists(config.basePath())) {
-                Files.createDirectory(config.basePath());
-            }
-            NavigableSet<Long> dataFileNumbers = new TreeSet<>(Comparator.reverseOrder());
-            Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    String fileName = file.getFileName().toString();
+        if (Files.notExists(config.basePath())) {
+            Files.createDirectory(config.basePath());
+        }
 
-                    int indexDataExtension = fileName.indexOf("." + DATA_FILE_EXT);
-                    if (indexDataExtension >= 0) {
-                        dataFileNumbers.add(Long.parseLong(fileName.substring(0, indexDataExtension)));
-                    }
+        NavigableSet<Long> dataFileNumbers = new TreeSet<>(Comparator.reverseOrder());
+        Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                String fileName = file.getFileName().toString();
 
-                    return FileVisitResult.CONTINUE;
+                int indexDataExtension = fileName.indexOf("." + DATA_FILE_EXT);
+                if (indexDataExtension >= 0) {
+                    dataFileNumbers.add(Long.parseLong(fileName.substring(0, indexDataExtension)));
                 }
-            });
 
-            for (long number : dataFileNumbers) {
-                ssTables.add(new SSTable(config.basePath(), Long.toString(number), arena));
+                return FileVisitResult.CONTINUE;
             }
-        } catch (IOException ex) {
-            throw new RuntimeException(ex);
+        });
+
+        for (long number : dataFileNumbers) {
+            ssTables.add(new SSTable(config.basePath(), Long.toString(number), arena));
         }
     }
 

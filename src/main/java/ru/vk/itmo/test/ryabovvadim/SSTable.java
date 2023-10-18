@@ -114,49 +114,51 @@ public class SSTable {
     }
 
     private MemorySegment readKey(long offset) {
-        ++offset;
-        byte sizeInfo = data.get(ValueLayout.JAVA_BYTE, offset);
-        ++offset;
+        long curOffset = offset;
+        ++curOffset;
+        byte sizeInfo = data.get(ValueLayout.JAVA_BYTE, curOffset);
+        ++curOffset;
         int keySizeSize = sizeInfo >> 4;
         int valueSizeSize = sizeInfo & 0xf;
 
         byte[] keySizeInBytes = new byte[keySizeSize];
         for (int i = 0; i < keySizeSize; ++i) {
-            keySizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, offset);
-            offset += 1;
+            keySizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, curOffset);
+            curOffset += 1;
         }
         long keySize = NumberUtils.fromBytes(keySizeInBytes);
-        offset += valueSizeSize;
+        curOffset += valueSizeSize;
 
-        return data.asSlice(offset, keySize);
+        return data.asSlice(curOffset, keySize);
     }
 
     private MemorySegment readValue(long offset) {
-        byte meta = data.get(ValueLayout.JAVA_BYTE, offset);
+        long curOffset = offset;
+        byte meta = data.get(ValueLayout.JAVA_BYTE, curOffset);
         if ((meta & SSTableMeta.REMOVE_VALUE) == SSTableMeta.REMOVE_VALUE) {
             return null;            
         }
 
-        offset += 1;
-        byte sizeInfo = data.get(ValueLayout.JAVA_BYTE, offset);
-        offset += 1;
+        curOffset += 1;
+        byte sizeInfo = data.get(ValueLayout.JAVA_BYTE, curOffset);
+        curOffset += 1;
         int keySizeSize = sizeInfo >> 4;
         int valueSizeSize = sizeInfo & 0xf;
 
         byte[] keySizeInBytes = new byte[keySizeSize];
         byte[] valueSizeInBytes = new byte[valueSizeSize];
         for (int i = 0; i < keySizeSize; ++i) {
-            keySizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, offset);
-            offset += 1;
+            keySizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, curOffset);
+            curOffset += 1;
         }
         for (int i = 0; i < valueSizeSize; ++i) {
-            valueSizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, offset);
-            offset += 1;
+            valueSizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, curOffset);
+            curOffset += 1;
         }
         long keySize = NumberUtils.fromBytes(keySizeInBytes);
         long valueSize = NumberUtils.fromBytes(valueSizeInBytes);
 
-        return data.asSlice(offset + keySize, valueSize);
+        return data.asSlice(curOffset + keySize, valueSize);
     }
 
     public static void save(

@@ -10,7 +10,7 @@ import java.util.Comparator;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
-public class FileUtils {
+public final class FileUtils {
     public static final String DATA_FILE_EXT = "data";
     public static final String OFFSETS_FILE_EXT = "offsets";
 
@@ -56,5 +56,6 @@ public class FileUtils {
         }
     }
     
-    private FileUtils() {}
+    private FileUtils() {
+    }
 }

@@ -7,7 +7,10 @@ import java.util.NoSuchElementException;
 public class SingleValueGatheringIterator<T> implements FutureIterator<T> {
     private final FutureIterator<T> delegate;
 
-    public SingleValueGatheringIterator(Collection<FutureIterator<T>> iterators, Comparator<? super T> comparator) {
+    public SingleValueGatheringIterator(
+        Collection<FutureIterator<T>> iterators,
+        Comparator<? super T> comparator
+    ) {
         this.delegate = new LazyIterator<>(
             () -> {
                 FutureIterator<T> minIterator = null;
@@ -15,10 +18,10 @@ public class SingleValueGatheringIterator<T> implements FutureIterator<T> {
                     if (!iterator.hasNext()) {
                         continue;
                     }
-                    
-                    if (minIterator == null) {
-                        minIterator = iterator;
-                    } else if (comparator.compare(minIterator.showNext(), iterator.showNext()) > 0) {
+
+                    if (minIterator == null || 
+                        comparator.compare(minIterator.showNext(), iterator.showNext()) > 0
+                    ) {
                         minIterator = iterator;
                     }
                 }
@@ -26,6 +29,7 @@ public class SingleValueGatheringIterator<T> implements FutureIterator<T> {
                 if (minIterator == null) {
                     throw new NoSuchElementException();
                 }
+
                 for (var iterator : iterators) {
                     if (!iterator.hasNext() || iterator == minIterator) {
                         continue;

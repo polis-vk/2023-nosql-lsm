@@ -3,7 +3,7 @@ package ru.vk.itmo.test.ryabovvadim;
 import java.util.ArrayList;
 import java.util.List;
 
-public class NumberUtils {
+public final class NumberUtils {
 
     public static long fromBytes(byte[] bytes) {
         if (bytes.length > 8) {
@@ -34,5 +34,6 @@ public class NumberUtils {
         return result;
     }
     
-    private NumberUtils() {}
+    private NumberUtils() {
+    }
 }

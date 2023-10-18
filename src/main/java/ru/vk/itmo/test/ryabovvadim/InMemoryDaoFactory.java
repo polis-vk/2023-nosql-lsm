@@ -35,7 +35,7 @@ public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Ent
     }
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao() throws IOException {
         return new InMemoryDao();
     }
 
