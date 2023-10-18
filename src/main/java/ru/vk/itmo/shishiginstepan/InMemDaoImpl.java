@@ -16,7 +16,9 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private static final MemorySegment deletionMark = MemorySegment.ofArray("52958832".getBytes(StandardCharsets.UTF_8));
+    private static final MemorySegment deletionMark = MemorySegment.ofArray(
+            "52958832".getBytes(StandardCharsets.UTF_8)
+    );
     private static final Comparator<MemorySegment> keyComparator = (o1, o2) -> {
         var mismatch = o1.mismatch(o2);
         if (mismatch == -1) {
@@ -98,7 +100,6 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             this.memStorage.put(entry.key(), entry);
         }
     }
-
 
     @Override
     public void close() {

@@ -60,11 +60,12 @@ public class BinarySearchSSTable {
         }
     }
 
-    public static Path WriteSSTable(Collection<Entry<MemorySegment>> entries, Path path, int id) {
+    public static Path writeSSTable(Collection<Entry<MemorySegment>> entries, Path path, int id) {
         Arena arena = Arena.ofConfined();
         Path sstPath = Path.of(path.toAbsolutePath() + "/sstable_" + id);
         Path sstIndexPath = Path.of(path.toAbsolutePath() + "/sstable_" + id + "_index");
-        MemorySegment tableSegment, indexSegment;
+        MemorySegment tableSegment;
+        MemorySegment indexSegment;
         long dataSize = 0;
         long indexSize = 0;
         for (var entry : entries) {
@@ -122,7 +123,8 @@ public class BinarySearchSSTable {
     }
 
     private long searchEntryPosition(MemorySegment key, boolean exact) {
-        long l = 0, r = this.indexSize / 16 - 1;
+        long l = 0;
+        long r = this.indexSize / 16 - 1;
         long m;
         while (l <= r) {
             m = l + (r - l) / 2;
@@ -190,49 +192,6 @@ public class BinarySearchSSTable {
                 this.tableSegment,
                 startIndex,
                 endIndex
-        );
-    }
-}
-
-class BinarySearchSSTableIterator implements Iterator<Entry<MemorySegment>> {
-    private final long endEntryIndex;
-    private long currentEntryIndex;
-
-    private final MemorySegment indexSegment;
-    private final MemorySegment tableSegment;
-
-    public BinarySearchSSTableIterator(
-            MemorySegment indexSegment,
-            MemorySegment tableSegment,
-            long startEntryIndex,
-            long endEntryIndex
-    ) {
-        this.currentEntryIndex = startEntryIndex;
-        this.endEntryIndex = endEntryIndex;
-        this.indexSegment = indexSegment;
-        this.tableSegment = tableSegment;
-    }
-
-    @Override
-    public boolean hasNext() {
-        return this.currentEntryIndex != this.endEntryIndex;
-    }
-
-
-    @Override
-    public Entry<MemorySegment> next() {
-        var keyOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * Long.BYTES * 2);
-        var valOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * Long.BYTES * 2 + Long.BYTES);//TODO заменить по коменту из ПР
-        long nextOffset;
-        if (this.currentEntryIndex * Long.BYTES * 2 + Long.BYTES * 2 >= this.indexSegment.byteSize()) {
-            nextOffset = this.tableSegment.byteSize();
-        } else {
-            nextOffset = this.indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, this.currentEntryIndex * Long.BYTES * 2 + Long.BYTES * 2);
-        }
-        this.currentEntryIndex++;
-        return new BaseEntry<>(
-                this.tableSegment.asSlice(keyOffset, valOffset - keyOffset),
-                this.tableSegment.asSlice(valOffset, nextOffset - valOffset)
         );
     }
 }

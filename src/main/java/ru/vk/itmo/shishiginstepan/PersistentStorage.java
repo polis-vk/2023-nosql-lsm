@@ -43,7 +43,7 @@ public class PersistentStorage {
 
     public void store(Collection<Entry<MemorySegment>> data) {
         int nextSStableID = this.sstables.isEmpty() ? 0 : this.sstables.first().id + 1;
-        Path newSSTPath = BinarySearchSSTable.WriteSSTable(data, basePath, nextSStableID);
+        Path newSSTPath = BinarySearchSSTable.writeSSTable(data, basePath, nextSStableID);
         var sstable = new BinarySearchSSTable(newSSTPath, this.arena);
         this.sstables.add(sstable);
     }
