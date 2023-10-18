@@ -11,7 +11,6 @@ import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 import static ru.vk.itmo.mozzhevilovdanil.DatabaseUtils.comparator;
-import static ru.vk.itmo.mozzhevilovdanil.DatabaseUtils.mergeIterator;
 
 public class MozzhevilovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -24,7 +23,10 @@ public class MozzhevilovDao implements Dao<MemorySegment, Entry<MemorySegment>> 
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return mergeIterator(getMap(from, to), ssTable.get(from, to));
+        return new MergeIterator(
+                getMap(from, to),
+                ssTable.get(from, to)
+        );
     }
 
     private Iterator<Entry<MemorySegment>> getMap(MemorySegment from, MemorySegment to) {

@@ -7,7 +7,7 @@ import java.util.Iterator;
 
 import static ru.vk.itmo.mozzhevilovdanil.DatabaseUtils.comparator;
 
-public class  MergeIterator implements Iterator<Entry<MemorySegment>> {
+public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     Entry<MemorySegment> peekStorageEntry;
     Entry<MemorySegment> peekSSTableEntry;

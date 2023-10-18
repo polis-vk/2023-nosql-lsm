@@ -1,23 +1,13 @@
 package ru.vk.itmo.mozzhevilovdanil;
 
-import ru.vk.itmo.Entry;
-
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
-import java.util.Iterator;
 
 public class DatabaseUtils {
     public static final Comparator<MemorySegment> comparator = DatabaseUtils::compare;
 
     private DatabaseUtils() {
-    }
-
-    static public Iterator<Entry<MemorySegment>> mergeIterator(
-            Iterator<Entry<MemorySegment>> storageIterator,
-            Iterator<Entry<MemorySegment>> sstableIterator
-    ) {
-        return new MergeIterator(storageIterator, sstableIterator);
     }
 
     static long binSearch(MemorySegment index, MemorySegment readPage, MemorySegment key) {

@@ -126,7 +126,7 @@ public class SSTable {
     }
 
     void store(SortedMap<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
-        Iterator<Entry<MemorySegment>> mergeIterator = DatabaseUtils.mergeIterator(
+        Iterator<Entry<MemorySegment>> mergeIterator = new MergeIterator(
                 storage.values().iterator(),
                 get(null, null)
         );
@@ -146,7 +146,7 @@ public class SSTable {
             indexSize += Long.BYTES;
         }
 
-        mergeIterator = DatabaseUtils.mergeIterator(
+        mergeIterator = new MergeIterator(
                 storage.values().iterator(),
                 get(null, null)
         );
