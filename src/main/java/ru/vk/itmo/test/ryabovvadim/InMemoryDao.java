@@ -50,6 +50,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         try {
+            if (Files.notExists(config.basePath())) {
+                Files.createDirectory(config.basePath());
+            }
             NavigableSet<Long> dataFileNumbers = new TreeSet<>(Comparator.reverseOrder());
             Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
                 @Override
