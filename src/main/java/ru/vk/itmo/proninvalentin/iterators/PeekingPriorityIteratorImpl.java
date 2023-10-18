@@ -41,10 +41,9 @@ public class PeekingPriorityIteratorImpl implements PeekingPriorityIterator {
     public int compareTo(PeekingPriorityIterator another) {
         var compareResult = MemorySegmentComparator.getInstance()
                 .compare(this.current.key(), another.getCurrent().key());
-        if (compareResult == 0) {
-            return Integer.compare(this.priority, another.getPriority());
-        } else {
+        if (compareResult != 0) {
             return compareResult;
         }
+        return Integer.compare(this.priority, another.getPriority());
     }
 }

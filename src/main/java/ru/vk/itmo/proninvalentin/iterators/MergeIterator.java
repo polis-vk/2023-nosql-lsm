@@ -16,26 +16,25 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     public MergeIterator(PeekingPriorityIterator inMemoryIterator,
                          List<PeekingPriorityIterator> inFileIterators) {
         iterators = new PriorityQueue<>();
+        tryAddMemoryIterator(inMemoryIterator);
+        tryAddFileIterators(inFileIterators);
+        saveActualEntryAndMoveNext();
+    }
+
+    private void tryAddFileIterators(List<PeekingPriorityIterator> inFileIterators) {
+        var nonEmptyFileIterators = inFileIterators.stream().filter(Iterator::hasNext).toList();
+        nonEmptyFileIterators.forEach(Iterator::next);
+        iterators.addAll(inFileIterators.stream().filter(x -> x.getCurrent() != null).toList());
+    }
+
+    private void tryAddMemoryIterator(PeekingPriorityIterator inMemoryIterator) {
         if (inMemoryIterator.hasNext()) {
             inMemoryIterator.next();
         }
         if (inMemoryIterator.getCurrent() != null) {
             iterators.add(inMemoryIterator);
         }
-        var nonEmptyFileIterators = inFileIterators.stream().filter(Iterator::hasNext).toList();
-        nonEmptyFileIterators.forEach(Iterator::next);
-        iterators.addAll(inFileIterators.stream().filter(x -> x.getCurrent() != null).toList());
-        saveActualEntryAndmoveNext();
-//        System.out.println("Iterators:");
-//        iterators.forEach(it -> System.out.println(it.getPriority() + ":" + printEntry(it.getCurrent())));
     }
-
-//    private String printEntry(Entry<MemorySegment> entry) {
-//        if(entry == null){
-//            return "NULL";
-//        }
-//        return ("[" + new DaoFactoryImpl().toString(entry.key()) + ":" + new DaoFactoryImpl().toString(entry.value()) + "]");
-//    }
 
     @Override
     public boolean hasNext() {
@@ -45,34 +44,33 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> next() {
         Entry<MemorySegment> result = actualEntry;
-        saveActualEntryAndmoveNext();
+        saveActualEntryAndMoveNext();
         return result;
     }
 
-    private void saveActualEntryAndmoveNext() {
-        Entry<MemorySegment> result = null;
+    // Находим и сохраняем самую новую и не удаленную запись, чтобы отдать на следующей итерации
+    private void saveActualEntryAndMoveNext() {
+        Entry<MemorySegment> localActualEntry = null;
 
-        while (result == null && !iterators.isEmpty()) {
+        while (!iterators.isEmpty() && localActualEntry == null) {
             PeekingPriorityIterator iterator = iterators.poll();
-            result = iterator.getCurrent();
+            localActualEntry = iterator.getCurrent();
+            refreshIfHasNext(iterator);
 
-            refreshIteratorsWithSameEntryKey(result);
-            refreshIterator(iterator);
+            // Двигаем все итераторы с указанным значением, т.к. в них хранятся более старые записи
+            while (!iterators.isEmpty()
+                    && msComparator.compare(iterators.peek().getCurrent().key(), localActualEntry.key()) == 0) {
+                var iteratorWithSameEntryKey = iterators.remove();
+                refreshIfHasNext(iteratorWithSameEntryKey);
+            }
 
-            result = result.value() == null ? null : result;
+            localActualEntry = localActualEntry.value() == null ? null : localActualEntry;
         }
 
-        actualEntry = result;
-//        System.out.println("Actual entry: " + printEntry(actualEntry));
+        actualEntry = localActualEntry;
     }
 
-    private void refreshIteratorsWithSameEntryKey(Entry<MemorySegment> current) {
-        while (!iterators.isEmpty() && msComparator.compare(iterators.peek().getCurrent().key(), current.key()) == 0) {
-            refreshIterator(iterators.remove());
-        }
-    }
-
-    private void refreshIterator(PeekingPriorityIterator iterator) {
+    private void refreshIfHasNext(PeekingPriorityIterator iterator) {
         if (iterator.hasNext()) {
             iterator.next();
             iterators.add(iterator);
