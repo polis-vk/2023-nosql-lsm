@@ -34,16 +34,15 @@ public class PersistentDao extends InMemoryDao {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        if (dataStore.containsKey(key)) {
-            return super.get(key);
+        Entry<MemorySegment> entry = getDataStore().get(key);
+        if (entry != null) {
+            return entry;
         }
         return searchKey(key);
     }
 
     private Entry<MemorySegment> searchKey(MemorySegment key) {
         long offset = 0;
-        long keySize;
-        long valueSize;
         MemorySegment dataSegment;
         try (FileChannel dataChannel = FileChannel.open(dataFilePath, READ)) {
             dataSegment = dataChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(dataFilePath), arena);
@@ -51,12 +50,13 @@ public class PersistentDao extends InMemoryDao {
             return null;
         }
         while (offset < dataSegment.byteSize()) {
+            long keySize;
+            long valueSize;
             keySize = dataSegment.get(JAVA_LONG_UNALIGNED, offset);
-            MemorySegment keySegment = dataSegment.asSlice(offset + Long.BYTES, keySize);
             offset += keySize + Long.BYTES;
             valueSize = dataSegment.get(JAVA_LONG_UNALIGNED, offset);
-            if (keySegment.mismatch(key) == -1) {
-                return new BaseEntry<>(keySegment, dataSegment.asSlice(offset + Long.BYTES, valueSize));
+            if (dataSegment.mismatch(key) == -1) {
+                return new BaseEntry<>(key, dataSegment.asSlice(offset + Long.BYTES, valueSize));
             }
             offset += valueSize + Long.BYTES;
         }
@@ -65,11 +65,11 @@ public class PersistentDao extends InMemoryDao {
 
     @Override
     public void flush() throws IOException {
-        long totalSize = dataStore.values()
+        long totalSize = getDataStore().values()
                 .stream()
                 .mapToLong(entry -> entry.key().byteSize() + entry.value().byteSize())
                 .sum();
-        long overheadSize = 2L * dataStore.size() * Long.BYTES;
+        long overheadSize = 2L * getDataStore().size() * Long.BYTES;
 
         long storageSize = totalSize + overheadSize;
 
@@ -84,7 +84,7 @@ public class PersistentDao extends InMemoryDao {
 
     private void save(MemorySegment dataSegmentWriter) {
         long offset = 0;
-        for (Entry<MemorySegment> entry : dataStore.values()) {
+        for (Entry<MemorySegment> entry : getDataStore().values()) {
             dataSegmentWriter.set(JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
             offset += Long.BYTES;
 
