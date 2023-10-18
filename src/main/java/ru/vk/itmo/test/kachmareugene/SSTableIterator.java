@@ -6,9 +6,9 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.SortedMap;
-import java.util.Map;
 import java.util.List;
+import java.util.Map;
+import java.util.SortedMap;
 import java.util.TreeMap;
 
 public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
@@ -139,8 +139,8 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private Map.Entry<MemorySegment, SSTableRowInfo> getFirstMin() {
         Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry = mp.firstEntry();
 
-        while (!mp.isEmpty() && (minSStablesEntry.getValue().isDeletedData() ||
-                !isBetween(minSStablesEntry.getKey()))) {
+        while (!mp.isEmpty() && (minSStablesEntry.getValue().isDeletedData()
+                || !isBetween(minSStablesEntry.getKey()))) {
             mp.remove(minSStablesEntry.getKey());
             insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
 
