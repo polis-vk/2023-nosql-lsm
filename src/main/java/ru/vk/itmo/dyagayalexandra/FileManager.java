@@ -168,8 +168,6 @@ public class FileManager {
                     valueLength = (int) entryValue.value().byteSize();
                 }
 
-                int keyLength = (int) entryValue.key().byteSize();
-
                 buffer.putLong(offset);
                 buffer.flip();
                 while (buffer.hasRemaining()) {
@@ -177,6 +175,7 @@ public class FileManager {
                 }
 
                 buffer.clear();
+                int keyLength = (int) entryValue.key().byteSize();
                 offset += Integer.BYTES + keyLength + Integer.BYTES + valueLength;
             }
         }
