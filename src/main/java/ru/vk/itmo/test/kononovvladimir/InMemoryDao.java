@@ -10,28 +10,49 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.util.Collections;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.Set;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 
 class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final Path dataPath;
-    private final Path keyPath;
-    private final Path indexPath;
 
-    private final MemorySegment indexSegment;
-    private final MemorySegment dataSegment;
-    private final MemorySegment keySegment;
-    private final Arena dataArena;
-    private final Arena keyArena;
-    private final Arena indexArena;
+    public static class ComboFiles {
+        Path index;
+        Path data;
+        Path key;
+        long id;
 
-    //private final Config config;
+        public ComboFiles(Path index, Path data, Path key, String id) {
+            this.index = index;
+            this.data = data;
+            this.key = key;
+            this.id = Long.parseLong(id);
+        }
+    }
+    private Path dataPath;
+    private Path keyPath;
+    private Path indexPath;
+    private MemorySegment indexSegment;
+    private MemorySegment dataSegment;
+    private MemorySegment keySegment;
+    private IndexSearcher indexSearcher;
+    private DataSearcher dataSearcher;
+    private KeySearcher keySearcher;
+    private Arena dataArena;
+    private Arena keyArena;
+    private Arena indexArena;
+    long numberNulls = 0;
+
+    private final Config config;
+    private long size = 0;
+
+    private final Set<ComboFiles> filesSet = new ConcurrentSkipListSet<>(Comparator.comparingLong(o -> o.id));
+
 
     private final Comparator<MemorySegment> memorySegmentComparator = (o1, o2) -> {
         if (o1 == null && o2 == null) {
@@ -58,45 +79,81 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> concurrentSkipListMap
             = new ConcurrentSkipListMap<>(memorySegmentComparator);
-
+    @SuppressWarnings("StringSplitter")
     public InMemoryDao(Config config) throws IOException {
-        //this.config = config;
+        this.config = config;
 
-        String dataFileName = "data.txt";
+        if (Files.exists(config.basePath())) {
+            Files.walkFileTree(
+                    config.basePath(),
+                    Set.of(),
+                    2,
+                    new SimpleFileVisitor<>() {
+                        @Override
+                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                            if (file.getFileName().toString().startsWith("index")) {
+                                String[] ids = file.getFileName().toString().split("\\$");
+                                String id = ids[1];
+                                Path dataPath1 = config.basePath().resolve("data$" + id + "$.txt");
+                                Path keyPath1 = config.basePath().resolve("key$" + id + "$.txt");
+                                filesSet.add(new ComboFiles(file, dataPath1, keyPath1, id));
+                            }
+                            return FileVisitResult.CONTINUE;
+                        }
+                    }
+            );
+        }
+/*        String dataFileName = "data.txt";
         String keyFileName = "key.txt";
-        String indexFileName = "index.txt";
-        indexPath = config.basePath().resolve(indexFileName);
-        dataPath = config.basePath().resolve(dataFileName);
-        keyPath = config.basePath().resolve(keyFileName);
+        String indexFileName = "index.txt";*/
+        ComboFiles comboFiles = null;
+        if (filesSet.iterator().hasNext()) {
+            comboFiles = filesSet.iterator().next();
+        }
+        if (comboFiles == null) {
+            return;
+        }
+        indexPath = comboFiles.index;
+        dataPath = comboFiles.data;
+        keyPath = comboFiles.key;
         Arena arena = Arena.ofShared();
         if (Files.exists(indexPath)) {
             try (var fileChanel = FileChannel.open(indexPath, StandardOpenOption.READ)) {
                 indexArena = arena;
                 indexSegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), indexArena);
+                indexSearcher = new IndexSearcher(indexSegment);
+                size = indexSearcher.getSslSize();
             }
         } else {
             indexArena = null;
             indexSegment = null;
+            indexSearcher = null;
         }
+
 
         if (Files.exists(dataPath)) {
             try (var fileChanel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
                 dataArena = arena;
                 dataSegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), dataArena);
+                dataSearcher = new DataSearcher(dataSegment, size);
+
             }
         } else {
             dataArena = null;
             dataSegment = null;
+            dataSearcher = null;
         }
 
         if (Files.exists(keyPath)) {
             try (var fileChanel = FileChannel.open(keyPath, StandardOpenOption.READ)) {
                 keyArena = arena;
                 keySegment = fileChanel.map(FileChannel.MapMode.READ_ONLY, 0, fileChanel.size(), keyArena);
+                keySearcher = new KeySearcher(keySegment, size);
             }
         } else {
             keyArena = null;
             keySegment = null;
+            keySearcher = null;
         }
     }
 
@@ -109,9 +166,25 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             //Files.deleteIfExists(keyPath);
         }
 
-        if (dataPath == null || keyPath == null || indexPath == null) {
+        String currentMillis = Long.toString(System.currentTimeMillis());
+        String indexTempName = "index$" + currentMillis + "$.txt";
+        String dataTempName = "data$" + currentMillis + "$.txt";
+        String keyTempName = "key$" + currentMillis + "$.txt";
+
+        Path indexTempPath = config.basePath().resolve(indexTempName);
+        Path dataTempPath = config.basePath().resolve(dataTempName);
+        Path keyTempPath = config.basePath().resolve(keyTempName);
+/*        if (dataPath == null || keyPath == null || indexPath == null) {
             return;
-        }
+        }*/
+
+/*        Path filePath = sstablesPath.resolve(
+                Path.of(
+                        Long.toString(System.currentTimeMillis(), Character.MAX_RADIX)
+                                + Long.toString(System.nanoTime(), Character.MAX_RADIX)
+                                + ".sstable"
+                )
+        );*/
 
         //String tempFileDataName = "tempData.txt";
         //String tempFileKeyName = "tempKey.txt";
@@ -121,23 +194,26 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         //String index = "index.txt";
         //Path pathIndex = config.basePath().resolve(index);
         //long sslTableSize = dataSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
-
-        try (var dataChanel = FileChannel.open(dataPath, StandardOpenOption.READ,
+        try (var dataChanel = FileChannel.open(dataTempPath, StandardOpenOption.READ,
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
-            try (var keyChanel = FileChannel.open(keyPath, StandardOpenOption.READ,
+            try (var keyChanel = FileChannel.open(keyTempPath, StandardOpenOption.READ,
                     StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
-                try (var indexChanel = FileChannel.open(indexPath, StandardOpenOption.READ,
+                try (var indexChanel = FileChannel.open(indexTempPath, StandardOpenOption.READ,
                         StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
                     long sizeData = 0;
                     long sizeKeys = 0;
-                    long sizeIndex = 0;
+                    long sizeIndex = 2 * Long.BYTES + Long.BYTES * (long) concurrentSkipListMap.size() * 3L; // size map
 
                     for (Entry<MemorySegment> value : concurrentSkipListMap.values()) {
-                        sizeData += value.value().byteSize() + Long.BYTES;
+                        MemorySegment valueSegment = value.value();
+                        if (valueSegment == null){
+                            sizeData += Long.BYTES;
+                        } else {
+                            sizeData += value.value().byteSize() + Long.BYTES;
+                        }
                         sizeKeys += value.key().byteSize() + Long.BYTES;
                     }
 
-                    sizeIndex += Long.BYTES + Long.BYTES * (long) concurrentSkipListMap.size() * 3L; // size map
 
                     try (Arena arenaData = Arena.ofConfined()) {
                         try (Arena arenaKeys = Arena.ofConfined()) {
@@ -148,12 +224,13 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                                         0, sizeKeys, arenaKeys);
                                 MemorySegment indexWriteSegment = indexChanel.map(FileChannel.MapMode.READ_WRITE,
                                         0, sizeIndex, arenaIndex);
-
                                 long offsetData = 0;
                                 long offsetKeys = 0;
                                 long offsetIndex = 0;
 
                                 indexWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, concurrentSkipListMap.size());
+                                offsetIndex += Long.BYTES;
+                                indexWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, numberNulls);
                                 offsetIndex += Long.BYTES;
                                 long indexNum = 0;
 
@@ -161,7 +238,12 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                                     long startOffsetData = offsetData;
                                     long startOffsetKey = offsetKeys;
 
-                                    dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, value.value().byteSize());
+                                    MemorySegment valueSegment = value.value();
+                                    if (valueSegment == null) {
+                                        dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, -1);
+                                    } else {
+                                        dataWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, valueSegment.byteSize());
+                                    }
                                     keyWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeys, value.key().byteSize());
                                     indexWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, indexNum++);
 
@@ -169,8 +251,11 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                                     offsetKeys += Long.BYTES;
                                     offsetIndex += Long.BYTES;
 
-                                    MemorySegment.copy(value.value(), 0, dataWriteSegment,
-                                            offsetData, value.value().byteSize());
+                                    if (valueSegment != null) {
+                                        MemorySegment.copy(valueSegment, 0, dataWriteSegment,
+                                                offsetData, valueSegment.byteSize());
+                                        offsetData += value.value().byteSize();
+                                    }
                                     MemorySegment.copy(value.key(), 0, keyWriteSegment,
                                             offsetKeys, value.key().byteSize());
 
@@ -178,7 +263,6 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                                     offsetIndex += Long.BYTES;
                                     indexWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, startOffsetKey);
 
-                                    offsetData += value.value().byteSize();
                                     offsetKeys += value.key().byteSize();
                                     offsetIndex += Long.BYTES;
 
@@ -200,6 +284,27 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 keyArena.close();
             }*/
         }
+/*        File oldFile = new File(indexPath.toUri().getPath());
+        if (oldFile.exists()) {
+            oldFile.delete();
+        }
+        new File(indexPath.toUri().getPath()).renameTo(oldFile);
+
+        File oldFile1 = new File(dataPath.toUri().getPath());
+        if (oldFile1.exists()) {
+            oldFile1.delete();
+        }
+        new File(dataTempPath.toUri().getPath()).renameTo(oldFile1);
+
+        File oldFile2 = new File(keyPath.toUri().getPath());
+        if (oldFile2.exists()) {
+            oldFile2.delete();
+        }
+        new File(keyTempPath.toUri().getPath()).renameTo(oldFile2);*/
+        //Files.move(indexTempPath, indexPath, StandardCopyOption.REPLACE_EXISTING);
+        //Files.move(dataTempPath, dataPath, StandardCopyOption.REPLACE_EXISTING);
+        //Files.move(keyTempPath, keyPath, StandardCopyOption.REPLACE_EXISTING);
+
     }
 
     private long binSearch(MemorySegment key, long sslTableSize) {
@@ -209,10 +314,9 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         while (low <= high) {
             long mid = low + (high - low) / 2;
             //long indexOffset = Long.BYTES + 3L * mid * Long.BYTES;
-            long offsetKeyMid = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES * 3L * mid + (1 + 2) * Long.BYTES);
-            long keySize = keySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetKeyMid);
-            offsetKeyMid += Long.BYTES;
-            MemorySegment memorySegmentKeyMid = keySegment.asSlice(offsetKeyMid, keySize);
+            long offsetKeyMid = indexSearcher.getKeyOffset(mid);
+            keySearcher.goToOffset(offsetKeyMid, 0);
+            MemorySegment memorySegmentKeyMid = keySearcher.getValueInStrokeAndGo();
             int compare = memorySegmentComparator.compare(memorySegmentKeyMid, key);
             if (compare < 0) {
                 low = mid + 1;
@@ -228,9 +332,12 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> mapValue = concurrentSkipListMap.get(key);
-        if (mapValue != null) {
-            return mapValue;
+        //Entry<MemorySegment> mapValue = concurrentSkipListMap.get(key);
+        if (concurrentSkipListMap.containsKey(key)) {
+            if (concurrentSkipListMap.get(key).value() != null) {
+                return concurrentSkipListMap.get(key);
+            }
+            return null;
         }
 
         if (dataSegment == null || keySegment == null || indexSegment == null) {
@@ -238,15 +345,15 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         //long indexOffset = 0;
-
-        long sslTableSize = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        long sslTableSize = indexSearcher.getSslSize();
         //indexOffset += Long.BYTES;
         long indexResult = binSearch(key, sslTableSize);
         if (indexResult == -1) return null;
-        long dataOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES * 3L * indexResult + Long.BYTES + Long.BYTES);
-        long dataSize = dataSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset);
-        dataOffset += Long.BYTES;
-        return new BaseEntry<>(key, dataSegment.asSlice(dataOffset, dataSize));
+        long dataOffset = indexSearcher.getDataOffset(indexResult);
+        dataSearcher.goToOffset(dataOffset, 0);
+        MemorySegment dataMemorySegment = dataSearcher.getValueInStrokeAndGo();
+        if (dataMemorySegment == null) return null;
+        return new BaseEntry<>(key, dataMemorySegment);
 /*
         for (int i = 0; i < sslTableSize; i++) {
             indexOffset += Long.BYTES;
@@ -274,12 +381,12 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }*/
 
     @Override
-    public synchronized Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         long startInFile = -1;
         long lastInFile = -1;
         long sizeFile = 0;
         if (indexSegment != null) {
-            sizeFile = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+            sizeFile = size;
         }
         Iterator<Entry<MemorySegment>> inMemoryIterator;
         if (from == null && to == null) {
@@ -297,16 +404,43 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         if (indexSegment == null || dataSegment == null || keySegment == null) {
-            return inMemoryIterator;
+            return new Iterator<>() {
+                Entry<MemorySegment> peek;
+
+                @Override
+                public boolean hasNext() {
+                    if (peek == null || peek.value() == null) {
+                        if (inMemoryIterator.hasNext()) {
+                            peek = inMemoryIterator.next();
+                            return hasNext();
+                        } else {
+                            return false;
+                        }
+                    }
+                    return peek != null;
+                }
+
+                @Override
+                public Entry<MemorySegment> next() {
+                    if (hasNext()) {
+                        Entry<MemorySegment> res = peek;
+                        peek = null;
+                        return res;
+                    } else {
+                        return null;
+                    }
+                }
+            };
         }
 
 
         //optimize
         for (long i = 0; i < sizeFile; i++) {
-            long keyOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES * 3L * i + Long.BYTES + Long.BYTES * 2);
-            long keySize = keySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, keyOffset);
-            keyOffset += Long.BYTES;
-            MemorySegment memorySegmentKey = keySegment.asSlice(keyOffset, keySize);
+
+            long keyOffset = indexSearcher.getKeyOffset(i);
+
+            keySearcher.goToOffset(keyOffset, 0);
+            MemorySegment memorySegmentKey = keySearcher.getValueInStrokeAndGo();
             if (startInFile == -1) {
                 long compare = memorySegmentComparator.compare(memorySegmentKey, from);
                 if (compare >= 0) {
@@ -322,16 +456,23 @@ class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (startInFile == -1) {
             return inMemoryIterator;
         }
-        return new
-
-                InFileIterator(indexSegment, dataSegment, keySegment, startInFile,
-                lastInFile, inMemoryIterator, memorySegmentComparator);
+        try {
+            return new InFileIterator(new SslFilesIterator(indexPath, dataPath, keyPath, sizeFile), startInFile,
+                    lastInFile + 1, inMemoryIterator, memorySegmentComparator);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (entry == null || entry.key() == null || entry.value() == null) return;
+        if (entry.value() == null) {
+            numberNulls++;
+        }
+        if (concurrentSkipListMap.containsKey(entry.key()) && concurrentSkipListMap.get(entry.key()).value() == null) {
+            numberNulls--;
+        }
         concurrentSkipListMap.put(entry.key(), entry);
     }
 
