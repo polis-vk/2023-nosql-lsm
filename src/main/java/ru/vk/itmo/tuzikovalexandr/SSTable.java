@@ -53,14 +53,15 @@ public class SSTable {
 
         for (String index : listIndex) {
             Path offsetFullPath = basePath.resolve(OFFSET_PREFIX + index);
-            MemorySegment readSegmentOffset = FileChannel.open(offsetFullPath, StandardOpenOption.READ)
-                    .map(READ_ONLY, 0, Files.size(offsetFullPath), readArena);
-
             Path fileFullPath = basePath.resolve(FILE_PREFIX + index);
-            MemorySegment readSegmentData = FileChannel.open(fileFullPath, StandardOpenOption.READ)
-                    .map(READ_ONLY, 0, Files.size(fileFullPath), readArena);
 
-            files.add(new BaseEntry<>(readSegmentOffset, readSegmentData));
+            try (FileChannel fcData = FileChannel.open(offsetFullPath, StandardOpenOption.READ);
+                 FileChannel fcOffset = FileChannel.open(fileFullPath, StandardOpenOption.READ)) {
+                MemorySegment readSegmentOffset = fcData.map(READ_ONLY, 0, Files.size(offsetFullPath), readArena);
+                MemorySegment readSegmentData = fcOffset.map(READ_ONLY, 0, Files.size(fileFullPath), readArena);
+
+                files.add(new BaseEntry<>(readSegmentOffset, readSegmentData));
+            }
         }
     }
 
