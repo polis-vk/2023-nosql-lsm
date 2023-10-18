@@ -113,6 +113,9 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
                 mp.remove(minSStablesEntry.getKey());
                 insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
                 keeper = controller.getRow(minSStablesEntry.getValue());
+                if (keeper != null && keeper.value() == null) {
+                    continue;
+                }
                 return;
             }
 
@@ -123,16 +126,14 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
                 return;
             }
 
-            if (res > 0) {
-                mp.remove(minSStablesEntry.getKey());
-                insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
-                keeper = controller.getRow(minSStablesEntry.getValue());
-                return;
-            }
-
-            keeper = moveAndGetOnce();
             mp.remove(minSStablesEntry.getKey());
             insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
+
+            if (res > 0) {
+                keeper = controller.getRow(minSStablesEntry.getValue());
+            } else {
+                keeper = moveAndGetOnce();
+            }
 
             if (keeper.value() != null) {
                 break;
@@ -149,8 +150,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private Map.Entry<MemorySegment, SSTableRowInfo> getFirstMin() {
         Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry = mp.firstEntry();
 
-        while (!mp.isEmpty() && (minSStablesEntry.getValue().isDeletedData()
-                || !isBetween(minSStablesEntry.getKey()))) {
+        while (!mp.isEmpty() && !isBetween(minSStablesEntry.getKey())) {
             mp.remove(minSStablesEntry.getKey());
             insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
 

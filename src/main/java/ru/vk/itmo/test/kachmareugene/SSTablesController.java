@@ -154,10 +154,6 @@ public class SSTablesController {
         for (long t = info.rowShift + 1; t < ssTablesIndexes.get(info.ssTableInd).byteSize() / ONE_LINE_SIZE; t++) {
             var inf = createRowInfo(info.ssTableInd, t);
 
-            if (inf.isDeletedData()) {
-                continue;
-            }
-
             Entry<MemorySegment> row = getRow(inf);
             if (segComp.compare(row.key(), maxKey) < 0) {
                 return inf;
