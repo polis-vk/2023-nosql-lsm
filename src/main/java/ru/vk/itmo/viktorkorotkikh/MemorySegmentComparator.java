@@ -5,6 +5,9 @@ import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
 public class MemorySegmentComparator implements Comparator<MemorySegment> {
+
+    public static final MemorySegmentComparator INSTANCE = new MemorySegmentComparator();
+
     @Override
     public int compare(MemorySegment o1, MemorySegment o2) {
         // range of 0 (inclusive) up to the size (in bytes) of the smaller memory segment (exclusive).

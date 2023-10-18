@@ -11,15 +11,32 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    private final Comparator<MemorySegment> comparator = (o1, o2) -> {
+        long firstMismatch = o1.mismatch(o2);
+        if (firstMismatch == -1) {
+            return 0;
+        }
+        if (firstMismatch == o1.byteSize()) {
+            return -1;
+        }
+        if (firstMismatch == o2.byteSize()) {
+            return 1;
+        }
+
+        byte byte1 = o1.get(ValueLayout.JAVA_BYTE, firstMismatch);
+        byte byte2 = o2.get(ValueLayout.JAVA_BYTE, firstMismatch);
+        return Byte.compare(byte1, byte2);
+    };
+
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> data =
-            new ConcurrentSkipListMap<>((o1, o2) ->
-                    Arrays.compare(o1.toArray(ValueLayout.JAVA_BYTE), o2.toArray(ValueLayout.JAVA_BYTE))
-            );
+            new ConcurrentSkipListMap<>(comparator);
+
     private final Path filePath;
 
     public MemorySegmentDao() {
