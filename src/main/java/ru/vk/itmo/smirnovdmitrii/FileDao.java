@@ -13,7 +13,9 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -26,6 +28,7 @@ import java.util.stream.Stream;
 public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>> {
     private static final Path DEFAULT_BASE_PATH = Path.of("");
     private static final long DELETED_VALUE_SIZE = -1L;
+    private static final DateTimeFormatter dateFormatter = DateTimeFormatter.ISO_DATE_TIME;
     private final MemorySegmentComparator comparator = new MemorySegmentComparator();
     private final List<MemorySegment> mappedSsTables = new ArrayList<>();
     private final Arena arena = Arena.ofShared();
@@ -203,7 +206,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
     }
 
     private Path newSsTablePath() {
-        return basePath.resolve(Instant.now().toString());
+        return basePath.resolve(dateFormatter.format(LocalDateTime.now(ZoneId.systemDefault())));
     }
 
     private static void writeBlock(
