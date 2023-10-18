@@ -4,11 +4,11 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
+import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 
 public class SSTable {
     private final MemorySegment mappedData;
@@ -44,8 +44,8 @@ public class SSTable {
             if (to == null) {
                 return true;
             }
-            currentKeyOffset = mappedIndex.get(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset);
-            currentKeySize = mappedData.get(ValueLayout.JAVA_LONG_UNALIGNED, currentKeyOffset);
+            currentKeyOffset = mappedIndex.get(JAVA_LONG_UNALIGNED, indexOffset);
+            currentKeySize = mappedData.get(JAVA_LONG_UNALIGNED, currentKeyOffset);
 
             long fromOffset = currentKeyOffset + Long.BYTES;
             return compare(to, mappedData, fromOffset, fromOffset + currentKeySize) > 0;
@@ -64,17 +64,17 @@ public class SSTable {
             MemorySegment key = mappedData.asSlice(keyOffset, keySize);
             keyOffset += keySize;
 
-            long valueSize = mappedData.get(ValueLayout.JAVA_LONG_UNALIGNED, keyOffset);
-            MemorySegment value = valueSize == -1 ? null: mappedData.asSlice(keyOffset + Long.BYTES, valueSize);
+            long valueSize = mappedData.get(JAVA_LONG_UNALIGNED, keyOffset);
+            MemorySegment value = valueSize == -1 ? null : mappedData.asSlice(keyOffset + Long.BYTES, valueSize);
             return new BaseEntry<>(key, value);
         }
 
         private long getCurrentKeyOffset() {
-            return currentKeyOffset == -1 ? mappedIndex.get(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset): currentKeyOffset;
+            return currentKeyOffset == -1 ? mappedIndex.get(JAVA_LONG_UNALIGNED, indexOffset) : currentKeyOffset;
         }
 
         private long getCurrentKeySize(long keyOffset) {
-            return currentKeySize == -1 ? mappedData.get(ValueLayout.JAVA_LONG_UNALIGNED, keyOffset) : currentKeySize;
+            return currentKeySize == -1 ? mappedData.get(JAVA_LONG_UNALIGNED, keyOffset) : currentKeySize;
         }
 
         private long binarySearch(MemorySegment key) {
@@ -84,12 +84,12 @@ public class SSTable {
             while (left <= right) {
                 long mid = ((right - left) >>> 1) + left;
 
-                long offset = mappedIndex.get(ValueLayout.JAVA_LONG_UNALIGNED, mid * Long.BYTES);
+                long offset = mappedIndex.get(JAVA_LONG_UNALIGNED, mid * Long.BYTES);
 
-                long currentKeySize = mappedData.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+                long currentSize = mappedData.get(JAVA_LONG_UNALIGNED, offset);
                 offset += Long.BYTES;
 
-                int comparator = compare(key, mappedData, offset, offset + currentKeySize);
+                int comparator = compare(key, mappedData, offset, offset + currentSize);
                 if (comparator == 0) {
                     return mid * Long.BYTES;
                 }
@@ -122,7 +122,9 @@ public class SSTable {
             if (mismatchOffset == segment2.byteSize()) {
                 return 1;
             }
-            return Byte.compare(segment1.get(JAVA_BYTE, mismatchOffset), segment2.get(JAVA_BYTE, fromOffset + mismatchOffset));
+            byte first = segment1.get(JAVA_BYTE, mismatchOffset);
+            byte second = segment2.get(JAVA_BYTE, fromOffset + mismatchOffset);
+            return Byte.compare(first, second);
         }
     }
 }

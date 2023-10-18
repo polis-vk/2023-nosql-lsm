@@ -6,14 +6,22 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.OpenOption;
+import java.nio.file.Path;
+import java.nio.file.Files;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.FileVisitResult;
+import java.util.Set;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
+import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -40,7 +48,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
             return;
         }
 
-        ssTables.addAll(getSSTablesFromMemory(path)) ;
+        ssTables.addAll(getSSTablesFromMemory(path));
     }
 
     public InMemoryDaoImpl() {
@@ -90,7 +98,6 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
                 .iterator();
     }
 
-
     @Override
     public Iterator<Entry<MemorySegment>> allFrom(MemorySegment from) {
         return storage.tailMap(from)
@@ -123,6 +130,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
         }
         flush();
     }
+
     @Override
     public void flush() throws IOException {
         if (storage.isEmpty()) {
@@ -134,7 +142,6 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
         Path ssTableDir = configPath.resolve(DIR_MAME + ssTables.size());
         Files.createDirectories(ssTableDir);
-
 
         try (var fcTable = FileChannel.open(ssTableDir.resolve(DATA_NAME), WRITE_OPTIONS)) {
             try (var fcIndex = FileChannel.open(ssTableDir.resolve(INDEX_NAME), WRITE_OPTIONS)) {
@@ -179,7 +186,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
     private void writeDataToMemorySegment(MemorySegment dataToInsert, MemorySegment ms, long currentOffset) {
         if (dataToInsert == null) {
-            ms.set(ValueLayout.JAVA_LONG_UNALIGNED, currentOffset, NULL_VALUE);
+            ms.set(JAVA_LONG_UNALIGNED, currentOffset, NULL_VALUE);
             return;
         }
         long dataSize = dataToInsert.byteSize();
@@ -212,12 +219,10 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
                             Path indexFile = dir.resolve(INDEX_NAME);
                             try (FileChannel dataChanel = FileChannel.open(dataFile, StandardOpenOption.READ)) {
                                 try (FileChannel indexChanel = FileChannel.open(indexFile, StandardOpenOption.READ)) {
-                                    MemorySegment mappedData = dataChanel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(dataFile), arena);
-                                    MemorySegment mappedIndex = indexChanel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexFile), arena);
-                                    result.add(new SSTable(mappedData, mappedIndex, priority));
+                                    MemorySegment msData = dataChanel.map(READ_ONLY, 0, Files.size(dataFile), arena);
+                                    MemorySegment msIndex = indexChanel.map(READ_ONLY, 0, Files.size(indexFile), arena);
+                                    result.add(new SSTable(msData, msIndex, priority));
                                 }
-                            } catch (IOException e) {
-                                throw new RuntimeException(e);
                             }
                         }
                         return super.postVisitDirectory(dir, exc);

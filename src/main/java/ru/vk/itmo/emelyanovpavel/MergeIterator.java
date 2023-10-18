@@ -3,7 +3,13 @@ package ru.vk.itmo.emelyanovpavel;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.*;
+import java.util.Objects;
+import java.util.Iterator;
+import java.util.List;
+import java.util.PriorityQueue;
+import java.util.Queue;
+import java.util.NoSuchElementException;
+import java.util.Comparator;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 

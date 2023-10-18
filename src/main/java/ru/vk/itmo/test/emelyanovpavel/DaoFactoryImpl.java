@@ -4,7 +4,6 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.emelyanovpavel.InMemoryDaoImpl;
-import ru.vk.itmo.emelyanovpavel.PersistentDaoImpl;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
