@@ -3,6 +3,7 @@ package ru.vk.itmo.proninvalentin;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.proninvalentin.comparators.MemorySegmentComparator;
+import ru.vk.itmo.proninvalentin.iterators.PeekingIterator;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
@@ -13,7 +14,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegments;
 
     public InMemoryDao() {
-        memorySegments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+        memorySegments = new ConcurrentSkipListMap<>(MemorySegmentComparator.getInstance());
     }
 
     @Override
@@ -32,16 +33,19 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+    public PeekingIterator get(MemorySegment from, MemorySegment to) {
+        Iterator<Entry<MemorySegment>> memoryIterator;
         if (from == null && to == null) {
-            return all();
+            memoryIterator = all();
         } else if (to == null) {
-            return allFrom(from);
+            memoryIterator = allFrom(from);
         } else if (from == null) {
-            return allTo(to);
+            memoryIterator = allTo(to);
         } else {
-            return memorySegments.tailMap(from).headMap(to).values().iterator();
+            memoryIterator = memorySegments.tailMap(from).headMap(to).values().iterator();
         }
+
+        return new PeekingIterator(memoryIterator, 0);
     }
 
     @Override

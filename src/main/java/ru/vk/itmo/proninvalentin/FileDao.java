@@ -51,7 +51,7 @@ public class FileDao implements Closeable {
             return;
         }
 
-        comparator = new MemorySegmentComparator();
+        comparator = MemorySegmentComparator.getInstance();
         readArena = Arena.ofShared();
         readValuesMSStorage = new ArrayList<>();
         readOffsetsMSStorage = new ArrayList<>();
@@ -107,19 +107,6 @@ public class FileDao implements Closeable {
         }
 
         return null;
-
-        /*if (entries.isEmpty()) {
-            return null;
-        } else {
-            Comparator<MemorySegment> enrichedEntryComparator = Comparator.comparing(x ->
-                    x.metadata.createdAt, new CreateAtTimeComparator());
-            MemorySegment entry = entries.stream().sorted(enrichedEntryComparator).toList().getFirst();
-            if (entry.metadata.isDeleted) {
-                return null;
-            } else {
-                return entry;
-            }
-        }*/
     }
 
     // Пройтись по всем парам замапленных MS и создать для каждого итератор

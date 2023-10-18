@@ -8,12 +8,14 @@ import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
 public final class MemorySegmentUtils {
+    private static final byte TOMBSTONE_VALUE = -1;
+
     private MemorySegmentUtils() {
     }
 
     public static MemorySegment getBySizeOffset(MemorySegment readValuesMS, long sizeOffset) {
         long valueSize = readValuesMS.get(ValueLayout.JAVA_LONG_UNALIGNED, sizeOffset);
-        if (valueSize == -1) {
+        if (valueSize == TOMBSTONE_VALUE) {
             return null;
         }
         long valueOffset = sizeOffset + Long.BYTES;
@@ -111,20 +113,20 @@ public final class MemorySegmentUtils {
         // Сначала пишем длину ключа и сам ключ
         localFileOffset = writeMemorySegment(src.key(), dst, localFileOffset);
         // Потом пишем длину значения и само значение
-        if (src.value() != null) {
-            localFileOffset = writeMemorySegment(src.value(), dst, localFileOffset);
-        }
+        localFileOffset = writeMemorySegment(src.value(), dst, localFileOffset);
         return localFileOffset;
     }
 
     // Записать пару: |Длина MS в байтах|MS|
     public static long writeMemorySegment(MemorySegment value, MemorySegment dst, final long fileOffset) {
-        long valueSize = value.byteSize();
+        long valueSize = value == null ? TOMBSTONE_VALUE : value.byteSize();
         long localFileOffset = fileOffset;
         dst.set(ValueLayout.JAVA_LONG_UNALIGNED, localFileOffset, valueSize);
         localFileOffset += Long.BYTES;
-        MemorySegment.copy(value, 0, dst, localFileOffset, valueSize);
-        localFileOffset += valueSize;
+        if (value != null) {
+            MemorySegment.copy(value, 0, dst, localFileOffset, valueSize);
+            localFileOffset += valueSize;
+        }
         return localFileOffset;
     }
 

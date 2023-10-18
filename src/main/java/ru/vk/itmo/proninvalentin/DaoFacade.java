@@ -3,7 +3,8 @@ package ru.vk.itmo.proninvalentin;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.proninvalentin.comparators.MemorySegmentComparator;
+import ru.vk.itmo.proninvalentin.iterators.PeekingIterator;
+import ru.vk.itmo.proninvalentin.iterators.SkipDeletedEntriesIterator;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
@@ -45,17 +46,8 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-       /* if (fileDao != null) {
-            try {
-                return MergeIterator.create(
-                        inMemoryDao.get(from, to),
-                        fileDao.getFilesIterators(from, to),
-                        new MemorySegmentComparator());
-            } catch (IOException e) {
-                return inMemoryDao.get(from, to);
-            }
-        }*/
-        return inMemoryDao.get(from, to);
+        PeekingIterator inMemoryIterator = inMemoryDao.get(from, to);
+        return new SkipDeletedEntriesIterator(inMemoryIterator);
     }
 
     @Override
