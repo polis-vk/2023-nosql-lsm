@@ -12,9 +12,7 @@ public final class MemorySegmentComparator {
                 memorySegment1,
                 0,
                 memorySegment1.byteSize(),
-                memorySegment2,
-                0,
-                memorySegment2.byteSize()
+                memorySegment2
         );
     }
 
@@ -22,17 +20,16 @@ public final class MemorySegmentComparator {
             MemorySegment memorySegment1,
             long memorySegment1FromOffset,
             long memorySegment1ToOffset,
-            MemorySegment memorySegment2,
-            long memorySegment2FromOffset,
-            long memorySegment2ToOffset
+            MemorySegment memorySegment2
     ) {
         long relativeOffset = MemorySegment.mismatch(
                 memorySegment1,
                 memorySegment1FromOffset,
                 memorySegment1ToOffset,
                 memorySegment2,
-                memorySegment2FromOffset,
-                memorySegment2ToOffset);
+                0,
+                memorySegment2.byteSize()
+        );
         if (relativeOffset == -1) {
             return 0;
         } else if (relativeOffset == memorySegment1.byteSize()) {
@@ -42,7 +39,7 @@ public final class MemorySegmentComparator {
         }
         return Byte.compare(
                 memorySegment1.get(ValueLayout.JAVA_BYTE, memorySegment1FromOffset + relativeOffset),
-                memorySegment2.get(ValueLayout.JAVA_BYTE, memorySegment2FromOffset + relativeOffset)
+                memorySegment2.get(ValueLayout.JAVA_BYTE,  relativeOffset)
         );
     }
 }

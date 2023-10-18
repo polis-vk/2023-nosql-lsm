@@ -14,7 +14,12 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 
 public class Storage implements Closeable {
 
@@ -57,7 +62,8 @@ public class Storage implements Closeable {
         return new Storage(arena, ssTables);
     }
 
-    public static void save(Config config, Collection<Entry<MemorySegment>> entries, Storage storage) throws IOException{
+    public static void save(Config config, Collection<Entry<MemorySegment>> entries, Storage storage)
+            throws IOException {
         if (storage.arena.scope().isAlive()) {
             throw new IllegalStateException("Previous arena is alive");
         }
@@ -73,8 +79,8 @@ public class Storage implements Closeable {
         long indicesSize = (long) Long.BYTES * entries.size();
         long sizeOfNewSSTable = indicesSize + FILE_PREFIX;
         for (Entry<MemorySegment> entry : entries) {
-            sizeOfNewSSTable += 2 * Long.BYTES + entry.key().byteSize() +
-                    (entry.value() == null ? 0 : entry.value().byteSize());
+            sizeOfNewSSTable += 2 * Long.BYTES + entry.key().byteSize()
+                    + (entry.value() == null ? 0 : entry.value().byteSize());
         }
 
         try (Arena arenaSave = Arena.ofConfined();
@@ -138,8 +144,8 @@ public class Storage implements Closeable {
             offset += Long.BYTES;
 
             int cmp = MemorySegmentComparator.compareWithOffsets(
-                    ssTable, offset, offset + keySize,
-                    key, 0, key.byteSize());
+                    ssTable, offset, offset + keySize, key
+            );
             if (cmp < 0) {
                 left = mid + 1;
             } else if (cmp > 0) {
