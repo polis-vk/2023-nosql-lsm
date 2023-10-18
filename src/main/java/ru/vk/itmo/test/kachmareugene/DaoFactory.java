@@ -9,11 +9,14 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@ru.vk.itmo.test.DaoFactory(stage = 2)
+@ru.vk.itmo.test.DaoFactory(stage = 3)
 public class DaoFactory implements ru.vk.itmo.test.DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public String toString(MemorySegment memorySegment) {
-         return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
+        if (memorySegment == null) {
+            return null;
+        }
+        return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override

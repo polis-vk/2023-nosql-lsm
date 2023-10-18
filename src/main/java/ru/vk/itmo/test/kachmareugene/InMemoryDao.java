@@ -18,10 +18,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final SSTablesController controller;
 
     public InMemoryDao() {
-        this.controller = new SSTablesController(memorySegmentComparatorImpl);
+        this.controller = new SSTablesController(new MemSegComparatorNull());
     }
     public InMemoryDao(Config conf) {
-        this.controller = new SSTablesController(conf.basePath(), memorySegmentComparatorImpl);
+        this.controller = new SSTablesController(conf.basePath(), new MemSegComparatorNull());
     }
 
     @Override
@@ -44,10 +44,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         if (mp.containsKey(key)) {
+            if (mp.get(key).value() == null) {
+                return null;
+            }
             return mp.get(key);
         }
-
-        return controller.getRow(controller.searchInSStables(key));
+        var res = controller.getRow(controller.searchInSStables(key));
+        return res.value() == null ? null : res;
     }
 
     @Override

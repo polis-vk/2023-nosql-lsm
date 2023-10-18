@@ -9,11 +9,11 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     private final Iterator<Entry<MemorySegment>> memTableIterator;
     private final SSTablesController controller;
-    private final Comparator<MemorySegment> comp = new MemorySegmentComparator();
+    private final Comparator<MemorySegment> comp = new MemSegComparatorNull();
     private final SortedMap<MemorySegment, SSTableRowInfo> mp = new TreeMap<>(comp);
     private final MemorySegment from, to;
     private Entry<MemorySegment> head = null;
-
+    private Entry<MemorySegment> keeper = null;
 
     public SSTableIterator(Iterator<Entry<MemorySegment>> it, SSTablesController controller, MemorySegment from, MemorySegment to) {
         memTableIterator = it;
@@ -25,7 +25,6 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         positioningIterator();
 
     }
-
     private void insertNew(SSTableRowInfo info) {
         Entry<MemorySegment> kv = controller.getRow(info);
 
@@ -39,7 +38,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         }
         SSTableRowInfo old = mp.get(kv.key());
 
-        SSTableRowInfo oldInfo = old.SSTableInd > info.SSTableInd ? old : info;
+        SSTableRowInfo oldInfo = old.SSTableInd > info.SSTableInd ? info: old ;
         SSTableRowInfo newInfo = old.SSTableInd < info.SSTableInd ? info : old;
 
         mp.put(controller.getRow(newInfo).key(), newInfo);
@@ -58,52 +57,95 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public boolean hasNext() {
-        return !mp.isEmpty() || hasHead();
+        if (keeper == null) {
+            changeState();
+        }
+        return keeper != null;
     }
 
     private Entry<MemorySegment> getHead() {
         if (head == null) {
-            head = memTableIterator.next();
+            if (memTableIterator.hasNext()) {
+                head = memTableIterator.next();
+                if (comp.compare(head.key(), to) >= 0) {
+                    head = null;
+                }
+            }
         }
         return head;
     }
     private Entry<MemorySegment> moveAndGet() {
-        getHead();
         var ans = head;
-        head = null;
+        do {
+            getHead();
+            ans = head;
+            head = null;
+        } while (ans != null && ans.value() == null);
         return ans;
     }
-    private boolean hasHead() {
-        return head != null || memTableIterator.hasNext();
+
+    private void changeState() {
+        while (true) {
+            Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry = getFirstMin();
+
+            if (minSStablesEntry == null) {
+                keeper = moveAndGet();
+                return;
+            }
+
+            if (getHead() == null) {
+                mp.remove(minSStablesEntry.getKey());
+                insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
+                keeper = controller.getRow(minSStablesEntry.getValue());
+                return;
+            }
+
+            int res = comp.compare(getHead().key(), minSStablesEntry.getKey());
+
+            if (res < 0) {
+                keeper = moveAndGet();
+                return;
+            }
+
+            if (res > 0) {
+                mp.remove(minSStablesEntry.getKey());
+                insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
+                keeper = controller.getRow(minSStablesEntry.getValue());
+                return;
+            }
+
+            mp.remove(minSStablesEntry.getKey());
+            insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
+            keeper = moveAndGet();
+            return;
+        }
+    }
+
+    private boolean isBetween(MemorySegment who) {
+        int res1 = comp.compare(from, who);
+        int res2 = comp.compare(who, to);
+        return res1 <= 0 && res2 < 0;
+    }
+
+    private Map.Entry<MemorySegment, SSTableRowInfo> getFirstMin() {
+        Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry = mp.firstEntry();
+
+        while (!mp.isEmpty() && (minSStablesEntry.getValue().isDeletedData() || !isBetween(minSStablesEntry.getKey()))) {
+            mp.remove(minSStablesEntry.getKey());
+            insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
+
+            minSStablesEntry = mp.firstEntry();
+        }
+        return minSStablesEntry;
     }
 
     @Override
     public Entry<MemorySegment> next() {
-        if (mp.isEmpty()) {
-            return moveAndGet();
+        if (keeper == null) {
+            changeState();
         }
-
-        Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry = mp.firstEntry();
-
-        if (!hasHead()) {
-            mp.remove(minSStablesEntry.getKey());
-            insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
-            return controller.getRow(minSStablesEntry.getValue());
-        }
-
-
-
-        if (comp.compare(getHead().key(), minSStablesEntry.getKey()) < 0) {
-            return moveAndGet();
-        }
-
-        mp.remove(minSStablesEntry.getKey());
-        insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
-
-        if (comp.compare(getHead().key(), minSStablesEntry.getKey()) > 0) {
-            return controller.getRow(minSStablesEntry.getValue());
-        }
-
-        return moveAndGet();
+        var ans = keeper;
+        keeper = null;
+        return ans;
     }
 }

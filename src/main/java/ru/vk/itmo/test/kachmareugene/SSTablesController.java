@@ -11,6 +11,12 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Stream;
 
@@ -19,6 +25,8 @@ import static java.nio.file.StandardOpenOption.*;
 public class SSTablesController {
 
     private final Path ssTablesDir;
+
+    private final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss.SSSSS");
 
     private final List<MemorySegment> ssTables = new ArrayList<>();
     private final List<MemorySegment> ssTablesIndexes = new ArrayList<>();
@@ -58,11 +66,11 @@ public class SSTablesController {
         }
     }
 
-    private boolean lessThenKey(MemorySegment mappedIndex, long lineInBytesOffset, MemorySegment mappedData, MemorySegment key) {
+    private boolean greaterThen(MemorySegment mappedIndex, long lineInBytesOffset, MemorySegment mappedData, MemorySegment key) {
         long offset = mappedIndex.get(ValueLayout.JAVA_LONG, lineInBytesOffset);
         long size = mappedIndex.get(ValueLayout.JAVA_LONG, lineInBytesOffset + Long.BYTES);
 
-        return segComp.compare(mappedData.asSlice(offset, size), key) < 0;
+        return segComp.compare(key, mappedData.asSlice(offset, size)) > 0;
     }
 
     /**
@@ -75,7 +83,9 @@ public class SSTablesController {
         while (r - l > 1) {
             long mid = (l + r) / 2;
 
-            if (lessThenKey(mappedIndex, mid * oneLineSize, mappedData, key) ) {
+
+            // key >= m
+            if (greaterThen(mappedIndex, mid * oneLineSize, mappedData, key) ) {
                 l = mid;
             } else {
                 r = mid;
@@ -101,13 +111,13 @@ public class SSTablesController {
         return ans;
     }
     // fixme for loop and smart set
-    private SSTableRowInfo createRowInfo(int ind, long offset) {
-        long start = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG, offset * oneLineSize);
-        long size = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG, offset * oneLineSize + Long.BYTES);
+    private SSTableRowInfo createRowInfo(int ind, long rowShift) {
+        long start = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG, rowShift * oneLineSize);
+        long size = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG, rowShift * oneLineSize + Long.BYTES);
 
-        long start1 = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG,offset * oneLineSize + Long.BYTES * 2);
-        long size1 = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG,offset * oneLineSize + Long.BYTES * 3);
-        return new SSTableRowInfo(start, size, start1, size1, ind);
+        long start1 = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG,rowShift * oneLineSize + Long.BYTES * 2);
+        long size1 = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG,rowShift * oneLineSize + Long.BYTES * 3);
+        return new SSTableRowInfo(start, size, start1, size1, ind, rowShift);
     }
 
     public SSTableRowInfo searchInSStables(MemorySegment key) {
@@ -123,12 +133,16 @@ public class SSTablesController {
     }
 
     public Entry<MemorySegment> getRow(SSTableRowInfo info) {
-        if (info == null || info.valueSize == 0) {
+        if (info == null) {
             return null;
         }
 
         var key = ssTables.get(info.SSTableInd).asSlice(info.keyOffset, info.keySize);
-        var value = ssTables.get(info.SSTableInd).asSlice(info.valueOffset, info.valueSize);
+
+        if (info.isDeletedData()) {
+            return new BaseEntry<>(key, null);
+        }
+        var value = ssTables.get(info.SSTableInd).asSlice(info.valueOffset, info.getValueSize());
 
         return new BaseEntry<>(key, value);
     }
@@ -137,15 +151,15 @@ public class SSTablesController {
      * Ignores deleted values.
      */
     public SSTableRowInfo getNextInfo(SSTableRowInfo info, MemorySegment maxKey) {
-
-        for (long t = info.keyOffset / oneLineSize + 1; t < ssTablesIndexes.size() / oneLineSize; t++) {
+        // fixme t0??
+        for (long t = info.rowShift + 1; t < ssTablesIndexes.get(info.SSTableInd).byteSize() / oneLineSize; t++) {
             var inf = createRowInfo(info.SSTableInd, t);
-            Entry<MemorySegment> row = getRow(inf);
 
-            if (row.value().byteSize() == 0) {
+            if (inf.isDeletedData()) {
                 continue;
             }
 
+            Entry<MemorySegment> row = getRow(inf);
             if (segComp.compare(row.key(), maxKey) < 0) {
                 return inf;
             }
@@ -168,18 +182,17 @@ public class SSTablesController {
 
     public void dumpMemTableToSStable(SortedMap<MemorySegment, Entry<MemorySegment>> mp) throws IOException {
 
-        // fixme as nullpointer exeption
         if (ssTablesDir == null) {
             arenaForReading.close();
             return;
         }
-
+        LocalDateTime time = LocalDateTime.now(ZoneId.systemDefault());
         Set<OpenOption> options = Set.of(WRITE, READ, CREATE);
-
         try (FileChannel ssTableChannel =
-                     FileChannel.open(ssTablesDir.resolve(SS_TABLE_COMMON_PREF + ssTables.size()), options);
+                     FileChannel.open(ssTablesDir.resolve(SS_TABLE_COMMON_PREF + formatter.format(time)), options);
              FileChannel indexChannel =
-                     FileChannel.open(ssTablesDir.resolve(INDEX_COMMON_PREF + ssTables.size()), options)) {
+                     FileChannel.open(ssTablesDir.resolve(INDEX_COMMON_PREF + formatter.format(time)), options);
+            Arena saveArena = Arena.ofConfined()) {
 
             long ssTableLenght = 0L;
             long indexLength = mp.size() * oneLineSize;
@@ -193,10 +206,10 @@ public class SSTablesController {
             long currOffsetIndex = 0L;
 
             MemorySegment mappedSSTable = ssTableChannel.map(
-                    FileChannel.MapMode.READ_WRITE, currOffsetSSTable, ssTableLenght, Arena.ofConfined());
+                    FileChannel.MapMode.READ_WRITE, currOffsetSSTable, ssTableLenght, saveArena);
 
             MemorySegment mappedIndex = indexChannel.map(
-                    FileChannel.MapMode.READ_WRITE, currOffsetIndex, indexLength, Arena.ofConfined());
+                    FileChannel.MapMode.READ_WRITE, currOffsetIndex, indexLength, saveArena);
 
             for (var kv : mp.values()) {
                 currOffsetIndex = dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
@@ -205,11 +218,18 @@ public class SSTablesController {
 
                 currOffsetIndex = dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
                 currOffsetSSTable = dumpSegment(mappedSSTable, getValueOrNull(kv), currOffsetSSTable);
-                currOffsetIndex = dumpLong(mappedIndex, getValueOrNull(kv).byteSize(), currOffsetIndex);
+                currOffsetIndex = dumpLong(mappedIndex, rightByteSize(kv), currOffsetIndex);
             }
         } finally {
             arenaForReading.close();
         }
+    }
+
+    private long rightByteSize(Entry<MemorySegment> memSeg) {
+        if (memSeg.value() == null) {
+            return -1;
+        }
+        return memSeg.value().byteSize();
     }
     private MemorySegment getValueOrNull(Entry<MemorySegment> kv) {
         MemorySegment value = kv.value();
