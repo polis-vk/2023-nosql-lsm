@@ -23,14 +23,7 @@ public class PersistentStorage {
             Comparator.comparingInt(ss -> -ss.id)
     );
 
-
-    private static class PersistentStorageCreationException extends RuntimeException {
-        public PersistentStorageCreationException(Throwable cause) {
-            super(cause);
-        }
-    }
-
-    PersistentStorage(Path basePath) throws IOException {
+    PersistentStorage(Path basePath) {
         this.arena = Arena.ofShared();
         this.basePath = basePath;
         try (var sstablesFiles = Files.list(basePath)) {
@@ -39,7 +32,8 @@ public class PersistentStorage {
             ).map(
                 path -> new BinarySearchSSTable(path, arena)).forEach(this.sstables::add);
         } catch (IOException e) {
-            throw new PersistentStorageCreationException(e);
+            System.out.println("Failed reading SSTABLE (probably deleted)");
+            System.out.println(e.toString());
         }
     }
 
