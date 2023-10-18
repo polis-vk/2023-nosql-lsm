@@ -32,7 +32,7 @@ public class SSTable {
         private long currentKeySize = -1;
 
         SSTableIterator(MemorySegment from, MemorySegment to) {
-            indexOffset = from == null? 0 : binarySearch(from);
+            indexOffset = from == null ? 0 : binarySearch(from);
             this.to = to;
         }
 

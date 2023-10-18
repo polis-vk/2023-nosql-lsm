@@ -7,16 +7,16 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.Files;
+import java.nio.file.FileVisitResult;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
-import java.nio.file.Files;
 import java.nio.file.SimpleFileVisitor;
-import java.nio.file.FileVisitResult;
-import java.util.Set;
-import java.util.List;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -176,8 +176,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     private long getAmountOfBytesToStoreKeyAndValue() {
         return storage.values()
                 .stream()
-                .mapToLong(entry ->
-                {
+                .mapToLong(entry -> {
                     long valueSize = (entry.value() == null) ? 0 : entry.value().byteSize();
                     return valueSize + entry.key().byteSize();
                 })
@@ -195,11 +194,11 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     }
 
     private long getNextOffsetAfterInsertion(MemorySegment dataToInsert, long currentOffset) {
-        currentOffset += Long.BYTES;
+        long result = currentOffset + Long.BYTES;
         if (dataToInsert == null) {
-            return currentOffset;
+            return result;
         }
-        return currentOffset + dataToInsert.byteSize();
+        return result + dataToInsert.byteSize();
     }
 
     private List<SSTable> getSSTablesFromMemory(Path path) throws IOException {
