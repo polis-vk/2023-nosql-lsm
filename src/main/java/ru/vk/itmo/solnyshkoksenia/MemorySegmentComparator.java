@@ -1,4 +1,4 @@
-package ru.vk.itmo.test.solnyshkoksenia;
+package ru.vk.itmo.solnyshkoksenia;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
