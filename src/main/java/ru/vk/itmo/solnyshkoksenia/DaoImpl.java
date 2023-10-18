@@ -4,7 +4,6 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.test.solnyshkoksenia.MemorySegmentComparator;
 
 import java.io.File;
 import java.io.IOException;
