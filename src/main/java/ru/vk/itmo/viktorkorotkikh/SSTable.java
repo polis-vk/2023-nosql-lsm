@@ -19,6 +19,7 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public final class SSTable implements Closeable {
@@ -62,7 +63,7 @@ public final class SSTable implements Closeable {
             ssTablePaths = paths.filter(Files::isRegularFile)
                     .filter(filePath -> filePath.getFileName().toString().endsWith(FILE_EXTENSION))
                     .sorted(ssTablePathComparator())
-                    .toList();
+                    .collect(Collectors.toList());
         } catch (NoSuchFileException e) {
             return new ArrayList<>();
         }
