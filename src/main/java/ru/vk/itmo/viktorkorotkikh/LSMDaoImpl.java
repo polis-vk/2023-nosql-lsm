@@ -76,7 +76,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public static final class MemTableIterator extends LSMPointerIterator {
         private final Iterator<Entry<MemorySegment>> iterator;
-        private Entry<MemorySegment> current = null;
+        private Entry<MemorySegment> current;
 
         private MemTableIterator(Iterator<Entry<MemorySegment>> storageIterator) {
             this.iterator = storageIterator;

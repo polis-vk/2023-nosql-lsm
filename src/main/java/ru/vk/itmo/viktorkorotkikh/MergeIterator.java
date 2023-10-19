@@ -83,12 +83,11 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
             }
 
             while (mergeIterator.hasNext()) {
-                if (mergeIterator.isOnTombstone()) {
-                    mergeIterator.next();
-                    continue;
+                if (!mergeIterator.isOnTombstone()) {
+                    haveNext = true;
+                    return true;
                 }
-                haveNext = true;
-                return true;
+                mergeIterator.next();
             }
 
             return false;
