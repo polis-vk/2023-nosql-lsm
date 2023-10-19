@@ -16,6 +16,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.stream.Stream;
@@ -43,12 +44,26 @@ public final class SSTable implements Closeable {
         this.index = index;
     }
 
+    private static Comparator<Path> ssTablePathComparator() {
+        return (p1, p2) -> {
+            String p1Index = p1.getFileName().toString()
+                    .replace(FILE_NAME, "").replace(FILE_EXTENSION, "");
+            String p2Index = p2.getFileName().toString()
+                    .replace(FILE_NAME, "").replace(FILE_EXTENSION, "");
+            if (p1Index.length() < p2Index.length()) {
+                return -1;
+            }
+            return p1Index.compareTo(p2Index);
+        };
+    }
+
     public static List<SSTable> load(Path basePath) throws IOException {
         List<Path> ssTablePaths;
         try (Stream<Path> paths = Files.walk(basePath, 1)) {
             ssTablePaths = paths.filter(Files::isRegularFile)
                     .filter(filePath -> filePath.getFileName().toString().endsWith(FILE_EXTENSION))
-                    .toList().reversed();
+                    .sorted(ssTablePathComparator())
+                    .toList();
         } catch (NoSuchFileException e) {
             return new ArrayList<>();
         }
