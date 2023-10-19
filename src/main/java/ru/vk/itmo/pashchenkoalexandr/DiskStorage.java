@@ -27,7 +27,12 @@ public class DiskStorage {
         }
         iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PaschenkoDao::compare));
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PaschenkoDao::compare)) {
+            @Override
+            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+                return memorySegmentEntry.value() == null;
+            }
+        };
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
@@ -48,7 +53,10 @@ public class DiskStorage {
         long count = 0;
         for (Entry<MemorySegment> entry : iterable) {
             dataSize += entry.key().byteSize();
-            dataSize += entry.value().byteSize();
+            MemorySegment value = entry.value();
+            if (value != null) {
+                dataSize += value.byteSize();
+            }
             count++;
         }
         long indexSize = count * 2 * Long.BYTES;
@@ -98,8 +106,10 @@ public class DiskStorage {
                 dataOffset += key.byteSize();
 
                 MemorySegment value = entry.value();
-                MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
-                dataOffset += value.byteSize();
+                if (value != null) {
+                    MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
+                    dataOffset += value.byteSize();
+                }
             }
         }
 
@@ -125,13 +135,19 @@ public class DiskStorage {
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } else {
+            try {
+                Files.createFile(indexFile);
+            } catch (FileAlreadyExistsException ignored) {
+                // it is ok, actually it is normal state
+            }
         }
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         List<MemorySegment> result = new ArrayList<>(existedFiles.size());
         for (String fileName : existedFiles) {
             Path file = storagePath.resolve(fileName);
-            try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ)) {
+            try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
                 MemorySegment fileSegment = fileChannel.map(
                         FileChannel.MapMode.READ_WRITE,
                         0,
@@ -170,7 +186,7 @@ public class DiskStorage {
                 continue;
             }
 
-            int b1 = Byte.toUnsignedInt(segment.get(ValueLayout.JAVA_BYTE, mismatch));
+            int b1 = Byte.toUnsignedInt(segment.get(ValueLayout.JAVA_BYTE, startOfKey + mismatch));
             int b2 = Byte.toUnsignedInt(key.get(ValueLayout.JAVA_BYTE, mismatch));
             if (b1 > b2) {
                 right = mid - 1;
@@ -194,7 +210,7 @@ public class DiskStorage {
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
         long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
-        long indexSize = indexSize(page);
+        long recordsCount = recordsCount(page);
 
 
         return new Iterator<>() {
@@ -209,13 +225,17 @@ public class DiskStorage {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                MemorySegment key = page.asSlice(startOfKey(page, index), endOfKey(page, index));
+                MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
                 long startOfValue = startOfValue(page, index);
-                MemorySegment value = startOfValue < 0 ? null : page.asSlice(startOfValue, endOfValue(page, index, indexSize));
+                MemorySegment value = startOfValue < 0 ? null : slice(page, startOfValue, endOfValue(page, index, recordsCount));
                 index++;
                 return new BaseEntry<>(key, value);
             }
         };
+    }
+
+    private static MemorySegment slice(MemorySegment page, long start, long end) {
+        return page.asSlice(start, end - start);
     }
 
     private static long startOfKey(MemorySegment segment, long recordIndex) {
@@ -223,15 +243,19 @@ public class DiskStorage {
     }
 
     private static long endOfKey(MemorySegment segment, long recordIndex) {
-        return startOfValue(segment, recordIndex);
+        return normalizedStartOfValue(segment, recordIndex);
+    }
+
+    private static long normalizedStartOfValue(MemorySegment segment, long recordIndex) {
+        return normalize(startOfValue(segment, recordIndex));
     }
 
     private static long startOfValue(MemorySegment segment, long recordIndex) {
-        return normalize(segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES));
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
     }
 
-    private static long endOfValue(MemorySegment segment, long recordIndex, long indexSize) {
-        if (recordIndex < indexSize) {
+    private static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
+        if (recordIndex < recordsCount - 1) {
             return startOfKey(segment, recordIndex + 1);
         }
         return segment.byteSize();

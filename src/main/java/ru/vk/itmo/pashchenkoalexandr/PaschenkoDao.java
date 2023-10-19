@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Comparator;
@@ -25,6 +26,7 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public PaschenkoDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
 
         arena = Arena.ofShared();
 
@@ -76,13 +78,19 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> entry = storage.get(key);
         if (entry != null) {
+            if (entry.value() == null) {
+                return null;
+            }
             return entry;
         }
 
         Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
 
+        if (!iterator.hasNext()) {
+            return null;
+        }
         Entry<MemorySegment> next = iterator.next();
-        if (next.key().equals(key)) {
+        if (compare(next.key(), key) == 0) {
             return next;
         }
         return null;
@@ -96,6 +104,8 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         arena.close();
 
-        DiskStorage.save(path, storage.values());
+        if (!storage.isEmpty()) {
+            DiskStorage.save(path, storage.values());
+        }
     }
 }

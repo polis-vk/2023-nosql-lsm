@@ -52,10 +52,9 @@ public class MergeIterator<T> implements Iterator<T> {
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
-        peekComp.thenComparing(o -> -o.id);
         priorityQueue = new PriorityQueue<>(
                 iterators.size(),
-                peekComp
+                peekComp.thenComparing(o -> -o.id)
         );
 
         int id = 0;
@@ -127,7 +126,9 @@ public class MergeIterator<T> implements Iterator<T> {
         }
         T next = peek.next();
         this.peek = null;
-        priorityQueue.add(peek);
+        if (peek.hasNext()) {
+            priorityQueue.add(peek);
+        }
         return next;
     }
 }
