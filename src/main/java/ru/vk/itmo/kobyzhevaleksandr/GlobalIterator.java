@@ -11,6 +11,9 @@ public class GlobalIterator {
 
     private static final MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
 
+    private GlobalIterator() {
+    }
+
     public static PeekIterator<Entry<MemorySegment>> merge(List<Iterator<Entry<MemorySegment>>> iterators) {
         switch (iterators.size()) {
             case 0 -> {
