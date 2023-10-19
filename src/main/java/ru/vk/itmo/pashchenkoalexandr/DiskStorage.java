@@ -10,10 +10,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
+import java.util.*;
 
 public class DiskStorage {
 
@@ -23,24 +20,14 @@ public class DiskStorage {
         this.segmentList = segmentList;
     }
 
-    public Iterator<Entry<MemorySegment>> range(MemorySegment from, MemorySegment to) {
-        return new Iterator<Entry<MemorySegment>>() {
+    public Iterator<Entry<MemorySegment>> range(Iterator<Entry<MemorySegment>> firstIterator, MemorySegment from, MemorySegment to) {
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        for (MemorySegment memorySegment : segmentList) {
+            iterators.add(iterator(memorySegment, from, to));
+        }
+        iterators.add(firstIterator);
 
-            private final Iterator<Entry<MemorySegment>> left;
-            private final Iterator<Entry<MemorySegment>> right;
-
-
-
-            @Override
-            public boolean hasNext() {
-                return false;
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                return null;
-            }
-        };
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PaschenkoDao::compare));
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
@@ -51,6 +38,7 @@ public class DiskStorage {
         try {
             Files.createFile(indexFile);
         } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
@@ -131,7 +119,7 @@ public class DiskStorage {
         Files.delete(indexTmp);
     }
 
-    private static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
+    public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         Path indexTmp = storagePath.resolve("index.tmp");
         Path indexFile = storagePath.resolve("index.idx");
 
@@ -195,13 +183,19 @@ public class DiskStorage {
     }
 
     private static long recordsCount(MemorySegment segment) {
-        long indexSize = segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        long indexSize = indexSize(segment);
         return indexSize / Long.BYTES / 2;
+    }
+
+    private static long indexSize(MemorySegment segment) {
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
         long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
+        long indexSize = indexSize(page);
+
 
         return new Iterator<>() {
             long index = recordIndexFrom;
@@ -216,7 +210,8 @@ public class DiskStorage {
                     throw new NoSuchElementException();
                 }
                 MemorySegment key = page.asSlice(startOfKey(page, index), endOfKey(page, index));
-                MemorySegment value = page.asSlice(startOfValue(page, index), startOfValue(page, index));
+                long startOfValue = startOfValue(page, index);
+                MemorySegment value = startOfValue < 0 ? null : page.asSlice(startOfValue, endOfValue(page, index, indexSize));
                 index++;
                 return new BaseEntry<>(key, value);
             }
@@ -235,11 +230,11 @@ public class DiskStorage {
         return normalize(segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES));
     }
 
-    private static long endOfValue(MemorySegment segment, long recordIndex, long indexSize, long fileSize) {
+    private static long endOfValue(MemorySegment segment, long recordIndex, long indexSize) {
         if (recordIndex < indexSize) {
             return startOfKey(segment, recordIndex + 1);
         }
-        return fileSize;
+        return segment.byteSize();
     }
 
     private static long tombstone(long offset) {
