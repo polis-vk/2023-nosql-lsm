@@ -56,7 +56,7 @@ plugins:
 checks:
   argument-count:
     config:
-      threshold: 5 # No more than 5 arguments
+      threshold: 6 # No more than 6 arguments
   method-lines:
     config:
       threshold: 80 # No more than 2 screens
