@@ -32,8 +32,7 @@ public class SSTable implements Comparable<SSTable> {
                    Iterable<Entry<MemorySegment>> entriesContainer,
                    boolean rewrite) throws IOException {
         this.tableId = tableId;
-        Path ssTablePath = basePath.resolve(Long.toString(tableId));
-        this.ssTablePath = ssTablePath;
+        ssTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
         Path summaryFilePath = ssTablePath.resolve("summary");
         Path indexFilePath = ssTablePath.resolve("index");
@@ -180,7 +179,6 @@ public class SSTable implements Comparable<SSTable> {
         if (entryId == -1) return null;
         return readEntry(entryId);
     }
-
 
     public DatabaseIterator getRange(MemorySegment from, MemorySegment to) {
         return new SSTableIterator(from, to);
