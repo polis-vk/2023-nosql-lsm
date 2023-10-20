@@ -8,7 +8,7 @@ import ru.vk.itmo.test.DaoFactory;
  * @author andrey.timofeev
  */
 public class PersistentConcurrentTest extends BaseTest {
-    @DaoTest(stage = 3)
+    @DaoTest(stage = 4)
     void testConcurrentRW_2_500_2(Dao<String, Entry<String>> dao) throws Exception {
         int count = 2_500;
         List<Entry<String>> entries = entries("k", "v", count);
