@@ -30,6 +30,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
+    public ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> getDataStore() {
+        return dataStore;
+    }
+
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         dataStore.put(entry.key(), entry);
