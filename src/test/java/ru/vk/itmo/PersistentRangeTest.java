@@ -6,6 +6,7 @@ import ru.vk.itmo.test.DaoFactory;
 import java.io.IOException;
 import java.util.Iterator;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class PersistentRangeTest extends BaseTest {
@@ -238,5 +239,30 @@ public class PersistentRangeTest extends BaseTest {
             assertTrue(all.hasNext());
             assertSame(all.next(), entryAt(entry));
         }
+    }
+
+    @DaoTest(stage = 4)
+    void memoryCemetery(Dao<String, Entry<String>> dao) throws IOException {
+        final int entries = 100_000;
+
+        for (int entry = 0; entry < entries; entry++) {
+            dao.upsert(entry(keyAt(entry), null));
+        }
+
+        dao.close();
+        dao = DaoFactory.Factory.reopen(dao);
+
+        assertFalse(dao.all().hasNext());
+    }
+
+    @DaoTest(stage = 4)
+    void diskCemetery(Dao<String, Entry<String>> dao) throws IOException {
+        final int entries = 100_000;
+
+        for (int entry = 0; entry < entries; entry++) {
+            dao.upsert(entry(keyAt(entry), null));
+        }
+
+        assertFalse(dao.all().hasNext());
     }
 }

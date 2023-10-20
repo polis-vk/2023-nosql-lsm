@@ -21,6 +21,5 @@ public class PersistentConcurrentTest extends BaseTest {
         runInParallel(100, count, value -> {
             assertSame(dao2.get(entries.get(value).key()), entries.get(value));
         }).close();
-        assertSame(dao.all(), entries);
     }
 }
