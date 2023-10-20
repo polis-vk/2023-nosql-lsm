@@ -36,7 +36,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         for (String tableID : ssTablesIds) {
             // SSTable constructor with rewrite=false reads table data from disk if it exists
             tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID),
-                    storage, false));
+                    storage.values(), false));
         }
         tables.sort(SSTable::compareTo);
     }
@@ -84,7 +84,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             lastTimestamp = Math.max(lastTimestamp + 1, System.currentTimeMillis());
             // SSTable constructor with rewrite=true writes MemTable data on disk deleting old data if it exists
             tables.add(new SSTable(config.basePath(), comparator,
-                    lastTimestamp, storage, true));
+                    lastTimestamp, storage.values(), true));
         }
     }
 
