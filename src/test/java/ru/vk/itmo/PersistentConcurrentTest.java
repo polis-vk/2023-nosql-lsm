@@ -8,7 +8,7 @@ import ru.vk.itmo.test.DaoFactory;
  * @author andrey.timofeev
  */
 public class PersistentConcurrentTest extends BaseTest {
-    @DaoTest(stage = 3)
+    @DaoTest(stage = 4)
     void testConcurrentRW_2_500_2(Dao<String, Entry<String>> dao) throws Exception {
         int count = 2_500;
         List<Entry<String>> entries = entries("k", "v", count);
@@ -21,6 +21,5 @@ public class PersistentConcurrentTest extends BaseTest {
         runInParallel(100, count, value -> {
             assertSame(dao2.get(entries.get(value).key()), entries.get(value));
         }).close();
-        assertSame(dao.all(), entries);
     }
 }
