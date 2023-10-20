@@ -2,8 +2,6 @@ package ru.vk.itmo.cheshevandrey;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.pashchenkoalexandr.MergeIterator;
-import ru.vk.itmo.pashchenkoalexandr.PaschenkoDao;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -11,8 +9,16 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 
 public class DiskStorage {
 
@@ -22,7 +28,10 @@ public class DiskStorage {
         this.segmentList = segmentList;
     }
 
-    public Iterator<Entry<MemorySegment>> range(Iterator<Entry<MemorySegment>> firstIterator, MemorySegment from, MemorySegment to) {
+    public Iterator<Entry<MemorySegment>> range(
+            Iterator<Entry<MemorySegment>> firstIterator,
+            MemorySegment from,
+            MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
@@ -39,8 +48,8 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve("index.tmp");
+        final Path indexFile = storagePath.resolve("index.idx");
 
         try {
             Files.createFile(indexFile);
@@ -214,9 +223,9 @@ public class DiskStorage {
         long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
         long recordsCount = recordsCount(page);
 
-
         return new Iterator<>() {
             long index = recordIndexFrom;
+
             @Override
             public boolean hasNext() {
                 return index < recordIndexTo;
@@ -229,7 +238,10 @@ public class DiskStorage {
                 }
                 MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
                 long startOfValue = startOfValue(page, index);
-                MemorySegment value = startOfValue < 0 ? null : slice(page, startOfValue, endOfValue(page, index, recordsCount));
+                MemorySegment value =
+                        startOfValue < 0
+                                ? null
+                                : slice(page, startOfValue, endOfValue(page, index, recordsCount));
                 index++;
                 return new BaseEntry<>(key, value);
             }
@@ -272,4 +284,3 @@ public class DiskStorage {
     }
 
 }
-
