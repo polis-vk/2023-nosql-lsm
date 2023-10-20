@@ -1,4 +1,4 @@
-package ru.vk.itmo.test.volkovnikita;
+package ru.vk.itmo.volkovnikita;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Comparator;
