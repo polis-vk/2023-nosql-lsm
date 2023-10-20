@@ -24,6 +24,7 @@ public class SSTable implements Comparable<SSTable> {
     private final Comparator<MemorySegment> memSegComp;
     private final Arena filesArena = Arena.ofAuto();
     private final long tableId;
+    private final Path ssTablePath;
 
     private final long size;
 
@@ -32,6 +33,7 @@ public class SSTable implements Comparable<SSTable> {
                    boolean rewrite) throws IOException {
         this.tableId = tableId;
         Path ssTablePath = basePath.resolve(Long.toString(tableId));
+        this.ssTablePath = ssTablePath;
         this.memSegComp = memSegComp;
         Path summaryFilePath = ssTablePath.resolve("summary");
         Path indexFilePath = ssTablePath.resolve("index");
@@ -128,6 +130,14 @@ public class SSTable implements Comparable<SSTable> {
         }
     }
 
+    // Deletes all SSTable files from disk. Don't use object after invocation of this method!
+    public void deleteFromDisk() throws IOException {
+        Files.delete(ssTablePath.resolve("summary"));
+        Files.delete(ssTablePath.resolve("index"));
+        Files.delete(ssTablePath.resolve("data"));
+        Files.delete(ssTablePath);
+    }
+
     private Range readRange(MemorySegment segment, long offset) {
         return new Range(segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset),
                 segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + Long.BYTES));
@@ -170,6 +180,7 @@ public class SSTable implements Comparable<SSTable> {
         if (entryId == -1) return null;
         return readEntry(entryId);
     }
+
 
     public DatabaseIterator getRange(MemorySegment from, MemorySegment to) {
         return new SSTableIterator(from, to);

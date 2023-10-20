@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
     public static final MemorySegment DELETED_VALUE = null;
     private final Config config;
     private final List<SSTable> tables = new ArrayList<>();
@@ -56,6 +56,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return entry;
     }
 
+    private void updateId() {
+        lastTimestamp = Math.max(lastTimestamp + 1, System.currentTimeMillis());
+    }
+
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> ans = storage.get(key);
@@ -81,16 +85,33 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         if (!storage.isEmpty()) {
-            lastTimestamp = Math.max(lastTimestamp + 1, System.currentTimeMillis());
+            updateId();
             // SSTable constructor with rewrite=true writes MemTable data on disk deleting old data if it exists
             tables.add(new SSTable(config.basePath(), comparator,
                     lastTimestamp, storage.values(), true));
+            storage.clear();
         }
     }
 
     @Override
     public void close() throws IOException {
         flush();
+    }
+
+    public void compact() throws IOException {
+        updateId();
+        SSTable compactedTable = new SSTable(config.basePath(), comparator, lastTimestamp,
+                this, true);
+        for (SSTable table: tables) {
+            table.deleteFromDisk();
+        }
+        storage.clear();
+        tables.add(compactedTable);
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> iterator() {
+        return get(null, null);
     }
 
     private static class MemSegComparator implements Comparator<MemorySegment> {
