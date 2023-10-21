@@ -22,6 +22,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
+    private final Compactor compactor;
     private final Path path;
 
     public InMemoryDao(Config config) throws IOException {
@@ -31,6 +32,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena = Arena.ofShared();
 
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        this.compactor = new Compactor(path);
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -94,6 +96,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return next;
         }
         return null;
+    }
+
+    @Override
+    public void compact() throws IOException {
+        compactor.compact(get(null, null));
     }
 
     @Override

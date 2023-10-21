@@ -19,6 +19,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Collections;
 
 public class DiskStorage {
 
@@ -26,6 +27,35 @@ public class DiskStorage {
 
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
+    }
+
+    public static void resetStateAfterCompact(Path storagePath) throws IOException {
+        Path indexTmp = storagePath.resolve("index.tmp");
+        Path indexFile = storagePath.resolve("index.idx");
+
+        try {
+            Files.createFile(indexFile);
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
+        }
+
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        if (existedFiles.size() < 2) {
+            return;
+        }
+
+        for (int i = existedFiles.size() - 2; i >= 0; i--) {
+            Path currentPath = storagePath.resolve(existedFiles.get(i));
+            Files.delete(currentPath);
+        }
+
+        String newCompactFileName = "0";
+        String lastFileName = String.valueOf(existedFiles.size() - 1);
+
+        Files.move(storagePath.resolve(lastFileName), storagePath.resolve(newCompactFileName),
+                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+
+        updateIndexFile(indexFile, indexTmp, Collections.emptyList(), newCompactFileName);
     }
 
     public Iterator<Entry<MemorySegment>> range(
@@ -46,18 +76,17 @@ public class DiskStorage {
         };
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
-            throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
+        Path indexTmp = storagePath.resolve("index.tmp");
+        Path indexFile = storagePath.resolve("index.idx");
 
         try {
             Files.createFile(indexFile);
         } catch (FileAlreadyExistsException ignored) {
             // it is ok, actually it is normal state
         }
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         String newFileName = String.valueOf(existedFiles.size());
 
         long dataSize = 0;
@@ -123,6 +152,13 @@ public class DiskStorage {
                 }
             }
         }
+
+        updateIndexFile(indexFile, indexTmp, existedFiles, newFileName);
+    }
+
+    private static void updateIndexFile(Path indexFile, Path indexTmp, List<String> existedFiles, String newFileName)
+            throws IOException
+    {
 
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
