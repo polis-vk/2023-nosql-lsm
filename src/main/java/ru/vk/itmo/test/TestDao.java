@@ -81,6 +81,11 @@ class TestDao<Data, E extends Entry<Data>> implements Dao<String, Entry<String>>
     }
 
     @Override
+    public void compact() throws IOException {
+        delegate.compact();
+    }
+
+    @Override
     public void close() throws IOException {
         if (delegate != null) {
             delegate.close();
