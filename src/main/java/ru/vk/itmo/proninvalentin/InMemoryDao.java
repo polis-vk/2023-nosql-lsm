@@ -59,7 +59,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         memorySegments.put(entry.key(), entry);
         entriesSize += 2 * Long.BYTES;
         entriesSize += entry.key().byteSize();
-        entriesSize += entry.value().byteSize();
+        entriesSize += entry.value() == null ? 0 : entry.value().byteSize();
     }
 
     public void clear() {
