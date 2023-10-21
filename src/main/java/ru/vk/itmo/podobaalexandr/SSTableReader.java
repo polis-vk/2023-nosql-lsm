@@ -1,36 +1,44 @@
 package ru.vk.itmo.podobaalexandr;
 
 import ru.vk.itmo.Entry;
-
-import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
-import java.util.NavigableMap;
-import java.util.TreeMap;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.stream.Stream;
+import java.util.SequencedCollection;
 
-public class SSTableReader implements Closeable {
+public class SSTableReader implements AutoCloseable {
 
     private final List<SSTable> ssTables = new ArrayList<>();
+
     private Arena arena;
 
-    public SSTableReader(Path filePath) {
+    public SSTableReader(Path filePath, Path indexFile, Path indexTemp) {
         boolean created = false;
 
         if (Files.exists(filePath)) {
+
             arena = Arena.ofShared();
-            try (Stream<Path> stream = Files.list(filePath)) {
-                List<Path> files = stream.sorted().toList();
-                for (Path file : files) {
-                    SSTable ssTable = new SSTable(file, arena);
+            try {
+                if (Files.exists(indexTemp)) {
+                    Files.move(indexTemp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                }
+
+                if (!Files.exists(indexFile)) {
+                    Files.createFile(indexFile);
+                }
+
+                List<String> files = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+                for (String file : files) {
+                    SSTable ssTable = new SSTable(filePath.resolve(file), arena);
                     ssTables.addFirst(ssTable);
                     created = true;
                 }
@@ -46,8 +54,12 @@ public class SSTableReader implements Closeable {
 
     }
 
-    public int size() {
+    public int ssTablesCount() {
         return ssTables.size();
+    }
+
+    public boolean isEmptySSTables() {
+        return ssTablesCount() == 0;
     }
 
     public Entry<MemorySegment> get(MemorySegment keySearch) {
@@ -67,59 +79,16 @@ public class SSTableReader implements Closeable {
         return res;
     }
 
-    public Collection<Entry<MemorySegment>> allPagesFromTo(MemorySegment from, MemorySegment to,
-                                ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map) {
-        if (size() == 0 || MemorySegmentUtils.compareSegments(from, from.byteSize(), to, 0, to.byteSize()) >= 0) {
-            return map.values();
-        }
-
-        NavigableMap<MemorySegment, Entry<MemorySegment>> entries = new TreeMap<>(map);
-        for (SSTable ssTable : ssTables) {
-            ssTable.allPageFromTo(entries, Long.BYTES, from, to);
-        }
-
-        return entries.values();
-    }
-
-    public Collection<Entry<MemorySegment>> allPagesTo(MemorySegment to,
-            ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map) {
-        if (size() == 0) {
-            return map.values();
-        }
-
-        NavigableMap<MemorySegment, Entry<MemorySegment>> entries = new TreeMap<>(map);
+    public Collection<Iterator<Entry<MemorySegment>>> iterators(MemorySegment from, MemorySegment to) {
+        SequencedCollection<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
         for (SSTable ssTable: ssTables) {
-            ssTable.allPageTo(entries, Long.BYTES, to);
+            Iterator<Entry<MemorySegment>> iterator = ssTable.iterator(from, to);
+            if (iterator.hasNext()) {
+                iterators.add(iterator);
+            }
         }
 
-        return entries.values();
-    }
-
-    public Collection<Entry<MemorySegment>> allPagesFrom(MemorySegment from,
-            ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map) {
-        if (size() == 0) {
-            return map.values();
-        }
-
-        NavigableMap<MemorySegment, Entry<MemorySegment>> entries = new TreeMap<>(map);
-        for (SSTable ssTable: ssTables) {
-            ssTable.allPageFrom(entries, Long.BYTES, from);
-        }
-
-        return entries.values();
-    }
-
-    public Collection<Entry<MemorySegment>> allPages(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map) {
-        if (size() == 0) {
-            return map.values();
-        }
-
-        NavigableMap<MemorySegment, Entry<MemorySegment>> entries = new TreeMap<>(map);
-        for (SSTable ssTable: ssTables) {
-            ssTable.allPage(entries, Long.BYTES);
-        }
-
-        return entries.values();
+        return iterators;
     }
 
     @Override

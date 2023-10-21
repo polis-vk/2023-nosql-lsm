@@ -3,126 +3,99 @@ package ru.vk.itmo.podobaalexandr;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Iterator;
+import java.util.List;
 
 public class SSTableWriter {
 
-    private final String fileName;
-    private final Path filePath;
-    private long offsetV;
+    protected static final StandardOpenOption[] options
+            = {StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE};
 
-    public SSTableWriter(Path path, int fileCount) {
+    private final Path filePath;
+    private final Path indexFile;
+    private final Path indexTemp;
+
+    public SSTableWriter(Path path, Path indexFile, Path indexTemp) {
         filePath = path;
-        fileName = "database_" + String.format("%010d", fileCount);
+
+        this.indexFile = indexFile;
+        this.indexTemp = indexTemp;
     }
 
-    public void save(Collection<Entry<MemorySegment>> entries) {
-        long offsetK = 0L;
+    public void save(Collection<Entry<MemorySegment>> entries) throws IOException {
+        if (entries.isEmpty()) {
+            return;
+        }
+
+        if (!Files.exists(indexFile)) {
+            Files.createFile(indexFile);
+        }
+
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        String fileName = String.valueOf(existedFiles.size());
+
+        long indexSize = 0L;
+        long dataSize = 0L;
 
         for (Entry<MemorySegment> entry : entries) {
-            offsetK += entry.key().byteSize() + 3 * Long.BYTES + Byte.BYTES;
-            offsetV += entry.value() == null ? 0 : entry.value().byteSize();
+            MemorySegment value = entry.value();
+            MemorySegment key = entry.key();
+
+            dataSize += key.byteSize() + (value == null ? 0 : value.byteSize());
+            indexSize += 2 * Long.BYTES;
         }
-
-        offsetK += Long.BYTES;
-        offsetV += offsetK;
-
-        try {
-            if (!Files.exists(filePath)) {
-                Files.createDirectory(filePath);
-            }
-            if (!entries.isEmpty()) {
-                sureSave(entries, offsetK);
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
-    private void sureSave(Collection<Entry<MemorySegment>> entries, long offsetK) {
-        StandardOpenOption[] options = {StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE};
 
         try (Arena arenaWrite = Arena.ofConfined();
-             FileChannel fileChannel = FileChannel.open(filePath.resolve(String.valueOf(fileName)), options)) {
+             FileChannel fileChannel = FileChannel.open(filePath.resolve(fileName), options)) {
 
             MemorySegment fileSegment = fileChannel
-                    .map(FileChannel.MapMode.READ_WRITE, 0, offsetV, arenaWrite);
+                    .map(FileChannel.MapMode.READ_WRITE, 0, indexSize + dataSize, arenaWrite);
 
-            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, offsetK);
-            log2Save(0, entries.size() - 1, fileSegment, entries.iterator(), offsetK);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
+            long offset = 0L;
+            long dataOffset = indexSize;
 
-    private long log2Save(int lo, int hi, MemorySegment fileSegment, Iterator<Entry<MemorySegment>> iterator,
-                          long startOffsetKey) {
-        if (hi < lo) {
-            return -1;
-        }
+            for (Entry<MemorySegment> entry : entries) {
+                MemorySegment key = entry.key();
+                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, dataOffset);
+                offset += Long.BYTES;
+                dataOffset += key.byteSize();
 
-        int mid = (lo + hi) >>> 1;
-
-        long offsetL = 0L;
-        long offsetR = 0L;
-
-        if (lo < mid) {
-            offsetL = log2Save(lo, mid - 1, fileSegment, iterator, startOffsetKey);
-        }
-
-        Entry<MemorySegment> entry = iterator.next();
-
-        if (mid < hi) {
-            offsetR = log2Save(mid + 1, hi, fileSegment, iterator, offsetL == 0 ? startOffsetKey : offsetL);
-        }
-
-        MemorySegment value = entry.value();
-
-        if (value != null) {
-            offsetV -= value.byteSize();
-            MemorySegment.copy(value, 0, fileSegment, offsetV, value.byteSize());
-        }
-
-        byte offsetToR = (byte) (offsetR == 0 ? 0 : 1);
-
-        long offsetKey;
-        if (offsetR == 0) {
-            if (offsetL == 0) {
-                offsetKey = startOffsetKey;
-            } else {
-                offsetKey = offsetL;
+                MemorySegment value = entry.value();
+                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, value == null ? -1 : dataOffset);
+                offset += Long.BYTES;
+                dataOffset += value == null ? 0 : value.byteSize();
             }
-        } else {
-            offsetKey = offsetR;
+
+            for (Entry<MemorySegment> entry : entries) {
+                MemorySegment key = entry.key();
+                MemorySegment.copy(key, 0, fileSegment, offset, key.byteSize());
+                offset += key.byteSize();
+
+                MemorySegment value = entry.value();
+                if (value != null) {
+                    MemorySegment.copy(value, 0, fileSegment, offset, value.byteSize());
+                    offset += value.byteSize();
+                }
+            }
+
         }
 
-        offsetKey -= Byte.BYTES;
-        fileSegment.set(ValueLayout.JAVA_BYTE, offsetKey, offsetToR);
+        Files.move(indexFile, indexTemp);
 
-        offsetKey -= Long.BYTES;
-        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKey, offsetL);
+        List<String> info = new ArrayList<>(existedFiles.size() + 1);
+        info.addAll(existedFiles);
+        info.add(fileName);
+        Files.write(indexFile, info, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
-        offsetKey -= Long.BYTES;
-        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKey, value == null ? 0 : offsetV);
-
-        MemorySegment key = entry.key();
-
-        offsetKey -= key.byteSize();
-        MemorySegment.copy(key, 0, fileSegment, offsetKey, key.byteSize());
-
-        offsetKey -= Long.BYTES;
-        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetKey, key.byteSize());
-
-        return offsetKey;
+        Files.delete(indexTemp);
     }
-
 }

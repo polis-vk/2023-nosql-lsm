@@ -1,5 +1,6 @@
 package ru.vk.itmo.podobaalexandr;
 
+import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
@@ -10,218 +11,154 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.NavigableMap;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 
-public class SSTable {
+/**
+ * Description:
+ *  N - number of entries
+ * Look of SSTable:
+ *                      -------------------------------------
+ *                         |offSetToKey_0||offsetToValue_0|
+ *   indexes:                          .....
+ *                      |offSetToKey_N-1||offsetToValue_N-1|
+ *                      ------------------------------------
+ *                               |key_0||value_0|
+ *   data:                             .....
+ *                             |key_N-1||value_N-1|
+ *                      ------------------------------------
+ */
 
-    private final long keysSize;
+public class SSTable implements Iterable<Entry<MemorySegment>> {
 
     private final MemorySegment page;
+    private final long entriesCount;
+    private final long size;
 
     public SSTable(Path file, Arena arena) throws IOException {
         try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ)) {
-            long size = Files.size(file);
+            size = Files.size(file);
             page = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
         }
 
-        keysSize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        entriesCount = page.get(ValueLayout.JAVA_LONG_UNALIGNED, 0) / 2 / Long.BYTES;
     }
 
-    private boolean isOutOfKeyOffset(long offset) {
-        return keysSize <= offset || offset == 0;
-    }
-
-    //Invariant: FROM < TO
-    public void allPageFromTo(NavigableMap<MemorySegment, Entry<MemorySegment>> entries,
-                               long offset, MemorySegment from, MemorySegment to) {
-        if (isOutOfKeyOffset(offset)) {
-            return;
-        }
-
-        Entry<MemorySegment> last;
-        long offsetLocal = offset;
-
-        long keySize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-        offsetLocal += Long.BYTES;
-
-        int compareFrom = MemorySegmentUtils
-                .compareSegments(from, from.byteSize(), page, offsetLocal, offsetLocal + keySize);
-        int compareTo = MemorySegmentUtils
-                .compareSegments(to, to.byteSize(), page, offsetLocal, offsetLocal + keySize);
-
-        if (compareFrom < 0 && compareTo > 0) {
-            last = MemorySegmentUtils.getKeyValueFromOffset(page, offsetLocal, keySize, keysSize);
-            offsetLocal += keySize + Long.BYTES;
-
-            long offsetToL = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-            allPageFrom(entries, offsetToL, from);
-            offsetLocal += Long.BYTES;
-
-            entries.putIfAbsent(last.key(), last);
-
-            byte isRightHere = page.get(ValueLayout.JAVA_BYTE, offsetLocal);
-            long rightOffset = isRightHere == 1 ? offsetLocal + Byte.BYTES : 0;
-            allPageTo(entries, rightOffset, to);
-        } else if (compareFrom == 0) {
-            last = MemorySegmentUtils.getKeyValueFromOffset(page, offsetLocal, keySize, keysSize);
-            offsetLocal += keySize + 2 * Long.BYTES;
-
-            entries.putIfAbsent(last.key(), last);
-            long rightOffset = page.get(ValueLayout.JAVA_BYTE, offsetLocal) == 1 ? offsetLocal + Byte.BYTES : 0;
-            allPageTo(entries, rightOffset, to);
-        } else if (compareTo == 0) {
-            offsetLocal += keySize + Long.BYTES;
-            long offsetToL = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-            allPageFrom(entries, offsetToL, from);
-        } else if (compareFrom > 0) {
-            offsetLocal += keySize + 2 * Long.BYTES;
-            long rightOffset = page.get(ValueLayout.JAVA_BYTE, offsetLocal) == 1 ? offsetLocal + Byte.BYTES : 0;
-            allPageFromTo(entries, rightOffset, from, to);
-        } else {
-            offsetLocal += keySize + Long.BYTES;
-            long offsetToL = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-            allPageFromTo(entries, offsetToL, from, to);
-        }
-    }
-
-    public void allPageTo(NavigableMap<MemorySegment, Entry<MemorySegment>> entries,
-                           long offset, MemorySegment to) {
-        if (isOutOfKeyOffset(offset)) {
-            return;
-        }
-
-        Entry<MemorySegment> last;
-        long offsetLocal = offset;
-
-        long keySize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-        offsetLocal += Long.BYTES;
-
-        int compare = MemorySegmentUtils
-                .compareSegments(to, to.byteSize(), page, offsetLocal, offsetLocal + keySize);
-
-        if (compare == 0) {
-            offsetLocal += keySize + Long.BYTES;
-
-            long offsetToL = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-            allPage(entries, offsetToL);
-        } else if (compare > 0) {
-            last = MemorySegmentUtils.getKeyValueFromOffset(page, offsetLocal, keySize, keysSize);
-            offsetLocal += keySize + Long.BYTES;
-
-            long offsetToL = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-            offsetLocal += Long.BYTES;
-
-            allPage(entries, offsetToL);
-
-            entries.putIfAbsent(last.key(), last);
-
-            byte isRightHere = page.get(ValueLayout.JAVA_BYTE, offsetLocal);
-            allPageTo(entries, isRightHere == 1 ? offsetLocal + Byte.BYTES : 0, to);
-        } else {
-            offsetLocal += keySize + Long.BYTES;
-
-            long offsetToL = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-            allPageTo(entries, offsetToL, to);
-        }
-    }
-
-    public void allPageFrom(NavigableMap<MemorySegment, Entry<MemorySegment>> entries,
-                            long offset, MemorySegment from) {
-        if (isOutOfKeyOffset(offset)) {
-            return;
-        }
-
-        Entry<MemorySegment> last;
-        long offsetLocal = offset;
-
-        long keySize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-        offsetLocal += Long.BYTES;
-
-        int compare = MemorySegmentUtils
-                .compareSegments(from, from.byteSize(), page, offsetLocal, offsetLocal + keySize);
-
-        if (compare == 0) {
-            last = MemorySegmentUtils.getKeyValueFromOffset(page, offsetLocal, keySize, keysSize);
-            offsetLocal += 2 * Long.BYTES + keySize;
-
-            entries.putIfAbsent(last.key(), last);
-
-            byte isRightHere = page.get(ValueLayout.JAVA_BYTE, offsetLocal);
-            allPage(entries, isRightHere == 1 ? offsetLocal + Byte.BYTES : 0);
-        } else if (compare > 0) {
-            offsetLocal += keySize + 2 * Long.BYTES;
-            byte isRightHere = page.get(ValueLayout.JAVA_BYTE, offsetLocal);
-            allPageFrom(entries, isRightHere == 1 ? offsetLocal + Byte.BYTES : 0, from);
-        } else {
-            last = MemorySegmentUtils.getKeyValueFromOffset(page, offsetLocal, keySize, keysSize);
-            offsetLocal += keySize + Long.BYTES;
-
-            long offsetToL = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-            allPageFrom(entries, offsetToL, from);
-            offsetLocal += Long.BYTES;
-
-            entries.putIfAbsent(last.key(), last);
-
-            byte isRightHere = page.get(ValueLayout.JAVA_BYTE, offsetLocal);
-            allPage(entries, isRightHere == 1 ? offsetLocal + Byte.BYTES : 0);
-        }
-    }
-
-    public void allPage(NavigableMap<MemorySegment, Entry<MemorySegment>> entries, long offset) {
-        if (isOutOfKeyOffset(offset)) {
-            return;
-        }
-
-        Entry<MemorySegment> last;
-        long offsetLocal = offset;
-
-        long keySize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-        offsetLocal += Long.BYTES;
-
-        last = MemorySegmentUtils.getKeyValueFromOffset(page, offsetLocal, keySize, keysSize);
-
-        offsetLocal += keySize + Long.BYTES;
-        long offsetToL = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetLocal);
-        allPage(entries, offsetToL);
-
-        entries.putIfAbsent(last.key(), last);
-
-        offsetLocal += Long.BYTES;
-        byte isRightHere = page.get(ValueLayout.JAVA_BYTE, offsetLocal);
-        allPage(entries, isRightHere == 1 ? offsetLocal + Byte.BYTES : 0);
+    public long getSize() {
+        return size;
     }
 
     public Entry<MemorySegment> getFromPage(MemorySegment keySearch) {
-        long offset = Long.BYTES;
-        Entry<MemorySegment> res = null;
+        long resultIndex = getIndexFromPage(keySearch, false);
+        return resultIndex == entriesCount ? null : getEntryFromIndex(resultIndex);
+    }
 
-        while (offset < keysSize) {
-            long keySize = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
+    private long getIndexFromPage(MemorySegment keySearch, boolean isBorder) {
 
-            int compare = MemorySegmentUtils
-                    .compareSegments(keySearch, keySearch.byteSize(), page, offset, offset + keySize);
+        long lo = 0;
+        long hi = entriesCount - 1;
+
+        int compare;
+
+        while (lo <= hi) {
+            long mid = (lo + hi) >>> 1;
+
+            long keyOffset = getKeyOffset(mid);
+            compare = MemorySegmentUtils.compareSegments(
+                    keySearch,
+                    keySearch.byteSize(),
+                    page,
+                    keyOffset,
+                    keyOffset + getKeySize(mid)
+            );
 
             if (compare == 0) {
-                res = MemorySegmentUtils.getKeyValueFromOffset(page, offset, keySize, keysSize);
-                break;
+                return mid;
             } else if (compare > 0) {
-                offset += keySize + 2 * Long.BYTES;
-                byte isRightExist = page.get(ValueLayout.JAVA_BYTE, offset);
-                if (isRightExist == 0) {
-                    return null;
-                }
-                offset += Byte.BYTES;
+                lo = mid + 1;
             } else {
-                offset += keySize + Long.BYTES;
-                offset = page.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                if (offset == 0) {
-                    return null;
-                }
+                hi = mid - 1;
             }
         }
 
-        return res;
+        return isBorder ? lo : entriesCount;
+    }
+
+    private Entry<MemorySegment> getEntryFromIndex(long index) {
+        MemorySegment key;
+        MemorySegment value;
+
+        long keyOffset = getKeyOffset(index);
+        long valueOffset = getValueOffset(index);
+
+        if (valueOffset == -1) {
+            if (index == entriesCount - 1) {
+                key = page.asSlice(keyOffset);
+            } else {
+                key = page.asSlice(keyOffset, getKeyOffset(index + 1) - keyOffset);
+            }
+            return new BaseEntry<>(key, null);
+        }
+
+        long keySize = valueOffset - keyOffset;
+        key = page.asSlice(keyOffset, keySize);
+        if (index == entriesCount - 1) {
+            value = page.asSlice(valueOffset);
+        } else {
+            value = page.asSlice(valueOffset, getKeyOffset(index + 1) - valueOffset);
+        }
+
+        return new BaseEntry<>(key, value);
+    }
+
+    private long getKeyOffset(long index) {
+        return page.get(ValueLayout.JAVA_LONG_UNALIGNED, index * 2 * Long.BYTES);
+    }
+
+    private long getValueOffset(long index) {
+        return page.get(ValueLayout.JAVA_LONG_UNALIGNED, index * 2 * Long.BYTES + Long.BYTES);
+    }
+
+    private long getKeySize(long index) {
+        long keyOffset = getKeyOffset(index);
+        long valueOffset = getValueOffset(index);
+        if (valueOffset == -1) {
+            if (index == entriesCount - 1) {
+                return page.byteSize() - keyOffset;
+            }
+
+            return getKeyOffset(index + 1) - keyOffset;
+        }
+
+        return valueOffset - keyOffset;
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> iterator() {
+        return iterator(null, null);
+    }
+
+    public Iterator<Entry<MemorySegment>> iterator(MemorySegment from, MemorySegment to) {
+        long fromIndex = from == null ? 0 : getIndexFromPage(from, true);
+        long toIndex = to == null ? entriesCount : getIndexFromPage(to, true);
+
+        return new Iterator<>() {
+
+            long current = fromIndex;
+
+            @Override
+            public boolean hasNext() {
+                return current < toIndex;
+            }
+
+            @Override
+            public Entry<MemorySegment> next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                return getEntryFromIndex(current++);
+            }
+        };
     }
 
 }
