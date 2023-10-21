@@ -1,22 +1,20 @@
-package ru.vk.itmo.test.svistukhinandrey;
+package ru.vk.itmo.test.smirnovandrew;
 
-import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.svistukhinandrey.PersistentDao;
+import ru.vk.itmo.smirnovandrew.MemorySegmentDao;
 import ru.vk.itmo.test.DaoFactory;
 
-import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 2)
-public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+@DaoFactory
+public class MyFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new PersistentDao(config);
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
+        return new MemorySegmentDao();
     }
 
     @Override
@@ -24,7 +22,6 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
         if (memorySegment == null) {
             return null;
         }
-
         return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
@@ -33,7 +30,6 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
         if (data == null) {
             return null;
         }
-
         return MemorySegment.ofArray(data.getBytes(StandardCharsets.UTF_8));
     }
 
