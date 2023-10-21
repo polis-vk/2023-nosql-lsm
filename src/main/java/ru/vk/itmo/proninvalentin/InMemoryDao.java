@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegments;
+    private long entriesSize = 0L;
 
     public InMemoryDao() {
         memorySegments = new ConcurrentSkipListMap<>(MemorySegmentComparator.getInstance());
@@ -56,5 +57,20 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         memorySegments.put(entry.key(), entry);
+        entriesSize += 2 * Long.BYTES;
+        entriesSize += entry.key().byteSize();
+        entriesSize += entry.value().byteSize();
+    }
+
+    public void clear() {
+        memorySegments.clear();
+    }
+
+    public int entriesCount() {
+        return memorySegments.size();
+    }
+
+    public long entriesSize() {
+        return entriesSize;
     }
 }

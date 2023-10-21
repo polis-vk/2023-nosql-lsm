@@ -8,6 +8,7 @@ import ru.vk.itmo.proninvalentin.iterators.PeekingPriorityIterator;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
@@ -47,7 +48,10 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        List<PeekingPriorityIterator> inFileIterators = fileDao.getFileIterators(from, to);
+        List<PeekingPriorityIterator> inFileIterators = Collections.emptyList();
+        if (fileDao != null) {
+            inFileIterators = fileDao.getFileIterators(from, to);
+        }
         return new MergeIterator(inMemoryDao.get(from, to), inFileIterators);
     }
 
@@ -62,5 +66,14 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
             fileDao.write(inMemoryDao);
             fileDao.close();
         }
+    }
+
+    @Override
+    public void compact() throws IOException {
+        if (fileDao == null) {
+            return;
+        }
+        fileDao.compact(get(null, null), inMemoryDao.entriesCount(), inMemoryDao.entriesSize());
+        inMemoryDao.clear();
     }
 }

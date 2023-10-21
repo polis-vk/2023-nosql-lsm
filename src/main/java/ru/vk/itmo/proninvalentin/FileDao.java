@@ -38,7 +38,6 @@ public class FileDao implements Closeable {
     private final List<MemorySegment> readOffsetsMSStorage;
     private final Arena readArena;
     private final Path basePath;
-    private long countOfMemorySegments;
 
     public FileDao(Config config) throws IOException {
         basePath = config.basePath();
@@ -126,8 +125,10 @@ public class FileDao implements Closeable {
         if (!inMemoryDao.all().hasNext()) {
             return;
         }
-        String writeValuesFileName = FileUtils.getNewFileName(basePath, VALUES_FILENAME_PREFIX);
-        String writeOffsetsFileName = FileUtils.getNewFileName(basePath, OFFSETS_FILENAME_PREFIX);
+
+        int newFileIndex = FileUtils.getNewFileName(basePath);
+        String writeValuesFileName = VALUES_FILENAME_PREFIX + newFileIndex;
+        String writeOffsetsFileName = OFFSETS_FILENAME_PREFIX + newFileIndex;
         Path writeValuesFilePath = basePath.resolve(writeValuesFileName);
         Path writeOffsetsFilePath = basePath.resolve(writeOffsetsFileName);
 
@@ -146,12 +147,14 @@ public class FileDao implements Closeable {
             try (Arena arena = Arena.ofConfined()) {
                 long valueOffset = 0L;
                 long entryOffset = 0L;
-                MemorySegment valuesMS = getValuesMS(inMemoryDao.all(), valuesChannel, arena);
-                MemorySegment offsetsMS = getOffsetsMS(offsetsChannel, arena);
+                long countOfMemorySegments = countMemorySegments(inMemoryDao.all());
 
-                Iterator<Entry<MemorySegment>> it = inMemoryDao.all();
-                while (it.hasNext()) {
-                    Entry<MemorySegment> entry = it.next();
+                MemorySegment valuesMS = getValuesMS(inMemoryDao.all(), valuesChannel, arena, countOfMemorySegments);
+                MemorySegment offsetsMS = getOffsetsMS(offsetsChannel, arena, countOfMemorySegments);
+
+                Iterator<Entry<MemorySegment>> msIterator = inMemoryDao.all();
+                while (msIterator.hasNext()) {
+                    Entry<MemorySegment> entry = msIterator.next();
                     entryOffset = MemorySegmentUtils.writeEntryOffset(
                             valueOffset, offsetsMS, entryOffset);
                     valueOffset = MemorySegmentUtils.writeEntry(entry, valuesMS, valueOffset);
@@ -160,9 +163,75 @@ public class FileDao implements Closeable {
         }
     }
 
+    void compact(Iterator<Entry<MemorySegment>> mergeIterator, long entriesCount, long entriesSize) throws IOException {
+        long totalValuesFilesSize = entriesSize;
+        long totalOffsetsFilesSize = Long.BYTES * entriesCount;
+
+        for (int i = 0; i < readValuesMSStorage.size(); i++) {
+            totalValuesFilesSize += readValuesMSStorage.get(i).byteSize();
+            totalOffsetsFilesSize += readOffsetsMSStorage.get(i).byteSize();
+        }
+
+        int newFileIndex = FileUtils.getNewFileName(basePath);
+        String writeValuesFileName = VALUES_FILENAME_PREFIX + newFileIndex;
+        String writeOffsetsFileName = OFFSETS_FILENAME_PREFIX + newFileIndex;
+        Path writeValuesFilePath = basePath.resolve(writeValuesFileName);
+        Path writeOffsetsFilePath = basePath.resolve(writeOffsetsFileName);
+
+        try (FileChannel valuesChannel = FileChannel.open(
+                writeValuesFilePath,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE);
+             FileChannel offsetsChannel = FileChannel.open(
+                     writeOffsetsFilePath,
+                     StandardOpenOption.CREATE,
+                     StandardOpenOption.READ,
+                     StandardOpenOption.WRITE)) {
+            try (Arena arena = Arena.ofConfined()) {
+                long valueOffset = 0L;
+                long entryOffset = 0L;
+
+                MemorySegment valuesMS = valuesChannel.map(
+                        FileChannel.MapMode.READ_WRITE,
+                        0,
+                        totalValuesFilesSize,
+                        arena
+                );
+                MemorySegment offsetsMS = offsetsChannel.map(
+                        FileChannel.MapMode.READ_WRITE,
+                        0,
+                        totalOffsetsFilesSize,
+                        arena
+                );
+
+                while (mergeIterator.hasNext()) {
+                    Entry<MemorySegment> entry = mergeIterator.next();
+                    entryOffset = MemorySegmentUtils.writeEntryOffset(valueOffset, offsetsMS, entryOffset);
+                    valueOffset = MemorySegmentUtils.writeEntry(entry, valuesMS, valueOffset);
+                }
+
+                valuesChannel.truncate(valueOffset);
+                offsetsChannel.truncate(entryOffset);
+            }
+        }
+        FileUtils.deleteFilesOldFiles(basePath, VALUES_FILENAME_PREFIX, newFileIndex);
+        FileUtils.deleteFilesOldFiles(basePath, OFFSETS_FILENAME_PREFIX, newFileIndex);
+    }
+
+    private long countMemorySegments(Iterator<Entry<MemorySegment>> entryIterator) {
+        long countOfMemorySegments = 0L;
+        while (entryIterator.hasNext()) {
+            countOfMemorySegments++;
+            entryIterator.next();
+        }
+        return countOfMemorySegments;
+    }
+
     private MemorySegment getValuesMS(Iterator<Entry<MemorySegment>> valuesInMemory,
                                       FileChannel valuesChannel,
-                                      Arena arena) throws IOException {
+                                      Arena arena,
+                                      long countOfMemorySegments) throws IOException {
         long keysSize = 0L;
         long valuesSize = 0L;
 
@@ -172,7 +241,6 @@ public class FileDao implements Closeable {
             if (v.value() != null) {
                 valuesSize += v.value().byteSize();
             }
-            countOfMemorySegments++;
         }
 
         long inMemoryDataSize = 2L * Long.BYTES * countOfMemorySegments + keysSize + valuesSize;
@@ -180,7 +248,8 @@ public class FileDao implements Closeable {
     }
 
     private MemorySegment getOffsetsMS(FileChannel offsetsChannel,
-                                       Arena arena) throws IOException {
+                                       Arena arena,
+                                       long countOfMemorySegments) throws IOException {
         long inMemoryDataSize = Long.BYTES * countOfMemorySegments;
         return offsetsChannel.map(FileChannel.MapMode.READ_WRITE, 0, inMemoryDataSize, arena);
     }
