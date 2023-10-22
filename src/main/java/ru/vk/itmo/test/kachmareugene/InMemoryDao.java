@@ -14,6 +14,7 @@ import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 import static java.lang.Long.min;
+
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Comparator<MemorySegment> memorySegmentComparatorImpl = new MemorySegmentComparator();

@@ -18,10 +18,11 @@ import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
 
-public class SSTablesController {
+public final class SSTablesController {
     private SSTablesController() {
 
     }
+
     private static long dumpSegmentSize(MemorySegment mapped, long size, long offset) {
         mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, size);
         return offset + Long.BYTES;
