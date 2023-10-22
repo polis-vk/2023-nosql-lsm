@@ -15,7 +15,6 @@ import java.util.Comparator;
 import java.util.concurrent.ConcurrentNavigableMap;
 
 public class SSTable {
-    private static final Comparator<MemorySegment> memorySegmentComparator = new MemorySegmentComparator();
     private static final ValueLayout.OfLong LAYOUT = ValueLayout.JAVA_LONG_UNALIGNED;
     private static final Long LAYOUT_SIZE = LAYOUT.byteSize();
     private static final String FILE_NAME = "table.txt";
