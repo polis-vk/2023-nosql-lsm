@@ -31,7 +31,8 @@ public class SSTable {
         try (var channel = FileChannel.open(path,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE)) {
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING)) {
             MemorySegment fileMemorySegment = channel.map(FileChannel.MapMode.READ_WRITE, 0, size, arena);
             var writer = new MemorySegmentWriter(fileMemorySegment);
             for (var entry : map.values()) {
