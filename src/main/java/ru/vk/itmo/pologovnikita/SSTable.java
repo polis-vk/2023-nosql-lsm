@@ -11,7 +11,6 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Comparator;
 import java.util.concurrent.ConcurrentNavigableMap;
 
 public class SSTable {
@@ -19,9 +18,25 @@ public class SSTable {
     private static final Long LAYOUT_SIZE = LAYOUT.byteSize();
     private static final String FILE_NAME = "table.txt";
     private final Path path;
+    private MemorySegment readPage = null;
+    private Long fileSize = null;
 
     public SSTable(Path basePath) {
         path = basePath.resolve(FILE_NAME);
+        initReadPage();
+    }
+
+    private void initReadPage() {
+        if (!Files.exists(path)) {
+            readPage = null;
+        }
+        try (var channel = FileChannel.open(path, StandardOpenOption.READ);
+             var arena = Arena.ofConfined()) {
+            fileSize = Files.size(path);
+            readPage = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     public void save(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
@@ -41,17 +56,10 @@ public class SSTable {
     }
 
     public MemorySegment get(MemorySegment key) {
-        if (!Files.exists(path)) {
+        if (readPage == null) {
             return null;
         }
-        try (var channel = FileChannel.open(path, StandardOpenOption.READ);
-             var arena = Arena.ofConfined()) {
-            long fileSize = Files.size(path);
-            MemorySegment fileMemorySegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
-            return new MemorySegmentReader(fileMemorySegment).findFirstValue(key, fileSize);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return new MemorySegmentReader(readPage, fileSize).readFirstValueOfEntry(key);
     }
 
     private static long getFileSize(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map) {
@@ -93,13 +101,15 @@ public class SSTable {
 
     static class MemorySegmentReader {
         private final MemorySegment fileMemorySegment;
+        private final Long fileSize;
         private Long offset = 0L;
 
-        public MemorySegmentReader(MemorySegment fileMemorySegment) {
+        public MemorySegmentReader(MemorySegment fileMemorySegment, Long fileSize) {
             this.fileMemorySegment = fileMemorySegment;
+            this.fileSize = fileSize;
         }
 
-        public MemorySegment findFirstValue(MemorySegment key, Long fileSize) {
+        public MemorySegment readFirstValueOfEntry(MemorySegment key) {
             MemorySegment result = null;
             while (offset < fileSize) {
                 MemorySegment currentKey = read();
