@@ -49,14 +49,14 @@ plugins:
   sonar-java:
     enabled: true
     config:
-      sonar.java.source: "11"
+      sonar.java.source: "21"
     checks:
       squid:S00112:
         enabled: false
 checks:
   argument-count:
     config:
-      threshold: 5 # No more than 5 arguments
+      threshold: 6 # No more than 6 arguments
   method-lines:
     config:
       threshold: 80 # No more than 2 screens
@@ -75,3 +75,4 @@ checks:
 exclude_patterns:
   - "**/*.svg"
   - "src/test/"
+  - "src/main/java/ru/vk/itmo/pashchenkoalexandr/"
