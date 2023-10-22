@@ -225,7 +225,8 @@ public class SSTablesStorage {
         }
     }
 
-    public void compact(Iterator<Entry<MemorySegment>> iterator, long sizeForCompaction, long entryCount) throws IOException {
+    public void compact(Iterator<Entry<MemorySegment>> iterator,
+                        long sizeForCompaction, long entryCount) throws IOException {
         Path path = basePath.resolve(SSTABLE_NAME + "TMP");
 
         MemorySegment memorySegment;
