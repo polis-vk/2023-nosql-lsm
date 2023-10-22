@@ -13,6 +13,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -36,7 +37,7 @@ public class SSTablesStorage {
     public SSTablesStorage(Config config) {
         basePath = config.basePath();
 
-        arena = Arena.ofConfined();
+        arena = Arena.ofShared();
         sstables = new ArrayList<>();
         try (Stream<Path> stream = Files.list(basePath)) {
             stream
@@ -44,7 +45,7 @@ public class SSTablesStorage {
                     .map(path -> new AbstractMap.SimpleEntry<>(path, parsePriority(path)))
                     .sorted(priorityComparator().reversed())
                     .forEach(entry -> {
-                        try (var channel = FileChannel.open(entry.getKey(), StandardOpenOption.READ)) {
+                        try (FileChannel channel = FileChannel.open(entry.getKey(), StandardOpenOption.READ)) {
                             MemorySegment readSegment = channel.map(
                                     FileChannel.MapMode.READ_ONLY,
                                     0,
@@ -170,15 +171,13 @@ public class SSTablesStorage {
 
             long i = 0;
             for (Entry<MemorySegment> entry : dataToFlush.values()) {
-                memorySegment.set(
-                        ValueLayout.JAVA_LONG_UNALIGNED,
-                        Long.BYTES + i * Byte.SIZE, offset
-                );
-
+                memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + i * Byte.SIZE, offset);
                 offset = writeEntry(entry, memorySegment, offset);
                 i++;
             }
         }
+
+        arena.close();
     }
 
     private long writeEntry(Entry<MemorySegment> entry, MemorySegment dst, long offset) {
@@ -212,15 +211,63 @@ public class SSTablesStorage {
         }
     }
 
+    private static void deleteOldSSTables(Path basePath) throws IOException {
+        try (Stream<Path> stream = Files.list(basePath)) {
+            stream
+                    .filter(path -> path.toString().endsWith(SSTABLE_EXTENSION))
+                    .forEach(path -> {
+                        try {
+                            Files.delete(path);
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    });
+        }
+    }
+
+    public void compact(Iterator<Entry<MemorySegment>> iterator, long sizeForCompaction, long entryCount) throws IOException {
+        Path path = basePath.resolve(SSTABLE_NAME + "TMP");
+
+        MemorySegment memorySegment;
+        try (Arena arenaForSave = Arena.ofConfined()) {
+            try (FileChannel channel = FileChannel.open(path,
+                    StandardOpenOption.READ,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.CREATE)) {
+
+                memorySegment = channel.map(
+                        FileChannel.MapMode.READ_WRITE,
+                        0,
+                        sizeForCompaction,
+                        arenaForSave);
+            }
+
+            long offset = 0;
+            offset += Long.BYTES; //header
+            offset += Long.BYTES * entryCount; //key offsets
+
+            long i = 0;
+            while (iterator.hasNext()) {
+                memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + i * Byte.SIZE, offset);
+                offset = writeEntry(iterator.next(), memorySegment, offset);
+                i++;
+            }
+
+            memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE, entryCount); //our header
+        }
+
+        deleteOldSSTables(basePath);
+        Files.move(path, path.resolveSibling(SSTABLE_NAME + 0 + SSTABLE_EXTENSION), StandardCopyOption.ATOMIC_MOVE);
+    }
+
     private MemorySegment writeMappedSegment(long size, Arena arena) throws IOException {
         int count = getPaths(basePath).size() + 1;
-        var path = basePath.resolve(SSTABLE_NAME + count + SSTABLE_EXTENSION);
+        Path path = basePath.resolve(SSTABLE_NAME + count + SSTABLE_EXTENSION);
 
         try (FileChannel channel = FileChannel.open(path,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING)) {
+                StandardOpenOption.CREATE)) {
 
             return channel.map(
                     FileChannel.MapMode.READ_WRITE,
@@ -230,7 +277,7 @@ public class SSTablesStorage {
         }
     }
 
-    private long entryByteSize(Entry<MemorySegment> entry) {
+    public static long entryByteSize(Entry<MemorySegment> entry) {
         if (entry.value() == null) {
             return entry.key().byteSize();
         }

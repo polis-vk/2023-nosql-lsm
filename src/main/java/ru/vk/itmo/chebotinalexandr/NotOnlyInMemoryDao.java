@@ -73,7 +73,12 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
         allIterators.add(new PeekingIteratorImpl<>(memoryIterator, 0));
         allIterators.add(new PeekingIteratorImpl<>(ssTablesStorage.iteratorsAll(from, to), 1));
 
-        return new PeekingIteratorImpl(MergeIterator.merge(allIterators, NotOnlyInMemoryDao::entryComparator));
+        return new PeekingIteratorImpl<>(MergeIterator.merge(allIterators, NotOnlyInMemoryDao::entryComparator));
+    }
+
+    //Supposed that memory was flushed before compaction
+    private PeekingIterator<Entry<MemorySegment>> iteratorForCompaction() {
+        return rangeIterator(null, null);
     }
 
     public Iterator<Entry<MemorySegment>> memoryIterator(MemorySegment from, MemorySegment to) {
@@ -94,6 +99,24 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
     }
 
     @Override
+    public void compact() throws IOException {
+        Iterator<Entry<MemorySegment>> iterator = new SkipTombstoneIterator(iteratorForCompaction());
+
+        long sizeForCompaction = 0;
+        long entryCount = 0;
+        while (iterator.hasNext()) {
+            Entry<MemorySegment> entry = iterator.next();
+            sizeForCompaction += SSTablesStorage.entryByteSize(entry);
+            entryCount++;
+        }
+        sizeForCompaction += 2L * Long.BYTES * entryCount;
+        sizeForCompaction += Long.BYTES + Long.BYTES * entryCount; //for metadata (header + key offsets)
+
+        iterator = new SkipTombstoneIterator(iteratorForCompaction());
+        ssTablesStorage.compact(iterator, sizeForCompaction, entryCount);
+    }
+
+    @Override
     public void flush() throws IOException {
         Dao.super.flush();
     }
@@ -105,5 +128,6 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
         }
 
         ssTablesStorage.write(entries);
+        entries.clear();
     }
 }
