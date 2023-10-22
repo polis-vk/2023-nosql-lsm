@@ -18,8 +18,10 @@ public class SSTable {
     private static final Long LAYOUT_SIZE = LAYOUT.byteSize();
     private static final String FILE_NAME = "table.txt";
     private final Path path;
-    private MemorySegment readPage = null;
-    private Long fileSize = null;
+    //@Nullable
+    private MemorySegment readPage;
+    //@Nullable
+    private Long fileSize;
 
     public SSTable(Path basePath) {
         path = basePath.resolve(FILE_NAME);
