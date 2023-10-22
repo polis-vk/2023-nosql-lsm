@@ -19,7 +19,6 @@ public class SSTable {
     private static final ValueLayout.OfLong LAYOUT = ValueLayout.JAVA_LONG_UNALIGNED;
     private static final Long LAYOUT_SIZE = LAYOUT.byteSize();
     private static final String FILE_NAME = "table.txt";
-    private final Arena arena = Arena.ofConfined();
     private final Path path;
 
     public SSTable(Path basePath) {
@@ -32,7 +31,8 @@ public class SSTable {
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING)) {
+                StandardOpenOption.TRUNCATE_EXISTING);
+             var arena = Arena.ofConfined()) {
             MemorySegment fileMemorySegment = channel.map(FileChannel.MapMode.READ_WRITE, 0, size, arena);
             var writer = new MemorySegmentWriter(fileMemorySegment);
             for (var entry : map.values()) {
@@ -45,7 +45,8 @@ public class SSTable {
         if (!Files.exists(path)) {
             return null;
         }
-        try (var channel = FileChannel.open(path, StandardOpenOption.READ)) {
+        try (var channel = FileChannel.open(path, StandardOpenOption.READ);
+             var arena = Arena.ofConfined()) {
             long fileSize = Files.size(path);
             MemorySegment fileMemorySegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
             return new MemorySegmentReader(fileMemorySegment).findFirstValue(key, fileSize);
