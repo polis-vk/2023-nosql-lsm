@@ -162,9 +162,88 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
+    public void compact() throws IOException {
+        var iterator = get(null, null);
+
+        if (!iterator.hasNext()) {
+            return;
+        }
+        int totalSStables = getTotalSStables();
+        Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + totalSStables);
+        Path indexPath = storagePath.resolve(INDEX_BASE_NAME + totalSStables);
+
+        long storageWriteOffset = 0;
+        long indexWriteOffset = 0;
+        try (var storageChannel = FileChannel.open(sstablePath,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE);
+
+             var indexChannel = FileChannel.open(indexPath,
+                     StandardOpenOption.READ,
+                     StandardOpenOption.WRITE,
+                     StandardOpenOption.CREATE);
+
+             var writeArena = Arena.ofConfined()) {
+
+            MemorySegment mappedStorage =
+                    storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcComapactedSStableSize(), writeArena);
+            MemorySegment mappedIndex =
+                    indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcCompactedIndexSize(), writeArena);
+
+            int entryNum = 0;
+            while (iterator.hasNext()) {
+                var entry = iterator.next();
+                indexWriteOffset =
+                        writeEntryNumAndStorageOffset(mappedIndex, indexWriteOffset, entryNum, storageWriteOffset);
+                entryNum++;
+
+                storageWriteOffset = writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
+                storageWriteOffset = writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
+            }
+            mappedStorage.load();
+            mappedIndex.load();
+        }
+
+        Files.writeString(metaFilePath, String.valueOf(1));
+        for (int i = 0; i < totalSStables; i++) {
+            Files.delete(storagePath.resolve(SSTABLE_BASE_NAME + i));
+            Files.delete(storagePath.resolve(INDEX_BASE_NAME + i));
+        }
+        Files.move(storagePath.resolve(SSTABLE_BASE_NAME + totalSStables), storagePath.resolve(SSTABLE_BASE_NAME + 0));
+        Files.move(storagePath.resolve(INDEX_BASE_NAME + totalSStables), storagePath.resolve(INDEX_BASE_NAME + 0));
+        map.clear();
+    }
+
+    private long calcCompactedIndexSize() {
+        var iterator = get(null, null);
+        long size = 0;
+        while (iterator.hasNext()) {
+            iterator.next();
+            size += Integer.BYTES + Long.BYTES;
+        }
+        return size;
+
+    }
+
+    private long calcComapactedSStableSize() {
+        var iterator = get(null, null);
+        long size = 0;
+        while (iterator.hasNext()) {
+            var entry = iterator.next();
+            size += entry.key().byteSize();
+            size += entry.value().byteSize();
+            size += 2 * Long.BYTES;
+        }
+        return size;
+    }
+
+    @Override
     public void flush() throws IOException {
-        writeMapIntoFile();
-        if (!map.isEmpty()) incTotalSStablesAmount();
+        if (!map.isEmpty()) {
+            writeMapIntoFile();
+            incTotalSStablesAmount();
+        }
     }
 
     private void incTotalSStablesAmount() throws IOException {
