@@ -164,10 +164,23 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void compact() throws IOException {
         var iterator = get(null, null);
-
         if (!iterator.hasNext()) {
             return;
         }
+        writeIteratorIntoFile(calcComapactedSStableSize(), calcCompactedIndexSize(), iterator);
+
+        int totalSStables = getTotalSStables();
+        Files.writeString(metaFilePath, String.valueOf(1));
+        for (int i = 0; i < totalSStables; i++) {
+            Files.delete(storagePath.resolve(SSTABLE_BASE_NAME + i));
+            Files.delete(storagePath.resolve(INDEX_BASE_NAME + i));
+        }
+        Files.move(storagePath.resolve(SSTABLE_BASE_NAME + totalSStables), storagePath.resolve(SSTABLE_BASE_NAME + 0));
+        Files.move(storagePath.resolve(INDEX_BASE_NAME + totalSStables), storagePath.resolve(INDEX_BASE_NAME + 0));
+        map.clear();
+    }
+
+    private void writeIteratorIntoFile(long size, long size1, Iterator<Entry<MemorySegment>> iterator) throws IOException {
         int totalSStables = getTotalSStables();
         Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + totalSStables);
         Path indexPath = storagePath.resolve(INDEX_BASE_NAME + totalSStables);
@@ -187,9 +200,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
              var writeArena = Arena.ofConfined()) {
 
             MemorySegment mappedStorage =
-                    storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcComapactedSStableSize(), writeArena);
+                    storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, size, writeArena);
             MemorySegment mappedIndex =
-                    indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcCompactedIndexSize(), writeArena);
+                    indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, size1, writeArena);
 
             int entryNum = 0;
             while (iterator.hasNext()) {
@@ -204,15 +217,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             mappedStorage.load();
             mappedIndex.load();
         }
-
-        Files.writeString(metaFilePath, String.valueOf(1));
-        for (int i = 0; i < totalSStables; i++) {
-            Files.delete(storagePath.resolve(SSTABLE_BASE_NAME + i));
-            Files.delete(storagePath.resolve(INDEX_BASE_NAME + i));
-        }
-        Files.move(storagePath.resolve(SSTABLE_BASE_NAME + totalSStables), storagePath.resolve(SSTABLE_BASE_NAME + 0));
-        Files.move(storagePath.resolve(INDEX_BASE_NAME + totalSStables), storagePath.resolve(INDEX_BASE_NAME + 0));
-        map.clear();
     }
 
     private long calcCompactedIndexSize() {
@@ -269,42 +273,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (map.isEmpty()) {
             return;
         }
-
-        int currSStableNum = getTotalSStables();
-        Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + currSStableNum);
-        Path indexPath = storagePath.resolve(INDEX_BASE_NAME + currSStableNum);
-
-        long storageWriteOffset = 0;
-        long indexWriteOffset = 0;
-        try (var storageChannel = FileChannel.open(sstablePath,
-                StandardOpenOption.READ,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE);
-
-             var indexChannel = FileChannel.open(indexPath,
-                     StandardOpenOption.READ,
-                     StandardOpenOption.WRITE,
-                     StandardOpenOption.CREATE);
-
-             var writeArena = Arena.ofConfined()) {
-
-            MemorySegment mappedStorage =
-                    storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcMapByteSizeInFile(), writeArena);
-            MemorySegment mappedIndex =
-                    indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcIndexByteSizeInFile(), writeArena);
-
-            int entryNum = 0;
-            for (var entry : map.values()) {
-                indexWriteOffset =
-                        writeEntryNumAndStorageOffset(mappedIndex, indexWriteOffset, entryNum, storageWriteOffset);
-                entryNum++;
-
-                storageWriteOffset = writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
-                storageWriteOffset = writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
-            }
-            mappedStorage.load();
-            mappedIndex.load();
-        }
+        writeIteratorIntoFile(calcMapByteSizeInFile(), calcIndexByteSizeInFile(), map.values().iterator());
     }
 
     private static long writeEntryNumAndStorageOffset(MemorySegment mappedIndex,
