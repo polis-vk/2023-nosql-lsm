@@ -104,7 +104,7 @@ public class SSTable {
             MemorySegment result = null;
             while (offset < fileSize) {
                 MemorySegment currentKey = read();
-                if (memorySegmentComparator.compare(key, currentKey) == 0) {
+                if (key.mismatch(currentKey) == -1) {
                     result = read();
                 }
             }
