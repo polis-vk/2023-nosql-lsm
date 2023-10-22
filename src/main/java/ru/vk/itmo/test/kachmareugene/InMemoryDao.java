@@ -22,7 +22,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Path ssTablesDir;
     private static final String SS_TABLE_NAME = "ssTable.txt";
-    private final  Arena arena = Arena.ofShared();
+    private final Arena arena = Arena.ofShared();
 
     public InMemoryDao() {
         this.ssTablesDir = null;
@@ -59,7 +59,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
 
-        return SSTablesController.getEntryFromSSTable(ssTablesDir, SS_TABLE_NAME, key, memorySegmentComparatorImpl, arena);
+        return SSTablesController.getEntryFromSSTable(ssTablesDir, SS_TABLE_NAME,
+                key, memorySegmentComparatorImpl, arena);
     }
 
     @Override

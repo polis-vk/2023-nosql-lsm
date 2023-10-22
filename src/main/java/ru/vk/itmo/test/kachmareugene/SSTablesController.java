@@ -19,7 +19,9 @@ import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 public class SSTablesController {
+    private SSTablesController() {
 
+    }
     private static long dumpSegmentSize(MemorySegment mapped, long size, long offset) {
         mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, size);
         return offset + Long.BYTES;
@@ -30,10 +32,10 @@ public class SSTablesController {
         return offset + data.byteSize();
     }
 
-    public static Entry<MemorySegment> getEntryFromSSTable(Path ssTablesDir, String SSTableName,
+    public static Entry<MemorySegment> getEntryFromSSTable(Path ssTablesDir, String ssTableName,
                                                            MemorySegment key, Comparator<MemorySegment> comp,
                                                            Arena arena) {
-        try (FileChannel channel = FileChannel.open(ssTablesDir.resolve(SSTableName), READ)) {
+        try (FileChannel channel = FileChannel.open(ssTablesDir.resolve(ssTableName), READ)) {
             MemorySegment mapped = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
             return new BaseEntry<>(key, SSTablesController.searchKeyInFile(mapped, key, channel.size(), comp));
         } catch (IOException e) {
@@ -61,8 +63,9 @@ public class SSTablesController {
         return null;
     }
 
-    public static void dump(Path ssTablesDir, String SStableName,
-                            SortedMap<MemorySegment, Entry<MemorySegment>> memTable, Arena sharedArena) throws IOException {
+    public static void dump(Path ssTablesDir, String ssTableName,
+                            SortedMap<MemorySegment, Entry<MemorySegment>> memTable,
+                            Arena sharedArena) throws IOException {
         if (ssTablesDir == null) {
             memTable.clear();
             sharedArena.close();
@@ -70,8 +73,8 @@ public class SSTablesController {
         }
 
         Set<OpenOption> options = Set.of(WRITE, READ, CREATE);
-        try (FileChannel channel = FileChannel.open(ssTablesDir.resolve(SStableName), options);
-             Arena arena  = Arena.ofConfined()) {
+        try (FileChannel channel = FileChannel.open(ssTablesDir.resolve(ssTableName), options);
+             Arena arena = Arena.ofConfined()) {
             long dataLenght = 0L;
 
             for (var kv : memTable.values()) {
