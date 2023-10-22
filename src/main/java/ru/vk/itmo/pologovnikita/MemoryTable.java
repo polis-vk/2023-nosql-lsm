@@ -48,14 +48,14 @@ public class MemoryTable implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (segmentToEntry.containsKey(key)) {
             return segmentToEntry.get(key);
         }
-        if (ssTable != null) {
-            var value = ssTable.get(key);
-            if (value == null) {
-                return null;
-            }
-            return new BaseEntry<>(key, value);
+        if (ssTable == null) {
+            return null;
         }
-        return null;
+        var value = ssTable.get(key);
+        if (value == null) {
+            return null;
+        }
+        return new BaseEntry<>(key, value);
     }
 
     @Override
