@@ -32,7 +32,7 @@ public class SSTable {
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE)) {
-            var fileMemorySegment = channel.map(FileChannel.MapMode.READ_WRITE, 0, size, arena);
+            MemorySegment fileMemorySegment = channel.map(FileChannel.MapMode.READ_WRITE, 0, size, arena);
             var writer = new MemorySegmentWriter(fileMemorySegment);
             for (var entry : map.values()) {
                 writer.writeEntry(entry);
@@ -45,8 +45,8 @@ public class SSTable {
             return null;
         }
         try (var channel = FileChannel.open(path, StandardOpenOption.READ)) {
-            var fileSize = Files.size(path);
-            var fileMemorySegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
+            long fileSize = Files.size(path);
+            MemorySegment fileMemorySegment = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
             return new MemorySegmentReader(fileMemorySegment).findFirstValue(key, fileSize);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -54,7 +54,7 @@ public class SSTable {
     }
 
     private static long getFileSize(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map) {
-        var size = 0L;
+        long size = 0L;
         for (var entry : map.values()) {
             size += getMemorySegmentEntrySize(entry);
         }
@@ -101,7 +101,7 @@ public class SSTable {
         public MemorySegment findFirstValue(MemorySegment key, Long fileSize) {
             MemorySegment result = null;
             while (offset < fileSize) {
-                var currentKey = read();
+                MemorySegment currentKey = read();
                 if (memorySegmentComparator.compare(key, currentKey) == 0) {
                     result = read();
                 }
@@ -110,9 +110,9 @@ public class SSTable {
         }
 
         private MemorySegment read() {
-            var size = fileMemorySegment.get(LAYOUT, offset);
+            long size = fileMemorySegment.get(LAYOUT, offset);
             offset += LAYOUT_SIZE;
-            var result = fileMemorySegment.asSlice(offset, size);
+            MemorySegment result = fileMemorySegment.asSlice(offset, size);
             offset += size;
             return result;
         }
