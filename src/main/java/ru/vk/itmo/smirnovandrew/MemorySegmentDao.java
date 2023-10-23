@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -129,7 +128,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     @Override
     public void flush() throws IOException {
         if (!segments.isEmpty()) {
-            DiskStorage.save(tablePath, segments.values());
+            DiskStorageHelper.save(tablePath, segments.values());
         }
     }
 
@@ -151,7 +150,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         int newIdx = (idx + 1) % 2;
         Path newPath = getPathByIdx(newIdx);
         Files.createDirectories(newPath);
-        DiskStorage.save(newPath, this);
+        DiskStorageHelper.save(newPath, this);
         DiskStorage.removeTables(tablePath);
 
         idx = newIdx;
