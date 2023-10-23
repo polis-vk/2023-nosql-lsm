@@ -28,9 +28,12 @@ public final class Storage implements Closeable {
     private final Arena arena;
     private final List<MemorySegment> ssTables;
 
-    private Storage(Arena arena, List<MemorySegment> ssTables) {
+    private final boolean isCompacted;
+
+    private Storage(Arena arena, List<MemorySegment> ssTables, boolean isCompacted) {
         this.arena = arena;
         this.ssTables = ssTables;
+        this.isCompacted = isCompacted;
     }
 
     public static Storage load(Config config) throws IOException {
@@ -56,7 +59,8 @@ public final class Storage implements Closeable {
         }
 
         Collections.reverse(ssTables);
-        return new Storage(arena, ssTables);
+        boolean isCompacted = ssTables.size() <= 1;
+        return new Storage(arena, ssTables, isCompacted);
     }
 
     public static void save(Config config, Collection<Entry<MemorySegment>> entries, Storage storage)
@@ -71,18 +75,25 @@ public final class Storage implements Closeable {
 
         int nextSSTable = storage.ssTables.size();
         Path path = config.basePath().resolve(DB_PREFIX + nextSSTable + DB_EXTENSION);
+        saveByPath(path, entries::iterator);
+    }
 
-        long indicesSize = (long) Long.BYTES * entries.size();
-        long sizeOfNewSSTable = indicesSize + FILE_PREFIX;
-        for (Entry<MemorySegment> entry : entries) {
-            sizeOfNewSSTable +=
-                    2 * Long.BYTES
-                            + entry.key().byteSize()
-                            + (entry.value() == null ? 0 : entry.value().byteSize());
+    private static void saveByPath(Path path, Storable entries) throws IOException {
+        Files.deleteIfExists(path);
+
+        long entriesCount = 0;
+        long entriesSize = 0;
+        for (Iterator<Entry<MemorySegment>> iterator = entries.iterator(); iterator.hasNext(); ) {
+            Entry<MemorySegment> entry = iterator.next();
+            entriesSize += 2 * Long.BYTES + entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize());
+            entriesCount++;
         }
 
+        long indicesSize = entriesCount * Long.BYTES;
+        long sizeOfNewSSTable = FILE_PREFIX + indicesSize + entriesSize;
+
         try (Arena arenaSave = Arena.ofConfined();
-             var channel = FileChannel.open(
+             FileChannel channel = FileChannel.open(
                      path,
                      StandardOpenOption.READ,
                      StandardOpenOption.WRITE,
@@ -92,11 +103,13 @@ public final class Storage implements Closeable {
 
             MemorySegment newSSTable = channel.map(FileChannel.MapMode.READ_WRITE, 0, sizeOfNewSSTable, arenaSave);
 
-            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, entries.size());
+            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, entriesCount);
 
             long offsetIndex = FILE_PREFIX;
             long offsetData = indicesSize + FILE_PREFIX;
-            for (Entry<MemorySegment> entry : entries) {
+            for (Iterator<Entry<MemorySegment>> iterator = entries.iterator(); iterator.hasNext(); ) {
+                Entry<MemorySegment> entry = iterator.next();
+
                 newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, offsetData);
                 offsetIndex += Long.BYTES;
 
@@ -127,6 +140,21 @@ public final class Storage implements Closeable {
         return offset;
     }
 
+    public static void compact(Config config, Storable entries) throws IOException {
+        Path tmpCompactedPath = config.basePath().resolve(DB_PREFIX + ".compacted" + DB_EXTENSION);
+        saveByPath(tmpCompactedPath, entries);
+
+        Path path = config.basePath();
+        for (int i = 0; ; i++) {
+            Path p = path.resolve(DB_PREFIX + i + DB_EXTENSION);
+            if (!Files.deleteIfExists(p)) {
+                break;
+            }
+        }
+
+        Files.move(tmpCompactedPath, path.resolve(DB_PREFIX + 0 + DB_EXTENSION));
+    }
+
     private long binarySearchUpperBoundOrEquals(MemorySegment ssTable, MemorySegment key) {
         long left = 0;
         long right = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
@@ -143,7 +171,7 @@ public final class Storage implements Closeable {
 
             int cmp = MemorySegmentComparator.compareWithOffsets(
                     ssTable, offset, offset + keySize,
-                    key);
+                    key, 0, key.byteSize());
             if (cmp < 0) {
                 left = mid + 1;
             } else if (cmp > 0) {
@@ -220,5 +248,13 @@ public final class Storage implements Closeable {
         if (arena.scope().isAlive()) {
             arena.close();
         }
+    }
+
+    public boolean isCompacted() {
+        return isCompacted;
+    }
+
+    public interface Storable {
+        Iterator<Entry<MemorySegment>> iterator() throws IOException;
     }
 }

@@ -17,9 +17,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Config config;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
-    private final Storage storage;
+    private Storage storage;
 
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
 
     public DaoImpl(Config config) throws IOException {
@@ -89,16 +89,39 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void flush() {
-        throw new UnsupportedOperationException("Not implemented yet");
+    public void flush() throws IOException {
+        lock.writeLock().lock();
+        try {
+            storage.close();
+            Storage.save(config, map.values(), storage);
+            map = new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
+            storage = Storage.load(config);
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     @Override
     public void close() throws IOException {
-        storage.close();
         lock.writeLock().lock();
         try {
+            storage.close();
             Storage.save(config, map.values(), storage);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    @Override
+    public void compact() throws IOException {
+        lock.writeLock().lock();
+        try {
+            if (map.isEmpty() && storage.isCompacted()) {
+                return;
+            }
+            Storage.compact(config, this::all);
+            storage.close();
+            map = new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
         } finally {
             lock.writeLock().unlock();
         }
