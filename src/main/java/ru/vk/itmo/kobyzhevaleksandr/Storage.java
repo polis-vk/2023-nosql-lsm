@@ -21,11 +21,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class Storage {
 
     private static final String TABLE_FILENAME = "ssTable";
+    private static final String COMPACTED_TABLE_FILENAME = TABLE_FILENAME + "Compact";
     private static final String TABLE_EXTENSION = ".dat";
 
     private final Arena arena = Arena.ofShared();
@@ -116,18 +118,61 @@ public class Storage {
             return;
         }
 
-        try (Arena writeArena = Arena.ofConfined()) {
-            String tableIndex = String.format("%010d", mappedSsTables.size());
-            long entriesCount = entries.size();
-            long entriesStartIndex = Long.BYTES + Long.BYTES * entriesCount;
-            long ssTableSize = 0;
+        String tableIndex = String.format("%010d", mappedSsTables.size());
+        Path tablePath = config.basePath().resolve(TABLE_FILENAME + tableIndex + TABLE_EXTENSION);
+        saveOnDisk(entries, tablePath);
+    }
 
-            for (Entry<MemorySegment> entry : entries) {
+    public void compact(Iterable<Entry<MemorySegment>> iterable) throws IOException {
+        if (!arena.scope().isAlive() || !iterable.iterator().hasNext()) {
+            return;
+        }
+
+        Path compactedTablePath = config.basePath().resolve(COMPACTED_TABLE_FILENAME + TABLE_EXTENSION);
+        saveOnDisk(iterable, compactedTablePath);
+        arena.close();
+
+        try (Stream<Path> files = Files.list(config.basePath())) {
+            Pattern pattern = Pattern.compile(TABLE_FILENAME + "\\d*" + TABLE_EXTENSION + "$");
+            files
+                .filter(path -> pattern.matcher(path.toString()).find())
+                .forEach(tablePath -> {
+                    try {
+                        Files.delete(tablePath);
+                    } catch (IOException e) {
+                        throw new ApplicationException("Can't delete file", e);
+                    }
+                });
+        }
+
+        String tableIndex = String.format("%010d", 0);
+        Path tablePath = config.basePath().resolve(TABLE_FILENAME + tableIndex + TABLE_EXTENSION);
+        Files.move(compactedTablePath, tablePath);
+    }
+
+    /*
+    Saving to disk is done using Iterable. Iterable allows you to return multiple iterators.
+    In our case, the first iterator is used to calculate the size of the resulting ssTable and the number of entries,
+    and the second one is used to write segments directly to the mapped ssTable.
+
+    In addition, using Iterable allows you to make the saveOnDisk() method universal,
+    since saving is performed in two cases: when calling close(), that is, all entries from NavigableMap are written,
+    and also when compact(), which involves the use of iterators.
+    */
+    private static void saveOnDisk(Iterable<Entry<MemorySegment>> iterable, Path tablePath) throws IOException {
+        try (Arena writeArena = Arena.ofConfined()) {
+            long ssTableSize = 0;
+            long entriesCount = 0;
+            Iterator<Entry<MemorySegment>> iterator = iterable.iterator();
+            Entry<MemorySegment> entry;
+            while (iterator.hasNext()) {
+                entry = iterator.next();
                 long valueSize = entry.value() == null ? 0 : entry.value().byteSize();
                 ssTableSize += Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize;
+                entriesCount++;
             }
+            long entriesStartIndex = Long.BYTES + Long.BYTES * entriesCount;
 
-            Path tablePath = config.basePath().resolve(TABLE_FILENAME + tableIndex + TABLE_EXTENSION);
             MemorySegment mappedSsTableFile = mapFile(tablePath, ssTableSize + entriesStartIndex,
                 FileChannel.MapMode.READ_WRITE, writeArena,
                 StandardOpenOption.READ, StandardOpenOption.WRITE,
@@ -137,7 +182,9 @@ public class Storage {
             long index = 0;
             mappedSsTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entriesCount);
             offset += Long.BYTES + Long.BYTES * entriesCount;
-            for (Entry<MemorySegment> entry : entries) {
+            iterator = iterable.iterator();
+            while (iterator.hasNext()) {
+                entry = iterator.next();
                 mappedSsTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + Long.BYTES * index, offset);
                 index++;
                 offset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.key(), offset);
