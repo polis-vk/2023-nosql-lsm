@@ -1,32 +1,29 @@
-package ru.vk.itmo.test.peskovalexandr;
+package ru.vk.itmo.test.grunskiialexey;
 
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.peskovalexandr.InMemoryDao;
-import ru.vk.itmo.peskovalexandr.PersistentDao;
+import ru.vk.itmo.grunskiialexey.MemorySegmentDao;
 import ru.vk.itmo.test.DaoFactory;
+
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 @DaoFactory(stage = 2)
-public class MyFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
-    }
-
-    @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new PersistentDao(config);
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new MemorySegmentDao(config);
     }
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        return memorySegment == null ? null :
-                new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
+        return memorySegment == null
+                ? null
+                : new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override
