@@ -136,18 +136,22 @@ public final class SSTable implements Closeable {
 
             mappedSSTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, entries.size());
 
-            long offset = entriesDataOffset;
             long index = 0;
+            long offset = entriesDataOffset;
             for (Entry<MemorySegment> entry : entries) {
-                // write metadata (offset key size of each entry) at the beginning of the file
                 mappedSSTableFile.set(
                         ValueLayout.JAVA_LONG_UNALIGNED,
                         METADATA_SIZE + index * ENTRY_METADATA_SIZE,
                         offset
                 );
+                offset += getEntrySize(entry);
+                index++;
+            }
+
+            offset = entriesDataOffset;
+            for (Entry<MemorySegment> entry : entries) {
                 offset += writeMemorySegment(mappedSSTableFile, entry.key(), offset);
                 offset += writeMemorySegment(mappedSSTableFile, entry.value(), offset);
-                index++;
             }
 
             mappedSSTableFile.force();
