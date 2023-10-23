@@ -48,7 +48,7 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp%d");
+        final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
 
         try {
@@ -149,7 +149,7 @@ public class DiskStorage {
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx%d");
+        final Path indexFile = storagePath.resolve("index.idx");
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
