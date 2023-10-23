@@ -22,8 +22,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
-    private final Compactor compactor;
     private final Path path;
+
+    private boolean wasCompaction = false;
 
     public InMemoryDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
@@ -32,7 +33,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena = Arena.ofShared();
 
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
-        this.compactor = new Compactor(path);
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -55,20 +55,20 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return diskStorage.range(getInMemory(from, to), from, to);
+        return diskStorage.range(getInMemory(from, to).iterator(), from, to);
     }
 
-    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
+    private Iterable<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            return storage.values().iterator();
+            return storage.values();
         }
         if (from == null) {
-            return storage.headMap(to).values().iterator();
+            return storage.headMap(to).values();
         }
         if (to == null) {
-            return storage.tailMap(from).values().iterator();
+            return storage.tailMap(from).values();
         }
-        return storage.subMap(from, to).values().iterator();
+        return storage.subMap(from, to).values();
     }
 
     @Override
@@ -100,7 +100,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        compactor.compact(get(null, null));
+        diskStorage.compact(path, getInMemory(null, null));
+        wasCompaction = true;
     }
 
     @Override
@@ -111,7 +112,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         arena.close();
 
-        if (!storage.isEmpty()) {
+        if (!storage.isEmpty() && !wasCompaction) {
             DiskStorage.save(path, storage.values());
         }
     }

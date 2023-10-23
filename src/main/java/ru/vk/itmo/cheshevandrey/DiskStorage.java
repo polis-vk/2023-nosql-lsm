@@ -29,35 +29,6 @@ public class DiskStorage {
         this.segmentList = segmentList;
     }
 
-    public static void resetStateAfterCompact(Path storagePath) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
-
-        try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
-        }
-
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        if (existedFiles.size() < 2) {
-            return;
-        }
-
-        for (int i = existedFiles.size() - 2; i >= 0; i--) {
-            Path currentPath = storagePath.resolve(existedFiles.get(i));
-            Files.delete(currentPath);
-        }
-
-        String newCompactFileName = "0";
-        String lastFileName = String.valueOf(existedFiles.size() - 1);
-
-        Files.move(storagePath.resolve(lastFileName), storagePath.resolve(newCompactFileName),
-                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-
-        updateIndexFile(indexFile, indexTmp, Collections.emptyList(), newCompactFileName);
-    }
-
     public Iterator<Entry<MemorySegment>> range(
             Iterator<Entry<MemorySegment>> firstIterator,
             MemorySegment from,
@@ -76,9 +47,12 @@ public class DiskStorage {
         };
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
+    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
+            throws IOException {
+
         Path indexTmp = storagePath.resolve("index.tmp");
         Path indexFile = storagePath.resolve("index.idx");
+        int counter = 0;
 
         try {
             Files.createFile(indexFile);
@@ -92,6 +66,7 @@ public class DiskStorage {
         long dataSize = 0;
         long count = 0;
         for (Entry<MemorySegment> entry : iterable) {
+            counter++;
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
             if (value != null) {
@@ -123,6 +98,7 @@ public class DiskStorage {
             long dataOffset = indexSize;
             int indexOffset = 0;
             for (Entry<MemorySegment> entry : iterable) {
+                counter++;
                 fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                 dataOffset += entry.key().byteSize();
                 indexOffset += Long.BYTES;
@@ -141,6 +117,7 @@ public class DiskStorage {
             // |key0|value0|key1|value1|...
             dataOffset = indexSize;
             for (Entry<MemorySegment> entry : iterable) {
+                counter++;
                 MemorySegment key = entry.key();
                 MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
                 dataOffset += key.byteSize();
@@ -152,28 +129,9 @@ public class DiskStorage {
                 }
             }
         }
+        System.out.println(counter);
 
         updateIndexFile(indexFile, indexTmp, existedFiles, newFileName);
-    }
-
-    private static void updateIndexFile(Path indexFile, Path indexTmp, List<String> existedFiles, String newFileName)
-            throws IOException
-    {
-
-        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-
-        List<String> list = new ArrayList<>(existedFiles.size() + 1);
-        list.addAll(existedFiles);
-        list.add(newFileName);
-        Files.write(
-                indexFile,
-                list,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
-        Files.delete(indexTmp);
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
@@ -282,6 +240,80 @@ public class DiskStorage {
                 return new BaseEntry<>(key, value);
             }
         };
+    }
+
+    public void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterableMemTable) throws IOException {
+        IterableStorage storage = new IterableStorage(iterableMemTable, this);
+        if (!storage.iterator().hasNext()) {
+            return;
+        }
+
+        save(storagePath, storage);
+        updateStateAfterCompact(storagePath);
+    }
+
+    private static void updateStateAfterCompact(Path storagePath) throws IOException {
+        Path indexTmp = storagePath.resolve("index.tmp");
+        Path indexFile = storagePath.resolve("index.idx");
+
+        try {
+            Files.createFile(indexFile);
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
+        }
+
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        if (existedFiles.size() < 2) {
+            return;
+        }
+
+        for (int i = existedFiles.size() - 2; i >= 0; i--) {
+            Path currentPath = storagePath.resolve(existedFiles.get(i));
+            Files.delete(currentPath);
+        }
+
+        String newCompactFileName = "0";
+        String lastFileName = String.valueOf(existedFiles.size() - 1);
+
+        Files.move(storagePath.resolve(lastFileName), storagePath.resolve(newCompactFileName),
+                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+
+        updateIndexFile(indexFile, indexTmp, Collections.emptyList(), newCompactFileName);
+    }
+
+    private static void updateIndexFile(Path indexFile, Path indexTmp, List<String> existedFiles, String newFileName)
+            throws IOException {
+
+        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+
+        List<String> list = new ArrayList<>(existedFiles.size() + 1);
+        list.addAll(existedFiles);
+        list.add(newFileName);
+        Files.write(
+                indexFile,
+                list,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        Files.delete(indexTmp);
+    }
+
+    private static final class IterableStorage implements Iterable<Entry<MemorySegment>> {
+
+        Iterable<Entry<MemorySegment>> iterableMemTable;
+        DiskStorage diskStorage;
+
+        private IterableStorage(Iterable<Entry<MemorySegment>> iterableMemTable, DiskStorage diskStorage) {
+            this.iterableMemTable = iterableMemTable;
+            this.diskStorage = diskStorage;
+        }
+
+        @Override
+        public Iterator<Entry<MemorySegment>> iterator() {
+            return diskStorage.range(iterableMemTable.iterator(), null, null);
+        }
     }
 
     private static MemorySegment slice(MemorySegment page, long start, long end) {
