@@ -2,6 +2,7 @@ package ru.vk.itmo.pologovnikita;
 
 import ru.vk.itmo.Entry;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
@@ -13,7 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.ConcurrentNavigableMap;
 
-public class SSTable {
+public class SSTable implements Closeable {
     private static final ValueLayout.OfLong LAYOUT = ValueLayout.JAVA_LONG_UNALIGNED;
     private static final Long LAYOUT_SIZE = LAYOUT.byteSize();
     private static final String FILE_NAME = "table.txt";
@@ -22,6 +23,7 @@ public class SSTable {
     private MemorySegment readPage;
     //@Nullable
     private Long fileSize;
+    private Arena readArena;
 
     public SSTable(Path basePath) {
         path = basePath.resolve(FILE_NAME);
@@ -32,10 +34,10 @@ public class SSTable {
         if (!Files.exists(path)) {
             readPage = null;
         }
-        try (var channel = FileChannel.open(path, StandardOpenOption.READ);
-             var arena = Arena.ofConfined()) {
+        try (var channel = FileChannel.open(path, StandardOpenOption.READ)) {
+            readArena = Arena.ofConfined();
             fileSize = Files.size(path);
-            readPage = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, arena);
+            readPage = channel.map(FileChannel.MapMode.READ_ONLY, 0, fileSize, readArena);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -79,6 +81,11 @@ public class SSTable {
 
     private static long getEntrySize(Entry<MemorySegment> entry) {
         return entry.key().byteSize() + entry.value().byteSize();
+    }
+
+    @Override
+    public void close() throws IOException {
+        readArena.close();
     }
 
     static class MemorySegmentWriter {

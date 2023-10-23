@@ -67,6 +67,7 @@ public class MemoryTable implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void flush() throws IOException {
         if (ssTable != null) {
             ssTable.save(segmentToEntry);
+            ssTable.close();
         }
     }
 
