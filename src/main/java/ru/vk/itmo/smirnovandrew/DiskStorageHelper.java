@@ -16,7 +16,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 
-public class DiskStorageHelper {
+public final class DiskStorageHelper {
 
     private DiskStorageHelper() {
         // Protected constructor prevents direct instantiation.
