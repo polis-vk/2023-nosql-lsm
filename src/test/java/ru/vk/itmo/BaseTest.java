@@ -101,6 +101,12 @@ public class BaseTest {
         return entries("k", "v", count);
     }
 
+    public List<Entry<String>> bigValues(int count, int valueSize) {
+        char[] data = new char[valueSize / 2];
+        Arrays.fill(data, 'V');
+        return entries("k", new String(data), count);
+    }
+
     public List<Entry<String>> entries(String keyPrefix, String valuePrefix, int count) {
         return new AbstractList<>() {
             @Override
@@ -216,6 +222,23 @@ public class BaseTest {
                 return FileVisitResult.CONTINUE;
             }
         });
+    }
+
+    public long sizePersistentData(Dao<String, Entry<String>> dao) throws IOException {
+        Config config = DaoFactory.Factory.extractConfig(dao);
+        return sizePersistentData(config);
+    }
+
+    public long sizePersistentData(Config config) throws IOException {
+        long[] result = new long[]{0};
+        Files.walkFileTree(config.basePath(), new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                result[0] += Files.size(file);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        return result[0];
     }
 
 }
