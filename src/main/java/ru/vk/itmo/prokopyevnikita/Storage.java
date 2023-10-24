@@ -78,7 +78,7 @@ public final class Storage implements Closeable {
         saveByPath(path, entries::iterator);
     }
 
-    private static void saveByPath(Path path, Storable entries) throws IOException {
+    private static void saveByPath(Path path, IterableData entries) throws IOException {
         Files.deleteIfExists(path);
 
         long entriesCount = 0;
@@ -140,7 +140,7 @@ public final class Storage implements Closeable {
         return offset;
     }
 
-    public static void compact(Config config, Storable entries) throws IOException {
+    public static void compact(Config config, IterableData entries) throws IOException {
         Path tmpCompactedPath = config.basePath().resolve(DB_PREFIX + ".compacted" + DB_EXTENSION);
         saveByPath(tmpCompactedPath, entries);
 
@@ -254,7 +254,8 @@ public final class Storage implements Closeable {
         return isCompacted;
     }
 
-    public interface Storable {
+    @FunctionalInterface
+    public interface IterableData {
         Iterator<Entry<MemorySegment>> iterator() throws IOException;
     }
 }
