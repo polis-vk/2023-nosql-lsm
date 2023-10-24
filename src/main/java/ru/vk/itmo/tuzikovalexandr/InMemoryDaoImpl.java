@@ -1,15 +1,23 @@
 package ru.vk.itmo.tuzikovalexandr;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memory =
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memory =
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+    private final SSTable ssTable;
+
+    public InMemoryDaoImpl(Config config) throws IOException {
+        this.ssTable = new SSTable(config);
+    }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
@@ -27,7 +35,8 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return memory.get(key);
+        var entry = memory.get(key);
+        return entry == null ? ssTable.readData(key) : entry;
     }
 
     @Override
@@ -38,5 +47,19 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     @Override
     public Iterator<Entry<MemorySegment>> all() {
         return memory.values().iterator();
+    }
+
+    @Override
+    public void flush() throws IOException {
+        throw new UnsupportedOperationException("");
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (memory.isEmpty()) {
+            return;
+        }
+
+        ssTable.saveMemData(memory.values());
     }
 }
