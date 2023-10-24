@@ -61,13 +61,13 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> fromMemTable = storage.get(key);
         if (fromMemTable != null) {
-            return fromMemTable.value() != null ? fromMemTable : null;
+            return fromMemTable.value() == null ? null : fromMemTable;
         }
         for (int i = ssTables.size() - 1; i >= 0; i--) { // reverse order because last sstable has the highest priority
             SSTable ssTable = ssTables.get(i);
             Entry<MemorySegment> fromDisk = ssTable.get(key);
             if (fromDisk != null) {
-                return fromDisk.value() != null ? fromDisk : null;
+                return fromDisk.value() == null ? null : fromDisk;
             }
         }
         return null;
