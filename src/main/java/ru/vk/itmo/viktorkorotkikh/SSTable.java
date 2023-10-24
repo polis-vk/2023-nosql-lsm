@@ -47,11 +47,13 @@ public final class SSTable implements Closeable {
 
     private static Comparator<Path> ssTablePathComparator() {
         return (p1, p2) -> {
+            String p1String = p1.getFileName().toString();
             int p1Index = Integer.parseInt(
-                    p1.getFileName().toString().replace(FILE_NAME, "").replace(FILE_EXTENSION, "")
+                    p1String.substring(FILE_NAME.length(), p1String.length() - FILE_EXTENSION.length())
             );
+            String p2String = p2.getFileName().toString();
             int p2Index = Integer.parseInt(
-                    p2.getFileName().toString().replace(FILE_NAME, "").replace(FILE_EXTENSION, "")
+                    p2String.substring(FILE_NAME.length(), p2String.length() - FILE_EXTENSION.length())
             );
             return Integer.compare(p1Index, p2Index);
         };
