@@ -12,6 +12,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -20,6 +21,8 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
+    public static final String COMPACTED_SUFFIX = "_compacted";
+    public static final String COMPACTING_SUFFIX = "_compacting";
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(DaoImpl::compareMemorySegments);
     private final Path storagePath;
@@ -41,6 +44,16 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             Files.createFile(metaFilePath);
             Files.writeString(metaFilePath, "0", StandardOpenOption.WRITE);
         }
+
+        // Restore consistent state if db was dropped during compaction
+        if (Files.exists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX)) ||
+                Files.exists(storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX))) {
+            finishCompact();
+        }
+
+        // Delete artifacts from unsuccessful compaction
+        Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
+        Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
 
         int totalSSTables = Integer.parseInt(Files.readString(metaFilePath));
         for (int sstableNum = 0; sstableNum < totalSSTables; sstableNum++) {
@@ -167,24 +180,57 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!iterator.hasNext()) {
             return;
         }
-        writeIteratorIntoFile(calcComapactedSStableSize(), calcCompactedIndexSize(), iterator);
 
+        SStableSizeIndexSize storageIndexSize = calcCompactedSStableIndexSize();
+        Path compactingSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX);
+        Path compactingIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTING_SUFFIX);
+        writeIteratorIntoFile(storageIndexSize.sstableSize(),
+                storageIndexSize.indexSize(),
+                iterator,
+                compactingSStablePath,
+                compactingIndexPath);
+
+        // Move to ensure that compacting completed successfully
+        Path compactedSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
+        Path compactedIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX);
+        Files.move(compactingSStablePath, compactedSStablePath, StandardCopyOption.ATOMIC_MOVE);
+        Files.move(compactingIndexPath, compactedIndexPath, StandardCopyOption.ATOMIC_MOVE);
+
+        finishCompact();
+    }
+
+    private void finishCompact() throws IOException {
         int totalSStables = getTotalSStables();
-        Files.writeString(metaFilePath, String.valueOf(1));
         for (int i = 0; i < totalSStables; i++) {
-            Files.delete(storagePath.resolve(SSTABLE_BASE_NAME + i));
-            Files.delete(storagePath.resolve(INDEX_BASE_NAME + i));
+            Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + i));
+            Files.deleteIfExists(storagePath.resolve(INDEX_BASE_NAME + i));
         }
-        Files.move(storagePath.resolve(SSTABLE_BASE_NAME + totalSStables), storagePath.resolve(SSTABLE_BASE_NAME + 0));
-        Files.move(storagePath.resolve(INDEX_BASE_NAME + totalSStables), storagePath.resolve(INDEX_BASE_NAME + 0));
+
+        Files.writeString(metaFilePath, String.valueOf(1));
+        Path compactedSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
+        if (Files.exists(compactedSStablePath)) {
+            Files.move(compactedSStablePath,
+                    storagePath.resolve(SSTABLE_BASE_NAME + 0),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+        }
+        Path compactedIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX);
+
+        if (Files.exists(compactedIndexPath)) {
+            Files.move(compactedIndexPath,
+                    storagePath.resolve(INDEX_BASE_NAME + 0),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+        }
+
         map.clear();
     }
 
-    private void writeIteratorIntoFile(long size, long size1, Iterator<Entry<MemorySegment>> iterator) throws IOException {
-        int totalSStables = getTotalSStables();
-        Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + totalSStables);
-        Path indexPath = storagePath.resolve(INDEX_BASE_NAME + totalSStables);
-
+    private void writeIteratorIntoFile(long storageSize,
+                                       long indexSize,
+                                       Iterator<Entry<MemorySegment>> iterator,
+                                       Path sstablePath,
+                                       Path indexPath) throws IOException {
         long storageWriteOffset = 0;
         long indexWriteOffset = 0;
         try (var storageChannel = FileChannel.open(sstablePath,
@@ -200,9 +246,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
              var writeArena = Arena.ofConfined()) {
 
             MemorySegment mappedStorage =
-                    storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, size, writeArena);
+                    storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, storageSize, writeArena);
             MemorySegment mappedIndex =
-                    indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, size1, writeArena);
+                    indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, indexSize, writeArena);
 
             int entryNum = 0;
             while (iterator.hasNext()) {
@@ -219,27 +265,20 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private long calcCompactedIndexSize() {
-        var iterator = get(null, null);
-        long size = 0;
-        while (iterator.hasNext()) {
-            iterator.next();
-            size += Integer.BYTES + Long.BYTES;
-        }
-        return size;
-
+    // For some reason, Gradle issues an "Unused Variable" warning if this class is private
+    record SStableSizeIndexSize(long sstableSize, long indexSize) {
     }
 
-    private long calcComapactedSStableSize() {
+    private SStableSizeIndexSize calcCompactedSStableIndexSize() {
         var iterator = get(null, null);
-        long size = 0;
+        long storageSize = 0;
+        long indexSize = 0;
         while (iterator.hasNext()) {
-            var entry = iterator.next();
-            size += entry.key().byteSize();
-            size += entry.value().byteSize();
-            size += 2 * Long.BYTES;
+            Entry<MemorySegment> entry = iterator.next();
+            storageSize += entry.key().byteSize() + entry.value().byteSize() + 2 * Long.BYTES;
+            indexSize += Integer.BYTES + Long.BYTES;
         }
-        return size;
+        return new SStableSizeIndexSize(storageSize, indexSize);
     }
 
     @Override
@@ -273,7 +312,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (map.isEmpty()) {
             return;
         }
-        writeIteratorIntoFile(calcMapByteSizeInFile(), calcIndexByteSizeInFile(), map.values().iterator());
+        int totalSStables = getTotalSStables();
+        writeIteratorIntoFile(calcMapByteSizeInFile(), calcIndexByteSizeInFile(), map.values().iterator(), storagePath.resolve(SSTABLE_BASE_NAME + totalSStables), storagePath.resolve(INDEX_BASE_NAME + totalSStables));
     }
 
     private static long writeEntryNumAndStorageOffset(MemorySegment mappedIndex,
