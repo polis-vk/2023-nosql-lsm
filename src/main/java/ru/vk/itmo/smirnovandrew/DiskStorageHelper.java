@@ -18,7 +18,7 @@ import java.util.List;
 
 public class DiskStorageHelper {
 
-    protected DiskStorageHelper() {
+    private DiskStorageHelper() {
         // Protected constructor prevents direct instantiation.
     }
 
