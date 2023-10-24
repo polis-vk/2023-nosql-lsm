@@ -11,12 +11,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 
 public abstract class DiskStorageHelper {
+
+    protected DiskStorageHelper() {
+        // Protected constructor prevents direct instantiation.
+    }
 
     public static Path getTmp(Path storagePath) {
         return storagePath.resolve("index.tmp");
