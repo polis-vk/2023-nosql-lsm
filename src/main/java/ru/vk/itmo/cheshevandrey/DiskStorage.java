@@ -7,13 +7,14 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.Files;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.StandardCopyOption;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -24,10 +25,11 @@ public class DiskStorage {
 
     private final List<MemorySegment> segmentList;
 
+    private static final Arena indexArena = Arena.ofShared();
+
     private static final String EXTENSION = ".sst";
     private static final String DELIMITER = "_";
     private static final String INDEX_NAME = "index.idx";
-    private static final String INDEX_TMP_NAME = "index.tmp";
 
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
@@ -54,21 +56,12 @@ public class DiskStorage {
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
 
-        Path indexTmp = storagePath.resolve(INDEX_TMP_NAME);
-        Path indexFile = storagePath.resolve(INDEX_NAME);
+        MemorySegment indexSegment = loadIndexFile(storagePath);
 
-        int compactNumber = 0;
-        int ssTableCount = 0;
+        int compactNumber = indexSegment.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
+        int ssTablesNumber = indexSegment.get(ValueLayout.JAVA_INT_UNALIGNED, Integer.BYTES);
 
-        try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            List<String> indexLines = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-            compactNumber = Integer.parseInt(indexLines.get(0));
-            ssTableCount = Integer.parseInt(indexLines.get(1));
-        }
-
-        String newFileName = getFileName(ssTableCount, compactNumber);
+        String newFileName = getFileName(ssTablesNumber, compactNumber);
 
         long dataSize = 0;
         long count = 0;
@@ -134,30 +127,18 @@ public class DiskStorage {
             }
         }
 
-        updateIndex(indexFile, indexTmp, ssTableCount + 1, compactNumber);
+        updateIndex(indexSegment, compactNumber, ssTablesNumber + 1);
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve(INDEX_TMP_NAME);
-        Path indexFile = storagePath.resolve(INDEX_NAME);
 
-        if (Files.exists(indexTmp)) {
-            Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } else {
-            try {
-                Files.createFile(indexFile);
-                return new ArrayList<>();
-            } catch (FileAlreadyExistsException ignored) {
-                // it is ok, actually it is normal state
-            }
-        }
+        MemorySegment indexSegment = loadIndexFile(storagePath);
 
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        int compactNumber = Integer.parseInt(existedFiles.get(0));
-        int ssTablesCount = Integer.parseInt(existedFiles.get(1));
+        int compactNumber = indexSegment.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
+        int ssTablesNumber = indexSegment.get(ValueLayout.JAVA_INT_UNALIGNED, Integer.BYTES);
 
-        List<MemorySegment> result = new ArrayList<>(ssTablesCount);
-        for (int i = 0; i < ssTablesCount; i++) {
+        List<MemorySegment> result = new ArrayList<>(ssTablesNumber);
+        for (int i = 0; i < ssTablesNumber; i++) {
             Path file = storagePath.resolve(getFileName(i, compactNumber));
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
                 MemorySegment fileSegment = fileChannel.map(
@@ -171,6 +152,83 @@ public class DiskStorage {
         }
 
         return result;
+    }
+
+    public static MemorySegment loadIndexFile(Path storagePath) throws IOException {
+        Path indexPath = storagePath.resolve(INDEX_NAME);
+        MemorySegment indexSegment;
+        boolean isFileExists = true;
+
+        try {
+            Files.createFile(indexPath);
+            isFileExists = false;
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
+        }
+
+        try (FileChannel fileChannel = FileChannel.open(indexPath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            indexSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    Integer.BYTES * 2,
+                    indexArena
+            );
+            if (!isFileExists) {
+                updateIndex(indexSegment, 0, 0);
+            }
+            return indexSegment;
+        }
+    }
+
+    private static void updateIndex(MemorySegment indexSegment, int compactNumber, int ssTablesCount) {
+        indexSegment.set(ValueLayout.JAVA_INT_UNALIGNED, 0, compactNumber);
+        indexSegment.set(ValueLayout.JAVA_INT_UNALIGNED, Integer.BYTES, ssTablesCount);
+    }
+
+    public void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterableMemTable) throws IOException {
+        IterableStorage storage = new IterableStorage(iterableMemTable, this);
+        if (!storage.iterator().hasNext()) {
+            return;
+        }
+
+        save(storagePath, storage);
+        updateStateAfterCompact(storagePath);
+    }
+
+    private static void updateStateAfterCompact(Path storagePath) throws IOException {
+        MemorySegment indexSegment = loadIndexFile(storagePath);
+
+        int compactNumber = indexSegment.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
+        int ssTablesNumber = indexSegment.get(ValueLayout.JAVA_INT_UNALIGNED, Integer.BYTES);
+
+        for (int i = 0; i < ssTablesNumber - 1; i++) {
+            String ssTableName = getFileName(i, compactNumber);
+            Files.delete(storagePath.resolve(ssTableName));
+        }
+
+        String lastFileName = getFileName(ssTablesNumber - 1, compactNumber);
+        String newCompactFileName = getFileName(0, compactNumber + 1);
+
+        Files.move(storagePath.resolve(lastFileName), storagePath.resolve(newCompactFileName),
+                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+
+        updateIndex(indexSegment, compactNumber + 1, 1);
+    }
+
+    private static final class IterableStorage implements Iterable<Entry<MemorySegment>> {
+
+        Iterable<Entry<MemorySegment>> iterableMemTable;
+        DiskStorage diskStorage;
+
+        private IterableStorage(Iterable<Entry<MemorySegment>> iterableMemTable, DiskStorage diskStorage) {
+            this.iterableMemTable = iterableMemTable;
+            this.diskStorage = diskStorage;
+        }
+
+        @Override
+        public Iterator<Entry<MemorySegment>> iterator() {
+            return diskStorage.range(iterableMemTable.iterator(), null, null);
+        }
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
@@ -247,75 +305,6 @@ public class DiskStorage {
                 return new BaseEntry<>(key, value);
             }
         };
-    }
-
-    public void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterableMemTable) throws IOException {
-        IterableStorage storage = new IterableStorage(iterableMemTable, this);
-        if (!storage.iterator().hasNext()) {
-            return;
-        }
-
-        save(storagePath, storage);
-        updateStateAfterCompact(storagePath);
-    }
-
-    private static void updateStateAfterCompact(Path storagePath) throws IOException {
-        Path indexTmp = storagePath.resolve(INDEX_TMP_NAME);
-        Path indexFile = storagePath.resolve(INDEX_NAME);
-
-        if (!Files.exists(indexFile)) {
-            return;
-        }
-
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        int compactNumber = Integer.parseInt(existedFiles.get(0));
-        int ssTablesNumber = Integer.parseInt(existedFiles.get(1));
-
-        for (int i = 0; i < ssTablesNumber - 1; i++) {
-            String ssTableName = getFileName(i, compactNumber);
-            Files.delete(storagePath.resolve(ssTableName));
-        }
-
-        String lastFileName = getFileName(ssTablesNumber - 1, compactNumber);
-        String newCompactFileName = getFileName(0, compactNumber + 1);
-
-        Files.move(storagePath.resolve(lastFileName), storagePath.resolve(newCompactFileName),
-                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-
-        updateIndex(indexFile, indexTmp, 1, compactNumber + 1);
-    }
-
-    private static void updateIndex(Path indexFile, Path indexTmp, int ssTablesCount, int compactNumber) throws IOException {
-        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-
-        List<String> list = new ArrayList<>(2);
-        list.add(String.valueOf(compactNumber));
-        list.add(String.valueOf(ssTablesCount));
-        Files.write(
-                indexFile,
-                list,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
-        Files.delete(indexTmp);
-    }
-
-    private static final class IterableStorage implements Iterable<Entry<MemorySegment>> {
-
-        Iterable<Entry<MemorySegment>> iterableMemTable;
-        DiskStorage diskStorage;
-
-        private IterableStorage(Iterable<Entry<MemorySegment>> iterableMemTable, DiskStorage diskStorage) {
-            this.iterableMemTable = iterableMemTable;
-            this.diskStorage = diskStorage;
-        }
-
-        @Override
-        public Iterator<Entry<MemorySegment>> iterator() {
-            return diskStorage.range(iterableMemTable.iterator(), null, null);
-        }
     }
 
     private static String getFileName(int ssTableNumber, int compactNumber) {
