@@ -28,11 +28,10 @@ public class Compacter {
         this.ssTableReader = ssTableReader;
     }
 
-
     /** Read count of entries, create new file and fill data from whole mapped data.
      * Writing is made as in SSTableWriter.save(), but if first file of index equals a new one than to a new add 'c'.
-     * Param priorityIterator - iterator to read entries
-     * Param entries - iterator to find number of entries
+     * @param priorityIterator - iterator to read entries
+     * @param entries - iterator to find number of entries
      * Throws IOException
      */
     public void compact(PriorityIterator priorityIterator, PriorityIterator entries) throws IOException {

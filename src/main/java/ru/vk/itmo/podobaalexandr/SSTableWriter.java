@@ -39,8 +39,7 @@ public class SSTableWriter {
      * Move index file to temp (save old index until successful save of new file).
      * Create new index file = temp index file + name of new file.
      * Delete temp file.
-     * Param entries - Memory data
-     * throws IOException
+     * @param entries - data from Memory
      */
     public void save(Collection<Entry<MemorySegment>> entries) throws IOException {
         if (entries.isEmpty()) {

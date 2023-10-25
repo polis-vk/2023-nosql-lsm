@@ -53,9 +53,9 @@ public class SSTable implements Iterable<Entry<MemorySegment>> {
         return resultIndex == entriesCount ? null : getEntryFromIndex(resultIndex);
     }
 
-    /** Binary Search index of entry in file
-     * Param keySearch - key that we find in SSTable
-     * Param isBorder - if you find a border (from, to) set true, else false
+    /** Binary Search index of entry in file.
+     * @param keySearch - key that we find in SSTable
+     * @param isBorder - if you find a border (from, to) set true, else false
      * Return index of key-value if it presented in SSTable else last entry for border or entries count for non-border
      */
     private long getIndexOfKeyFromPage(MemorySegment keySearch, boolean isBorder) {
