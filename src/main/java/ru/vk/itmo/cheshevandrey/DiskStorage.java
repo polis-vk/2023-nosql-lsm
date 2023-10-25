@@ -180,11 +180,6 @@ public class DiskStorage {
         }
     }
 
-    private static void updateIndex(MemorySegment indexSegment, int compactNumber, int ssTablesCount) {
-        indexSegment.set(ValueLayout.JAVA_INT_UNALIGNED, 0, compactNumber);
-        indexSegment.set(ValueLayout.JAVA_INT_UNALIGNED, Integer.BYTES, ssTablesCount);
-    }
-
     public void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterableMemTable) throws IOException {
         IterableStorage storage = new IterableStorage(iterableMemTable, this);
         if (!storage.iterator().hasNext()) {
@@ -213,6 +208,11 @@ public class DiskStorage {
                 StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         updateIndex(indexSegment, compactNumber + 1, 1);
+    }
+
+    private static void updateIndex(MemorySegment indexSegment, int compactNumber, int ssTablesCount) {
+        indexSegment.set(ValueLayout.JAVA_INT_UNALIGNED, 0, compactNumber);
+        indexSegment.set(ValueLayout.JAVA_INT_UNALIGNED, Integer.BYTES, ssTablesCount);
     }
 
     private static final class IterableStorage implements Iterable<Entry<MemorySegment>> {
