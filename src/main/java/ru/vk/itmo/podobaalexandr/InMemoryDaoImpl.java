@@ -101,7 +101,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
         return ssTableReader.get(key);
     }
 
-    /** Creates two equal Iterators:
+    /** Creates two equal Iterators.
      * priorityIterator - to read data from whole mapped data
      * priorityIteratorForSize - to find count of entries
      * Throws IOException

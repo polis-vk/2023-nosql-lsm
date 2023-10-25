@@ -32,7 +32,6 @@ public class Compacter {
      * Writing is made as in SSTableWriter.save(), but if first file of index equals a new one than to a new add 'c'.
      * @param priorityIterator - iterator to read entries
      * @param entries - iterator to find number of entries
-     * Throws IOException
      */
     public void compact(PriorityIterator priorityIterator, PriorityIterator entries) throws IOException {
 
