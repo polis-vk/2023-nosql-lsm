@@ -38,7 +38,7 @@ public class Compacter {
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         String fileName = String.valueOf(existedFiles.size());
 
-        if (fileName.equals(existedFiles.get(0))) {
+        if (!existedFiles.isEmpty() && fileName.equals(existedFiles.get(0))) {
             fileName = "compacted";
         }
 

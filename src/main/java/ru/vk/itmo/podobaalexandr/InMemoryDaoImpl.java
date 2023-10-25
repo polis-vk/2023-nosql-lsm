@@ -61,13 +61,11 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
             peekIterators.add(new IndexedPeekIterator(innerMap.values().iterator(), 0));
         }
 
-        if (!ssTableReader.isNoneSSTables()) {
-            Collection<Iterator<Entry<MemorySegment>>> iteratorsTable = ssTableReader.iterators(from, to);
+        Collection<Iterator<Entry<MemorySegment>>> iteratorsTable = ssTableReader.iterators(from, to);
 
-            long i = 1;
-            for (Iterator<Entry<MemorySegment>> iteratorTable : iteratorsTable) {
-                peekIterators.add(new IndexedPeekIterator(iteratorTable, i++));
-            }
+        long i = 1;
+        for (Iterator<Entry<MemorySegment>> iteratorTable : iteratorsTable) {
+            peekIterators.add(new IndexedPeekIterator(iteratorTable, i++));
         }
 
         return new PriorityIterator(peekIterators);
@@ -76,6 +74,11 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         memorySegmentEntryMap.put(entry.key(), entry);
+    }
+
+    @Override
+    public void flush() throws IOException {
+        ssTableWriter.save(memorySegmentEntryMap.values());
     }
 
     @Override
@@ -88,7 +91,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
             ssTableReader.close();
         }
 
-        ssTableWriter.save(memorySegmentEntryMap.values());
+        flush();
     }
 
     @Override
@@ -108,14 +111,14 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
      */
     @Override
     public void compact() throws IOException {
-        if (ssTableReader.isNoneSSTables()) {
+        List<IndexedPeekIterator> peekIterators = new ArrayList<>();
+        Collection<Iterator<Entry<MemorySegment>>> iteratorsTable = ssTableReader.iterators(null, null);
+
+        if (iteratorsTable.isEmpty()) {
             return;
         }
 
-        List<IndexedPeekIterator> peekIterators = new ArrayList<>();
         List<IndexedPeekIterator> peekIteratorsForSize = new ArrayList<>();
-
-        Collection<Iterator<Entry<MemorySegment>>> iteratorsTable = ssTableReader.iterators(null, null);
         Collection<Iterator<Entry<MemorySegment>>> iteratorsTableForSize = ssTableReader.iterators(null, null);
 
         long index = 0;

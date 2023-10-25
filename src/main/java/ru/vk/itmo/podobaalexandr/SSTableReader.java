@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -20,63 +19,57 @@ public class SSTableReader implements AutoCloseable {
     private static final StandardCopyOption[] options =
             {StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING};
 
-    private final List<SSTable> ssTables = new ArrayList<>();
+    private final Path filePath;
+    private final Path indexFile;
+    private final Path indexTemp;
 
-    private Arena arena;
+    private final Arena arena;
 
     public SSTableReader(Path filePath, Path indexFile, Path indexTemp) {
-        boolean created = false;
+        this.indexFile = indexFile;
+        this.indexTemp = indexTemp;
+        this.filePath = filePath;
+        arena = Arena.ofShared();
+    }
 
-        if (Files.exists(filePath)) {
-
-            arena = Arena.ofShared();
-            try {
-                if (Files.exists(indexTemp)) {
-                    Files.move(indexTemp, indexFile, options);
-                }
-
-                if (!Files.exists(indexFile)) {
-                    Files.createFile(indexFile);
-                }
-
-                List<String> files = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-                for (String file : files) {
-                    SSTable ssTable = new SSTable(filePath.resolve(file), arena);
-                    ssTables.addFirst(ssTable);
-                    created = true;
-                }
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            } finally {
-                if (!created) {
-                    arena.close();
-                    arena = null;
-                }
-            }
+    private List<SSTable> readIndexFile() throws IOException {
+        if (Files.exists(indexTemp)) {
+            Files.move(indexTemp, indexFile, options);
         }
 
-    }
+        if (!Files.exists(indexFile)) {
+            return new ArrayList<>();
+        }
 
-    public int ssTablesCount() {
-        return ssTables.size();
-    }
+        List<String> files = Files.readAllLines(indexFile);
 
-    public boolean isNoneSSTables() {
-        return ssTablesCount() == 0;
+        List<SSTable> ssTables = new ArrayList<>(files.size());
+        for (String file : files) {
+            SSTable ssTable = new SSTable(filePath.resolve(file), arena);
+            ssTables.addFirst(ssTable);
+        }
+
+        return ssTables;
     }
 
     public Entry<MemorySegment> get(MemorySegment keySearch) {
 
         Entry<MemorySegment> res = null;
 
-        for (SSTable ssTable : ssTables) {
-            res = ssTable.getEntryFromPage(keySearch);
-            if (res != null) {
-                if (res.value() == null) {
-                    return null;
+        try {
+            List<SSTable> ssTables = readIndexFile();
+
+            for (SSTable ssTable : ssTables) {
+                res = ssTable.getEntryFromPage(keySearch);
+                if (res != null) {
+                    if (res.value() == null) {
+                        return null;
+                    }
+                    break;
                 }
-                break;
             }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
 
         return res;
@@ -84,11 +77,18 @@ public class SSTableReader implements AutoCloseable {
 
     public Collection<Iterator<Entry<MemorySegment>>> iterators(MemorySegment from, MemorySegment to) {
         SequencedCollection<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
-        for (SSTable ssTable: ssTables) {
-            Iterator<Entry<MemorySegment>> iterator = ssTable.iterator(from, to);
-            if (iterator.hasNext()) {
-                iterators.add(iterator);
+
+        try {
+            List<SSTable> ssTables = readIndexFile();
+
+            for (SSTable ssTable : ssTables) {
+                Iterator<Entry<MemorySegment>> iterator = ssTable.iterator(from, to);
+                if (iterator.hasNext()) {
+                    iterators.add(iterator);
+                }
             }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         }
 
         return iterators;
