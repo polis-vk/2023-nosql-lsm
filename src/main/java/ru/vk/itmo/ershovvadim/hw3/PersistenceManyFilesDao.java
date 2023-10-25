@@ -36,7 +36,7 @@ public class PersistenceManyFilesDao implements Dao<MemorySegment, Entry<MemoryS
     private final List<SSTable> ssTables = new ArrayList<>();
 
     public PersistenceManyFilesDao(Config config) throws IOException {
-        arena = Arena.ofConfined();
+        arena = Arena.ofShared();
 
         dir = config.basePath();
         if (!Files.exists(dir)) {
@@ -112,7 +112,7 @@ public class PersistenceManyFilesDao implements Dao<MemorySegment, Entry<MemoryS
             return;
         }
 
-        try (var writeArena = Arena.ofConfined()) {
+        try (var writeArena = Arena.ofShared()) {
             long indexSize = indexSize();
             long tableSize = tableSize();
             Path ssTableDir = createDir();
