@@ -17,6 +17,9 @@ import java.util.SequencedCollection;
 
 public class SSTableReader implements AutoCloseable {
 
+    private static final StandardCopyOption[] options =
+            {StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING};
+
     private final List<SSTable> ssTables = new ArrayList<>();
 
     private Arena arena;
@@ -29,7 +32,7 @@ public class SSTableReader implements AutoCloseable {
             arena = Arena.ofShared();
             try {
                 if (Files.exists(indexTemp)) {
-                    Files.move(indexTemp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                    Files.move(indexTemp, indexFile, options);
                 }
 
                 if (!Files.exists(indexFile)) {

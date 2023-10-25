@@ -20,6 +20,9 @@ public class SSTableWriter {
     protected static final StandardOpenOption[] options
             = {StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE};
 
+    protected static final StandardOpenOption[] optionsWriteIndex
+            = {StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING};
+
     private final Path filePath;
     private final Path indexFile;
     private final Path indexTemp;
@@ -31,14 +34,13 @@ public class SSTableWriter {
         this.indexTemp = indexTemp;
     }
 
-    /**
-     * Param entries - Memory data
-     * @throws IOException
-     * Read size of index file to create name for new file.
+    /** Read size of index file to create name for new file.
      * Write data from Memory to new file.
      * Move index file to temp (save old index until successful save of new file).
      * Create new index file = temp index file + name of new file.
      * Delete temp file.
+     * Param entries - Memory data
+     * throws IOException
      */
     public void save(Collection<Entry<MemorySegment>> entries) throws IOException {
         if (entries.isEmpty()) {
@@ -103,7 +105,7 @@ public class SSTableWriter {
         List<String> info = new ArrayList<>(existedFiles.size() + 1);
         info.addAll(existedFiles);
         info.add(fileName);
-        Files.write(indexFile, info, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        Files.write(indexFile, info, optionsWriteIndex);
 
         Files.delete(indexTemp);
     }
