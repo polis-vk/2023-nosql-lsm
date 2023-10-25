@@ -1,9 +1,10 @@
-package ru.vk.itmo.test.paschenkoalexandr;
+package ru.vk.itmo.test.novichkovandrew;
 
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.pashchenkoalexandr.PaschenkoDao;
+import ru.vk.itmo.novichkovandrew.dao.InMemoryDao;
+import ru.vk.itmo.novichkovandrew.dao.PersistentDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -11,22 +12,24 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 3)
-public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+@DaoFactory(stage = 2)
+public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
+        return new InMemoryDao();
+    }
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new PaschenkoDao(config);
+        if (config == null || config.basePath() == null) {
+            return createDao();
+        }
+        return new PersistentDao(config.basePath());
     }
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        if (memorySegment == null) {
-            return null;
-        }
-
-        byte[] array = memorySegment.toArray(ValueLayout.JAVA_BYTE);
-        return new String(array, StandardCharsets.UTF_8);
+        return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override

@@ -1,11 +1,13 @@
 package ru.vk.itmo.kovalevigor;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.util.Comparator;
+import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentNavigableMap;
@@ -13,31 +15,20 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
+    private final Arena memoryArena;
+    private final SSTable ssTable;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
+    public static final String SSTABLE_NAME = "sstable";
+    public static final long TABLE_SIZE_LIMIT = 1024 * 8; // TODO: От балды
 
-    public static final Comparator<MemorySegment> COMPARATOR = (lhs, rhs) -> {
-        final long mismatch = lhs.mismatch(rhs);
-        final long lhsSize = lhs.byteSize();
-        final long rhsSize = rhs.byteSize();
-        final long minSize = Math.min(lhsSize, rhsSize);
-        if (mismatch == -1) {
-            return 0;
-        } else if (minSize == mismatch) {
-            return Long.compare(lhsSize, rhsSize);
-        }
-        return Byte.compare(getByte(lhs, mismatch), getByte(rhs, mismatch));
-    };
-
-    public DaoImpl() {
-        storage = new ConcurrentSkipListMap<>(COMPARATOR);
+    public DaoImpl(final Config config) throws IOException {
+        memoryArena = Arena.ofShared();
+        ssTable = new SSTable(getSSTablePath(config.basePath()));
+        storage = new ConcurrentSkipListMap<>(ssTable.load(memoryArena, TABLE_SIZE_LIMIT));
     }
 
     private static <T> Iterator<T> getValuesIterator(final ConcurrentNavigableMap<?, T> map) {
         return map.values().iterator();
-    }
-
-    private static byte getByte(final MemorySegment memorySegment, final long offset) {
-        return memorySegment.get(ValueLayout.JAVA_BYTE, offset);
     }
 
     @Override
@@ -79,6 +70,28 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
         Objects.requireNonNull(key);
-        return storage.get(key);
+        final Entry<MemorySegment> result = storage.get(key);
+        if (result != null) {
+            return result;
+        }
+        try {
+            return ssTable.get(key, memoryArena);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private Path getSSTablePath(final Path base) {
+        return base.resolve(SSTABLE_NAME);
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (!memoryArena.scope().isAlive()) {
+            return;
+        }
+        ssTable.write(storage);
+        memoryArena.close();
+        storage.clear();
     }
 }
