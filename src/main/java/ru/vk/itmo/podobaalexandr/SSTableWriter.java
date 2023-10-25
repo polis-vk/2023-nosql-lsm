@@ -32,7 +32,7 @@ public class SSTableWriter {
     }
 
     /**
-     * @param entries - Memory data
+     * Param entries - Memory data
      * @throws IOException
      * Read size of index file to create name for new file.
      * Write data from Memory to new file.
