@@ -19,11 +19,15 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.Collections;
 
 public class DiskStorage {
 
     private final List<MemorySegment> segmentList;
+
+    private static final String EXTENSION = ".sst";
+    private static final String DELIMITER = "_";
+    private static final String INDEX_NAME = "index.idx";
+    private static final String INDEX_TMP_NAME = "index.tmp";
 
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
@@ -50,23 +54,25 @@ public class DiskStorage {
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
 
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
-        int counter = 0;
+        Path indexTmp = storagePath.resolve(INDEX_TMP_NAME);
+        Path indexFile = storagePath.resolve(INDEX_NAME);
+
+        int compactNumber = 0;
+        int ssTableCount = 0;
 
         try {
             Files.createFile(indexFile);
         } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
+            List<String> indexLines = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+            compactNumber = Integer.parseInt(indexLines.get(0));
+            ssTableCount = Integer.parseInt(indexLines.get(1));
         }
 
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        String newFileName = String.valueOf(existedFiles.size());
+        String newFileName = getFileName(ssTableCount, compactNumber);
 
         long dataSize = 0;
         long count = 0;
         for (Entry<MemorySegment> entry : iterable) {
-            counter++;
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
             if (value != null) {
@@ -98,7 +104,6 @@ public class DiskStorage {
             long dataOffset = indexSize;
             int indexOffset = 0;
             for (Entry<MemorySegment> entry : iterable) {
-                counter++;
                 fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                 dataOffset += entry.key().byteSize();
                 indexOffset += Long.BYTES;
@@ -117,7 +122,6 @@ public class DiskStorage {
             // |key0|value0|key1|value1|...
             dataOffset = indexSize;
             for (Entry<MemorySegment> entry : iterable) {
-                counter++;
                 MemorySegment key = entry.key();
                 MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
                 dataOffset += key.byteSize();
@@ -129,29 +133,32 @@ public class DiskStorage {
                 }
             }
         }
-        System.out.println(counter);
 
-        updateIndexFile(indexFile, indexTmp, existedFiles, newFileName);
+        updateIndex(indexFile, indexTmp, ssTableCount + 1, compactNumber);
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(INDEX_TMP_NAME);
+        Path indexFile = storagePath.resolve(INDEX_NAME);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } else {
             try {
                 Files.createFile(indexFile);
+                return new ArrayList<>();
             } catch (FileAlreadyExistsException ignored) {
                 // it is ok, actually it is normal state
             }
         }
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        List<MemorySegment> result = new ArrayList<>(existedFiles.size());
-        for (String fileName : existedFiles) {
-            Path file = storagePath.resolve(fileName);
+        int compactNumber = Integer.parseInt(existedFiles.get(0));
+        int ssTablesCount = Integer.parseInt(existedFiles.get(1));
+
+        List<MemorySegment> result = new ArrayList<>(ssTablesCount);
+        for (int i = 0; i < ssTablesCount; i++) {
+            Path file = storagePath.resolve(getFileName(i, compactNumber));
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
                 MemorySegment fileSegment = fileChannel.map(
                         FileChannel.MapMode.READ_WRITE,
@@ -253,42 +260,37 @@ public class DiskStorage {
     }
 
     private static void updateStateAfterCompact(Path storagePath) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(INDEX_TMP_NAME);
+        Path indexFile = storagePath.resolve(INDEX_NAME);
 
-        try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
-        }
-
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        if (existedFiles.size() < 2) {
+        if (!Files.exists(indexFile)) {
             return;
         }
 
-        for (int i = existedFiles.size() - 2; i >= 0; i--) {
-            Path currentPath = storagePath.resolve(existedFiles.get(i));
-            Files.delete(currentPath);
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        int compactNumber = Integer.parseInt(existedFiles.get(0));
+        int ssTablesNumber = Integer.parseInt(existedFiles.get(1));
+
+        for (int i = 0; i < ssTablesNumber - 1; i++) {
+            String ssTableName = getFileName(i, compactNumber);
+            Files.delete(storagePath.resolve(ssTableName));
         }
 
-        String newCompactFileName = "0";
-        String lastFileName = String.valueOf(existedFiles.size() - 1);
+        String lastFileName = getFileName(ssTablesNumber - 1, compactNumber);
+        String newCompactFileName = getFileName(0, compactNumber + 1);
 
         Files.move(storagePath.resolve(lastFileName), storagePath.resolve(newCompactFileName),
                 StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-        updateIndexFile(indexFile, indexTmp, Collections.emptyList(), newCompactFileName);
+        updateIndex(indexFile, indexTmp, 1, compactNumber + 1);
     }
 
-    private static void updateIndexFile(Path indexFile, Path indexTmp, List<String> existedFiles, String newFileName)
-            throws IOException {
-
+    private static void updateIndex(Path indexFile, Path indexTmp, int ssTablesCount, int compactNumber) throws IOException {
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-        List<String> list = new ArrayList<>(existedFiles.size() + 1);
-        list.addAll(existedFiles);
-        list.add(newFileName);
+        List<String> list = new ArrayList<>(2);
+        list.add(String.valueOf(compactNumber));
+        list.add(String.valueOf(ssTablesCount));
         Files.write(
                 indexFile,
                 list,
@@ -314,6 +316,10 @@ public class DiskStorage {
         public Iterator<Entry<MemorySegment>> iterator() {
             return diskStorage.range(iterableMemTable.iterator(), null, null);
         }
+    }
+
+    private static String getFileName(int ssTableNumber, int compactNumber) {
+        return ssTableNumber + DELIMITER + compactNumber + EXTENSION;
     }
 
     private static MemorySegment slice(MemorySegment page, long start, long end) {
