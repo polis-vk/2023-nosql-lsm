@@ -12,6 +12,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -64,12 +65,17 @@ public class PersistenceManyFilesDao implements Dao<MemorySegment, Entry<MemoryS
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Iterator<Entry<MemorySegment>> iterator = get(key, null);
+        Entry<MemorySegment> current = db.get(key);
+        if (current != null) {
+            return current.value() == null ? null : current;
+        }
+
+        Iterator<Entry<MemorySegment>> iterator = getMergeIterator(Collections.emptyIterator(), key, null);
         if (!iterator.hasNext()) {
             return null;
         }
 
-        var current = iterator.next();
+        current = iterator.next();
         if (key.mismatch(current.key()) == -1) {
             return current;
         }
@@ -78,8 +84,16 @@ public class PersistenceManyFilesDao implements Dao<MemorySegment, Entry<MemoryS
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        return getMergeIterator(getInMemory(from, to), from, to);
+    }
+
+    private MergeIterator getMergeIterator(
+            Iterator<Entry<MemorySegment>> firstIter,
+            MemorySegment from,
+            MemorySegment to
+    ) {
         List<PeekIterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
-        iterators.add(new PeekIteratorImpl(getInMemory(from, to), Integer.MAX_VALUE));
+        iterators.add(new PeekIteratorImpl(firstIter, Integer.MAX_VALUE));
         for (SSTable ssTable : ssTables) {
             iterators.add(ssTable.iterator(from, to));
         }
