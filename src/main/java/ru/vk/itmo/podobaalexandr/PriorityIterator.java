@@ -35,6 +35,10 @@ public class PriorityIterator implements Iterator<Entry<MemorySegment>> {
         return !priorityQueue.isEmpty();
     }
 
+
+    /**
+     * Tombstone - entry with value = null | valueOffset = -1;
+     */
     private void skipTombstone() {
         while (!priorityQueue.isEmpty() && priorityQueue.peek().peek().value() == null) {
             IndexedPeekIterator currentIterator = priorityQueue.remove();
@@ -63,6 +67,11 @@ public class PriorityIterator implements Iterator<Entry<MemorySegment>> {
         return nextEntry;
     }
 
+
+    /**
+     * @param key
+     * Move iterators with equal key
+     */
     private void deleteFromOld(MemorySegment key) {
         while (!priorityQueue.isEmpty()) {
             IndexedPeekIterator peekIterator = priorityQueue.peek();

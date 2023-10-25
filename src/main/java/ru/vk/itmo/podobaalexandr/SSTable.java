@@ -48,12 +48,18 @@ public class SSTable implements Iterable<Entry<MemorySegment>> {
         return size;
     }
 
-    public Entry<MemorySegment> getFromPage(MemorySegment keySearch) {
-        long resultIndex = getIndexFromPage(keySearch, false);
+    public Entry<MemorySegment> getEntryFromPage(MemorySegment keySearch) {
+        long resultIndex = getIndexOfKeyFromPage(keySearch, false);
         return resultIndex == entriesCount ? null : getEntryFromIndex(resultIndex);
     }
 
-    private long getIndexFromPage(MemorySegment keySearch, boolean isBorder) {
+
+    /**
+     * @param keySearch - key that we find in SSTable
+     * @param isBorder - if you find a border (from, to) set true, else false
+     * @return index of key-value if it presented in SSTable else last entry for border or entries count for non-border
+     */
+    private long getIndexOfKeyFromPage(MemorySegment keySearch, boolean isBorder) {
 
         long lo = 0;
         long hi = entriesCount - 1;
@@ -139,8 +145,8 @@ public class SSTable implements Iterable<Entry<MemorySegment>> {
     }
 
     public Iterator<Entry<MemorySegment>> iterator(MemorySegment from, MemorySegment to) {
-        long fromIndex = from == null ? 0 : getIndexFromPage(from, true);
-        long toIndex = to == null ? entriesCount : getIndexFromPage(to, true);
+        long fromIndex = from == null ? 0 : getIndexOfKeyFromPage(from, true);
+        long toIndex = to == null ? entriesCount : getIndexOfKeyFromPage(to, true);
 
         return new Iterator<>() {
 

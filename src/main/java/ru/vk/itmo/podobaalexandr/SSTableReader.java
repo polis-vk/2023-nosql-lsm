@@ -58,7 +58,7 @@ public class SSTableReader implements AutoCloseable {
         return ssTables.size();
     }
 
-    public boolean isEmptySSTables() {
+    public boolean isNoneSSTables() {
         return ssTablesCount() == 0;
     }
 
@@ -67,7 +67,7 @@ public class SSTableReader implements AutoCloseable {
         Entry<MemorySegment> res = null;
 
         for (SSTable ssTable : ssTables) {
-            res = ssTable.getFromPage(keySearch);
+            res = ssTable.getEntryFromPage(keySearch);
             if (res != null) {
                 if (res.value() == null) {
                     return null;

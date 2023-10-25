@@ -61,7 +61,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
             peekIterators.add(new IndexedPeekIterator(innerMap.values().iterator(), 0));
         }
 
-        if (!ssTableReader.isEmptySSTables()) {
+        if (!ssTableReader.isNoneSSTables()) {
             Collection<Iterator<Entry<MemorySegment>>> iteratorsTable = ssTableReader.iterators(from, to);
 
             long i = 1;
@@ -101,9 +101,15 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
         return ssTableReader.get(key);
     }
 
+    /**
+     * @throws IOException
+     * Creates two equal Iterators:
+     *  priorityIterator - to read data from whole mapped data
+     *  priorityIteratorForSize - to find count of entries
+     */
     @Override
     public void compact() throws IOException {
-        if (ssTableReader.isEmptySSTables()) {
+        if (ssTableReader.isNoneSSTables()) {
             return;
         }
 

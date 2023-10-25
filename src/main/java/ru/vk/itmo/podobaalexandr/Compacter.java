@@ -29,6 +29,14 @@ public class Compacter {
         this.ssTableReader = ssTableReader;
     }
 
+
+    /**
+     * @param priorityIterator - iterator to read entries
+     * @param entries - iterator to find number of entries
+     * @throws IOException
+     * read count of entries, create new file and fill data from whole mapped data.
+     * Writing is made as in SSTableWriter.save(), but if first file of index equals a new one than to a new add 'c'.
+     */
     public void compact(PriorityIterator priorityIterator, PriorityIterator entries) throws IOException {
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
@@ -41,6 +49,7 @@ public class Compacter {
         long entriesCount = 0;
         long dataSize = 0;
 
+        //find number of entries
         while (entries.hasNext()) {
             Entry<MemorySegment> entry = entries.next();
             dataSize += entry.key().byteSize() + entry.value().byteSize();
@@ -49,6 +58,7 @@ public class Compacter {
 
         long indexSize = entriesCount * 2 * Long.BYTES;
 
+        //write data
         try (
                 Arena arenaCompact = Arena.ofConfined();
                 FileChannel fileChannel = FileChannel.open(path.resolve(fileName), SSTableWriter.options)
