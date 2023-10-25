@@ -79,6 +79,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     @Override
     public void flush() throws IOException {
         ssTableWriter.save(memorySegmentEntryMap.values());
+        memorySegmentEntryMap.clear();
     }
 
     @Override
