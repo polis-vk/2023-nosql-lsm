@@ -4,6 +4,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
 import java.util.Iterator;
@@ -17,14 +18,17 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage;
 
     private final List<SSTable> ssTables;
+    private Arena ssTablesArena;
 
     private final Path storagePath;
 
     public LSMDaoImpl(Path storagePath) {
         this.storage = new ConcurrentSkipListMap<>(MemorySegmentComparator.INSTANCE);
         try {
-            this.ssTables = SSTable.load(storagePath);
+            this.ssTablesArena = Arena.ofShared();
+            this.ssTables = SSTable.load(ssTablesArena, storagePath);
         } catch (IOException e) {
+            ssTablesArena.close();
             throw new LSMDaoCreationException(e);
         }
         this.storagePath = storagePath;
@@ -80,7 +84,10 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        ssTables.forEach(SSTable::close);
+        if (!ssTablesArena.scope().isAlive()) {
+            return;
+        }
+        ssTablesArena.close();
         SSTable.save(storage.values(), ssTables.size(), storagePath);
     }
 

@@ -3,7 +3,6 @@ package ru.vk.itmo.viktorkorotkikh;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
-import java.io.Closeable;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -22,9 +21,7 @@ import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public final class SSTable implements Closeable {
-
-    private final Arena arena;
+public final class SSTable {
 
     private final MemorySegment mappedSSTableFile;
 
@@ -39,8 +36,7 @@ public final class SSTable implements Closeable {
     private static final long ENTRY_METADATA_SIZE = Long.BYTES;
     private final int index;
 
-    private SSTable(Arena arena, MemorySegment mappedSSTableFile, int index) {
-        this.arena = arena;
+    private SSTable(MemorySegment mappedSSTableFile, int index) {
         this.mappedSSTableFile = mappedSSTableFile;
         this.index = index;
     }
@@ -59,7 +55,7 @@ public final class SSTable implements Closeable {
         };
     }
 
-    public static List<SSTable> load(Path basePath) throws IOException {
+    public static List<SSTable> load(Arena arena, Path basePath) throws IOException {
         List<Path> ssTablePaths;
         try (Stream<Path> paths = Files.walk(basePath, 1)) {
             ssTablePaths = paths.filter(Files::isRegularFile)
@@ -72,15 +68,10 @@ public final class SSTable implements Closeable {
         List<SSTable> ssTables = new ArrayList<>(ssTablePaths.size());
         for (int i = 0; i < ssTablePaths.size(); i++) {
             Path ssTablePath = ssTablePaths.get(i);
-            Arena arena;
             MemorySegment mappedSSTableFile;
             try (FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
-                arena = Arena.ofShared();
                 mappedSSTableFile = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0L, fileChannel.size(), arena);
-                ssTables.add(new SSTable(arena, mappedSSTableFile, i));
-            } catch (IOException e) {
-                ssTables.forEach(SSTable::close);
-                throw new SSTableReadException(e);
+                ssTables.add(new SSTable(mappedSSTableFile, i));
             }
         }
         return ssTables;
@@ -273,11 +264,6 @@ public final class SSTable implements Closeable {
                     METADATA_SIZE + right * ENTRY_METADATA_SIZE
             );
         };
-    }
-
-    @Override
-    public void close() {
-        arena.close();
     }
 
     private enum SearchOption {
