@@ -17,6 +17,7 @@ import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -126,19 +127,22 @@ public class FileDao implements Closeable {
         if (!inMemoryDao.all().hasNext()) {
             return;
         }
+
+        Path tmpWriteValuesFilePath = basePath.resolve("tmp_values");
+        Path tmpWriteOffsetsFilePath = basePath.resolve("tmp_offsets");
         String writeValuesFileName = FileUtils.getNewFileName(basePath, VALUES_FILENAME_PREFIX);
         String writeOffsetsFileName = FileUtils.getNewFileName(basePath, OFFSETS_FILENAME_PREFIX);
         Path writeValuesFilePath = basePath.resolve(writeValuesFileName);
         Path writeOffsetsFilePath = basePath.resolve(writeOffsetsFileName);
 
         try (FileChannel valuesChannel = FileChannel.open(
-                writeValuesFilePath,
+                tmpWriteValuesFilePath,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.TRUNCATE_EXISTING);
              FileChannel offsetsChannel = FileChannel.open(
-                     writeOffsetsFilePath,
+                     tmpWriteOffsetsFilePath,
                      StandardOpenOption.CREATE,
                      StandardOpenOption.READ,
                      StandardOpenOption.WRITE,
@@ -152,12 +156,30 @@ public class FileDao implements Closeable {
                 Iterator<Entry<MemorySegment>> it = inMemoryDao.all();
                 while (it.hasNext()) {
                     Entry<MemorySegment> entry = it.next();
-                    entryOffset = MemorySegmentUtils.writeEntryOffset(
-                            valueOffset, offsetsMS, entryOffset);
+                    entryOffset = MemorySegmentUtils.writeEntryOffset(valueOffset, offsetsMS, entryOffset);
+                    valueOffset = MemorySegmentUtils.getEntryOffset(entry, valueOffset);
+                }
+
+                it = inMemoryDao.all();
+                valueOffset = 0L;
+                while (it.hasNext()) {
+                    Entry<MemorySegment> entry = it.next();
                     valueOffset = MemorySegmentUtils.writeEntry(entry, valuesMS, valueOffset);
                 }
             }
         }
+        Files.move(
+                tmpWriteValuesFilePath,
+                writeValuesFilePath,
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+        );
+        Files.move(
+                tmpWriteOffsetsFilePath,
+                writeOffsetsFilePath,
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+        );
     }
 
     private MemorySegment getValuesMS(Iterator<Entry<MemorySegment>> valuesInMemory,

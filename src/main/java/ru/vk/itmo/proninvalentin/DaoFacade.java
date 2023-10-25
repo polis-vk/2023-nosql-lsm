@@ -37,9 +37,8 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
             Entry<MemorySegment> msFromFiles = fileDao.read(key);
             if (msFromFiles == null || msFromFiles.value() == null) {
                 return null;
-            } else {
-                return msFromFiles;
             }
+            return msFromFiles;
         }
 
         return ms;

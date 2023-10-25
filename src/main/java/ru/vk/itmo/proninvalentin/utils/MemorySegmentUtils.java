@@ -123,6 +123,15 @@ public final class MemorySegmentUtils {
         return localFileOffset;
     }
 
+    public static long getEntryOffset(Entry<MemorySegment> entry, final long fileOffset) {
+        long localFileOffset = fileOffset;
+        // Сначала пишем длину ключа и сам ключ
+        localFileOffset = getMemorySegmentOffset(entry.key(), localFileOffset);
+        // Потом пишем длину значения и само значение
+        localFileOffset = getMemorySegmentOffset(entry.value(), localFileOffset);
+        return localFileOffset;
+    }
+
     // Записать пару: |Длина MS в байтах|MS|
     public static long writeMemorySegment(MemorySegment value, MemorySegment dst, final long fileOffset) {
         long valueSize = value == null ? TOMBSTONE_VALUE : value.byteSize();
@@ -131,6 +140,16 @@ public final class MemorySegmentUtils {
         localFileOffset += Long.BYTES;
         if (value != null) {
             MemorySegment.copy(value, 0, dst, localFileOffset, valueSize);
+            localFileOffset += valueSize;
+        }
+        return localFileOffset;
+    }
+
+    public static long getMemorySegmentOffset(MemorySegment value, final long fileOffset) {
+        long valueSize = value == null ? TOMBSTONE_VALUE : value.byteSize();
+        long localFileOffset = fileOffset;
+        localFileOffset += Long.BYTES;
+        if (value != null) {
             localFileOffset += valueSize;
         }
         return localFileOffset;

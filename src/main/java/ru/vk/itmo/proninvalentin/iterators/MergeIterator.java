@@ -22,7 +22,9 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private void tryAddFileIterators(List<PeekingPriorityIterator> inFileIterators) {
-        var nonEmptyFileIterators = inFileIterators.stream().filter(Iterator::hasNext).toList();
+        List<PeekingPriorityIterator> nonEmptyFileIterators = inFileIterators.stream()
+                .filter(Iterator::hasNext)
+                .toList();
         nonEmptyFileIterators.forEach(Iterator::next);
         iterators.addAll(inFileIterators.stream().filter(x -> x.getCurrent() != null).toList());
     }
