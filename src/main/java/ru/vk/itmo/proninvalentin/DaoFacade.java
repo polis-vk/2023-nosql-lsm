@@ -3,77 +3,117 @@ package ru.vk.itmo.proninvalentin;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.proninvalentin.iterators.MergeIterator;
-import ru.vk.itmo.proninvalentin.iterators.PeekingPriorityIterator;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
-import java.util.List;
+import java.util.NavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final FileDao fileDao;
-    private final InMemoryDao inMemoryDao;
+
+    private final Comparator<MemorySegment> comparator = DaoFacade::compare;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private final Arena arena;
+    private final DiskStorage diskStorage;
+    private final Path path;
 
     public DaoFacade() {
-        fileDao = null;
-        inMemoryDao = new InMemoryDao();
+        this.path = null;
+        this.arena = Arena.ofShared();
+        this.diskStorage = null;
     }
 
     public DaoFacade(Config config) throws IOException {
-        fileDao = new FileDao(config);
-        inMemoryDao = new InMemoryDao();
+        this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
+
+        arena = Arena.ofShared();
+
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
-    @Override
-    public Entry<MemorySegment> get(MemorySegment key) {
-        // Сначала ищем в памяти
-        Entry<MemorySegment> ms = inMemoryDao.get(key);
-        if (ms != null && ms.value() == null) {
-            return null;
-        }
-        // Затем в файловой системе
-        if (ms == null && fileDao != null) {
-            Entry<MemorySegment> msFromFiles = fileDao.read(key);
-            if (msFromFiles == null || msFromFiles.value() == null) {
-                return null;
-            } else {
-                return msFromFiles;
-            }
+    static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
+        long mismatch = memorySegment1.mismatch(memorySegment2);
+        if (mismatch == -1) {
+            return 0;
         }
 
-        return ms;
+        if (mismatch == memorySegment1.byteSize()) {
+            return -1;
+        }
+
+        if (mismatch == memorySegment2.byteSize()) {
+            return 1;
+        }
+        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
+        return Byte.compare(b1, b2);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        List<PeekingPriorityIterator> inFileIterators = Collections.emptyList();
-        if (fileDao != null) {
-            inFileIterators = fileDao.getFileIterators(from, to);
+        return diskStorage.range(getInMemory(from, to), from, to);
+    }
+
+    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return storage.values().iterator();
         }
-        return new MergeIterator(inMemoryDao.get(from, to), inFileIterators);
+        if (from == null) {
+            return storage.headMap(to).values().iterator();
+        }
+        if (to == null) {
+            return storage.tailMap(from).values().iterator();
+        }
+        return storage.subMap(from, to).values().iterator();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        inMemoryDao.upsert(entry);
+        storage.put(entry.key(), entry);
+    }
+
+    @Override
+    public Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> entry = storage.get(key);
+        if (entry != null) {
+            if (entry.value() == null) {
+                return null;
+            }
+            return entry;
+        }
+
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+
+        if (!iterator.hasNext()) {
+            return null;
+        }
+        Entry<MemorySegment> next = iterator.next();
+        if (compare(next.key(), key) == 0) {
+            return next;
+        }
+        return null;
     }
 
     @Override
     public void close() throws IOException {
-        if (fileDao != null) {
-            fileDao.write(inMemoryDao);
-            fileDao.close();
+        if (!arena.scope().isAlive()) {
+            return;
+        }
+
+        arena.close();
+
+        if (!storage.isEmpty()) {
+            DiskStorage.save(path, storage.values());
         }
     }
 
-    @Override
-    public void compact() throws IOException {
-        if (fileDao == null) {
-            return;
-        }
-        fileDao.compact(get(null, null), inMemoryDao.entriesCount(), inMemoryDao.entriesSize());
-        inMemoryDao.clear();
-    }
+
 }
