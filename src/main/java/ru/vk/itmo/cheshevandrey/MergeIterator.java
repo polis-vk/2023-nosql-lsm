@@ -13,7 +13,6 @@ public class MergeIterator<T> implements Iterator<T> {
 
     PeekIterator<T> peek;
 
-
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
@@ -83,7 +82,7 @@ public class MergeIterator<T> implements Iterator<T> {
     }
 
     protected boolean skip(T t) {
-        return false;
+        return t == null;
     }
 
     @Override

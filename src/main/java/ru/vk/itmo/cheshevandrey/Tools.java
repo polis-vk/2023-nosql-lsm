@@ -3,13 +3,13 @@ package ru.vk.itmo.cheshevandrey;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class Tools {
+public final class Tools {
 
     static String DELIMITER = "_";
     static String EXTENSION = ".sst";
 
     // to hide the implicit public constructor
-    private Tools() {
+    private  Tools() {
     }
 
     static long recordsCount(MemorySegment segment) {
