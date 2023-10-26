@@ -11,46 +11,6 @@ public class MergeIterator<T> implements Iterator<T> {
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
 
-    private static class PeekIterator<T> implements Iterator<T> {
-
-        public final int id;
-        private final Iterator<T> delegate;
-        private T peek;
-
-        private PeekIterator(int id, Iterator<T> delegate) {
-            this.id = id;
-            this.delegate = delegate;
-        }
-
-        @Override
-        public boolean hasNext() {
-            if (peek == null) {
-                return delegate.hasNext();
-            }
-            return true;
-        }
-
-        @Override
-        public T next() {
-            if (!hasNext()) {
-                throw new NoSuchElementException();
-            }
-            T peek = peek();
-            this.peek = null;
-            return peek;
-        }
-
-        private T peek() {
-            if (peek == null) {
-                if (!delegate.hasNext()) {
-                    return null;
-                }
-                peek = delegate.next();
-            }
-            return peek;
-        }
-    }
-
     PeekIterator<T> peek;
 
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {

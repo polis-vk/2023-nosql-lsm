@@ -7,14 +7,12 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-
 import java.nio.channels.FileChannel;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.nio.file.Files;
 import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -27,8 +25,6 @@ public class DiskStorage {
 
     private static final Arena indexArena = Arena.ofShared();
 
-    private static final String EXTENSION = ".sst";
-    private static final String DELIMITER = "_";
     private static final String INDEX_NAME = "index.idx";
 
     public DiskStorage(List<MemorySegment> segmentList) {
@@ -61,7 +57,7 @@ public class DiskStorage {
         int compactNumber = indexSegment.get(ValueLayout.JAVA_INT_UNALIGNED, 0);
         int ssTablesNumber = indexSegment.get(ValueLayout.JAVA_INT_UNALIGNED, Integer.BYTES);
 
-        String newFileName = getFileName(ssTablesNumber, compactNumber);
+        String newFileName = Tools.getFileName(ssTablesNumber, compactNumber);
 
         long dataSize = 0;
         long count = 0;
@@ -103,7 +99,7 @@ public class DiskStorage {
 
                 MemorySegment value = entry.value();
                 if (value == null) {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, Tools.tombstone(dataOffset));
                 } else {
                     fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                     dataOffset += value.byteSize();
@@ -139,7 +135,7 @@ public class DiskStorage {
 
         List<MemorySegment> result = new ArrayList<>(ssTablesNumber);
         for (int i = 0; i < ssTablesNumber; i++) {
-            Path file = storagePath.resolve(getFileName(i, compactNumber));
+            Path file = storagePath.resolve(Tools.getFileName(i, compactNumber));
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
                 MemorySegment fileSegment = fileChannel.map(
                         FileChannel.MapMode.READ_WRITE,
@@ -197,12 +193,12 @@ public class DiskStorage {
         int ssTablesNumber = indexSegment.get(ValueLayout.JAVA_INT_UNALIGNED, Integer.BYTES);
 
         for (int i = 0; i < ssTablesNumber - 1; i++) {
-            String ssTableName = getFileName(i, compactNumber);
+            String ssTableName = Tools.getFileName(i, compactNumber);
             Files.delete(storagePath.resolve(ssTableName));
         }
 
-        String lastFileName = getFileName(ssTablesNumber - 1, compactNumber);
-        String newCompactFileName = getFileName(0, compactNumber + 1);
+        String lastFileName = Tools.getFileName(ssTablesNumber - 1, compactNumber);
+        String newCompactFileName = Tools.getFileName(0, compactNumber + 1);
 
         Files.move(storagePath.resolve(lastFileName), storagePath.resolve(newCompactFileName),
                 StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -232,15 +228,15 @@ public class DiskStorage {
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
-        long recordsCount = recordsCount(segment);
+        long recordsCount = Tools.recordsCount(segment);
 
         long left = 0;
         long right = recordsCount - 1;
         while (left <= right) {
             long mid = (left + right) >>> 1;
 
-            long startOfKey = startOfKey(segment, mid);
-            long endOfKey = endOfKey(segment, mid);
+            long startOfKey = Tools.startOfKey(segment, mid);
+            long endOfKey = Tools.endOfKey(segment, mid);
             long mismatch = MemorySegment.mismatch(segment, startOfKey, endOfKey, key, 0, key.byteSize());
             if (mismatch == -1) {
                 return mid;
@@ -265,22 +261,13 @@ public class DiskStorage {
             }
         }
 
-        return tombstone(left);
-    }
-
-    private static long recordsCount(MemorySegment segment) {
-        long indexSize = indexSize(segment);
-        return indexSize / Long.BYTES / 2;
-    }
-
-    private static long indexSize(MemorySegment segment) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        return Tools.tombstone(left);
     }
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
-        long recordsCount = recordsCount(page);
+        long recordIndexFrom = from == null ? 0 : Tools.normalize(indexOf(page, from));
+        long recordIndexTo = to == null ? Tools.recordsCount(page) : Tools.normalize(indexOf(page, to));
+        long recordsCount = Tools.recordsCount(page);
 
         return new Iterator<>() {
             long index = recordIndexFrom;
@@ -295,55 +282,15 @@ public class DiskStorage {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
-                long startOfValue = startOfValue(page, index);
+                MemorySegment key = Tools.slice(page, Tools.startOfKey(page, index), Tools.endOfKey(page, index));
+                long startOfValue = Tools.startOfValue(page, index);
                 MemorySegment value =
                         startOfValue < 0
                                 ? null
-                                : slice(page, startOfValue, endOfValue(page, index, recordsCount));
+                                : Tools.slice(page, startOfValue, Tools.endOfValue(page, index, recordsCount));
                 index++;
                 return new BaseEntry<>(key, value);
             }
         };
     }
-
-    private static String getFileName(int ssTableNumber, int compactNumber) {
-        return ssTableNumber + DELIMITER + compactNumber + EXTENSION;
-    }
-
-    private static MemorySegment slice(MemorySegment page, long start, long end) {
-        return page.asSlice(start, end - start);
-    }
-
-    private static long startOfKey(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
-    }
-
-    private static long endOfKey(MemorySegment segment, long recordIndex) {
-        return normalizedStartOfValue(segment, recordIndex);
-    }
-
-    private static long normalizedStartOfValue(MemorySegment segment, long recordIndex) {
-        return normalize(startOfValue(segment, recordIndex));
-    }
-
-    private static long startOfValue(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
-    }
-
-    private static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
-        if (recordIndex < recordsCount - 1) {
-            return startOfKey(segment, recordIndex + 1);
-        }
-        return segment.byteSize();
-    }
-
-    private static long tombstone(long offset) {
-        return 1L << 63 | offset;
-    }
-
-    private static long normalize(long value) {
-        return value & ~(1L << 63);
-    }
-
 }
