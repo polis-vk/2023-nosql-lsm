@@ -12,7 +12,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 
-@DaoFactory(stage = 3)
+@DaoFactory(stage = 4)
 public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() throws IOException {
@@ -20,7 +20,7 @@ public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment
     }
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
         return new InMemoryDao(config);
     }
 
