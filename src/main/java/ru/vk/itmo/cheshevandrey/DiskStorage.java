@@ -24,7 +24,6 @@ public class DiskStorage {
     private final List<MemorySegment> segmentList;
 
     private static final Arena indexArena = Arena.ofShared();
-
     private static final String INDEX_NAME = "index.idx";
 
     public DiskStorage(List<MemorySegment> segmentList) {
