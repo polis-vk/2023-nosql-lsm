@@ -9,7 +9,7 @@ public final class Tools {
     static String EXTENSION = ".sst";
 
     // to hide the implicit public constructor
-    private  Tools() {
+    private Tools() {
     }
 
     static long recordsCount(MemorySegment segment) {
