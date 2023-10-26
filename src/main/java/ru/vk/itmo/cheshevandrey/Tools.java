@@ -6,7 +6,7 @@ import java.lang.foreign.ValueLayout;
 public class Tools {
 
     static String DELIMITER = "_";
-    static String EXTENSION = ".sst";;
+    static String EXTENSION = ".sst";
 
     // to hide the implicit public constructor
     private Tools() {
