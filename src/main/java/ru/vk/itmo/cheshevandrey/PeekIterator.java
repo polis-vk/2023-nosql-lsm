@@ -7,7 +7,7 @@ class PeekIterator<T> implements Iterator<T> {
 
     public final int id;
     private final Iterator<T> delegate;
-    private T peek;
+    private T currIterator;
 
     PeekIterator(int id, Iterator<T> delegate) {
         this.id = id;
@@ -16,7 +16,7 @@ class PeekIterator<T> implements Iterator<T> {
 
     @Override
     public boolean hasNext() {
-        if (peek == null) {
+        if (currIterator == null) {
             return delegate.hasNext();
         }
         return true;
@@ -28,17 +28,17 @@ class PeekIterator<T> implements Iterator<T> {
             throw new NoSuchElementException();
         }
         T peek = peek();
-        this.peek = null;
+        this.currIterator = null;
         return peek;
     }
 
     T peek() {
-        if (peek == null) {
+        if (currIterator == null) {
             if (!delegate.hasNext()) {
                 return null;
             }
-            peek = delegate.next();
+            currIterator = delegate.next();
         }
-        return peek;
+        return currIterator;
     }
 }

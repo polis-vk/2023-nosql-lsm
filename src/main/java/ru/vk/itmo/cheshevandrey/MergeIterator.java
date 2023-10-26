@@ -13,6 +13,7 @@ public class MergeIterator<T> implements Iterator<T> {
 
     PeekIterator<T> peek;
 
+
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
@@ -36,25 +37,7 @@ public class MergeIterator<T> implements Iterator<T> {
                 return null;
             }
 
-            while (true) {
-                PeekIterator<T> next = priorityQueue.peek();
-                if (next == null) {
-                    break;
-                }
-
-                int compare = comparator.compare(peek.peek(), next.peek());
-                if (compare == 0) {
-                    PeekIterator<T> poll = priorityQueue.poll();
-                    if (poll != null) {
-                        poll.next();
-                        if (poll.hasNext()) {
-                            priorityQueue.add(poll);
-                        }
-                    }
-                } else {
-                    break;
-                }
-            }
+            updateQueueState();
 
             if (peek.peek() == null) {
                 peek = null;
@@ -73,6 +56,32 @@ public class MergeIterator<T> implements Iterator<T> {
         return peek;
     }
 
+    private void updateQueueState() {
+        while (true) {
+            PeekIterator<T> next = priorityQueue.peek();
+            if (next == null) {
+                break;
+            }
+
+            int compare = comparator.compare(peek.peek(), next.peek());
+            if (compare == 0) {
+                pollNext();
+            } else {
+                break;
+            }
+        }
+    }
+
+    private void pollNext() {
+        PeekIterator<T> poll = priorityQueue.poll();
+        if (poll != null) {
+            poll.next();
+            if (poll.hasNext()) {
+                priorityQueue.add(poll);
+            }
+        }
+    }
+
     protected boolean skip(T t) {
         return false;
     }
@@ -84,14 +93,14 @@ public class MergeIterator<T> implements Iterator<T> {
 
     @Override
     public T next() {
-        PeekIterator<T> peek = peek();
-        if (peek == null) {
+        PeekIterator<T> currIterator = peek();
+        if (currIterator == null) {
             throw new NoSuchElementException();
         }
-        T next = peek.next();
+        T next = currIterator.next();
         this.peek = null;
-        if (peek.hasNext()) {
-            priorityQueue.add(peek);
+        if (currIterator.hasNext()) {
+            priorityQueue.add(currIterator);
         }
         return next;
     }

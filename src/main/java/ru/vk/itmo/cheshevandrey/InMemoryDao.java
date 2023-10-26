@@ -12,9 +12,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.Iterator;
 import java.util.NavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -23,8 +23,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
-
-    private boolean wasCompaction = false;
 
     public InMemoryDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
@@ -101,7 +99,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void compact() throws IOException {
         diskStorage.compact(path, getInMemory(null, null));
-        wasCompaction = true;
     }
 
     @Override
@@ -117,7 +114,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         arena.close();
 
-        if (!storage.isEmpty() && !wasCompaction) {
+        if (!storage.isEmpty()) {
             flush();
         }
     }

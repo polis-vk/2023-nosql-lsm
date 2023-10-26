@@ -5,8 +5,12 @@ import java.lang.foreign.ValueLayout;
 
 public class Tools {
 
-    static final String DELIMITER = "_";
-    static final String EXTENSION = ".sst";
+    static String DELIMITER = "_";
+    static String EXTENSION = ".sst";;
+
+    // to hide the implicit public constructor
+    private Tools() {
+    }
 
     static long recordsCount(MemorySegment segment) {
         long indexSize = indexSize(segment);
