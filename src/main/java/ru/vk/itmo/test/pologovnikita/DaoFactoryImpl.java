@@ -1,19 +1,26 @@
 package ru.vk.itmo.test.pologovnikita;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.pologovnikita.InMemoryDao;
+import ru.vk.itmo.pologovnikita.MemoryTable;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory
+@DaoFactory(stage = 2)
 public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+        return new MemoryTable();
+    }
+
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new MemoryTable(config);
     }
 
     @Override
