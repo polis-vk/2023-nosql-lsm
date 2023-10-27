@@ -3,9 +3,9 @@ package ru.vk.itmo.smirnovdmitrii;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.smirnovdmitrii.util.DaoIterator;
 import ru.vk.itmo.smirnovdmitrii.util.EqualsComparator;
 import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
+import ru.vk.itmo.smirnovdmitrii.util.MergeIterator;
 import ru.vk.itmo.smirnovdmitrii.util.PeekingIterator;
 import ru.vk.itmo.smirnovdmitrii.util.WrappedIterator;
 
@@ -21,12 +21,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public DaoImpl() {
         inMemoryDao = new InMemoryDaoImpl();
-        outMemoryDao = new FileDao();
+        outMemoryDao = new FileDao(this);
     }
 
     public DaoImpl(final Config config) {
         inMemoryDao = new InMemoryDaoImpl();
-        outMemoryDao = new FileDao(config.basePath());
+        outMemoryDao = new FileDao(this, config.basePath());
     }
 
     @Override
@@ -34,11 +34,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         int id = 0;
         final PeekingIterator<Entry<MemorySegment>> inMemoryIterator
                 = new WrappedIterator<>(id++, inMemoryDao.get(from, to));
-        final DaoIterator.Builder<MemorySegment, Entry<MemorySegment>> builder
-                = new DaoIterator.Builder<MemorySegment, Entry<MemorySegment>>()
+        final MergeIterator.Builder<MemorySegment, Entry<MemorySegment>> builder
+                = new MergeIterator.Builder<MemorySegment, Entry<MemorySegment>>()
                 .addComparator(comparator)
                 .addIterator(inMemoryIterator);
-        for (final Iterator<Entry<MemorySegment>> outMemoryIterator: outMemoryDao.get(from, to)) {
+        for (final Iterator<Entry<MemorySegment>> outMemoryIterator : outMemoryDao.get(from, to)) {
             builder.addIterator(new WrappedIterator<>(id++, outMemoryIterator));
         }
         return builder.build();
@@ -65,6 +65,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         outMemoryDao.save(inMemoryDao.commit());
+    }
+
+    @Override
+    public void compact() throws IOException {
+        outMemoryDao.compact();
     }
 
     @Override

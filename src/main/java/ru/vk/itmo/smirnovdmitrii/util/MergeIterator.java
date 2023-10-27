@@ -7,11 +7,11 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 
-public class DaoIterator<T, E extends Entry<T>> implements Iterator<E> {
+public class MergeIterator<T, E extends Entry<T>> implements Iterator<E> {
     private final EqualsComparator<T> comparator;
     private final MinHeap<PeekingIterator<E>> heap;
 
-    private DaoIterator(
+    private MergeIterator(
             final Collection<PeekingIterator<E>> iterators,
             final EqualsComparator<T> comparator
     ) {
@@ -94,11 +94,11 @@ public class DaoIterator<T, E extends Entry<T>> implements Iterator<E> {
             return this;
         }
 
-        public DaoIterator<T, E> build() {
+        public MergeIterator<T, E> build() {
             if (comparator == null) {
                 throw new IllegalStateException("comparator is null");
             }
-            return new DaoIterator<>(list, comparator);
+            return new MergeIterator<>(list, comparator);
         }
     }
 

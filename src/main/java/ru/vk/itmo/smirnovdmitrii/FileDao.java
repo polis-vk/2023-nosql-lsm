@@ -1,6 +1,7 @@
 package ru.vk.itmo.smirnovdmitrii;
 
 import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
 
@@ -10,48 +11,53 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Objects;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
+import java.util.UUID;
 
 public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>> {
     private static final Path DEFAULT_BASE_PATH = Path.of("");
     private static final long DELETED_VALUE_SIZE = -1L;
-    private static final DateTimeFormatter dateFormatter = DateTimeFormatter.ISO_DATE_TIME;
+    private static final String INDEX_FILE_NAME = "index";
+    private final Dao<MemorySegment, Entry<MemorySegment>> dao;
     private final MemorySegmentComparator comparator = new MemorySegmentComparator();
-    private final List<MemorySegment> mappedSsTables = new ArrayList<>();
+    private List<MemorySegment> mappedSsTables = new ArrayList<>();
     private final Arena arena = Arena.ofShared();
     private final Path basePath;
 
-    public FileDao() {
-        this(DEFAULT_BASE_PATH);
+    public FileDao(final Dao<MemorySegment, Entry<MemorySegment>> dao) {
+        this(dao, DEFAULT_BASE_PATH);
     }
 
-    public FileDao(final Path basePath) {
+    public FileDao(final Dao<MemorySegment, Entry<MemorySegment>> dao, final Path basePath) {
+        this.dao = dao;
         this.basePath = basePath;
         try {
             Files.createDirectories(basePath);
         } catch (final IOException e) {
             throw new UncheckedIOException(e);
         }
+        try {
+            Files.createFile(basePath.resolve(INDEX_FILE_NAME));
+        } catch (final FileAlreadyExistsException e) {
+            // ok
+        } catch (final IOException e) {
+            throw new UncheckedIOException(e);
+        }
         final List<Path> paths;
-        try (Stream<Path> stream = Files.list(basePath)) {
-            paths = stream.collect(Collectors.toCollection(ArrayList::new));
+        try {
+            paths = Files.readAllLines(basePath.resolve(INDEX_FILE_NAME)).stream().map(Path::of).toList();
         } catch (final IOException e) {
             throw new UncheckedIOException("exception while listing base directory.", e);
         }
-        paths.sort(Path::compareTo);
         for (final Path path: paths) {
             try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
                 mappedSsTables.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena));
@@ -86,6 +92,9 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
 
         @Override
         public Entry<MemorySegment> next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException("No more elements");
+            }
             final Entry<MemorySegment> entry = readBlock(ssTable, offset);
             offset += blockSize(entry);
             return entry;
@@ -99,27 +108,27 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
             final MemorySegment storage = mappedSsTables.get(i);
             final long offsetsPartSize = storage.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
             final MemorySegment offsets = storage.asSlice(0, offsetsPartSize);
-            final long offset = upperBound(key, storage, offsets);
-            if (offset == storage.byteSize()) {
+            final long offset = binarySearch(key, storage, offsets);
+            if (offset < 0) {
                 continue;
             }
-            final Entry<MemorySegment> entry = readBlock(storage, offset);
-            if (comparator.equals(key, entry.key())) {
-                return entry;
-            }
+            return readBlock(storage, offset);
         }
         return null;
     }
 
     /**
-     * Searching upper bound offset in storage for block with {@code key} using helping file with storage offsets
+     * Searching offset in storage for block with {@code key} using helping file with storage offsets.
+     * If there searching key then returns (insert position | 1 << 63).
+     * Insert position is position there element would be inserted storage.
+     * If key is greater than all element then returns (storage.size() | 1 << 63);
      * {@code offsets}.
      * @param key searching key for upper bound.
      * @param storage sstabe for upper bound.
      * @param offsets helping table with {@code storage} offsets.
-     * @return offset in sstable for key upper bound block.
+     * @return offset in sstable for key block.
      */
-    private long upperBound(
+    private long binarySearch(
             final MemorySegment key,
             final MemorySegment storage,
             final MemorySegment offsets
@@ -128,7 +137,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         long left = -1;
         long right = offsetsSize / Long.BYTES;
         while (left < right - 1) {
-            long midst = (left + right) / 2;
+            long midst = (left + right) >>> 1;
             final long offset = offsets.get(ValueLayout.JAVA_LONG_UNALIGNED, midst * Long.BYTES);
             final long currentKeySize = storage.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             final MemorySegment currentKey = storage.asSlice(offset + 2 * Long.BYTES, currentKeySize);
@@ -141,13 +150,13 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
                 right = midst;
             }
         }
-        return right == offsetsSize / Long.BYTES
-                ? storage.byteSize()
+        final long upperBound = right == offsetsSize / Long.BYTES ? storage.byteSize()
                 : offsets.get(ValueLayout.JAVA_LONG_UNALIGNED, right * Long.BYTES);
+        return tombstone(upperBound);
     }
 
     /**
-        Saves storage with one byte block per element.
+        Saves entries with one byte block per element.
         One block is:
         [JAVA_LONG_UNALIGNED] key_size [JAVA_LONG_UNALIGNED] value_size [bytes] key [bytes] value (without spaces).
         SSTable structure:
@@ -161,22 +170,23 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         block n
      */
     @Override
-    public synchronized void save(final Map<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
-        Objects.requireNonNull(storage, "storage must be not null");
-        if (storage.isEmpty()) {
-            return;
-        }
-        final Collection<Entry<MemorySegment>> values = storage.values();
-        final long offsetsPartSize = (long) values.size() * Long.BYTES;
-        long appendSize = offsetsPartSize;
-        for (final Entry<MemorySegment> entry : values) {
+    public synchronized void save(final Iterable<Entry<MemorySegment>> entries) throws IOException {
+        Objects.requireNonNull(entries, "entries must be not null");
+        long appendSize = 0;
+        long count = 0;
+        for (final Entry<MemorySegment> entry : entries) {
+            count++;
             appendSize += entry.key().byteSize() + 2L * Long.BYTES;
             final MemorySegment value = entry.value();
             if (value != null) {
                 appendSize += value.byteSize();
             }
         }
-
+        if (count == 0) {
+            return;
+        }
+        final long offsetsPartSize = count * Long.BYTES;
+        appendSize += offsetsPartSize;
         final Path newSsTablePath = newSsTablePath();
         try (Arena savingArena = Arena.ofConfined()) {
             final MemorySegment mappedSsTable;
@@ -190,23 +200,27 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
             }
             long offset = 0;
             long currentEntryOffset = offsetsPartSize;
-            for (final Entry<MemorySegment> entry : values) {
+            for (final Entry<MemorySegment> entry : entries) {
                 mappedSsTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, currentEntryOffset);
                 currentEntryOffset += blockSize(entry);
                 offset += Long.BYTES;
             }
-            for (final Entry<MemorySegment> entry : values) {
+            for (final Entry<MemorySegment> entry : entries) {
                 writeBlock(mappedSsTable, offset, entry);
                 offset += blockSize(entry);
             }
         }
+        final Path indexFilePath = basePath.resolve(INDEX_FILE_NAME);
+        final List<String> sstables = new ArrayList<>(Files.readAllLines(indexFilePath));
+        sstables.add(newSsTablePath.toString());
+        changeIndex(sstables);
         try (FileChannel channel = FileChannel.open(newSsTablePath, StandardOpenOption.READ)) {
             mappedSsTables.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena));
         }
     }
 
     private Path newSsTablePath() {
-        return basePath.resolve(dateFormatter.format(LocalDateTime.now(ZoneId.systemDefault())));
+        return basePath.resolve(UUID.randomUUID().toString());
     }
 
     private static void writeBlock(
@@ -265,14 +279,56 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
             final MemorySegment ssTable = mappedSsTables.get(i);
             final long offsetsPartSize = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
             final MemorySegment offsets = ssTable.asSlice(0, offsetsPartSize);
-            final long fromOffset = from == null ? offsetsPartSize : upperBound(from, ssTable, offsets);
-            final long toOffset = to == null ? ssTable.byteSize() : upperBound(to, ssTable, offsets);
+            final long fromOffset = from == null ? offsetsPartSize : normalize(binarySearch(from, ssTable, offsets));
+            final long toOffset = to == null ? ssTable.byteSize() : normalize(binarySearch(to, ssTable, offsets));
             final Iterator<Entry<MemorySegment>> iterator = new SSTableIterator(
-                ssTable, fromOffset, toOffset
+                    ssTable, fromOffset, toOffset
             );
             iterators.add(iterator);
         }
         return iterators;
+    }
+
+    @Override
+    public void compact() throws IOException {
+        save(dao::all);
+        if (!mappedSsTables.isEmpty()) {
+            final List<MemorySegment> newMappedSsTables = new ArrayList<>();
+            newMappedSsTables.add(mappedSsTables.getLast());
+            mappedSsTables = newMappedSsTables;
+            final Path indexFilePath = basePath.resolve(INDEX_FILE_NAME);
+            final List<String> sstableNames = Files.readAllLines(indexFilePath);
+            changeIndex(List.of(sstableNames.getLast()));
+            for (int i = 0; i < sstableNames.size() - 1; i++) {
+                Files.delete(basePath.resolve(sstableNames.get(i)));
+            }
+        }
+    }
+
+    private void changeIndex(final List<String> newIndex) throws IOException {
+        final Path indexFilePath = basePath.resolve(INDEX_FILE_NAME);
+        final Path tmpIndexFilePath = basePath.resolve(INDEX_FILE_NAME + ".tmp");
+        Files.write(
+                tmpIndexFilePath,
+                newIndex,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+        Files.move(
+                tmpIndexFilePath,
+                indexFilePath,
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+        );
+    }
+
+    private static long tombstone(final long value) {
+        return value | 1L << 63;
+    }
+
+    private static long normalize(final long value) {
+        return value & ~(1L << 63);
     }
 
     @Override

@@ -4,6 +4,8 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
 
 import java.lang.foreign.MemorySegment;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.SortedMap;
@@ -39,8 +41,10 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     }
 
     @Override
-    public SortedMap<MemorySegment, Entry<MemorySegment>> commit() {
-        return storage;
+    public Iterable<Entry<MemorySegment>> commit() {
+        final Iterable<Entry<MemorySegment>> result = new ArrayList<>(storage.values());
+        storage.clear();
+        return result;
     }
 
     @Override
