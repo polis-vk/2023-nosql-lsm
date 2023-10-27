@@ -1,6 +1,5 @@
 package ru.vk.itmo.test.grunskiialexey;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
