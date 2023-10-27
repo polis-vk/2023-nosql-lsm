@@ -92,8 +92,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
         Iterator<Entry<MemorySegment>> dataIterator = get(null, null);
-
-        MemorySegment buffer = storage.getWriteBufferToCompaction(ssTablePath, getCompactionTableByteSize());
+        MemorySegment buffer = storage.getWriteBufferToSsTable(getCompactionTableByteSize(), ssTablePath);
         long bufferByteSize = buffer.byteSize();
         buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, bufferByteSize - Long.BYTES, ssTablesEntryQuantity);
         long[] offsets = new long[2];
@@ -101,7 +100,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         while (dataIterator.hasNext()) {
             storage.writeEntryAndIndexesToCompactionTable(buffer, dataIterator.next(), offsets);
         }
-        storage.deleteOldSsTables(ssTablePath);
+        try {
+            storage.deleteOldSsTables(ssTablePath);
+        } catch (NoSuchFieldException e) {
+            throw new RuntimeException(e);
+        }
         compacted = true;
     }
 
