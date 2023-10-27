@@ -4,6 +4,7 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -103,7 +104,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             storage.deleteOldSsTables(ssTablePath);
         } catch (NoSuchFieldException e) {
-            throw new RuntimeException(e);
+            throw new FileNotFoundException();
         }
         compacted = true;
     }

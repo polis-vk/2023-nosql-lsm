@@ -57,17 +57,20 @@ public class Storage {
         if (files == null) {
             throw new NoSuchFieldException();
         }
-        boolean deleted = false;
         for (File file : files) {
             if (!file.getName().contains(SS_TABLE_FILE_NAME + ssTablesQuantity)) {
-               deleted = file.delete();
+                try {
+                    Files.delete(file.toPath());
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
             }
         }
         boolean renamed;
         File remainingFile = files[0];
         String newFilePath = remainingFile.getParent() + File.separator + SS_TABLE_FILE_NAME + 0;
         renamed = remainingFile.renameTo(new File(newFilePath));
-        if (!deleted && !renamed) {
+        if (!renamed) {
             throw new SecurityException();
         }
     }
@@ -257,12 +260,7 @@ public class Storage {
         }
         iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, memorySegmentComparator)) {
-            @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
-                return memorySegmentEntry.value() == null;
-            }
-        };
+        return new MergeIterator(iterators, Comparator.comparing(Entry::key, memorySegmentComparator));
     }
 
     private Iterator<Entry<MemorySegment>> iterator(MemorySegment ssTable, MemorySegment from, MemorySegment to,
