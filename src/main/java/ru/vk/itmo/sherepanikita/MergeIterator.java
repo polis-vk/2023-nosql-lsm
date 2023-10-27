@@ -110,14 +110,14 @@ public class MergeIterator<T> implements Iterator<T> {
 
     @Override
     public T next() {
-        PeekIterator<T> peekIterator = peek();
-        if (peekIterator == null) {
+        PeekIterator<T> peekResult = peek();
+        if (peekResult == null) {
             throw new NoSuchElementException();
         }
-        T next = peekIterator.next();
+        T next = peekResult.next();
         this.peekIterator = null;
-        if (peekIterator.hasNext()) {
-            priorityQueue.add(peekIterator);
+        if (peekResult.hasNext()) {
+            priorityQueue.add(peekResult);
         }
         return next;
     }
