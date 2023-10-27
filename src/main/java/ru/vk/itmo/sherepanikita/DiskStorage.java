@@ -174,15 +174,17 @@ public class DiskStorage {
     }
 
     public static void deleteOldStorage(Path storagePath) throws IOException {
-        if (Files.exists(storagePath)) {
-            List<String> filesToDelete = Files.readAllLines(storagePath, StandardCharsets.UTF_8);
+        final Path filePath = storagePath.resolve("index.idx");
+
+        if (Files.exists(filePath)) {
+            List<String> filesToDelete = Files.readAllLines(filePath, StandardCharsets.UTF_8);
             for (String fileName : filesToDelete) {
-                Path file = storagePath.resolve(fileName);
+                Path file = filePath.resolve(fileName);
 
                 Files.delete(file);
 
             }
-            Files.delete(storagePath);
+            Files.delete(filePath);
         }
     }
 
