@@ -133,6 +133,10 @@ public class DiskStorage {
     }
 
     public void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
+        if (segmentList.isEmpty() && !iterable.iterator().hasNext()) {
+            return;
+        }
+
         final Path indexFile = storagePath.resolve("index.idx");
 
         try {
@@ -142,8 +146,13 @@ public class DiskStorage {
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        final Path newTmpCompactedFileName = storagePath.resolve("1.tmp"); // :TODO constant
-        final Path newCompactedFileName = storagePath.resolve("1"); // :TODO constant
+        if (existedFiles.isEmpty()) {
+            save(storagePath, iterable);
+            return;
+        }
+
+        final Path newTmpCompactedFileName = storagePath.resolve("0.tmp"); // :TODO constant
+        final Path newCompactedFileName = storagePath.resolve("0"); // :TODO constant
 
         long size = 0;
         for (Iterator<Entry<MemorySegment>> it = range(iterable.iterator(), null, null); it.hasNext(); ) {
@@ -210,7 +219,7 @@ public class DiskStorage {
         Files.move(newTmpCompactedFileName, newCompactedFileName, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         Files.write(
                 indexFile,
-                List.of("1"),
+                List.of("0"),
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
