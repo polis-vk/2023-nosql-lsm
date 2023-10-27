@@ -5,23 +5,39 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
+import static ru.vk.itmo.sherepanikita.DiskStorage.save;
 
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> segments;
+public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
 
-    public DaoImpl() {
-        segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-        ssTable = createSSTableOrNull(new Config(null));
+    private final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private final Arena arena;
+    private DiskStorage diskStorage;
+    private Path path;
+
+    public DaoImpl() throws IOException {
+        arena = Arena.ofShared();
+        this.path = Path.of("");
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
-    public DaoImpl(Config config) {
-        segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-        ssTable = createSSTableOrNull(config);
+    public DaoImpl(Config config) throws IOException {
+        this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
+
+        arena = Arena.ofShared();
+
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
     @Override
@@ -68,7 +84,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             save(path, storage.values());
         }
     }
-
 
     @Override
     public Iterator<Entry<MemorySegment>> iterator() {
