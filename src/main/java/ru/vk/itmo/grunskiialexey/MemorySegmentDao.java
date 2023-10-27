@@ -114,8 +114,8 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             return;
         }
 
-        arena.close();
-
         flush();
+
+        arena.close();
     }
 }

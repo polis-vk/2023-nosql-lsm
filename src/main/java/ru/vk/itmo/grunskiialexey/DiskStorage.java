@@ -40,8 +40,21 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
+        final Path compactedFile = storagePath.resolve("-1");
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
+
+        if (Files.exists(compactedFile)) {
+            final Path actualCompactedFile = storagePath.resolve("0");
+            Files.move(compactedFile, actualCompactedFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            Files.write(indexFile,
+                    List.of("0"),
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING
+            );
+            return;
+        }
 
         try {
             Files.createFile(indexFile);
@@ -133,32 +146,23 @@ public class DiskStorage {
     }
 
     public void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
-        if (segmentList.isEmpty() && !iterable.iterator().hasNext()) {
+        if (segmentList.isEmpty() || (segmentList.size() == 1 && !iterable.iterator().hasNext())) {
             return;
         }
 
         final Path indexFile = storagePath.resolve("index.idx");
+        final Path newTmpCompactedFileName = storagePath.resolve("-1.tmp"); // :TODO constant
+        final Path newCompactedFileName = storagePath.resolve("-1"); // :TODO constant
 
-        try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
-        }
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-
-        if (existedFiles.isEmpty()) {
-            save(storagePath, iterable);
-            return;
-        }
-
-        final Path newTmpCompactedFileName = storagePath.resolve("0.tmp"); // :TODO constant
-        final Path newCompactedFileName = storagePath.resolve("0"); // :TODO constant
-
-        long size = 0;
+        long startValuesOffset = 0;
+        long maxOffset = 0;
         for (Iterator<Entry<MemorySegment>> it = range(iterable.iterator(), null, null); it.hasNext(); ) {
-            it.next();
-            size++;
+            Entry<MemorySegment> entry = it.next();
+            startValuesOffset++;
+            maxOffset += entry.key().byteSize() + entry.value().byteSize();
         }
+        startValuesOffset *= 2 * Long.BYTES;
+        maxOffset += startValuesOffset;
 
         try (
                 FileChannel fileChannel = FileChannel.open(
@@ -170,47 +174,33 @@ public class DiskStorage {
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
-            final MemorySegment offsetFileSegment = fileChannel.map(
+            final MemorySegment fileSegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
-                    size * 2 * Long.BYTES,
+                    maxOffset,
                     writeArena
             );
 
-            long dataOffset = size * 2 * Long.BYTES;
+            long dataOffset = startValuesOffset;
             int indexOffset = 0;
             for (Iterator<Entry<MemorySegment>> it = range(iterable.iterator(), null, null); it.hasNext(); ) {
                 Entry<MemorySegment> entry = it.next();
 
-                offsetFileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                dataOffset += entry.key().byteSize();
-                indexOffset += Long.BYTES;
-
-                offsetFileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                dataOffset += entry.value().byteSize();
-                indexOffset += Long.BYTES;
-            }
-
-            final MemorySegment valuesFileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    size * 2 * Long.BYTES,
-                    dataOffset,
-                    writeArena
-            );
-
-            dataOffset = size * 2 * Long.BYTES;
-            for (Iterator<Entry<MemorySegment>> it = range(iterable.iterator(), null, null); it.hasNext(); ) {
-                Entry<MemorySegment> entry = it.next();
-
                 MemorySegment key = entry.key();
-                MemorySegment.copy(key, 0, valuesFileSegment, dataOffset, key.byteSize());
+                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
                 dataOffset += key.byteSize();
+                indexOffset += Long.BYTES;
 
                 MemorySegment value = entry.value();
-                MemorySegment.copy(value, 0, valuesFileSegment, dataOffset, value.byteSize());
+                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
                 dataOffset += value.byteSize();
+                indexOffset += Long.BYTES;
             }
         }
+
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
         for (String fileName : existedFiles) {
             Files.delete(storagePath.resolve(fileName));
@@ -219,7 +209,7 @@ public class DiskStorage {
         Files.move(newTmpCompactedFileName, newCompactedFileName, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         Files.write(
                 indexFile,
-                List.of("0"),
+                List.of("-1"),
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
