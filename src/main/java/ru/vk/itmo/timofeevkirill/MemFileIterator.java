@@ -40,31 +40,31 @@ class MemFileIterator implements Iterator<Entry<MemorySegment>> {
         this.memTableMap = memTableMap;
         this.from = from;
         this.to = to;
-        isInit = false;
+        this.isInit = false;
     }
 
     private void init() {
-        if (!isInit) {
-            sortedEntries = new ConcurrentSkipListMap<>(comparator);
-            biteCounts = new HashMap<>();
-            for (MemorySegment segment : readMappedMemorySegments.values()) {
-                biteCounts.put(segment, 0L);
-            }
-            entries = new HashMap<>();
-            for (Long number : readMappedMemorySegments.keySet()) {
-                entries.put(number, new ArrayDeque<>());
-            }
-            if (!memTableMap.isEmpty()) {
-                entries.put(Long.MAX_VALUE, new ArrayDeque<>(memTableMap.values()));
-            }
-
-            tempOffsets = new HashMap<>();
-            for (MemorySegment segment : readMappedMemorySegments.values()) {
-                tempOffsets.put(segment, 0L);
-            }
-
-            isInit = true;
+        if (isInit)
+            return;
+        sortedEntries = new ConcurrentSkipListMap<>(comparator);
+        biteCounts = new HashMap<>();
+        for (MemorySegment segment : readMappedMemorySegments.values()) {
+            biteCounts.put(segment, 0L);
         }
+        entries = new HashMap<>();
+        for (Long number : readMappedMemorySegments.keySet()) {
+            entries.put(number, new ArrayDeque<>());
+        }
+        if (!memTableMap.isEmpty()) {
+            entries.put(Long.MAX_VALUE, new ArrayDeque<>(memTableMap.values()));
+        }
+
+        tempOffsets = new HashMap<>();
+        for (MemorySegment segment : readMappedMemorySegments.values()) {
+            tempOffsets.put(segment, 0L);
+        }
+
+        isInit = true;
     }
 
     @Override
@@ -85,7 +85,7 @@ class MemFileIterator implements Iterator<Entry<MemorySegment>> {
         } else {
             init();
             while (bite()) {
-                iterator = new FTIterator(sortedEntries, from, to);
+                iterator = new FilteredNullFTIterator(sortedEntries, from, to);
                 if (iterator.hasNext()) return true;
             }
         }

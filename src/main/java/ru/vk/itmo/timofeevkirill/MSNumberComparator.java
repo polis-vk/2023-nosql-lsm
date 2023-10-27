@@ -14,10 +14,7 @@ public class MSNumberComparator implements Comparator<FileEntry> {
     public int compare(FileEntry e1, FileEntry e2) {
         int compareResult = comparator.compare(e1.entry().key(), e2.entry().key());
         if (compareResult == 0) {
-            int numberComparison = Long.compare(e2.number(), e1.number());
-            if (numberComparison != 0) {
-                return numberComparison;
-            }
+            return Long.compare(e2.number(), e1.number());
         }
         return compareResult;
     }

@@ -13,7 +13,7 @@ public class FilteredNullFTIterator implements Iterator<Entry<MemorySegment>> {
 
     public FilteredNullFTIterator(NavigableMap<MemorySegment, Entry<MemorySegment>> map,
                                   MemorySegment from, MemorySegment to) {
-        Collection<Entry<MemorySegment>> fromToMap;
+        final Collection<Entry<MemorySegment>> fromToMap;
         if (from == null && to == null) {
             fromToMap = map.values();
         } else if (from == null) {
@@ -37,10 +37,5 @@ public class FilteredNullFTIterator implements Iterator<Entry<MemorySegment>> {
             throw new NoSuchElementException();
         }
         return iterator.next();
-    }
-
-    @Override
-    public void remove() {
-        throw new UnsupportedOperationException("Remove is not supported");
     }
 }
