@@ -51,7 +51,7 @@ public class MergeIterator<T> implements Iterator<T> {
         }
     }
 
-    PeekIterator<T> peek;
+    PeekIterator<T> tableIterator;
 
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
@@ -70,9 +70,9 @@ public class MergeIterator<T> implements Iterator<T> {
     }
 
     private PeekIterator<T> peek() {
-        while (peek == null) {
-            peek = priorityQueue.poll();
-            if (peek == null) {
+        while (tableIterator == null) {
+            tableIterator = priorityQueue.poll();
+            if (tableIterator == null) {
                 return null;
             }
 
@@ -82,7 +82,7 @@ public class MergeIterator<T> implements Iterator<T> {
                     break;
                 }
 
-                int compare = comparator.compare(peek.peek(), next.peek());
+                int compare = comparator.compare(tableIterator.peek(), next.peek());
                 if (compare == 0) {
                     PeekIterator<T> poll = priorityQueue.poll();
                     if (poll != null) {
@@ -96,21 +96,21 @@ public class MergeIterator<T> implements Iterator<T> {
                 }
             }
 
-            if (peek.peek() == null) {
-                peek = null;
+            if (tableIterator.peek() == null) {
+                tableIterator = null;
                 continue;
             }
 
-            if (skip(peek.peek())) {
-                peek.next();
-                if (peek.hasNext()) {
-                    priorityQueue.add(peek);
+            if (skip(tableIterator.peek())) {
+                tableIterator.next();
+                if (tableIterator.hasNext()) {
+                    priorityQueue.add(tableIterator);
                 }
-                peek = null;
+                tableIterator = null;
             }
         }
 
-        return peek;
+        return tableIterator;
     }
 
     protected boolean skip(T t) {
@@ -124,14 +124,14 @@ public class MergeIterator<T> implements Iterator<T> {
 
     @Override
     public T next() {
-        PeekIterator<T> peek = peek();
-        if (peek == null) {
+        PeekIterator<T> entryIterator = peek();
+        if (entryIterator == null) {
             throw new NoSuchElementException();
         }
-        T next = peek.next();
-        this.peek = null;
-        if (peek.hasNext()) {
-            priorityQueue.add(peek);
+        T next = entryIterator.next();
+        this.tableIterator = null;
+        if (entryIterator.hasNext()) {
+            priorityQueue.add(entryIterator);
         }
         return next;
     }
