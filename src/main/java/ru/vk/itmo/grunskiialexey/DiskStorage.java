@@ -132,6 +132,91 @@ public class DiskStorage {
         Files.delete(indexTmp);
     }
 
+    public void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
+        final Path indexFile = storagePath.resolve("index.idx");
+
+        try {
+            Files.createFile(indexFile);
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
+        }
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+
+        final Path newTmpCompactedFileName = storagePath.resolve("1.tmp"); // :TODO constant
+        final Path newCompactedFileName = storagePath.resolve("1"); // :TODO constant
+
+        long size = 0;
+        for (Iterator<Entry<MemorySegment>> it = range(iterable.iterator(), null, null); it.hasNext(); ) {
+            it.next();
+            size++;
+        }
+
+        try (
+                FileChannel fileChannel = FileChannel.open(
+                        newTmpCompactedFileName,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.READ,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.TRUNCATE_EXISTING
+                );
+                Arena writeArena = Arena.ofConfined()
+        ) {
+            final MemorySegment offsetFileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    size * 2 * Long.BYTES,
+                    writeArena
+            );
+
+            long dataOffset = size * 2 * Long.BYTES;
+            int indexOffset = 0;
+            for (Iterator<Entry<MemorySegment>> it = range(iterable.iterator(), null, null); it.hasNext(); ) {
+                Entry<MemorySegment> entry = it.next();
+
+                offsetFileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                dataOffset += entry.key().byteSize();
+                indexOffset += Long.BYTES;
+
+                offsetFileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                dataOffset += entry.value().byteSize();
+                indexOffset += Long.BYTES;
+            }
+
+            final MemorySegment valuesFileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    size * 2 * Long.BYTES,
+                    dataOffset,
+                    writeArena
+            );
+
+            dataOffset = size * 2 * Long.BYTES;
+            for (Iterator<Entry<MemorySegment>> it = range(iterable.iterator(), null, null); it.hasNext(); ) {
+                Entry<MemorySegment> entry = it.next();
+
+                MemorySegment key = entry.key();
+                MemorySegment.copy(key, 0, valuesFileSegment, dataOffset, key.byteSize());
+                dataOffset += key.byteSize();
+
+                MemorySegment value = entry.value();
+                MemorySegment.copy(value, 0, valuesFileSegment, dataOffset, value.byteSize());
+                dataOffset += value.byteSize();
+            }
+        }
+
+        for (String fileName : existedFiles) {
+            Files.delete(storagePath.resolve(fileName));
+        }
+
+        Files.move(newTmpCompactedFileName, newCompactedFileName, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.write(
+                indexFile,
+                List.of("1"),
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+    }
+
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         Path indexTmp = storagePath.resolve("index.tmp");
         Path indexFile = storagePath.resolve("index.idx");
@@ -210,6 +295,7 @@ public class DiskStorage {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
+    // :TODO may convert to MemorySegment.NULL I think
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
         long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));

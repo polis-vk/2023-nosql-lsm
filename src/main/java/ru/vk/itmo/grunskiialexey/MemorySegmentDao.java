@@ -97,6 +97,18 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     }
 
     @Override
+    public void flush() throws IOException {
+        if (!storage.isEmpty()) {
+            DiskStorage.save(path, storage.values());
+        }
+    }
+
+    @Override
+    public void compact() throws IOException {
+        diskStorage.compact(path, storage.values());
+    }
+
+    @Override
     public void close() throws IOException {
         if (!arena.scope().isAlive()) {
             return;
@@ -104,8 +116,6 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
         arena.close();
 
-        if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
-        }
+        flush();
     }
 }
