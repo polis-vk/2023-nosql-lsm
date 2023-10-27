@@ -167,22 +167,17 @@ public class DiskStorage {
         return result;
     }
 
-    public static void deleteOldStorage(Path storagePath) {
-        try {
-            if (Files.exists(storagePath)) {
-                List<String> filesToDelete = Files.readAllLines(storagePath, StandardCharsets.UTF_8);
-                for (String fileName : filesToDelete) {
-                    Path file = storagePath.resolve(fileName);
+    public static void deleteOldStorage(Path storagePath) throws IOException {
+        if (Files.exists(storagePath)) {
+            List<String> filesToDelete = Files.readAllLines(storagePath, StandardCharsets.UTF_8);
+            for (String fileName : filesToDelete) {
+                Path file = storagePath.resolve(fileName);
 
-                    Files.delete(file);
+                Files.delete(file);
 
-                }
-                Files.delete(storagePath);
             }
-        } catch (IOException e) {
-            throw new WrappedRuntimeException(e);
+            Files.delete(storagePath);
         }
-
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
