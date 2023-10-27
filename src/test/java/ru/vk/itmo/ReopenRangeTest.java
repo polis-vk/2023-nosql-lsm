@@ -12,6 +12,7 @@ public class ReopenRangeTest extends BaseTest {
     @DaoTest(stage = 3)
     void onlyPersistence(Dao<String, Entry<String>> dao) throws IOException {
         dao.upsert(entry("k1", "1"));
+        dao.upsert(entry("k1", "1"));
         dao.upsert(entry("k3", "3"));
         dao.upsert(entry("k2", "2"));
         dao.close();
