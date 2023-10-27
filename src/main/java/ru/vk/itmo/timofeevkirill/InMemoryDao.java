@@ -25,7 +25,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<>(comparator);
 
     private final Arena readArena = Arena.ofShared();
-    private final NavigableMap<Long, MemorySegment> readMappedMemorySegments = new ConcurrentSkipListMap<>(); // SSTables
+    private final NavigableMap<Long, MemorySegment> readMappedMemorySegments =
+            new ConcurrentSkipListMap<>(); // SSTables
     private final Path path;
     private final long latestFileIndex;
 
@@ -127,10 +128,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private MemorySegment readFileAtIndex(long index) {
         MemorySegment tryReadMappedMemorySegment;
-        Path iPath = path.resolve(Constants.FILE_NAME_PREFIX + index);
-        try (FileChannel fileChannel = FileChannel.open(iPath, Constants.READ_OPTIONS)) {
+        Path ipath = path.resolve(Constants.FILE_NAME_PREFIX + index);
+        try (FileChannel fileChannel = FileChannel.open(ipath, Constants.READ_OPTIONS)) {
             tryReadMappedMemorySegment = fileChannel
-                    .map(FileChannel.MapMode.READ_ONLY, 0, Files.size(iPath), readArena);
+                    .map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ipath), readArena);
         } catch (IOException e) {
             tryReadMappedMemorySegment = null;
         }
@@ -196,7 +197,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         readArena.close();
 
-
         Path ssTableNumPath = path.resolve(Constants.FILE_NAME_PREFIX + (latestFileIndex + 1));
         try (FileChannel fileChannel = FileChannel.open(ssTableNumPath, Constants.WRITE_OPTIONS);
              Arena writeArena = Arena.ofConfined()) {
@@ -212,7 +212,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         return e.key().byteSize() + valueSize;
                     }).sum();
             mappedMemorySize += Long.BYTES * memTableMap.size() * 2L;
-            MemorySegment writeMappedMemorySegment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, mappedMemorySize, writeArena);
+            MemorySegment writeMappedMemorySegment =
+                    fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, mappedMemorySize, writeArena);
 
             // Write memTable
             writeMemTableToSSTable(writeMappedMemorySegment);
@@ -220,8 +221,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         // Update config
         try (Arena writeConfigArena = Arena.ofConfined();
-             FileChannel fileChannel = FileChannel.open(path.resolve(Constants.FILE_NAME_CONFIG), Constants.WRITE_OPTIONS)) {
-            MemorySegment writeConfig = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, Long.BYTES, writeConfigArena);
+             FileChannel fileChannel =
+                     FileChannel.open(path.resolve(Constants.FILE_NAME_CONFIG), Constants.WRITE_OPTIONS)) {
+            MemorySegment writeConfig =
+                    fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, Long.BYTES, writeConfigArena);
             writeConfig.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, latestFileIndex + 1);
         }
     }

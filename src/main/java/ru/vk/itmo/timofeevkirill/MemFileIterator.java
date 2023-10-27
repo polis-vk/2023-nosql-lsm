@@ -44,8 +44,9 @@ class MemFileIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private void init() {
-        if (isInit)
+        if (isInit) {
             return;
+        }
         sortedEntries = new ConcurrentSkipListMap<>(comparator);
         biteCounts = new HashMap<>();
         for (MemorySegment segment : readMappedMemorySegments.values()) {
