@@ -15,8 +15,6 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-import static ru.vk.itmo.sherepanikita.DiskStorage.save;
-
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
 
     private final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
@@ -81,7 +79,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
         arena.close();
 
         if (!storage.isEmpty()) {
-            save(path, storage.values());
+            DiskStorage.save(path, storage.values());
         }
     }
 
