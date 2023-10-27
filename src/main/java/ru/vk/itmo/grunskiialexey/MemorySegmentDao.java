@@ -3,7 +3,6 @@ package ru.vk.itmo.grunskiialexey;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.pashchenkoalexandr.DiskStorage;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -22,7 +21,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     private final Comparator<MemorySegment> comparator = MemorySegmentDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
-    private final ru.vk.itmo.pashchenkoalexandr.DiskStorage diskStorage;
+    private final DiskStorage diskStorage;
     private final Path path;
 
     public MemorySegmentDao(Config config) throws IOException {
@@ -31,7 +30,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new ru.vk.itmo.pashchenkoalexandr.DiskStorage(ru.vk.itmo.pashchenkoalexandr.DiskStorage.loadOrRecover(path, arena));
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {

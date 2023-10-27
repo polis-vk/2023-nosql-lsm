@@ -2,8 +2,6 @@ package ru.vk.itmo.grunskiialexey;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.pashchenkoalexandr.MergeIterator;
-import ru.vk.itmo.pashchenkoalexandr.PaschenkoDao;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
