@@ -1,21 +1,23 @@
 package ru.vk.itmo.test.grunskiialexey;
 
 import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.grunskiialexey.MemorySegmentDao;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory
+@DaoFactory(stage = 2)
 public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new MemorySegmentDao();
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new MemorySegmentDao(config);
     }
 
     @Override
@@ -32,9 +34,6 @@ public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment
 
     @Override
     public Entry<MemorySegment> fromBaseEntry(Entry<MemorySegment> baseEntry) {
-        return new BaseEntry<>(
-                baseEntry.key(),
-                baseEntry.value()
-        );
+        return baseEntry;
     }
 }
