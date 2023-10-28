@@ -9,11 +9,11 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.FileAlreadyExistsException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -85,7 +85,7 @@ public class DiskStorage {
             throw new IllegalStateException("Unexpected missing file index.idx");
         }
 
-        String newFileName = "0";
+        String newFileName = "compactedTable";
 
         ArrayList<Entry<MemorySegment>> compactedValues = new ArrayList<>();
         while (mergeIterator.hasNext()) {
