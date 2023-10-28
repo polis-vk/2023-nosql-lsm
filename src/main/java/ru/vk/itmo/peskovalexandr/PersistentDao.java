@@ -2,8 +2,6 @@ package ru.vk.itmo.peskovalexandr;
 
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.novichkovandrew.dao.InMemoryDao;
-
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 
