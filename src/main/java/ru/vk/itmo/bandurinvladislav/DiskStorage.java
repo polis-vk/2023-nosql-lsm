@@ -94,6 +94,11 @@ public class DiskStorage {
 
         fillSSTable(storagePath, compactedValues, newFileName);
 
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        for (String existedFile : existedFiles) {
+            Files.deleteIfExists(storagePath.resolve(existedFile));
+        }
+
         Files.writeString(
                 indexFile,
                 newFileName,
@@ -101,11 +106,6 @@ public class DiskStorage {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
-
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        for (String existedFile : existedFiles) {
-            Files.deleteIfExists(storagePath.resolve(existedFile));
-        }
     }
 
     private static void fillSSTable(Path storagePath, Iterable<Entry<MemorySegment>> iterable, String newFileName)
@@ -134,7 +134,7 @@ public class DiskStorage {
             MemorySegment fileSegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
-                    indexSize + dataSize,
+                    indexSize == 0 ? Long.BYTES : indexSize + dataSize,
                     writeArena
             );
 
