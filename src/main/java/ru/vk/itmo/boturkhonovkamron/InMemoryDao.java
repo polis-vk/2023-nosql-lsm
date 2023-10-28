@@ -3,14 +3,19 @@ package ru.vk.itmo.boturkhonovkamron;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.boturkhonovkamron.persistence.PersistentDao;
+import ru.vk.itmo.pashchenkoalexandr.DiskStorage;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.NavigableMap;
-import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+
+import static ru.vk.itmo.boturkhonovkamron.MemorySegmentComparator.COMPARATOR;
 
 /**
  * Implementation of Dao interface for in-memory storage of MemorySegment objects.
@@ -20,83 +25,78 @@ import java.util.concurrent.ConcurrentSkipListMap;
  */
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> data;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(COMPARATOR);
 
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> deletedData;
+    private final Arena arena;
 
-    private PersistentDao persistentDao;
+    private final DiskStorage diskStorage;
 
-    public InMemoryDao() {
-        data = new ConcurrentSkipListMap<>(MemorySegmentComparator.COMPARATOR);
-        deletedData = new ConcurrentSkipListMap<>(MemorySegmentComparator.COMPARATOR);
-    }
+    private final Path path;
 
     public InMemoryDao(final Config config) throws IOException {
-        this();
-        this.persistentDao = new PersistentDao(config, data, deletedData);
+        this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
+
+        arena = Arena.ofShared();
+
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
     @Override
-    public Entry<MemorySegment> get(final MemorySegment key) {
-        return getSafe(key);
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        return diskStorage.range(getInMemory(from, to), from, to);
     }
 
-    private Entry<MemorySegment> getSafe(final MemorySegment key) {
-        if (data.containsKey(key)) {
-            return data.get(key);
+    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return storage.values().iterator();
         }
-        if (deletedData.containsKey(key)) {
+        if (from == null) {
+            return storage.headMap(to).values().iterator();
+        }
+        if (to == null) {
+            return storage.tailMap(from).values().iterator();
+        }
+        return storage.subMap(from, to).values().iterator();
+    }
+
+    @Override
+    public void upsert(Entry<MemorySegment> entry) {
+        storage.put(entry.key(), entry);
+    }
+
+    @Override
+    public Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> entry = storage.get(key);
+        if (entry != null) {
+            if (entry.value() == null) {
+                return null;
+            }
+            return entry;
+        }
+
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+
+        if (!iterator.hasNext()) {
             return null;
         }
-        if (persistentDao != null) {
-            return persistentDao.getEntity(key);
+        Entry<MemorySegment> next = iterator.next();
+        if (COMPARATOR.compare(next.key(), key) == 0) {
+            return next;
         }
         return null;
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
-        if (persistentDao != null) {
-            return persistentDao.getIterator(from, to);
-        }
-        final SortedMap<MemorySegment, Entry<MemorySegment>> subMap;
-        if (from == null && to == null) {
-            subMap = data;
-        } else if (from == null) {
-            subMap = data.headMap(to, false);
-        } else if (to == null) {
-            subMap = data.tailMap(from, true);
-        } else {
-            subMap = data.subMap(from, to);
-        }
-        return subMap.values().iterator();
-    }
-
-    @Override
-    public void upsert(final Entry<MemorySegment> entry) {
-        if (entry.value() == null) {
-            data.remove(entry.key());
-            deletedData.put(entry.key(), entry);
-        } else {
-            data.put(entry.key(), entry);
-            deletedData.remove(entry.key());
-        }
-    }
-
-    @Override
-    public void flush() throws IOException {
-        data.putAll(deletedData);
-        if (data.size() > 0) {
-            persistentDao.saveData(data);
-        }
-        data.clear();
-        deletedData.clear();
-    }
-
-    @Override
     public void close() throws IOException {
-        if (persistentDao != null) {
-            flush();
+        if (!arena.scope().isAlive()) {
+            return;
+        }
+
+        arena.close();
+
+        if (!storage.isEmpty()) {
+            DiskStorage.save(path, storage.values());
         }
     }
 }

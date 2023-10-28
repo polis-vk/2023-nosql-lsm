@@ -13,14 +13,9 @@ import java.util.Comparator;
 public enum MemorySegmentComparator implements Comparator<MemorySegment> {
 
     COMPARATOR {
+
         @Override
         public int compare(final MemorySegment left, final MemorySegment right) {
-            if (left == null) {
-                return -1;
-            }
-            if (right == null) {
-                return 1;
-            }
             if (left.equals(right)) {
                 return 0;
             }
