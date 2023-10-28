@@ -9,7 +9,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 
-public abstract class StorageHelper {
+public class StorageHelper {
+
+    private StorageHelper() {
+        throw new IllegalStateException("Utility class");
+    }
 
     protected static int findSsTablesQuantity(Path ssTablePath) {
         File dir = new File(ssTablePath.toUri());
@@ -25,17 +29,19 @@ public abstract class StorageHelper {
 
     protected static void deleteOldSsTables(Path ssTablePath, int ssTablesQuantity) {
         File directory = new File(ssTablePath.toUri());
-        if (directory.exists() && directory.isDirectory()) {
-            File[] files = directory.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    if (!file.getName().contains(Storage.SS_TABLE_FILE_NAME + ssTablesQuantity)) {
-                        try {
-                            Files.delete(file.toPath());
-                        } catch (IOException e) {
-                            throw new SecurityException(e);
-                        }
-                    }
+        if (!directory.exists() && !directory.isDirectory()) {
+            return;
+        }
+        File[] files = directory.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (File file : files) {
+            if (!file.getName().contains(Storage.SS_TABLE_FILE_NAME + ssTablesQuantity)) {
+                try {
+                    Files.delete(file.toPath());
+                } catch (IOException e) {
+                    throw new SecurityException(e);
                 }
             }
         }
@@ -49,7 +55,7 @@ public abstract class StorageHelper {
             if (remainingFiles != null && remainingFiles.length == 1) {
                 File remainingFile = remainingFiles[0];
                 String newFilePath = remainingFile.getParent() + File.separator + Storage.SS_TABLE_FILE_NAME + 0;
-                 renamed = remainingFile.renameTo(new File(newFilePath));
+                renamed = remainingFile.renameTo(new File(newFilePath));
             }
         }
         if (!renamed) {
