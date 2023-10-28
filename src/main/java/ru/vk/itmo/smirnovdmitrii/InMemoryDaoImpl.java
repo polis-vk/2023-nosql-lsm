@@ -5,7 +5,6 @@ import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
 
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.SortedMap;
