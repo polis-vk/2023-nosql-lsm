@@ -13,7 +13,8 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 import static java.util.Collections.emptyIterator;

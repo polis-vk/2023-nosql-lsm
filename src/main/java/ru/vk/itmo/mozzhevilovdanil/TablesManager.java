@@ -9,18 +9,18 @@ import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.SortedMap;
 
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 
 public class TablesManager {
-    List<SSTable> ssTables = new ArrayList<>();
-
-    private final Arena arena = Arena.ofShared();
-
     final long tableIndex;
-
     final Config config;
+    private final Arena arena = Arena.ofShared();
+    List<SSTable> ssTables = new ArrayList<>();
 
     public TablesManager(Config config) throws IOException {
         this.config = config;
@@ -36,6 +36,10 @@ public class TablesManager {
         }
     }
 
+    private static FileChannel getFileChannel(Path tempIndexPath) throws IOException {
+        return FileChannel.open(tempIndexPath, StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE);
+    }
+
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> entry;
         for (SSTable ssTable : ssTables) {
@@ -48,7 +52,7 @@ public class TablesManager {
     }
 
     public List<Iterator<Entry<MemorySegment>>> get(MemorySegment from, MemorySegment to) {
-        List <Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
         for (SSTable ssTable : ssTables) {
             iterators.add(ssTable.get(from, to));
         }
@@ -65,7 +69,7 @@ public class TablesManager {
 
         long size = 0;
         long indexSize = 0;
-        List <Entry<MemorySegment>> entries = new ArrayList<>();
+        List<Entry<MemorySegment>> entries = new ArrayList<>();
         while (mergeIterator.hasNext()) {
             Entry<MemorySegment> entry = mergeIterator.next();
             var entrySize = 0L;
@@ -119,15 +123,6 @@ public class TablesManager {
             }
 
         }
-    }
-
-    private static FileChannel getFileChannel(Path tempIndexPath) throws IOException {
-        return FileChannel.open(tempIndexPath,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.READ,
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.CREATE
-        );
     }
 
 }

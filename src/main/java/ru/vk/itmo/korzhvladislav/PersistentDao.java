@@ -19,7 +19,7 @@ import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 import static java.nio.file.StandardOpenOption.READ;
 
 // SSTable
-public class PersistentDao extends InMemoryDao {
+public class PersistentDao  {
     private final Path dataFilePath;
     private final Arena arena;
     private final MemorySegment memorySegment;
