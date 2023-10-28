@@ -9,13 +9,13 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.EnumSet;
 
-public class NmapBuffer {
+public final class NmapBuffer {
 
     private NmapBuffer() {
         throw new IllegalStateException("Utility class");
     }
 
-    protected static MemorySegment getReadBufferFromSsTable(Path ssTablePath, Arena readArena) {
+    static MemorySegment getReadBufferFromSsTable(Path ssTablePath, Arena readArena) {
         MemorySegment buffer;
         boolean created = false;
         try (FileChannel channel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
@@ -31,9 +31,9 @@ public class NmapBuffer {
         return buffer;
     }
 
-    protected static MemorySegment getWriteBufferToSsTable(Long writeBytes,
-                                                           Path ssTablePath,
-                                                           int ssTablesQuantity) throws IOException {
+    static MemorySegment getWriteBufferToSsTable(Long writeBytes,
+                                                 Path ssTablePath,
+                                                 int ssTablesQuantity) throws IOException {
         MemorySegment buffer;
         Path path = ssTablePath.resolve(Storage.SS_TABLE_FILE_NAME + ssTablesQuantity);
         Arena writeArena = Arena.ofConfined();

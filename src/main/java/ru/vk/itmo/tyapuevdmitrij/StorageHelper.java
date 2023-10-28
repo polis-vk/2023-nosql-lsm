@@ -9,13 +9,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 
-public class StorageHelper {
+public final class StorageHelper {
 
     private StorageHelper() {
         throw new IllegalStateException("Utility class");
     }
 
-    protected static int findSsTablesQuantity(Path ssTablePath) {
+    static int findSsTablesQuantity(Path ssTablePath) {
         File dir = new File(ssTablePath.toUri());
         File[] files = dir.listFiles();
         if (files == null) {
@@ -27,7 +27,7 @@ public class StorageHelper {
         return (int) countSsTables;
     }
 
-    protected static void deleteOldSsTables(Path ssTablePath, int ssTablesQuantity) {
+    static void deleteOldSsTables(Path ssTablePath, int ssTablesQuantity) {
         File directory = new File(ssTablePath.toUri());
         if (!directory.exists() && !directory.isDirectory()) {
             return;
@@ -47,7 +47,7 @@ public class StorageHelper {
         }
     }
 
-    protected static void renameCompactedSsTable(Path ssTablePath) {
+    static void renameCompactedSsTable(Path ssTablePath) {
         File directory = new File(ssTablePath.toUri());
         boolean renamed = false;
         if (directory.exists() && directory.isDirectory()) {
@@ -63,7 +63,7 @@ public class StorageHelper {
         }
     }
 
-    protected static long getSsTableDataByteSize(Iterable<Entry<MemorySegment>> memTableEntries) {
+    static long getSsTableDataByteSize(Iterable<Entry<MemorySegment>> memTableEntries) {
         long ssTableDataByteSize = 0;
         long entriesCount = 0;
         for (Entry<MemorySegment> entry : memTableEntries) {
