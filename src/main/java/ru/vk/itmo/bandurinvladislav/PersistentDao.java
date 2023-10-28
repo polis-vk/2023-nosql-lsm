@@ -108,4 +108,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             DiskStorage.save(path, storage.values());
         }
     }
+
+    public void compact() throws IOException {
+        diskStorage.compact(path, get(null, null));
+    }
 }

@@ -60,6 +60,56 @@ public class DiskStorage {
 
         String newFileName = String.valueOf(existedFiles.size());
 
+        fillSSTable(storagePath, iterable, newFileName);
+
+        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+
+        List<String> list = new ArrayList<>(existedFiles.size() + 1);
+        list.addAll(existedFiles);
+        list.add(newFileName);
+        Files.write(
+                indexFile,
+                list,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        Files.delete(indexTmp);
+    }
+
+    public void compact(Path storagePath, Iterator<Entry<MemorySegment>> mergeIterator) throws IOException {
+        Path indexFile = storagePath.resolve("index.idx");
+
+        if (!Files.exists(indexFile)) {
+            throw new IllegalStateException("Unexpected missing file index.idx");
+        }
+
+        String newFileName = "0";
+
+        ArrayList<Entry<MemorySegment>> compactedValues = new ArrayList<>();
+        while (mergeIterator.hasNext()) {
+            compactedValues.add(mergeIterator.next());
+        }
+
+        fillSSTable(storagePath, compactedValues, newFileName);
+
+        Files.writeString(
+                indexFile,
+                newFileName,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        for (String existedFile : existedFiles) {
+            Files.deleteIfExists(storagePath.resolve(existedFile));
+        }
+    }
+
+    private static void fillSSTable(Path storagePath, Iterable<Entry<MemorySegment>> iterable, String newFileName)
+            throws IOException {
         long dataSize = 0;
         long count = 0;
         for (Entry<MemorySegment> entry : iterable) {
@@ -123,21 +173,6 @@ public class DiskStorage {
                 }
             }
         }
-
-        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-
-        List<String> list = new ArrayList<>(existedFiles.size() + 1);
-        list.addAll(existedFiles);
-        list.add(newFileName);
-        Files.write(
-                indexFile,
-                list,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
-        Files.delete(indexTmp);
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
