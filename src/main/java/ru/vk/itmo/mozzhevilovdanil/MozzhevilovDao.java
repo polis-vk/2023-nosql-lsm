@@ -3,6 +3,7 @@ package ru.vk.itmo.mozzhevilovdanil;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.mozzhevilovdanil.iterators.MergeIterator;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
@@ -15,17 +16,17 @@ import static ru.vk.itmo.mozzhevilovdanil.DatabaseUtils.comparator;
 public class MozzhevilovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
-    private final SSTable ssTable;
+    private final TablesManager tablesManager;
 
     public MozzhevilovDao(Config config) throws IOException {
-        ssTable = new SSTable(config, "data.db");
+        this.tablesManager = new TablesManager(config);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         return new MergeIterator(
                 getMap(from, to),
-                ssTable.get(from, to)
+                tablesManager.get(from, to)
         );
     }
 
@@ -53,11 +54,11 @@ public class MozzhevilovDao implements Dao<MemorySegment, Entry<MemorySegment>> 
         if (entry != null) {
             return entry.value() == null ? null : entry;
         }
-        return ssTable.get(key);
+        return tablesManager.get(key);
     }
 
     @Override
     public void close() throws IOException {
-        ssTable.store(storage);
+        tablesManager.store(storage);
     }
 }

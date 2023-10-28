@@ -12,30 +12,21 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
-import java.util.SortedMap;
-import java.util.UUID;
+import java.util.*;
 
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
+import static java.util.Collections.emptyIterator;
 import static ru.vk.itmo.mozzhevilovdanil.DatabaseUtils.binSearch;
 
 public class SSTable {
-    private final Arena arena;
     private final MemorySegment readPage;
     private final MemorySegment readIndex;
-    private final Path tablePath;
-    private final Path indexPath;
-    private final Config config;
 
-    SSTable(Config config, String sstableName) throws IOException {
-        this.tablePath = config.basePath().resolve(sstableName);
-        this.indexPath = config.basePath().resolve("index.db");
-        this.config = config;
+    SSTable(Arena arena, Config config, long tableIndex) throws IOException {
+        Path tablePath = config.basePath().resolve(tableIndex + ".db");
+        Path indexPath = config.basePath().resolve(tableIndex + ".index.db");
 
-        arena = Arena.ofShared();
 
         long size;
         long indexSize;
@@ -48,14 +39,14 @@ public class SSTable {
             return;
         }
 
-        MemorySegment pageCurrent = getMemorySegment(size, tablePath);
-        MemorySegment indexCurrent = getMemorySegment(indexSize, indexPath);
+        MemorySegment pageCurrent = getMemorySegment(size, tablePath, arena);
+        MemorySegment indexCurrent = getMemorySegment(indexSize, indexPath, arena);
 
         readPage = pageCurrent;
         readIndex = indexCurrent;
     }
 
-    private MemorySegment getMemorySegment(long size, Path path) throws IOException {
+    private MemorySegment getMemorySegment(long size, Path path, Arena arena) throws IOException {
         boolean created = false;
         MemorySegment pageCurrent;
         try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.READ)) {
@@ -77,7 +68,7 @@ public class SSTable {
         }
 
         long result = binSearch(readIndex, readPage, key);
-        if (result >= readIndex.byteSize()) {
+        if (result == readIndex.byteSize()) {
             return null;
         }
         long offset = readIndex.get(JAVA_LONG_UNALIGNED, result);
@@ -90,17 +81,7 @@ public class SSTable {
 
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (readPage == null) {
-            return new Iterator<>() {
-                @Override
-                public boolean hasNext() {
-                    return false;
-                }
-
-                @Override
-                public Entry<MemorySegment> next() {
-                    throw new NoSuchElementException("next on empty iterator");
-                }
-            };
+            return emptyIterator();
         }
 
         long left = from == null ? 0 : binSearch(readIndex, readPage, from);
@@ -126,80 +107,6 @@ public class SSTable {
         };
     }
 
-    void store(SortedMap<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
-        Iterator<Entry<MemorySegment>> mergeIterator = new MergeIterator(
-                storage.values().iterator(),
-                get(null, null)
-        );
-
-        String randomTempPrefix = UUID.randomUUID().toString();
-        Path tempTablePath = config.basePath().resolve(randomTempPrefix + ".db");
-        Path tempIndexPath = config.basePath().resolve(randomTempPrefix + ".index.db");
-
-        long size = 0;
-        long indexSize = 0;
-        while (mergeIterator.hasNext()) {
-            Entry<MemorySegment> entry = mergeIterator.next();
-            if (entry.value() == null) {
-                continue;
-            }
-            size += entry.key().byteSize() + entry.value().byteSize() + 2L * Long.BYTES;
-            indexSize += Long.BYTES;
-        }
-
-        mergeIterator = new MergeIterator(
-                storage.values().iterator(),
-                get(null, null)
-        );
-
-        try (Arena writeArena = Arena.ofConfined()) {
-            MemorySegment page;
-            try (FileChannel fileChannel = getFileChannel(tempTablePath)) {
-                page = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, size, writeArena);
-            }
-            MemorySegment index;
-            try (FileChannel fileChannel = getFileChannel(tempIndexPath)) {
-                index = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, indexSize, writeArena);
-            }
-
-            long offset = 0;
-            long indexOffset = 0;
-
-            while (mergeIterator.hasNext()) {
-                Entry<MemorySegment> entry = mergeIterator.next();
-                MemorySegment key = entry.key();
-
-                index.set(JAVA_LONG_UNALIGNED, indexOffset, offset);
-                indexOffset += Long.BYTES;
-
-                page.set(JAVA_LONG_UNALIGNED, offset, key.byteSize());
-                offset += Long.BYTES;
-
-                MemorySegment value = entry.value();
-
-                page.set(JAVA_LONG_UNALIGNED, offset, value.byteSize());
-                offset += Long.BYTES;
-
-                MemorySegment.copy(key, 0, page, offset, key.byteSize());
-                offset += key.byteSize();
-                MemorySegment.copy(value, 0, page, offset, value.byteSize());
-                offset += value.byteSize();
-            }
-
-            arena.close();
-
-            Files.move(tempTablePath, tablePath, StandardCopyOption.ATOMIC_MOVE);
-            Files.move(tempIndexPath, indexPath, StandardCopyOption.ATOMIC_MOVE);
-        }
-    }
-
-    private static FileChannel getFileChannel(Path tempIndexPath) throws IOException {
-        return FileChannel.open(tempIndexPath,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.READ,
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.CREATE);
-    }
 
     public Entry<MemorySegment> entryAtPosition(long position) {
         if (position >= readIndex.byteSize()) {
@@ -217,7 +124,10 @@ public class SSTable {
         innerOffset += Long.BYTES;
         MemorySegment key = readPage.asSlice(innerOffset, keySize);
         innerOffset += keySize;
-        MemorySegment value = readPage.asSlice(innerOffset, valueSize);
+        MemorySegment value = null;
+        if (valueSize != -1) {
+            value = readPage.asSlice(innerOffset, valueSize);
+        }
         return new BaseEntry<>(key, value);
     }
 }
