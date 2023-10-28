@@ -4,7 +4,8 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 public final class StorageUtil {
-    private StorageUtil() {}
+    private StorageUtil() {
+    }
 
     public static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);
