@@ -32,6 +32,7 @@ public class DiskStorage {
             Iterator<Entry<MemorySegment>> firstIterator,
             MemorySegment from,
             MemorySegment to) {
+
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
@@ -170,6 +171,100 @@ public class DiskStorage {
         }
 
         return result;
+    }
+
+
+    public void compact(Path storagePath) throws IOException {
+        if (segmentList.isEmpty()) {
+            return;
+        }
+        final Path indexTmp = storagePath.resolve("index.tmp");
+        final Path indexFile = storagePath.resolve("index.idx");
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+
+        try {
+            Files.createFile(indexFile);
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
+        }
+
+        MemorySegment fileSegment;
+        try (
+                FileChannel fileChannel = FileChannel.open(
+                        storagePath.resolve("0.tmp"),
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.READ,
+                        StandardOpenOption.CREATE
+                );
+                Arena writeArena = Arena.ofConfined()
+        ) {
+            MergeIterator<Entry<MemorySegment>> mergeIterator = getMergeIterator();
+            long dataSize = 0;
+            long count = 0;
+            while (mergeIterator.hasNext()) {
+                count++;
+                Entry<MemorySegment> next = mergeIterator.next();
+                dataSize += next.key().byteSize() + next.value().byteSize();
+            }
+            dataSize += count * Long.BYTES * 2;
+
+            fileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    dataSize,
+                    writeArena
+            );
+
+            mergeIterator = getMergeIterator();
+            long dataOffset = count * 2 * Long.BYTES;
+            int indexOffset = 0;
+            while (mergeIterator.hasNext()) {
+                Entry<MemorySegment> entry = mergeIterator.next();
+
+                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                MemorySegment.copy(entry.key(), 0, fileSegment, dataOffset, entry.key().byteSize());
+                dataOffset += entry.key().byteSize();
+                indexOffset += Long.BYTES;
+
+                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                MemorySegment.copy(entry.value(), 0, fileSegment, dataOffset, entry.value().byteSize());
+                dataOffset += entry.value().byteSize();
+                indexOffset += Long.BYTES;
+            }
+        }
+
+
+        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.move(storagePath.resolve("0.tmp"), storagePath.resolve("0.sstable"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+
+        Files.writeString(
+                indexFile,
+                "0.sstable",
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        for (int i = 1; i < existedFiles.size(); i++) {
+            Files.delete(storagePath.resolve(existedFiles.get(i)));
+        }
+        segmentList.clear();
+        segmentList.add(fileSegment);
+        Files.delete(indexTmp);
+    }
+
+    private MergeIterator<Entry<MemorySegment>> getMergeIterator() {
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        for (MemorySegment memorySegment : segmentList) {
+            iterators.add(iterator(memorySegment, null, null));
+        }
+
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, InMemoryDao::compare)) {
+            @Override
+            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+                return memorySegmentEntry.value() == null;
+            }
+        };
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {

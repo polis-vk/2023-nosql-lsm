@@ -11,8 +11,8 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 3)
-public class MyFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+@DaoFactory(stage = 4)
+public class DmitFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {

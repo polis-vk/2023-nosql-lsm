@@ -101,6 +101,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
+    public void compact() throws IOException {
+        diskStorage.compact(path);
+    }
+
+    @Override
     public void close() throws IOException {
         if (!arena.scope().isAlive()) {
             return;
