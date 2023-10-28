@@ -8,14 +8,11 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -101,24 +98,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        List<Entry<MemorySegment>> result = new ArrayList<>();
-        diskStorage.range(getInMemory(null, null), null, null).forEachRemaining(result::add);
-        deleteAllFilesInDirectory(path);
-        if (!result.isEmpty())
-            DiskStorage.save(path, result);
-    }
-
-    public static void deleteAllFilesInDirectory(Path directory) throws IOException {
-        if (!Files.exists(directory) || !Files.isDirectory(directory)) {
-            throw new IllegalArgumentException("Указанный путь не является директорией.");
-        }
-
-        try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(directory)) {
-            for (Path file : directoryStream) {
-                if (Files.isRegularFile(file)) {
-                    Files.delete(file);
-                }
-            }
+        Iterable<Entry<MemorySegment>> compactValues = () -> diskStorage.range(getInMemory(null, null), null, null);
+        if (compactValues.iterator().hasNext()) {
+            DiskStorage.deleteAllFilesInDirectory(path);
+            DiskStorage.save(path, compactValues);
         }
     }
 

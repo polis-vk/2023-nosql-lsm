@@ -9,6 +9,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -281,6 +282,20 @@ public class DiskStorage {
 
     private static long normalize(long value) {
         return value & ~(1L << 63);
+    }
+
+    public static void deleteAllFilesInDirectory(Path directory) throws IOException {
+        if (!Files.exists(directory) || !Files.isDirectory(directory)) {
+            throw new IllegalArgumentException();
+        }
+
+        try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(directory)) {
+            for (Path file : directoryStream) {
+                if (Files.isRegularFile(file)) {
+                    Files.delete(file);
+                }
+            }
+        }
     }
 
 }
