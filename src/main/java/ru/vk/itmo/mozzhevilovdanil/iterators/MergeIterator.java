@@ -45,7 +45,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         if (queue.isEmpty()) {
             return false;
         }
-        var topPeekIterator = queue.peek();
+        PeekIterator<Entry<MemorySegment>> topPeekIterator = queue.peek();
         queue.poll();
 
         while (queue.peek() != null) {
@@ -60,7 +60,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             }
         }
 
-        var topPeekValue = topPeekIterator.next();
+        Entry<MemorySegment> topPeekValue = topPeekIterator.next();
         if (topPeekIterator.hasNext()) {
             queue.add(topPeekIterator);
         }

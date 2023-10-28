@@ -3,6 +3,7 @@ package ru.vk.itmo.mozzhevilovdanil;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -24,7 +25,7 @@ public class TablesManager {
 
     public TablesManager(Config config) throws IOException {
         this.config = config;
-        var allFiles = config.basePath().toFile().listFiles();
+        File[] allFiles = config.basePath().toFile().listFiles();
         if (allFiles == null) {
             tableIndex = 0;
             ssTables.add(new SSTable(arena, config, tableIndex));
@@ -73,7 +74,7 @@ public class TablesManager {
         List<Entry<MemorySegment>> entries = new ArrayList<>();
         while (mergeIterator.hasNext()) {
             Entry<MemorySegment> entry = mergeIterator.next();
-            var entrySize = 0L;
+            long entrySize = 0;
             if (entry.value() != null) {
                 entrySize = entry.value().byteSize();
             }
