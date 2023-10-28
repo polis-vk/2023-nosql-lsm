@@ -108,7 +108,6 @@ public class SSTable {
         };
     }
 
-
     public Entry<MemorySegment> entryAtPosition(long position) {
         if (position >= readIndex.byteSize()) {
             return null;

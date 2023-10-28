@@ -12,7 +12,8 @@ import static ru.vk.itmo.mozzhevilovdanil.DatabaseUtils.comparator;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
-    private static final Comparator<PeekIterator<Entry<MemorySegment>>> mergeIteratorComparatorWithoutId = (o1, o2) -> comparator.compare(o1.peek().key(), o2.peek().key());
+    private static final Comparator<PeekIterator<Entry<MemorySegment>>> mergeIteratorComparatorWithoutId =
+            (o1, o2) -> comparator.compare(o1.peek().key(), o2.peek().key());
     private static final Comparator<PeekIterator<Entry<MemorySegment>>> mergeIteratorComparator = (o1, o2) -> {
         int compare = mergeIteratorComparatorWithoutId.compare(o1, o2);
         if (compare == 0) {
@@ -20,10 +21,12 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         }
         return compare;
     };
-    private final PriorityQueue<PeekIterator<Entry<MemorySegment>>> queue = new PriorityQueue<>(mergeIteratorComparator);
+    private final PriorityQueue<PeekIterator<Entry<MemorySegment>>> queue =
+            new PriorityQueue<>(mergeIteratorComparator);
     private Entry<MemorySegment> allIteratorActualTop;
 
-    public MergeIterator(Iterator<Entry<MemorySegment>> storageIterator, List<Iterator<Entry<MemorySegment>>> iterators) {
+    public MergeIterator(Iterator<Entry<MemorySegment>> storageIterator,
+                         List<Iterator<Entry<MemorySegment>>> iterators) {
         if (storageIterator.hasNext()) {
             queue.add(new PeekIterator<>(storageIterator, 0));
         }

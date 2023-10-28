@@ -4,8 +4,8 @@ import java.util.Iterator;
 
 public class PeekIterator<T> implements Iterator<T> {
     private final long id;
-    private T peek = null;
     private final Iterator<T> iterator;
+    private T peek;
 
     public PeekIterator(Iterator<T> iterator, long id) {
         this.iterator = iterator;
@@ -26,7 +26,7 @@ public class PeekIterator<T> implements Iterator<T> {
 
     @Override
     public T next() {
-        if (!hasNext()){
+        if (!hasNext()) {
             return null;
         }
         T result = peek;
@@ -35,7 +35,7 @@ public class PeekIterator<T> implements Iterator<T> {
     }
 
     public T peek() {
-        if (!hasNext()){
+        if (!hasNext()) {
             return null;
         }
         return peek;

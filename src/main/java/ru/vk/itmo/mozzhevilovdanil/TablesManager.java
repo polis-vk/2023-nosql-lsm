@@ -37,7 +37,8 @@ public class TablesManager {
     }
 
     private static FileChannel getFileChannel(Path tempIndexPath) throws IOException {
-        return FileChannel.open(tempIndexPath, StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE);
+        return FileChannel.open(tempIndexPath, StandardOpenOption.WRITE, StandardOpenOption.READ,
+                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE);
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
