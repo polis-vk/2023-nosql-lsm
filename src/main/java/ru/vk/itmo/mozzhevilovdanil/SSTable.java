@@ -28,7 +28,6 @@ public class SSTable {
         Path tablePath = config.basePath().resolve(tableIndex + ".db");
         Path indexPath = config.basePath().resolve(tableIndex + ".index.db");
 
-
         long size;
         long indexSize;
         try {
