@@ -60,7 +60,7 @@ public class DiskStorage {
 
         String newFileName = String.valueOf(existedFiles.size());
 
-        fillSSTable(storagePath, iterable, newFileName);
+        fillSSTable(storagePath.resolve(newFileName), iterable);
 
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
@@ -85,7 +85,7 @@ public class DiskStorage {
             throw new IllegalStateException("Unexpected missing file index.idx");
         }
 
-        String newFileName = "compactedTable";
+        Path newFilePath = storagePath.resolve("compactedTable");
 
         ArrayList<Entry<MemorySegment>> compactedValues = new ArrayList<>();
         while (mergeIterator.hasNext()) {
@@ -93,22 +93,28 @@ public class DiskStorage {
         }
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        fillSSTable(storagePath, compactedValues, newFileName);
+        fillSSTable(newFilePath, compactedValues);
 
         for (String existedFile : existedFiles) {
             Files.deleteIfExists(storagePath.resolve(existedFile));
         }
 
+        Files.move(newFilePath,
+                storagePath.resolve("0"),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING);
+        Files.deleteIfExists(newFilePath);
+
         Files.writeString(
                 indexFile,
-                newFileName,
+                "0",
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
     }
 
-    private static void fillSSTable(Path storagePath, Iterable<Entry<MemorySegment>> iterable, String newFileName)
+    private static void fillSSTable(Path newFilePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         long dataSize = 0;
         long count = 0;
@@ -124,7 +130,7 @@ public class DiskStorage {
 
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve(newFileName),
+                        newFilePath,
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE
