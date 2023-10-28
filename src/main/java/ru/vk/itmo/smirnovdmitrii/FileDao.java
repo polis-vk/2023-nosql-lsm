@@ -11,6 +11,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -44,21 +45,22 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         } catch (final IOException e) {
             throw new UncheckedIOException(e);
         }
+        final Path indexFilePath = basePath.resolve(INDEX_FILE_NAME);
         try {
-            Files.createFile(basePath.resolve(INDEX_FILE_NAME));
-        } catch (final FileAlreadyExistsException e) {
-            // ok
+            if (!Files.exists(indexFilePath)) {
+                Files.createFile(indexFilePath);
+            }
         } catch (final IOException e) {
             throw new UncheckedIOException(e);
         }
-        final List<Path> paths;
+        final List<String> paths;
         try {
-            paths = Files.readAllLines(basePath.resolve(INDEX_FILE_NAME)).stream().map(Path::of).toList();
+            paths = Files.readAllLines(indexFilePath);
         } catch (final IOException e) {
-            throw new UncheckedIOException("exception while listing base directory.", e);
+            throw new UncheckedIOException("exception while reading index file.", e);
         }
-        for (final Path path: paths) {
-            try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+        for (final String path: paths) {
+            try (FileChannel channel = FileChannel.open(Path.of(path), StandardOpenOption.READ)) {
                 mappedSsTables.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena));
             } catch (final IOException e) {
                 throw new UncheckedIOException("exception while mapping sstables", e);
@@ -106,10 +108,9 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         for (int i = mappedSsTables.size() - 1; i >= 0; i--) {
             final MemorySegment storage = mappedSsTables.get(i);
             final long offset = binarySearch(key, storage);
-            if (offset < 0) {
-                continue;
+            if (offset >= 0) {
+                return SSTableUtil.readBlock(storage, offset);
             }
-            return SSTableUtil.readBlock(storage, offset);
         }
         return null;
     }

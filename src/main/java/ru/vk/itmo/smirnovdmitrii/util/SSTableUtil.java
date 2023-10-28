@@ -6,7 +6,7 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class SSTableUtil {
+public final class SSTableUtil {
 
     private SSTableUtil() {
     }
