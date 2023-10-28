@@ -3,11 +3,13 @@ package ru.vk.itmo.tyapuevdmitrij;
 import ru.vk.itmo.Entry;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 
-public class StorageHelper {
+public abstract class StorageHelper {
 
     protected static int findSsTablesQuantity(Path ssTablePath) {
         File dir = new File(ssTablePath.toUri());
@@ -24,29 +26,34 @@ public class StorageHelper {
     protected static void deleteOldSsTables(Path ssTablePath, int ssTablesQuantity) {
         File directory = new File(ssTablePath.toUri());
         if (directory.exists() && directory.isDirectory()) {
-            if (directory.exists() && directory.isDirectory()) {
-                File[] files = directory.listFiles();
-                if (files != null) {
-                    for (File file : files) {
-                        if (!file.getName().contains(Storage.SS_TABLE_FILE_NAME + ssTablesQuantity)) {
-                            boolean deleted = file.delete();
-                            if (!deleted) {
-                                throw new RuntimeException();
-                            }
+            File[] files = directory.listFiles();
+            if (files != null) {
+                for (File file : files) {
+                    if (!file.getName().contains(Storage.SS_TABLE_FILE_NAME + ssTablesQuantity)) {
+                        try {
+                            Files.delete(file.toPath());
+                        } catch (IOException e) {
+                            throw new SecurityException(e);
                         }
                     }
                 }
             }
+        }
+    }
+
+    protected static void renameCompactedSsTable(Path ssTablePath) {
+        File directory = new File(ssTablePath.toUri());
+        boolean renamed = false;
+        if (directory.exists() && directory.isDirectory()) {
             File[] remainingFiles = directory.listFiles();
             if (remainingFiles != null && remainingFiles.length == 1) {
                 File remainingFile = remainingFiles[0];
                 String newFilePath = remainingFile.getParent() + File.separator + Storage.SS_TABLE_FILE_NAME + 0;
-                boolean renamed = remainingFile.renameTo(new File(newFilePath));
-                if (!renamed) {
-                    throw new RuntimeException();
-                }
+                 renamed = remainingFile.renameTo(new File(newFilePath));
             }
-
+        }
+        if (!renamed) {
+            throw new SecurityException();
         }
     }
 

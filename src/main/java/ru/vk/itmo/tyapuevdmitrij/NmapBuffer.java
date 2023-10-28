@@ -9,7 +9,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.EnumSet;
 
-public class NmapBuffer {
+public abstract class NmapBuffer {
 
     protected static MemorySegment getReadBufferFromSsTable(Path ssTablePath, Arena readArena) {
         MemorySegment buffer;

@@ -102,6 +102,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             storage.writeEntryAndIndexesToCompactionTable(buffer, dataIterator.next(), offsets);
         }
         StorageHelper.deleteOldSsTables(ssTablePath, storage.ssTablesQuantity);
+        StorageHelper.renameCompactedSsTable(ssTablePath);
         compacted = true;
     }
 
