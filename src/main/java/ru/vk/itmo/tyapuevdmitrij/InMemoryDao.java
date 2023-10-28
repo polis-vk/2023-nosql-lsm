@@ -4,7 +4,6 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -34,7 +33,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<>(memorySegmentComparator);
 
     private final Arena readArena;
-
     private final Path ssTablePath;
     private long ssTablesEntryQuantity;
     private boolean compacted;
@@ -93,7 +91,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
         Iterator<Entry<MemorySegment>> dataIterator = get(null, null);
-        MemorySegment buffer = storage.getWriteBufferToSsTable(getCompactionTableByteSize(), ssTablePath);
+        MemorySegment buffer = NmapBuffer.getWriteBufferToSsTable(getCompactionTableByteSize(),
+                ssTablePath,
+                storage.ssTablesQuantity);
         long bufferByteSize = buffer.byteSize();
         buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, bufferByteSize - Long.BYTES, ssTablesEntryQuantity);
         long[] offsets = new long[2];
@@ -101,11 +101,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         while (dataIterator.hasNext()) {
             storage.writeEntryAndIndexesToCompactionTable(buffer, dataIterator.next(), offsets);
         }
-        try {
-            storage.deleteOldSsTables(ssTablePath);
-        } catch (NoSuchFieldException e) {
-            throw new FileNotFoundException();
-        }
+        StorageHelper.deleteOldSsTables(ssTablePath, storage.ssTablesQuantity);
         compacted = true;
     }
 

@@ -2,81 +2,36 @@ package ru.vk.itmo.tyapuevdmitrij;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-
-import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.channels.FileChannel;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
 public class Storage {
     protected List<MemorySegment> ssTables;
-    private long memTableEntriesSize;
-    private static final String SS_TABLE_FILE_NAME = "ssTable";
-    protected int ssTablesQuantity;
+    protected static long memTableEntriesSize;
+    protected static final String SS_TABLE_FILE_NAME = "ssTable";
+    protected final int ssTablesQuantity;
 
     public Storage(Path ssTablePath, Arena readArena) {
-        ssTablesQuantity = findSsTablesQuantity(ssTablePath);
+        ssTablesQuantity = StorageHelper.findSsTablesQuantity(ssTablePath);
         ssTables = new ArrayList<>(ssTablesQuantity);
         if (ssTablesQuantity != 0) {
             for (int i = 0; i < ssTablesQuantity; i++) {
                 Path path = ssTablePath.resolve(SS_TABLE_FILE_NAME + i);
-                ssTables.add(getReadBufferFromSsTable(path, readArena));
+                ssTables.add(NmapBuffer.getReadBufferFromSsTable(path, readArena));
             }
-        }
-    }
-
-    private long getSsTableDataByteSize(Iterable<Entry<MemorySegment>> memTableEntries) {
-        long ssTableDataByteSize = 0;
-        long entriesCount = 0;
-        for (Entry<MemorySegment> entry : memTableEntries) {
-            ssTableDataByteSize += entry.key().byteSize();
-            if (entry.value() != null) {
-                ssTableDataByteSize += entry.value().byteSize();
-            }
-            entriesCount++;
-        }
-        memTableEntriesSize = entriesCount;
-        return ssTableDataByteSize + entriesCount * Long.BYTES * 4L + Long.BYTES;
-    }
-
-    public void deleteOldSsTables(Path ssTablePath) throws NoSuchFieldException {
-        File directory = new File(ssTablePath.toUri());
-        File[] files = directory.listFiles();
-        if (files == null) {
-            throw new NoSuchFieldException();
-        }
-        for (File file : files) {
-            if (!file.getName().contains(SS_TABLE_FILE_NAME + ssTablesQuantity)) {
-                try {
-                    Files.delete(file.toPath());
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-        }
-        boolean renamed;
-        File remainingFile = files[0];
-        String newFilePath = remainingFile.getParent() + File.separator + SS_TABLE_FILE_NAME + 0;
-        renamed = remainingFile.renameTo(new File(newFilePath));
-        if (!renamed) {
-            throw new SecurityException();
         }
     }
 
     public void writeEntryAndIndexesToCompactionTable(MemorySegment buffer,
-                                                      Entry<MemorySegment> entry, long[] offsets) {
+                                                      Entry<MemorySegment> entry, long... offsets) {
         buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, offsets[1], offsets[0]);
         offsets[1] += Long.BYTES;
         buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, offsets[0], entry.key().byteSize());
@@ -91,24 +46,10 @@ public class Storage {
         offsets[0] += entry.value().byteSize();
     }
 
-    public MemorySegment getWriteBufferToSsTable(Long writeBytes, Path ssTablePath
-    ) throws IOException {
-        MemorySegment buffer;
-        Path path = ssTablePath.resolve(SS_TABLE_FILE_NAME + ssTablesQuantity);
-        Arena writeArena = Arena.ofConfined();
-        try (FileChannel channel = FileChannel.open(path, EnumSet.of(StandardOpenOption.READ,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING))) {
-            buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0,
-                    writeBytes, writeArena);
-        }
-        return buffer;
-    }
-
     public void save(Iterable<Entry<MemorySegment>> memTableEntries, Path ssTablePath) throws IOException {
-        MemorySegment buffer = getWriteBufferToSsTable(getSsTableDataByteSize(memTableEntries),
-                ssTablePath);
+        MemorySegment buffer = NmapBuffer.getWriteBufferToSsTable(StorageHelper.getSsTableDataByteSize(memTableEntries),
+                ssTablePath,
+                ssTablesQuantity);
         writeMemTableDataToFile(buffer, memTableEntries);
     }
 
@@ -139,22 +80,6 @@ public class Storage {
                 offset += entry.value().byteSize();
             }
         }
-    }
-
-    private static MemorySegment getReadBufferFromSsTable(Path ssTablePath, Arena readArena) {
-        MemorySegment buffer;
-        boolean created = false;
-        try (FileChannel channel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
-            buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ssTablePath), readArena);
-            created = true;
-        } catch (IOException e) {
-            buffer = null;
-        } finally {
-            if (!created) {
-                readArena.close();
-            }
-        }
-        return buffer;
     }
 
     private long getSsTableIndexByKey(MemorySegment ssTable, MemorySegment key,
@@ -236,18 +161,6 @@ public class Storage {
             }
         }
         return null;
-    }
-
-    private int findSsTablesQuantity(Path ssTablePath) {
-        File dir = new File(ssTablePath.toUri());
-        File[] files = dir.listFiles();
-        if (files == null) {
-            return 0;
-        }
-        long countSsTables = Arrays.stream(files)
-                .filter(file -> file.isFile() && file.getName().contains(SS_TABLE_FILE_NAME))
-                .count();
-        return (int) countSsTables;
     }
 
     public Iterator<Entry<MemorySegment>> range(
