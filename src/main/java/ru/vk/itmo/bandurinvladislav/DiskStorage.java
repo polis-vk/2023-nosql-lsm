@@ -92,9 +92,9 @@ public class DiskStorage {
             compactedValues.add(mergeIterator.next());
         }
 
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         fillSSTable(storagePath, compactedValues, newFileName);
 
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         for (String existedFile : existedFiles) {
             Files.deleteIfExists(storagePath.resolve(existedFile));
         }
