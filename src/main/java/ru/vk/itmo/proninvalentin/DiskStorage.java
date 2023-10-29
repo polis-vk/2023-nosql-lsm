@@ -20,7 +20,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.stream.Collectors;
 
 public class DiskStorage {
     private static final String INDEX_TMP = "index.tmp";
@@ -51,6 +50,16 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
+        saveEntries(storagePath, iterable, false);
+    }
+
+    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable, boolean needToMerge)
+            throws IOException {
+        saveEntries(storagePath, iterable, needToMerge);
+    }
+
+    private static void saveEntries(Path storagePath, Iterable<Entry<MemorySegment>> iterable, boolean needToCompact)
+            throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
 
@@ -61,9 +70,9 @@ public class DiskStorage {
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        String newFileName = existedFiles.size() > 0
-                ? String.valueOf(FileUtils.parseIndexFromFileName(existedFiles.getLast()) + 1)
-                : String.valueOf(0);
+        String newFileName = needToCompact
+                ? getFileNameForCompaction(existedFiles)
+                : getNewFileName(existedFiles);
 
         long dataSize = 0;
         long count = 0;
@@ -147,19 +156,13 @@ public class DiskStorage {
 
     public void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        save(storagePath, iterable);
+        save(storagePath, iterable, true);
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        String newFileName = "0";
+        String newFileName = getLastFileName(existedFiles);
 
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        Files.move(
-                storagePath.resolve(existedFiles.getLast()),
-                storagePath.resolve(newFileName),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING
-        );
 
         List<String> remainFileNames = new ArrayList<>();
         remainFileNames.add(newFileName);
@@ -172,8 +175,28 @@ public class DiskStorage {
         );
         remainFileNames.add(INDEX_IDX);
 
-        Files.delete(indexTmp);
         FileUtils.deleteFilesExcept(storagePath.toString(), new HashSet<>(remainFileNames));
+    }
+
+    private static String getLastFileName(List<String> existedFiles) {
+        int compactionFileName = Integer.parseInt(getFileNameForCompaction(existedFiles));
+        if (compactionFileName == 0) {
+            return "0";
+        } else {
+            return String.valueOf(compactionFileName - 1);
+        }
+    }
+
+    private static String getNewFileName(List<String> existedFiles) {
+        return existedFiles.size() > 0
+                ? String.valueOf(Integer.parseInt(existedFiles.getLast()) + 1)
+                : String.valueOf(0);
+    }
+
+    private static String getFileNameForCompaction(List<String> existedFiles) {
+        return existedFiles.isEmpty() || Integer.parseInt(existedFiles.getFirst()) > 0
+                ? "0"
+                : getNewFileName(existedFiles);
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
@@ -318,5 +341,4 @@ public class DiskStorage {
     private static long normalize(long value) {
         return value & ~(1L << 63);
     }
-
 }

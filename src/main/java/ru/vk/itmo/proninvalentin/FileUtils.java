@@ -1,7 +1,6 @@
 package ru.vk.itmo.proninvalentin;
 
 import java.io.File;
-import java.util.HashSet;
 import java.util.Set;
 
 public class FileUtils {
@@ -19,13 +18,5 @@ public class FileUtils {
                 }
             }
         }
-    }
-
-    public static int parseIndexFromFileName(String fileName) {
-        int i = fileName.length();
-        while (i > 0 && Character.isDigit(fileName.charAt(i - 1))) {
-            i--;
-        }
-        return Integer.parseInt(fileName.substring(i));
     }
 }
