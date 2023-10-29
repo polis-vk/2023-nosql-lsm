@@ -4,6 +4,7 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -25,7 +26,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
     private Config config;
     private int fileIndex;
 
-
     public DaoImpl() throws IOException {
         arena = Arena.ofShared();
         this.path = Path.of("");
@@ -38,8 +38,15 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
         this.path = this.config.basePath().resolve(String.format("data%d", fileIndex));
         Files.createDirectories(path);
 
-        arena = Arena.ofShared();
+        Path indexTmp = path.resolve("index.tmp");
+        Path indexFile = path.resolve("index.idx");
+        if (Files.notExists(indexTmp) || Files.notExists(indexFile)) {
+            fileIndex = 1;
+            this.path = this.config.basePath().resolve(String.format("data%d", fileIndex));
+            Files.createDirectories(path);
+        }
 
+        arena = Arena.ofShared();
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
