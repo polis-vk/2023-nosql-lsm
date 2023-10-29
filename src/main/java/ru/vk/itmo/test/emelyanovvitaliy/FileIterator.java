@@ -3,16 +3,9 @@ package ru.vk.itmo.test.emelyanovvitaliy;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
-import java.io.IOException;
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.channels.FileChannel;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Comparator;
-
-import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 
 public class FileIterator {
     private final MemorySegment mapped;
@@ -22,12 +15,9 @@ public class FileIterator {
     private long timestamp = -1;
     private long runtimeTimestamp = -1;
 
-    public FileIterator(Path filePath, Comparator<MemorySegment> comparator) throws IOException {
-        try (FileChannel fc = FileChannel.open(filePath, StandardOpenOption.READ)) {
-            Arena arena = Arena.ofShared();
-            this.mapped = fc.map(READ_ONLY, 0, fc.size(), arena);
-            this.comparator = comparator;
-        }
+    public FileIterator(MemorySegment memorySegment, Comparator<MemorySegment> comparator) {
+        mapped = memorySegment;
+        this.comparator = comparator;
     }
 
     public void positionate(MemorySegment key) {

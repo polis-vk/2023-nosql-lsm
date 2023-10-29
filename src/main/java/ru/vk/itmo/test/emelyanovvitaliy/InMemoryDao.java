@@ -14,39 +14,29 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentSkipListSet;
 
+import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    public static final String SSTABLE_SUFFIX = ".sstable";
+    public static final int MAX_SSTABLE_SEARCH_DEPTH = 1;
+    private static final Set<StandardOpenOption> OPEN_OPTIONS = Set.of(
+            StandardOpenOption.CREATE,
+            StandardOpenOption.READ,
+            StandardOpenOption.WRITE
+    );
+    private static final Comparator<MemorySegment> MEM_SEGMENT_COMPARATOR = new MemSegmentComparator();
     private final Path sstablesPath;
     private final Arena arena = Arena.ofShared();
     private final Set<Path> filesSet = new ConcurrentSkipListSet<>();
-
-    public static final Comparator<MemorySegment> comparator = (o1, o2) -> {
-        if (o1 == o2) {
-            return 0;
-        }
-        long mismatch = o1.mismatch(o2);
-        if (mismatch == -1) {
-            return 0;
-        }
-        if (mismatch == o1.byteSize()) {
-            return -1;
-        }
-        if (mismatch == o2.byteSize()) {
-            return 1;
-        }
-        return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, mismatch), o2.get(ValueLayout.JAVA_BYTE, mismatch));
-    };
+    private final Map<Path, MemorySegment> fileMemSegmentMap = new ConcurrentSkipListMap<>();
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> mappings = new ConcurrentSkipListMap<>(
-            comparator
+            MEM_SEGMENT_COMPARATOR
     );
 
     public InMemoryDao() {
@@ -55,30 +45,20 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao(Path basePath) throws IOException {
         sstablesPath = basePath;
-        if (Files.exists(basePath)) {
-            Files.walkFileTree(
-                    basePath,
-                    Set.of(),
-                    1,
-                    new SimpleFileVisitor<>() {
-                        @Override
-                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                            if (file.toString().endsWith(".sstable")) {
-                                filesSet.add(file);
-                            }
-                            return FileVisitResult.CONTINUE;
-                        }
-                    }
-            );
-        }
+        findSstables(basePath);
     }
+
+
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         Queue<FileIterator> fileIterators = new ConcurrentLinkedQueue<>();
         for (Path file: filesSet) {
             try {
-                FileIterator fileIterator = new FileIterator(file, comparator);
+                if (!fileMemSegmentMap.containsKey(file)) {
+                    fileMemSegmentMap.put(file, provideFileMapping(file));
+                }
+                FileIterator fileIterator = new FileIterator(fileMemSegmentMap.get(file), MEM_SEGMENT_COMPARATOR);
                 if (from != null) {
                     fileIterator.positionate(from);
                 }
@@ -88,7 +68,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
         Iterator<Entry<MemorySegment>> memoryIterator = getFromMemory(from, to);
-        return new FileMergeIterator(comparator, fileIterators, memoryIterator, to);
+        return new FileMergeIterator(MEM_SEGMENT_COMPARATOR, fileIterators, memoryIterator, to);
 
     }
 
@@ -104,12 +84,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    public Iterator<Entry<MemorySegment>> getFromMemory(MemorySegment from, MemorySegment to) {
+    private Iterator<Entry<MemorySegment>> getFromMemory(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
             return mappings.values().iterator();
-        } else if (from == null) {
+        }
+        if (from == null) {
             return mappings.headMap(to).values().iterator();
-        } else if (to == null) {
+        }
+        if (to == null) {
             return mappings.tailMap(from).values().iterator();
         }
         return mappings.subMap(from, to)
@@ -123,14 +105,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
+        long currentTimeMillis = System.currentTimeMillis();
+        long nanoTime = System.nanoTime();
         Path filePath = sstablesPath.resolve(
                 Path.of(
-                    Long.toString(System.currentTimeMillis(), Character.MAX_RADIX)
-                        + Long.toString(System.nanoTime(), Character.MAX_RADIX)
-                        + ".sstable"
+                    Long.toString(currentTimeMillis, Character.MAX_RADIX)
+                        + Long.toString(nanoTime, Character.MAX_RADIX)
+                        + SSTABLE_SUFFIX
                 )
         );
-        dumpToFile(filePath);
+        dumpToFile(filePath, currentTimeMillis, nanoTime);
         filesSet.add(filePath);
     }
 
@@ -147,6 +131,25 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
+    private void findSstables(Path basePath) throws IOException {
+        if (Files.exists(basePath)) {
+            Files.walkFileTree(
+                    basePath,
+                    Set.of(),
+                    MAX_SSTABLE_SEARCH_DEPTH,
+                    new SimpleFileVisitor<>() {
+                        @Override
+                        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                            if (file.toString().endsWith(SSTABLE_SUFFIX)) {
+                                filesSet.add(file);
+                            }
+                            return FileVisitResult.CONTINUE;
+                        }
+                    }
+            );
+        }
+    }
+
     // dumps mappings to file in format
     // timestamp in millis (long), numOfKeys (int)
     // offsetOf1stKey, offsetOf1stValue (-1 if value is null)
@@ -155,24 +158,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     // 1stKey, 1stValue (zero length if value is null)
     // ...
     // {numOfKeys - 1}Key, {numOfKeys - 1}Value (zero length if value is null)
-    private void dumpToFile(Path path) throws IOException {
+    private void dumpToFile(Path path, long currentTimeMillis, long nanoTime) throws IOException {
         long size = 0;
-        Set<StandardOpenOption> openOptions =
-                Set.of(
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.WRITE
-                );
         for (Entry<MemorySegment> entry : mappings.values()) {
             size += (entry.value() == null ? 0 : entry.value().byteSize()) + entry.key().byteSize();
         }
         size += Integer.BYTES + (2L * mappings.size() + 2) * Long.BYTES;
-        try (FileChannel fc = FileChannel.open(path, openOptions); Arena writeArena = Arena.ofConfined()) {
+        try (FileChannel fc = FileChannel.open(path, OPEN_OPTIONS); Arena writeArena = Arena.ofConfined()) {
             MemorySegment mapped = fc.map(READ_WRITE, 0, size, writeArena);
             long offset = 0;
-            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, System.currentTimeMillis());
+            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, currentTimeMillis);
             offset += Long.BYTES;
-            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, System.nanoTime());
+            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, nanoTime);
             offset += Long.BYTES;
             mapped.set(ValueLayout.JAVA_INT_UNALIGNED, offset, mappings.size());
             offset += Integer.BYTES;
@@ -199,6 +196,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
                 offset += Long.BYTES;
             }
+        }
+    }
+
+    private MemorySegment provideFileMapping(Path file) throws IOException {
+        try (FileChannel fc = FileChannel.open(file, StandardOpenOption.READ)) {
+            return fc.map(READ_ONLY, 0, fc.size(), arena);
         }
     }
 }
