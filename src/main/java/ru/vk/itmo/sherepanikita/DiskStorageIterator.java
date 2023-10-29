@@ -8,7 +8,11 @@ import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-public class DiskStorageIterator {
+public final class DiskStorageIterator {
+
+    private DiskStorageIterator() {
+
+    }
 
     public static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
