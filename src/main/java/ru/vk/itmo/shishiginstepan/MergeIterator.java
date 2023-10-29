@@ -4,14 +4,12 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.PriorityQueue;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
-    private final List<IteratorWrapper> iterators;
-
     private final Comparator<MemorySegment> keyComparator = (o1, o2) -> {
         var mismatch = o1.mismatch(o2);
         if (mismatch == -1) {
@@ -28,12 +26,22 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         return Byte.compare(b1, b2);
     };
 
-    private static class IteratorWrapper implements Iterator<Entry<MemorySegment>> {
+    private final PriorityQueue<PeekIteratorWrapper> iterators = new PriorityQueue<>((o1, o2) -> {
+        int keysCompared = keyComparator.compare(o1.peek().key(), o2.peek().key());
+        if (keysCompared == 0) return Integer.compare(o1.priority, o2.priority);
+        return keysCompared;
+    });
+
+
+    private static class PeekIteratorWrapper implements Iterator<Entry<MemorySegment>> {
         private Entry<MemorySegment> prefetched;
         private final Iterator<Entry<MemorySegment>> iterator;
 
-        public IteratorWrapper(Iterator<Entry<MemorySegment>> iterator) {
+        private final int priority;
+
+        public PeekIteratorWrapper(Iterator<Entry<MemorySegment>> iterator, int priority) {
             this.iterator = iterator;
+            this.priority = priority;
         }
 
         @Override
@@ -52,7 +60,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             }
         }
 
-        public Entry<MemorySegment> peekNext() {
+        public Entry<MemorySegment> peek() {
             if (this.prefetched == null) {
                 this.prefetched = this.iterator.next();
             }
@@ -70,48 +78,42 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     public MergeIterator(List<Iterator<Entry<MemorySegment>>> iterators) {
         // приоритет мержа будет определен порядком итераторов
-        this.iterators = new ArrayList<IteratorWrapper>();
-        iterators.forEach(iterator -> this.iterators.add(
-                new IteratorWrapper(iterator)
-        ));
+        for (int i=0; i < iterators.size(); i++){
+            var iterator = iterators.get(i);
+            if (iterator.hasNext()){
+                this.iterators.add(new PeekIteratorWrapper(iterator, i));
+            }
+        }
     }
 
     @Override
     public boolean hasNext() {
-        for (var iterator : iterators) {
-            if (iterator.hasNext()) return true;
-        }
-        return false;
+        PeekIteratorWrapper nextIterator = this.iterators.peek();
+        return nextIterator != null;
     }
 
     @Override
     public Entry<MemorySegment> next() {
-        Entry<MemorySegment> nextEntry = null;
-        for (var iterator : this.iterators) {
-            if (iterator.hasNext()) {
-                nextEntry = iterator.peekNext();
-                break;
-            }
+        PeekIteratorWrapper nextIterator = iterators.remove();
+        Entry<MemorySegment> nextEntry = nextIterator.next();
+        if (nextIterator.hasNext()){
+            this.iterators.add(nextIterator);
         }
-        if (nextEntry == null) {
-            throw new EmptyIteratorAccessed();
-        }
-        for (var iterator : this.iterators) {
-            if (!iterator.hasNext()) continue;
-            if (keyComparator.compare(nextEntry.key(), iterator.peekNext().key()) > 0) {
-                nextEntry = iterator.peekNext();
-            }
-        }
-        // Пропуск всех значений с теми же ключами (записи которые "перетираются" более новыми)
-        for (var iterator : this.iterators) {
-            if (!iterator.hasNext()) continue;
-            if (keyComparator.compare(nextEntry.key(), iterator.peekNext().key()) == 0) {
-                iterator.skip();
-            }
-        }
+        skipOverrides(nextEntry);
         return nextEntry;
     }
 
-    private static class EmptyIteratorAccessed extends RuntimeException {
+    private void skipOverrides(Entry<MemorySegment> entry) {
+        while (hasNext()) {
+            var nextIterator = this.iterators.peek();
+            if (nextIterator == null) break;
+            var nextEntry = nextIterator.peek();
+            if (keyComparator.compare(entry.key(), nextEntry.key()) == 0) {
+                nextIterator.skip();
+                this.iterators.remove();
+                if (nextIterator.hasNext()) this.iterators.add(nextIterator);
+            } else break;
+        }
+
     }
 }

@@ -3,24 +3,16 @@ package ru.vk.itmo.shishiginstepan;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.Comparator;
 import java.util.Iterator;
 
 public class SkipDeletedIterator implements Iterator<Entry<MemorySegment>> {
     private Entry<MemorySegment> prefetched;
     private final Iterator<Entry<MemorySegment>> iterator;
 
-    private final Comparator<MemorySegment> comparator;
-    private final MemorySegment deletionMark;
-
     public SkipDeletedIterator(
-            Iterator<Entry<MemorySegment>> iterator,
-            MemorySegment deletionMark,
-            Comparator<MemorySegment> comparator
+            Iterator<Entry<MemorySegment>> iterator
     ) {
         this.iterator = iterator;
-        this.deletionMark = deletionMark;
-        this.comparator = comparator;
     }
 
     @Override
@@ -51,7 +43,7 @@ public class SkipDeletedIterator implements Iterator<Entry<MemorySegment>> {
     public void skipDeleted() {
         if (this.iterator.hasNext()) {
             var next = this.peekNext();
-            if (this.comparator.compare(next.value(), deletionMark) == 0) {
+            if (next.value() == null) {
                 this.prefetched = null;
                 this.skipDeleted();
             }

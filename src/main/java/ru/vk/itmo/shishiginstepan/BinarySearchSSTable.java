@@ -36,7 +36,7 @@ public class BinarySearchSSTable {
 
     BinarySearchSSTable(Path path, Arena arena) {
         this.id = Integer.parseInt(path.getFileName().toString().substring(8));
-        Path indexPath = Paths.get(path.toAbsolutePath().toString() + "_index");
+        Path indexPath = Paths.get(path.toAbsolutePath() + "_index");
 
         try {
             if (Files.exists(path)) {
@@ -69,7 +69,11 @@ public class BinarySearchSSTable {
         long dataSize = 0;
         long indexSize = 0;
         for (var entry : entries) {
-            dataSize += entry.value().byteSize() + entry.key().byteSize();
+            dataSize += entry.key().byteSize();
+
+            if (entry.value() != null) {
+                dataSize += entry.value().byteSize();
+            }
             indexSize += Long.BYTES * 2;
         }
         try (var fileChannel = FileChannel.open(
@@ -96,8 +100,6 @@ public class BinarySearchSSTable {
             throw new SSTableRWException(e);
         }
         writeEntries(entries, tableSegment, indexSegment);
-        tableSegment.load();
-        indexSegment.load();
         arena.close();
         return sstPath;
     }
@@ -113,10 +115,17 @@ public class BinarySearchSSTable {
         for (var entry : entries) {
             indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tableOffset);
             indexOffset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+
             MemorySegment.copy(entry.key(), 0, tableSegment, tableOffset, entry.key().byteSize());
             tableOffset += entry.key().byteSize();
+            if (entry.value() == null) {
+                indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(tableOffset));
+                indexOffset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+                continue;
+            }
             indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tableOffset);
             indexOffset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
+
             MemorySegment.copy(entry.value(), 0, tableSegment, tableOffset, entry.value().byteSize());
             tableOffset += entry.value().byteSize();
         }
@@ -129,9 +138,8 @@ public class BinarySearchSSTable {
         while (l <= r) {
             m = l + (r - l) / 2;
 
-            var keyOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES * 2);
-            var valOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES * 2 + Long.BYTES);
-
+            var keyOffset = getKeyOffset(m);
+            var valOffset = normalize(getValOffset(m));
             var mismatch = MemorySegment.mismatch(key, 0, key.byteSize(), tableSegment, keyOffset, valOffset);
             if (mismatch == -1) {
                 return m;
@@ -161,17 +169,10 @@ public class BinarySearchSSTable {
         MemorySegment val;
         var m = this.searchEntryPosition(key, true);
         if (m == -1) return null;
-        var valOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, m * Long.BYTES * 2 + Long.BYTES);
-
-        if ((m + 1) * Long.BYTES * 2 == indexSize) {
-            // Случай когда мы не можем посчитать размер значения тк не имеем оффсета следующего за ним элемента
-            val = tableSegment.asSlice(valOffset, tableSize - valOffset);
-        } else {
-            var nextOffset = indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, (m + 1) * Long.BYTES * 2);
-            val = tableSegment.asSlice(valOffset, nextOffset - valOffset);
-        }
+        var valOffset = getValOffset(m);
+        var recordEnd = getRecordEnd(m);
+        val = valOffset < 0? null: tableSegment.asSlice(valOffset, recordEnd - valOffset);
         return new BaseEntry<>(key, val);
-
     }
 
     public Iterator<Entry<MemorySegment>> scan(MemorySegment keyFrom, MemorySegment keyTo) {
@@ -187,11 +188,59 @@ public class BinarySearchSSTable {
         } else {
             endIndex = this.searchEntryPosition(keyTo, false);
         }
-        return new BinarySearchSSTableIterator(
-                this.indexSegment,
-                this.tableSegment,
+        return iterator(
                 startIndex,
                 endIndex
         );
+    }
+
+    private static long tombstone(long offset) {
+        return 1L << 63 | offset;
+    }
+
+    private static long normalize(long value) {
+        return value & ~(1L << 63);
+    }
+
+
+    private long getKeyOffset(long recordIndex) {
+        return indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * Long.BYTES * 2);
+    }
+
+    private long getValOffset(long recordIndex) {
+        return indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * Long.BYTES * 2 + Long.BYTES);
+    }
+
+    private long getRecordEnd(long recordIndex) {
+        if ((recordIndex + 1) * Long.BYTES * 2 == indexSize) {
+            // Случай когда мы не можем посчитать размер значения тк не имеем оффсета следующего за ним элемента
+            return tableSize;
+        } else {
+            return indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, (recordIndex + 1) * Long.BYTES * 2);
+        }
+    }
+
+
+    private Iterator<Entry<MemorySegment>> iterator(long startEntryIndex, long endEntryIndex) {
+        return new Iterator<>() {
+            long currentEntryIndex = startEntryIndex;
+
+            @Override
+            public boolean hasNext() {
+                return this.currentEntryIndex != endEntryIndex;
+            }
+
+            @Override
+            public Entry<MemorySegment> next() {
+                var keyOffset = getKeyOffset(currentEntryIndex);
+                var valOffset = getValOffset(currentEntryIndex);
+                long nextOffset = getRecordEnd(currentEntryIndex);
+                this.currentEntryIndex++;
+                return new BaseEntry<>(
+                        tableSegment.asSlice(keyOffset, normalize(valOffset) - keyOffset),
+                        valOffset < 0 ? null :tableSegment.asSlice(normalize(valOffset), nextOffset - normalize(valOffset))
+                );
+            }
+        };
     }
 }

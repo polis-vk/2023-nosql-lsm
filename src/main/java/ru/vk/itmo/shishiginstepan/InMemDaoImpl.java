@@ -1,13 +1,11 @@
 package ru.vk.itmo.shishiginstepan;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
@@ -16,9 +14,6 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private static final MemorySegment deletionMark = MemorySegment.ofArray(
-            "52958832".getBytes(StandardCharsets.UTF_8)
-    );
     private static final Comparator<MemorySegment> keyComparator = (o1, o2) -> {
         var mismatch = o1.mismatch(o2);
         if (mismatch == -1) {
@@ -43,12 +38,12 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final PersistentStorage persistentStorage;
     private final Path basePath;
 
-    public InMemDaoImpl(Path basePath) throws IOException {
+    public InMemDaoImpl(Path basePath){
         this.basePath = basePath;
         this.persistentStorage = new PersistentStorage(this.basePath);
     }
 
-    public InMemDaoImpl() throws IOException {
+    public InMemDaoImpl() {
         this.basePath = Paths.get("./");
         this.persistentStorage = new PersistentStorage(this.basePath);
     }
@@ -68,9 +63,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         var persistentIterators = this.persistentStorage.get(from, to);
         persistentIterators.add(0, memIterator);
         return new SkipDeletedIterator(
-                new MergeIterator(persistentIterators),
-                deletionMark,
-                keyComparator
+                new MergeIterator(persistentIterators)
         );
     }
 
@@ -80,10 +73,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (entry == null) {
             entry = persistentStorage.get(key);
         }
-        if (entry == null) {
-            return null;
-        }
-        if (keyComparator.compare(entry.value(), deletionMark) == 0) {
+        if (entry != null && entry.value() == null) {
             return null;
         }
         return entry;
@@ -91,14 +81,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (entry.value() == null) {
-            this.memStorage.put(
-                    entry.key(),
-                    new BaseEntry<>(entry.key(), deletionMark)
-            );
-        } else {
-            this.memStorage.put(entry.key(), entry);
-        }
+        this.memStorage.put(entry.key(), entry);
     }
 
     @Override
