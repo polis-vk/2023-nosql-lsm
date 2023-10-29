@@ -106,7 +106,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
             DiskStorage.save(path, storage.values());
         }
 
-        fileIndex++;
+        if (fileIndex == 1) {
+            fileIndex = 0;
+        }
+        else {
+            fileIndex = 1;
+        }
         Path compactedStoragePath = config.basePath().resolve(String.format("data%d", fileIndex));
         Files.createDirectories(compactedStoragePath);
         DiskStorage.save(compactedStoragePath, this);
