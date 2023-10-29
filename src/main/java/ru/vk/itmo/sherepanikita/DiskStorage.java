@@ -238,7 +238,12 @@ public class DiskStorage {
     }
 
     private static long indexSize(MemorySegment segment) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        if (segment.byteSize() != 0) {
+            return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        }
+        else {
+            return 0;
+        }
     }
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
