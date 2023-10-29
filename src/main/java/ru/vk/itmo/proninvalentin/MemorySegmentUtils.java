@@ -8,7 +8,7 @@ import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-public class MemorySegmentUtils {
+public final class MemorySegmentUtils {
     private MemorySegmentUtils() {
     }
 

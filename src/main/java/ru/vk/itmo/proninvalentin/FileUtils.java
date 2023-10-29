@@ -6,7 +6,7 @@ import java.nio.file.Files;
 import java.util.List;
 import java.util.Set;
 
-public class FileUtils {
+public final class FileUtils {
     private FileUtils() {
     }
 
@@ -38,9 +38,9 @@ public class FileUtils {
     }
 
     public static String getNewFileName(List<String> existedFiles) {
-        return !existedFiles.isEmpty()
-                ? String.valueOf(Integer.parseInt(existedFiles.getLast()) + 1)
-                : String.valueOf(0);
+        return existedFiles.isEmpty()
+                ? String.valueOf(0)
+                : String.valueOf(Integer.parseInt(existedFiles.getLast()) + 1);
     }
 
     public static String getFileNameForCompaction(List<String> existedFiles) {
