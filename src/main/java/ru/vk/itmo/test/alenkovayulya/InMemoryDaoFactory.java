@@ -3,26 +3,29 @@ package ru.vk.itmo.test.alenkovayulya;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.alenkovayulya.InMemoryDao;
-import ru.vk.itmo.alenkovayulya.PersistenceDao;
+import ru.vk.itmo.alenkovayulya.AlenkovaDao;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-@DaoFactory(stage = 2)
+@DaoFactory(stage = 4)
 public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao() throws IOException {
+        Path tmp = Files.createTempDirectory("dao");
+        return new AlenkovaDao(new Config(tmp));
     }
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new PersistenceDao(config);
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new AlenkovaDao(config);
     }
 
     @Override
