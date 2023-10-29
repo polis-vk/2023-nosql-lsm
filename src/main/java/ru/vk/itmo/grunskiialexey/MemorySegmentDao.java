@@ -104,7 +104,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public void compact() throws IOException {
-        diskStorage.compact(path, storage.values());
+        diskStorage.compact(path, storage);
     }
 
     @Override

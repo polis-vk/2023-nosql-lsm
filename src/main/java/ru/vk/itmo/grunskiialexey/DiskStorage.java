@@ -9,11 +9,19 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
+import java.util.NoSuchElementException;
 
 public class DiskStorage {
-
     private final List<MemorySegment> segmentList;
 
     public DiskStorage(List<MemorySegment> segmentList) {
@@ -40,21 +48,8 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path compactedFile = storagePath.resolve("-1");
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
-
-        if (Files.exists(compactedFile)) {
-            final Path actualCompactedFile = storagePath.resolve("0");
-            Files.move(compactedFile, actualCompactedFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            Files.write(indexFile,
-                    List.of("0"),
-                    StandardOpenOption.WRITE,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING
-            );
-            return;
-        }
 
         try {
             Files.createFile(indexFile);
@@ -145,18 +140,18 @@ public class DiskStorage {
         Files.delete(indexTmp);
     }
 
-    public void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
-        if (segmentList.isEmpty() || (segmentList.size() == 1 && !iterable.iterator().hasNext())) {
+    public void compact(Path storagePath, NavigableMap<MemorySegment, Entry<MemorySegment>> iterable) throws IOException {
+        if (segmentList.isEmpty() || (segmentList.size() == 1 && iterable.isEmpty())) {
             return;
         }
 
         final Path indexFile = storagePath.resolve("index.idx");
-        final Path newTmpCompactedFileName = storagePath.resolve("-1.tmp"); // :TODO constant
-        final Path newCompactedFileName = storagePath.resolve("-1"); // :TODO constant
+        final Path newTmpCompactedFileName = storagePath.resolve("-1");
+        final Path newCompactedFileName = storagePath.resolve("0");
 
         long startValuesOffset = 0;
         long maxOffset = 0;
-        for (Iterator<Entry<MemorySegment>> it = range(iterable.iterator(), null, null); it.hasNext(); ) {
+        for (Iterator<Entry<MemorySegment>> it = range(iterable.values().iterator(), null, null); it.hasNext(); ) {
             Entry<MemorySegment> entry = it.next();
             startValuesOffset++;
             maxOffset += entry.key().byteSize() + entry.value().byteSize();
@@ -183,7 +178,7 @@ public class DiskStorage {
 
             long dataOffset = startValuesOffset;
             int indexOffset = 0;
-            for (Iterator<Entry<MemorySegment>> it = range(iterable.iterator(), null, null); it.hasNext(); ) {
+            for (Iterator<Entry<MemorySegment>> it = range(iterable.values().iterator(), null, null); it.hasNext(); ) {
                 Entry<MemorySegment> entry = it.next();
 
                 MemorySegment key = entry.key();
@@ -200,16 +195,18 @@ public class DiskStorage {
             }
         }
 
+        // Delete old data
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-
         for (String fileName : existedFiles) {
             Files.delete(storagePath.resolve(fileName));
         }
+        segmentList.clear();
+        iterable.clear();
 
         Files.move(newTmpCompactedFileName, newCompactedFileName, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         Files.write(
                 indexFile,
-                List.of("-1"),
+                List.of("0"),
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
