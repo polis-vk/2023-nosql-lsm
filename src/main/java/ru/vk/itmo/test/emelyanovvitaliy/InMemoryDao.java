@@ -123,14 +123,46 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        Path filePath = sstablesPath.resolve(
+        Path filePath = getFilePath();
+        dumpToFile(filePath);
+        filesSet.add(filePath);
+    }
+
+    private Path getFilePath() {
+        return sstablesPath.resolve(
                 Path.of(
-                    Long.toString(System.currentTimeMillis(), Character.MAX_RADIX)
-                        + Long.toString(System.nanoTime(), Character.MAX_RADIX)
-                        + ".sstable"
+                        Long.toString(System.currentTimeMillis(), Character.MAX_RADIX)
+                                + Long.toString(System.nanoTime(), Character.MAX_RADIX)
+                                + ".sstable"
                 )
         );
-        dumpToFile(filePath);
+    }
+
+    @Override
+    public void compact() throws IOException {
+        long fileSize = 2 * Long.BYTES + Integer.BYTES;
+        int countOfKeys = 0;
+        Iterator<Entry<MemorySegment>> it = all();
+        while (it.hasNext()) {
+            Entry<MemorySegment> entry = it.next();
+            fileSize += entry.key().byteSize() + entry.value().byteSize();
+            countOfKeys++;
+        }
+        fileSize += 2L * countOfKeys * Long.BYTES;
+        Path filePath = getFilePath();
+        Set<StandardOpenOption> openOptions =
+                Set.of(
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.READ,
+                        StandardOpenOption.WRITE
+                );
+        try (FileChannel fc = FileChannel.open(filePath, openOptions); Arena writeArena = Arena.ofConfined()) {
+            MemorySegment mapped = fc.map(READ_WRITE, 0, fileSize, writeArena);
+            dumpToMemSegment(mapped, all(), countOfKeys);
+        }
+        for (Path file: filesSet) {
+            Files.delete(file);
+        }
         filesSet.add(filePath);
     }
 
@@ -156,49 +188,54 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     // ...
     // {numOfKeys - 1}Key, {numOfKeys - 1}Value (zero length if value is null)
     private void dumpToFile(Path path) throws IOException {
-        long size = 0;
         Set<StandardOpenOption> openOptions =
                 Set.of(
                         StandardOpenOption.CREATE,
                         StandardOpenOption.READ,
                         StandardOpenOption.WRITE
                 );
+        long size = 0;
         for (Entry<MemorySegment> entry : mappings.values()) {
             size += (entry.value() == null ? 0 : entry.value().byteSize()) + entry.key().byteSize();
         }
         size += Integer.BYTES + (2L * mappings.size() + 2) * Long.BYTES;
         try (FileChannel fc = FileChannel.open(path, openOptions); Arena writeArena = Arena.ofConfined()) {
             MemorySegment mapped = fc.map(READ_WRITE, 0, size, writeArena);
-            long offset = 0;
-            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, System.currentTimeMillis());
+            dumpToMemSegment(mapped, mappings.values().iterator(), mappings.size());
+        }
+    }
+
+    private void dumpToMemSegment(MemorySegment mapped, Iterator<Entry<MemorySegment>> iterator, int numOfKeys) {
+        long offset = 0;
+        mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, System.currentTimeMillis());
+        offset += Long.BYTES;
+        mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, System.nanoTime());
+        offset += Long.BYTES;
+        mapped.set(ValueLayout.JAVA_INT_UNALIGNED, offset, numOfKeys);
+        offset += Integer.BYTES;
+        long offsetToWrite = Integer.BYTES + (2L * numOfKeys + 2) * Long.BYTES;
+        while (iterator.hasNext()) {
+            Entry<MemorySegment> entry = iterator.next();
+            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, offsetToWrite);
             offset += Long.BYTES;
-            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, System.nanoTime());
-            offset += Long.BYTES;
-            mapped.set(ValueLayout.JAVA_INT_UNALIGNED, offset, mappings.size());
-            offset += Integer.BYTES;
-            long offsetToWrite = Integer.BYTES + (2L * mappings.size() + 2) * Long.BYTES;
-            for (Entry<MemorySegment> entry: mappings.values()) {
+            MemorySegment.copy(
+                    entry.key(), 0,
+                    mapped, offsetToWrite,
+                    entry.key().byteSize()
+            );
+            offsetToWrite += entry.key().byteSize();
+            if (entry.value() == null) {
+                mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
+            } else {
                 mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, offsetToWrite);
-                offset += Long.BYTES;
                 MemorySegment.copy(
-                        entry.key(), 0,
+                        entry.value(), 0,
                         mapped, offsetToWrite,
-                        entry.key().byteSize()
+                        entry.value().byteSize()
                 );
-                offsetToWrite += entry.key().byteSize();
-                if (entry.value() == null) {
-                    mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
-                } else {
-                    mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, offsetToWrite);
-                    MemorySegment.copy(
-                            entry.value(), 0,
-                            mapped, offsetToWrite,
-                            entry.value().byteSize()
-                    );
-                    offsetToWrite += entry.value().byteSize();
-                }
-                offset += Long.BYTES;
+                offsetToWrite += entry.value().byteSize();
             }
+            offset += Long.BYTES;
         }
     }
 }
