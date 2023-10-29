@@ -23,11 +23,14 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
+    private long entriesSize;
 
     public DaoFacade() {
         this.path = null;
         this.arena = Arena.ofShared();
         this.diskStorage = null;
+        // TODO: удалить
+        System.out.println(entriesSize);
     }
 
     public DaoFacade(Config config) throws IOException {
@@ -78,6 +81,9 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         storage.put(entry.key(), entry);
+        entriesSize += 2 * Long.BYTES;
+        entriesSize += entry.key().byteSize();
+        entriesSize += entry.value() == null ? 0 : entry.value().byteSize();
     }
 
     @Override
@@ -115,5 +121,14 @@ public class DaoFacade implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-
+    /*@Override
+    public void compact() throws IOException {
+        Iterator<Entry<MemorySegment>> mergeIterator = get(null, null);
+        if (!mergeIterator.hasNext()*//* || storage.isEmpty()*//*) {
+            return;
+        }
+        diskStorage.compact(path, () -> get(null, null), storage.size(), entriesSize);
+        storage.clear();
+        entriesSize = 0;
+    }*/
 }
