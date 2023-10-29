@@ -50,7 +50,7 @@ public class SSTable {
         }
 
         listIndex = getAllIndex();
-        readArena = Arena.ofConfined();
+        readArena = Arena.ofShared();
         files = new ArrayList<>();
         comparator = MemorySegmentComparator::compare;
 
