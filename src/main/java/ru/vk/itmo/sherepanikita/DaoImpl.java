@@ -22,6 +22,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
     private final Arena arena;
     private DiskStorage diskStorage;
     private Path path;
+    private Config config;
+    private int fileIndex;
+
 
     public DaoImpl() throws IOException {
         arena = Arena.ofShared();
@@ -30,7 +33,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
     }
 
     public DaoImpl(Config config) throws IOException {
-        this.path = config.basePath().resolve("data");
+        this.config = config;
+        this.fileIndex = 0;
+        this.path = this.config.basePath().resolve(String.format("data%d", fileIndex));
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
@@ -94,12 +99,13 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
             DiskStorage.save(path, storage.values());
         }
 
-        Path compacteddStoragePath = Path.of("data_compacted");
-        Files.createDirectories(compacteddStoragePath);
-        DiskStorage.save(compacteddStoragePath, this);
+        fileIndex++;
+        Path compactedStoragePath = config.basePath().resolve(String.format("data%d", fileIndex));
+        Files.createDirectories(compactedStoragePath);
+        DiskStorage.save(compactedStoragePath, this);
         DiskStorage.deleteOldStorage(path);
 
-        path = compacteddStoragePath;
+        path = compactedStoragePath;
         diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
