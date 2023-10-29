@@ -11,6 +11,7 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.stream.Stream;
 
 public class DiskStorage {
 
@@ -36,6 +37,103 @@ public class DiskStorage {
                 return memorySegmentEntry.value() == null;
             }
         };
+    }
+
+    public void compact(Path storagePath, Iterator<Entry<MemorySegment>> firstIterator) throws IOException {
+        final Path indexTmp = storagePath.resolve("index.tmp");
+        final Path indexFile = storagePath.resolve("index.idx");
+        final Path compactPath = storagePath.resolve("compact");
+        final Path compactResPath = storagePath.resolve("0");
+
+        Iterator<Entry<MemorySegment>> iter = this.range(firstIterator, null, null);
+        if (!iter.hasNext()) {
+            return;
+        }
+
+        try {
+            Files.createFile(indexFile);
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
+        }
+
+        long dataSize = 0;
+        long count = 0;
+        while (iter.hasNext()) {
+            Entry<MemorySegment> current = iter.next();
+
+            dataSize += current.key().byteSize();
+            MemorySegment value = current.value();
+            if (value != null) {
+                dataSize += value.byteSize();
+            }
+            count++;
+        }
+        long indexSize = count * 2 * Long.BYTES;
+
+        try (
+                FileChannel fileChannel = FileChannel.open(
+                        compactPath,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.READ,
+                        StandardOpenOption.CREATE
+                );
+                Arena writeArena = Arena.ofConfined()
+        ) {
+            MemorySegment fileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    indexSize + dataSize,
+                    writeArena
+            );
+
+            long dataOffset = indexSize;
+            int indexOffset = 0;
+            iter = this.range(firstIterator, null, null);
+            while (iter.hasNext()) {
+                Entry<MemorySegment> current = iter.next();
+
+                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                MemorySegment key = current.key();
+                MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
+                dataOffset += key.byteSize();
+                indexOffset += Long.BYTES;
+
+                MemorySegment value = current.value();
+                if (value == null) {
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
+                } else {
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                    MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
+                    dataOffset += value.byteSize();
+                }
+                indexOffset += Long.BYTES;
+            }
+        }
+
+        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.writeString(
+                indexFile,
+                "0",
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        try (Stream<Path> walker = Files.walk(storagePath.toAbsolutePath())) {
+            walker.forEach(
+                    path -> {
+                        if (path.toFile().isFile() && !path.equals(compactPath) && !path.equals(indexFile)) {
+                            try {
+                                Files.delete(path);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    }
+            );
+        }
+
+        Files.move(compactPath, compactResPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
