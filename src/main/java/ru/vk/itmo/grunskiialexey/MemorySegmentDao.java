@@ -37,6 +37,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         byte byte2 = o2.get(ValueLayout.JAVA_BYTE, firstMismatch);
         return Byte.compare(byte1, byte2);
     };
+
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> data = new ConcurrentSkipListMap<>(comparator);
     private final Path filePath;
     private final Arena arena;
