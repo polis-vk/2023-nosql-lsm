@@ -6,10 +6,11 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
 
-public class MergeIterator<T> implements Iterator<T> {
+public abstract class MergeIterator<T> implements Iterator<T> {
 
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
+    PeekIterator<T> peek;
 
     private static class PeekIterator<T> implements Iterator<T> {
 
@@ -35,9 +36,9 @@ public class MergeIterator<T> implements Iterator<T> {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
-            T peek = peek();
+            T peeked = peek();
             this.peek = null;
-            return peek;
+            return peeked;
         }
 
         private T peek() {
@@ -50,8 +51,6 @@ public class MergeIterator<T> implements Iterator<T> {
             return peek;
         }
     }
-
-    PeekIterator<T> peek;
 
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
@@ -75,47 +74,51 @@ public class MergeIterator<T> implements Iterator<T> {
             if (peek == null) {
                 return null;
             }
-
-            while (true) {
-                PeekIterator<T> next = priorityQueue.peek();
-                if (next == null) {
-                    break;
-                }
-
-                int compare = comparator.compare(peek.peek(), next.peek());
-                if (compare == 0) {
-                    PeekIterator<T> poll = priorityQueue.poll();
-                    if (poll != null) {
-                        poll.next();
-                        if (poll.hasNext()) {
-                            priorityQueue.add(poll);
-                        }
-                    }
-                } else {
-                    break;
-                }
-            }
-
-            if (peek.peek() == null) {
-                peek = null;
-                continue;
-            }
-
-            if (skip(peek.peek())) {
-                peek.next();
-                if (peek.hasNext()) {
-                    priorityQueue.add(peek);
-                }
-                peek = null;
-            }
+            skipEntriesWithSameKey();
+            skipDeletedEntries();
         }
 
         return peek;
     }
 
-    protected boolean skip(T t) {
-        return false;
+    private void skipEntriesWithSameKey() {
+        while (true) {
+            PeekIterator<T> next = priorityQueue.peek();
+            if (next == null) {
+                break;
+            }
+
+            int compare = comparator.compare(peek.peek(), next.peek());
+            if (compare == 0) {
+                PeekIterator<T> poll = priorityQueue.poll();
+                if (poll != null) {
+                    poll.next();
+                    if (poll.hasNext()) {
+                        priorityQueue.add(poll);
+                    }
+                }
+            } else {
+                break;
+            }
+        }
     }
+
+    private void skipDeletedEntries() {
+        if (peek.peek() == null) {
+            peek = null;
+            return;
+        }
+
+        if (skip(peek.peek())) {
+            peek.next();
+            if (peek.hasNext()) {
+                priorityQueue.add(peek);
+            }
+            peek = null;
+        }
+    }
+
+    protected abstract boolean skip(T t);
 
     @Override
     public boolean hasNext() {
@@ -124,14 +127,14 @@ public class MergeIterator<T> implements Iterator<T> {
 
     @Override
     public T next() {
-        PeekIterator<T> peek = peek();
-        if (peek == null) {
+        PeekIterator<T> peekIterator = peek();
+        if (peekIterator == null) {
             throw new NoSuchElementException();
         }
-        T next = peek.next();
+        T next = peekIterator.next();
         this.peek = null;
-        if (peek.hasNext()) {
-            priorityQueue.add(peek);
+        if (peekIterator.hasNext()) {
+            priorityQueue.add(peekIterator);
         }
         return next;
     }
