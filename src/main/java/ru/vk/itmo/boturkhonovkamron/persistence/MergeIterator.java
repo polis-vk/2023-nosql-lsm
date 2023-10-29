@@ -31,22 +31,21 @@ public class MergeIterator<T extends Entry<MemorySegment>> implements Iterator<T
     }
 
     private PeekIterator<T> peek() {
-        while (true) {
+        while (peekIter == null) {
+            peekIter = priorityQueue.poll();
             if (peekIter == null) {
-                peekIter = priorityQueue.poll();
-                if (peekIter == null) {
-                    return null;
-                }
+                return null;
             }
 
             processNextItemsWithSamePriority();
 
             if (peekIter.peek() == null) {
                 peekIter = null;
-            } else if (skip(peekIter.peek())) {
-                processSkippedItem();
-            } else {
-                break;
+                continue;
+            }
+
+            if (skip(peekIter.peek())) {
+                handleSkip();
             }
         }
 
@@ -61,7 +60,7 @@ public class MergeIterator<T extends Entry<MemorySegment>> implements Iterator<T
 
     private boolean hasNextItemWithSamePriority() {
         PeekIterator<T> next = priorityQueue.peek();
-        return (next != null) && (comparator.compare(peekIter.peek(), next.peek()) == 0);
+        return next != null && comparator.compare(peekIter.peek(), next.peek()) == 0;
     }
 
     private void handleNextItemWithSamePriority() {
@@ -74,13 +73,12 @@ public class MergeIterator<T extends Entry<MemorySegment>> implements Iterator<T
         }
     }
 
-    private void processSkippedItem() {
+    private void handleSkip() {
         peekIter.next();
         if (peekIter.hasNext()) {
             priorityQueue.add(peekIter);
-        } else {
-            peekIter = null;
         }
+        peekIter = null;
     }
 
     protected boolean skip(T t) {
@@ -132,9 +130,9 @@ public class MergeIterator<T extends Entry<MemorySegment>> implements Iterator<T
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
-            T peek = peek();
+            T result = peek();
             this.peek = null;
-            return peek;
+            return result;
         }
 
         private T peek() {
