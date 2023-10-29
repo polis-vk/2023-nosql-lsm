@@ -98,7 +98,8 @@ public class AlenkovaDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        Iterable<Entry<MemorySegment>> compactedEntries = () -> diskStorage.range(storage.values().iterator(), null, null);
+        Iterable<Entry<MemorySegment>> compactedEntries = () ->
+                diskStorage.range(storage.values().iterator(), null, null);
         if (compactedEntries.iterator().hasNext()) {
             DiskStorage.clearDirectory(path);
             DiskStorage.save(path, compactedEntries);
