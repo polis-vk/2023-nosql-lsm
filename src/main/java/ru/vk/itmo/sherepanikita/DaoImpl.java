@@ -24,7 +24,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
     private Path path;
 
     public DaoImpl() throws IOException {
-        arena = Arena.ofConfined();
+        arena = Arena.ofShared();
         this.path = Path.of("");
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
@@ -33,7 +33,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
         this.path = config.basePath().resolve("data");
         Files.createDirectories(path);
 
-        arena = Arena.ofConfined();
+        arena = Arena.ofShared();
 
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
