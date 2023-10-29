@@ -2,7 +2,7 @@ package ru.vk.itmo.sherepanikita;
 
 import java.nio.file.Path;
 
-public class Utils {
+public final class Utils {
 
     private Utils() {
 
