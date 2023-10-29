@@ -10,10 +10,6 @@ import java.util.NoSuchElementException;
 
 public final class DiskStorageIterator {
 
-    private DiskStorageIterator() {
-
-    }
-
     public static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
         long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
@@ -42,6 +38,10 @@ public final class DiskStorageIterator {
                 return new BaseEntry<>(key, value);
             }
         };
+    }
+
+    public static long tombstone(long offset) {
+        return 1L << 63 | offset;
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
@@ -115,12 +115,12 @@ public final class DiskStorageIterator {
         return segment.byteSize();
     }
 
-    public static long tombstone(long offset) {
-        return 1L << 63 | offset;
-    }
-
     private static long normalize(long value) {
         return value & ~(1L << 63);
+    }
+
+    private DiskStorageIterator() {
+
     }
 
 }
