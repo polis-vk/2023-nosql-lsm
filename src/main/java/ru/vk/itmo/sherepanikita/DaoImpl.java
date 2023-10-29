@@ -40,7 +40,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
 
         Path indexTmp = path.resolve("index.tmp");
         Path indexFile = path.resolve("index.idx");
-        if (Files.notExists(indexTmp) || Files.notExists(indexFile)) {
+        if (!(Files.exists(indexTmp) || Files.exists(indexFile))) {
             fileIndex = 1;
             this.path = this.config.basePath().resolve(String.format("data%d", fileIndex));
             Files.createDirectories(path);

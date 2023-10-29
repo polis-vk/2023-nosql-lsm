@@ -181,7 +181,11 @@ public class DiskStorage {
             List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
             for (String fileName : existedFiles) {
                 Path file = storagePath.resolve(fileName);
-                Files.delete(file);
+                try {
+                    Files.delete(file);
+                } catch (IOException e) {
+                    // ignored
+                }
             }
             Files.delete(indexFile);
         }
