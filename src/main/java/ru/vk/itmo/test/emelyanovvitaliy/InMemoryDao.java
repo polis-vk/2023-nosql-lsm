@@ -153,7 +153,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     // dumps mappings to file in format
-    // timestamp in millis (long), numOfKeys (int)
+    // timestamp in millis (long), nanoTime (long), numOfKeys (int)
     // offsetOf1stKey, offsetOf1stValue (-1 if value is null)
     // ...
     // offsetOf{numOfKeys - 1}Key, offsetOf{numOfKeys - 1}Key (-1 if value is null)
