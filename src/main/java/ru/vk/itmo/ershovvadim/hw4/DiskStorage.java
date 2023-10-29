@@ -42,7 +42,6 @@ public class DiskStorage {
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, CompactDaoImpl::compare));
     }
 
-
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         if (!iterable.iterator().hasNext()) {
