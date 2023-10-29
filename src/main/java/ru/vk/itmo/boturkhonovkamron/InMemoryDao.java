@@ -3,13 +3,16 @@ package ru.vk.itmo.boturkhonovkamron;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.pashchenkoalexandr.DiskStorage;
+import ru.vk.itmo.boturkhonovkamron.persistence.DiskStorage;
+import ru.vk.itmo.boturkhonovkamron.util.Cleaner;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.NavigableMap;
@@ -31,15 +34,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final DiskStorage diskStorage;
 
-    private final Path path;
+    private final Path dataPath;
+
+    private final Path basePath;
 
     public InMemoryDao(final Config config) throws IOException {
-        this.path = config.basePath().resolve("data");
-        Files.createDirectories(path);
+        this.basePath = config.basePath();
+        this.dataPath = config.basePath().resolve("data");
+        Files.createDirectories(dataPath);
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(dataPath, arena));
     }
 
     @Override
@@ -96,7 +102,19 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
+            DiskStorage.save(dataPath, storage.values());
         }
+    }
+
+    @Override
+    public void compact() throws IOException {
+        final Path tmpData = basePath.resolve("tmpData");
+        if (Files.exists(tmpData)) {
+            Cleaner.cleanUpDir(tmpData);
+        }
+        Files.createDirectories(tmpData);
+        DiskStorage.save(tmpData, this::all);
+        Cleaner.cleanUpDir(dataPath);
+        Files.move(tmpData, dataPath, StandardCopyOption.ATOMIC_MOVE);
     }
 }

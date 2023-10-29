@@ -130,9 +130,13 @@ public class DiskStorage {
         List<MemorySegment> result = new ArrayList<>(existedFiles.size());
         for (String fileName : existedFiles) {
             Path file = storagePath.resolve(fileName);
-            try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-                MemorySegment fileSegment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, Files.size(file), arena);
-                result.add(fileSegment);
+            if (Files.size(file) > 0) {
+                try (FileChannel fileChannel =
+                        FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+                    MemorySegment fileSegment =
+                            fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, Files.size(file), arena);
+                    result.add(fileSegment);
+                }
             }
         }
 
