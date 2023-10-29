@@ -39,12 +39,7 @@ public class DiskStorage {
         }
         iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, CompactDaoImpl::compare)) {
-            @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
-                return memorySegmentEntry.value() == null;
-            }
-        };
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, CompactDaoImpl::compare));
     }
 
 
