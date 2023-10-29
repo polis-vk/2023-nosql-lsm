@@ -33,11 +33,6 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
     }
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() throws IOException {
-        return new DaoFacade();
-    }
-
-    @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
         return new DaoFacade(config);
     }
