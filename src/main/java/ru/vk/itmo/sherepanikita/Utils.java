@@ -4,6 +4,10 @@ import java.nio.file.Path;
 
 public class Utils {
 
+    private Utils() {
+
+    }
+
     public static Path getIndexTmp(Path path) {
         return path.resolve("index.tmp");
     }

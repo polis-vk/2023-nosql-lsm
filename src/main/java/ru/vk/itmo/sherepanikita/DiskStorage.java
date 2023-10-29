@@ -38,7 +38,6 @@ public class DiskStorage {
             iterators.add(iterator(memorySegment, from, to));
         }
         iterators.add(firstIterator);
-
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, comparator)) {
             @Override
             protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
@@ -49,16 +48,14 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        Path indexTmp = Utils.getIndexTmp(storagePath);
         Path indexFile = Utils.getIndexFile(storagePath);
-
         try {
             Files.createFile(indexFile);
         } catch (FileAlreadyExistsException ignored) {
             // it is ok, actually it is normal state
         }
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         String newFileName = String.valueOf(existedFiles.size());
 
         long dataSize = 0;
@@ -125,6 +122,7 @@ public class DiskStorage {
             }
         }
 
+        Path indexTmp = Utils.getIndexTmp(storagePath);
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
@@ -197,29 +195,24 @@ public class DiskStorage {
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);
-
         long left = 0;
         long right = recordsCount - 1;
         while (left <= right) {
             long mid = (left + right) >>> 1;
-
             long startOfKey = startOfKey(segment, mid);
             long endOfKey = endOfKey(segment, mid);
             long mismatch = MemorySegment.mismatch(segment, startOfKey, endOfKey, key, 0, key.byteSize());
             if (mismatch == -1) {
                 return mid;
             }
-
             if (mismatch == key.byteSize()) {
                 right = mid - 1;
                 continue;
             }
-
             if (mismatch == endOfKey - startOfKey) {
                 left = mid + 1;
                 continue;
             }
-
             int b1 = Byte.toUnsignedInt(segment.get(ValueLayout.JAVA_BYTE, startOfKey + mismatch));
             int b2 = Byte.toUnsignedInt(key.get(ValueLayout.JAVA_BYTE, mismatch));
             if (b1 > b2) {
