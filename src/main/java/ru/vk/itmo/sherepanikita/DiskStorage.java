@@ -49,8 +49,8 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = Utils.getIndexTmp(storagePath);
+        Path indexFile = Utils.getIndexFile(storagePath);
 
         try {
             Files.createFile(indexFile);
@@ -142,8 +142,8 @@ public class DiskStorage {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = Utils.getIndexTmp(storagePath);
+        Path indexFile = Utils.getIndexFile(storagePath);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -174,8 +174,8 @@ public class DiskStorage {
     }
 
     public static void deleteOldStorage(Path storagePath) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = Utils.getIndexTmp(storagePath);
+        Path indexFile = Utils.getIndexFile(storagePath);
 
         if (Files.exists(indexFile)) {
             List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
@@ -183,7 +183,7 @@ public class DiskStorage {
                 Path file = storagePath.resolve(fileName);
                 try {
                     Files.delete(file);
-                } catch (IOException e) {
+                } catch (IOException ignored) {
                     // ignored
                 }
             }
@@ -238,12 +238,10 @@ public class DiskStorage {
     }
 
     private static long indexSize(MemorySegment segment) {
-        if (segment.byteSize() != 0) {
-            return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
-        }
-        else {
+        if (segment.byteSize() == 0) {
             return 0;
         }
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {

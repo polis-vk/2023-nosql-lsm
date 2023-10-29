@@ -4,7 +4,6 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -25,6 +24,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
     private Path path;
     private Config config;
     private int fileIndex;
+    private final String FILE_NAME_FORMAT = "data%d";
 
     public DaoImpl() throws IOException {
         arena = Arena.ofShared();
@@ -35,14 +35,14 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
     public DaoImpl(Config config) throws IOException {
         this.config = config;
         this.fileIndex = 0;
-        this.path = this.config.basePath().resolve(String.format("data%d", fileIndex));
+        this.path = this.config.basePath().resolve(String.format(FILE_NAME_FORMAT, fileIndex));
         Files.createDirectories(path);
 
-        Path indexTmp = path.resolve("index.tmp");
-        Path indexFile = path.resolve("index.idx");
+        Path indexTmp = Utils.getIndexTmp(path);
+        Path indexFile = Utils.getIndexFile(path);
         if (!(Files.exists(indexTmp) || Files.exists(indexFile))) {
             fileIndex = 1;
-            this.path = this.config.basePath().resolve(String.format("data%d", fileIndex));
+            this.path = this.config.basePath().resolve(String.format(FILE_NAME_FORMAT, fileIndex));
             Files.createDirectories(path);
         }
 
@@ -112,7 +112,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
         else {
             fileIndex = 1;
         }
-        Path compactedStoragePath = config.basePath().resolve(String.format("data%d", fileIndex));
+        Path compactedStoragePath = config.basePath().resolve(String.format(FILE_NAME_FORMAT, fileIndex));
         Files.createDirectories(compactedStoragePath);
         DiskStorage.save(compactedStoragePath, this);
         DiskStorage.deleteOldStorage(path);
