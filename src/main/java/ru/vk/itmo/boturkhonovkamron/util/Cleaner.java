@@ -13,7 +13,10 @@ import java.nio.file.attribute.BasicFileAttributes;
  * @author Kamron Boturkhonov
  * @since 2023.10.29
  */
-public class Cleaner {
+public final class Cleaner {
+
+    private Cleaner() {
+    }
 
     public static void cleanUpDir(Path path) throws IOException {
         if (!Files.exists(path)) {

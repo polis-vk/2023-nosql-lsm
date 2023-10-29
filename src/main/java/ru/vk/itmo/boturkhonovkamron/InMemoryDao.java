@@ -6,7 +6,6 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.boturkhonovkamron.persistence.DiskStorage;
 import ru.vk.itmo.boturkhonovkamron.util.Cleaner;
 
-import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
