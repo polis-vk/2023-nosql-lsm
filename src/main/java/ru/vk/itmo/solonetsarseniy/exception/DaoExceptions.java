@@ -3,7 +3,8 @@ package ru.vk.itmo.solonetsarseniy.exception;
 public enum DaoExceptions {
     NULL_KEY_PUT("Got null as Map key. Please do not try to put Entries with null keys."),
     NULL_KEY_GET("Got null as Map key. Please do not try to get Entries with null keys. "
-        + "There is no such thing here!");
+        + "There is no such thing here!"),
+    ERROR_READING_DATA("Возникла непредвиденная ошибка");
 
     private final String errorString;
 
