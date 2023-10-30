@@ -19,12 +19,11 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.stream.Stream;
 
 public class DiskStorage {
 
-    private static final String INDEX_TMP = "index.tmp";
-    private static final String INDEX_IDX = "index.idx";
+    protected static final String INDEX_TMP = "index.tmp";
+    protected static final String INDEX_IDX = "index.idx";
     private final List<MemorySegment> segmentList;
 
     public DiskStorage(List<MemorySegment> segmentList) {
@@ -50,94 +49,7 @@ public class DiskStorage {
     }
 
     public void compact(Path storagePath, Iterator<Entry<MemorySegment>> firstIterator) throws IOException {
-        final Path indexTmp = storagePath.resolve(INDEX_TMP);
-        final Path indexFile = storagePath.resolve(INDEX_IDX);
-        final Path compactPath = storagePath.resolve("compact");
-        final Path compactResPath = storagePath.resolve("0");
-
-        Iterator<Entry<MemorySegment>> iter = this.range(firstIterator, null, null);
-        if (!iter.hasNext()) {
-            return;
-        }
-
-        long dataSize = 0;
-        long count = 0;
-        while (iter.hasNext()) {
-            Entry<MemorySegment> current = iter.next();
-
-            dataSize += current.key().byteSize();
-            MemorySegment value = current.value();
-            if (value != null) {
-                dataSize += value.byteSize();
-            }
-            count++;
-        }
-        long indexSize = count * 2 * Long.BYTES;
-
-        try (
-                FileChannel fileChannel = FileChannel.open(
-                        compactPath,
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.CREATE
-                );
-                Arena writeArena = Arena.ofConfined()
-        ) {
-            MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    indexSize + dataSize,
-                    writeArena
-            );
-
-            long dataOffset = indexSize;
-            int indexOffset = 0;
-            iter = this.range(firstIterator, null, null);
-            while (iter.hasNext()) {
-                Entry<MemorySegment> current = iter.next();
-
-                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                MemorySegment key = current.key();
-                MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
-                dataOffset += key.byteSize();
-                indexOffset += Long.BYTES;
-
-                MemorySegment value = current.value();
-                if (value == null) {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
-                } else {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                    MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
-                    dataOffset += value.byteSize();
-                }
-                indexOffset += Long.BYTES;
-            }
-        }
-
-        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        Files.writeString(
-                indexFile,
-                "0",
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
-        try (Stream<Path> walker = Files.walk(storagePath.toAbsolutePath())) {
-            walker.forEach(
-                    path -> {
-                        if (path.toFile().isFile() && !path.equals(compactPath) && !path.equals(indexFile)) {
-                            try {
-                                Files.delete(path);
-                            } catch (IOException e) {
-                                throw new ClearSsTablesException(e);
-                            }
-                        }
-                    }
-            );
-        }
-
-        Files.move(compactPath, compactResPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Compactor.compact(this, storagePath, firstIterator);
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
@@ -369,18 +281,11 @@ public class DiskStorage {
         return segment.byteSize();
     }
 
-    private static long tombstone(long offset) {
+    protected static long tombstone(long offset) {
         return 1L << 63 | offset;
     }
 
     private static long normalize(long value) {
         return value & ~(1L << 63);
     }
-
-    private static class ClearSsTablesException extends RuntimeException {
-        public ClearSsTablesException(Throwable cause) {
-            super(cause);
-        }
-    }
-
 }
