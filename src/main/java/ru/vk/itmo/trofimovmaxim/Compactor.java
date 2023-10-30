@@ -15,7 +15,8 @@ import java.util.Iterator;
 import java.util.stream.Stream;
 
 public class Compactor {
-    public static void compact(DiskStorage diskStorage, Path storagePath, Iterator<Entry<MemorySegment>> firstIterator) throws IOException {
+    public static void compact(DiskStorage diskStorage,
+                               Path storagePath, Iterator<Entry<MemorySegment>> firstIterator) throws IOException {
         final Path indexTmp = storagePath.resolve(DiskStorage.INDEX_TMP);
         final Path indexFile = storagePath.resolve(DiskStorage.INDEX_IDX);
         final Path compactPath = storagePath.resolve("compact");
@@ -104,6 +105,9 @@ public class Compactor {
         }
 
         Files.move(compactPath, compactResPath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private Compactor() {
     }
 
     private static class ClearSsTablesException extends RuntimeException {
