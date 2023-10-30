@@ -9,12 +9,14 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
-import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Storage {
+
+    private static final AtomicInteger SSTABLE_ID = new AtomicInteger();
     private static final MemorySegmentComparator comparator = new MemorySegmentComparator();
 
     private static final String INDEX_FILE_NAME = "index.db";
@@ -40,8 +42,85 @@ public class Storage {
         Path indexFile = createOrMapIndexFile(dataPath);
         List<String> existedFiles = Files.readAllLines(indexFile);
 
-        String fileName = String.valueOf(existedFiles.size());
+        String fileName = String.valueOf(SSTABLE_ID.incrementAndGet());
+        writeDataToSSTable(dataPath.resolve(fileName), values);
 
+        existedFiles.add(fileName);
+        Files.write(indexFile,
+                existedFiles,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+    }
+
+    public boolean compact(Path dataPath, Collection<Entry<MemorySegment>> values) throws IOException {
+        Path indexFile = createOrMapIndexFile(dataPath);
+        List<String> existedFiles = Files.readAllLines(indexFile);
+        if (existedFiles.isEmpty()) {
+            return false;
+        }
+
+        String fileName = String.valueOf(SSTABLE_ID.incrementAndGet());
+
+        writeDataWithIterator(dataPath.resolve(fileName), values);
+        for (String name : existedFiles) {
+            Files.deleteIfExists(dataPath.resolve(name));
+        }
+        Files.write(indexFile,
+                List.of(fileName),
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+        return true;
+    }
+
+    private void writeDataWithIterator(Path ssTablePath, Collection<Entry<MemorySegment>> values) throws IOException {
+        long dataSize = 0;
+        long entriesCount = 0;
+        Iterator<Entry<MemorySegment>> mergeIterator = range(values.iterator(), null, null);
+        while (mergeIterator.hasNext()) {
+            Entry<MemorySegment> entry = mergeIterator.next();
+            dataSize += entry.key().byteSize();
+            MemorySegment value = entry.value();
+            dataSize += (value != null) ? value.byteSize() : 0;
+            entriesCount++;
+        }
+        long indexSize = 2 * Long.BYTES * entriesCount;
+
+        try (FileChannel channel = FileChannel.open(ssTablePath, WRITE_OPTIONS);
+             Arena arena = Arena.ofConfined()) {
+            MemorySegment segment = channel.map(FileChannel.MapMode.READ_WRITE,
+                    0,
+                    dataSize + indexSize,
+                    arena);
+
+            long indexOffset = 0;
+            long dataOffset = indexSize;
+            mergeIterator = range(values.iterator(), null, null);
+            while (mergeIterator.hasNext()) {
+                Entry<MemorySegment> entry = mergeIterator.next();
+                MemorySegment key = entry.key();
+                segment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                MemorySegment.copy(key, 0, segment, dataOffset, key.byteSize());
+                dataOffset += key.byteSize();
+                indexOffset += Long.BYTES;
+
+                MemorySegment value = entry.value();
+                if (value == null) {
+                    segment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
+                } else {
+                    segment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                    MemorySegment.copy(value, 0, segment, dataOffset, value.byteSize());
+                    dataOffset += value.byteSize();
+                }
+                indexOffset += Long.BYTES;
+            }
+        }
+    }
+
+    private static void writeDataToSSTable(Path ssTablePath, Iterable<Entry<MemorySegment>> values) throws IOException {
         long dataSize = 0;
         long entriesCount = 0;
         for (Entry<MemorySegment> entry : values) {
@@ -52,7 +131,7 @@ public class Storage {
         }
         long indexSize = 2 * Long.BYTES * entriesCount;
 
-        try (FileChannel channel = FileChannel.open(dataPath.resolve(fileName), WRITE_OPTIONS);
+        try (FileChannel channel = FileChannel.open(ssTablePath, WRITE_OPTIONS);
              Arena arena = Arena.ofConfined()) {
             MemorySegment segment = channel.map(FileChannel.MapMode.READ_WRITE,
                     0,
@@ -79,14 +158,6 @@ public class Storage {
                 indexOffset += Long.BYTES;
             }
         }
-
-        existedFiles.add(fileName);
-        Files.write(indexFile,
-                existedFiles,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
     }
 
     public static List<MemorySegment> loadData(Path dataPath, Arena arena) throws IOException {
