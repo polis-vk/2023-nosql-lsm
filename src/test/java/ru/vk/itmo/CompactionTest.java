@@ -4,8 +4,11 @@ import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.LongSummaryStatistics;
+import java.util.NavigableSet;
+import java.util.TreeSet;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -177,6 +180,40 @@ class CompactionTest extends BaseTest {
         dao = DaoFactory.Factory.reopen(dao);
         // after compaction
         assertSame(dao.all(), new int[0]);
+    }
+
+    @DaoTest(stage = 4)
+    void mixedCompact(Dao<String, Entry<String>> dao) throws IOException {
+        NavigableSet<Entry<String>> values = new TreeSet<>(Comparator.comparing(Entry::key));
+        // insert some entries
+        for (int i = 0; i < 50; i++) {
+            values.add(entryAt(i));
+            dao.upsert(entryAt(i));
+        }
+
+        // remove some entries
+        for (int i = 0; i < 25; i++) {
+            dao.upsert(entry(keyAt(i), null));
+            values.remove(entryAt(i));
+        }
+
+        // insert more entries
+        for (int i = 50; i < 100; i++) {
+            values.add(entryAt(i));
+            dao.upsert(entryAt(i));
+        }
+
+        assertSame(dao.all(), List.copyOf(values));
+
+        dao.flush();
+        assertSame(dao.all(), List.copyOf(values));
+
+        dao.compact();
+        dao.close();
+
+        dao = DaoFactory.Factory.reopen(dao);
+
+        assertSame(dao.all(), List.copyOf(values));
     }
 
 }
