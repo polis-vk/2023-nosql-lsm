@@ -147,4 +147,36 @@ class CompactionTest extends BaseTest {
         assertSame(dao.all(), entries);
     }
 
+    @DaoTest(stage = 4)
+    void removeAllAndCompact(Dao<String, Entry<String>> dao) throws IOException {
+        List<Entry<String>> entries = entries(100);
+        for (Entry<String> entry : entries) {
+            dao.upsert(entry);
+        }
+        dao.flush();
+        assertSame(dao.all(), entries);
+        dao.compact();
+        dao.close();
+
+        dao = DaoFactory.Factory.reopen(dao);
+        assertSame(dao.all(), entries);
+
+        // remove all
+        for (int i = 0; i < entries.size(); i++) {
+            dao.upsert(entry(keyAt(i), null));
+        }
+        // before compaction
+        assertSame(dao.all(), new int[0]);
+        // after flushing on disk
+        dao.flush();
+        assertSame(dao.all(), new int[0]);
+
+        dao.compact();
+        dao.close();
+
+        dao = DaoFactory.Factory.reopen(dao);
+        // after compaction
+        assertSame(dao.all(), new int[0]);
+    }
+
 }
