@@ -25,6 +25,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Path ssTablePath;
 
+    private final Arena arena = Arena.ofShared();
+
     private final MemorySegment mappedMemorySegment;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentMap
             = new ConcurrentSkipListMap<>(memSegmentComparator);
@@ -63,7 +65,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try (FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
             long ssTableFileSize = Files.size(ssTablePath);
             this.mappedMemorySegment = fileChannel.map(
-                    FileChannel.MapMode.READ_ONLY, 0, ssTableFileSize, Arena.ofShared());
+                    FileChannel.MapMode.READ_ONLY, 0, ssTableFileSize, arena);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -154,15 +156,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.CREATE);
              Arena writeArena = Arena.ofConfined()) {
+            if (arena.scope().isAlive()) {
+                arena.close();
+            }
             long fileSize = getSSTableFileSize();
-            final MemorySegment mappedMemorySegment = fileChannel.map(
+            final MemorySegment writeMemorySegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE, 0, fileSize, writeArena);
             long offset = 0;
             for (final Entry<MemorySegment> entry : memorySegmentMap.values()) {
-                offset = writeMemorySegment(entry.key(), mappedMemorySegment, offset);
-                offset = writeMemorySegment(entry.value(), mappedMemorySegment, offset);
+                offset = writeMemorySegment(entry.key(), writeMemorySegment, offset);
+                offset = writeMemorySegment(entry.value(), writeMemorySegment, offset);
             }
-            mappedMemorySegment.load();
+            writeMemorySegment.load();
         }
     }
 
