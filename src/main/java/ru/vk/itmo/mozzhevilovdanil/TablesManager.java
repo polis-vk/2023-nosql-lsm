@@ -48,13 +48,14 @@ public class TablesManager {
             }
         }
 
-        if (!isAnyTableAlive){
+        if (!isAnyTableAlive) {
             arena.close();
         }
     }
 
     private static FileChannel getFileChannel(Path tempIndexPath) throws IOException {
-        return FileChannel.open(tempIndexPath, StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE);
+        return FileChannel.open(tempIndexPath, StandardOpenOption.WRITE,
+                StandardOpenOption.READ, StandardOpenOption.CREATE);
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -78,7 +79,7 @@ public class TablesManager {
 
     void store(SortedMap<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
         Iterator<Entry<MemorySegment>> storageIterator = storage.values().iterator();
-        if (arena.scope().isAlive()){
+        if (arena.scope().isAlive()) {
             arena.close();
         }
 
@@ -108,8 +109,6 @@ public class TablesManager {
             }
             Path tempIndexPath = tempDir.resolve(tableIndex + ".db");
             Path tempDataBasePath = tempDir.resolve(tableIndex + ".index.db");
-            Path indexPath = config.basePath().resolve(tableIndex + ".db");
-            Path dataBasePath = config.basePath().resolve(tableIndex + ".index.db");
 
             try (FileChannel fileChannel = getFileChannel(tempIndexPath)) {
                 page = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, size, writeArena);
@@ -169,6 +168,9 @@ public class TablesManager {
                     offset += value.byteSize();
                 }
             }
+
+            Path indexPath = config.basePath().resolve(tableIndex + ".db");
+            Path dataBasePath = config.basePath().resolve(tableIndex + ".index.db");
 
             Files.move(tempDataBasePath, dataBasePath, StandardCopyOption.ATOMIC_MOVE);
             Files.move(tempIndexPath, indexPath, StandardCopyOption.ATOMIC_MOVE);

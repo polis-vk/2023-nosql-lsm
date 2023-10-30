@@ -24,7 +24,7 @@ public class SSTable {
     private final MemorySegment readPage;
     private final MemorySegment readIndex;
 
-    private boolean isCreated = false;
+    private boolean isCreated;
 
     SSTable(Arena arena, Config config, long tableIndex) throws IOException {
         Path tablePath = config.basePath().resolve(tableIndex + ".db");
