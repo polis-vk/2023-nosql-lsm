@@ -19,6 +19,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
 
@@ -46,7 +47,7 @@ public class Storage {
         Logger logger = Logger.getLogger(this.getClass().getPackage().getName());
 
         if (!Files.exists(tablesDir)) {
-            logger.warning("Can't find the file " + tablesDir);
+            logger.log(Level.WARNING, "Can't find the file %s", tablesDir);
             return;
         }
         try (Stream<Path> files = Files.list(tablesDir)) {
@@ -59,7 +60,7 @@ public class Storage {
                         mappedSsTables.add(mapFile(tablePath, size, FileChannel.MapMode.READ_ONLY, arena,
                             StandardOpenOption.READ));
                     } catch (IOException e) {
-                        logger.severe("Can't find the file " + tablePath);
+                        logger.log(Level.SEVERE, "Can't find the file %s", tablePath);
                         throw new ApplicationException("Can't access the file", e);
                     }
                 });

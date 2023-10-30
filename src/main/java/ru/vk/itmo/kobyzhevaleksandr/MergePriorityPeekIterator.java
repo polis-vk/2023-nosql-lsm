@@ -50,15 +50,15 @@ public class MergePriorityPeekIterator implements PeekIterator<Entry<MemorySegme
 
         Entry<MemorySegment> entry = iterator.next();
         while (!priorityQueue.isEmpty()) {
-            PriorityPeekIterator<Entry<MemorySegment>> peekedIterator = priorityQueue.peek();
-            if (peekedIterator.peek().key().mismatch(entry.key()) != -1) {
+            PriorityPeekIterator<Entry<MemorySegment>> nextIterator = priorityQueue.peek();
+            if (nextIterator.peek().key().mismatch(entry.key()) != -1) {
                 break;
             }
 
             priorityQueue.remove();
-            peekedIterator.next();
-            if (peekedIterator.hasNext()) {
-                priorityQueue.add(peekedIterator);
+            nextIterator.next();
+            if (nextIterator.hasNext()) {
+                priorityQueue.add(nextIterator);
             }
         }
 
