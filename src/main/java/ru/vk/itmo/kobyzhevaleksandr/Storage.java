@@ -47,7 +47,7 @@ public class Storage {
         Logger logger = Logger.getLogger(this.getClass().getPackage().getName());
 
         if (!Files.exists(tablesDir)) {
-            logger.log(Level.WARNING, "Can't find the file %s", tablesDir);
+            logger.log(Level.WARNING, "Can''t find the file {0}", tablesDir);
             return;
         }
         try (Stream<Path> files = Files.list(tablesDir)) {
@@ -60,7 +60,7 @@ public class Storage {
                         mappedSsTables.add(mapFile(tablePath, size, FileChannel.MapMode.READ_ONLY, arena,
                             StandardOpenOption.READ));
                     } catch (IOException e) {
-                        logger.log(Level.SEVERE, "Can't find the file %s", tablePath);
+                        logger.log(Level.SEVERE, "Can''t find the file {0}", tablePath);
                         throw new ApplicationException("Can't access the file", e);
                     }
                 });
