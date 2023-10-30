@@ -25,7 +25,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Path ssTablePath;
 
-    private final Arena arena = Arena.ofShared();
+    private final Arena arena;
 
     private final MemorySegment mappedMemorySegment;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentMap
@@ -62,12 +62,19 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             this.mappedMemorySegment = null;
             return;
         }
+        this.arena = Arena.ofShared();
+        boolean created = false;
         try (FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
             long ssTableFileSize = Files.size(ssTablePath);
             this.mappedMemorySegment = fileChannel.map(
                     FileChannel.MapMode.READ_ONLY, 0, ssTableFileSize, arena);
+            created = true;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        } finally {
+            if (!created) {
+                arena.close();
+            }
         }
     }
 
@@ -156,9 +163,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.CREATE);
              Arena writeArena = Arena.ofConfined()) {
-            if (arena.scope().isAlive()) {
-                arena.close();
+            if (!arena.scope().isAlive()) {
+                return;
             }
+            arena.close();
             long fileSize = getSSTableFileSize();
             final MemorySegment writeMemorySegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE, 0, fileSize, writeArena);
