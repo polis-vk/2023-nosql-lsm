@@ -83,8 +83,7 @@ public final class Storage implements Closeable {
 
         long entriesCount = 0;
         long entriesSize = 0;
-        for (Iterator<Entry<MemorySegment>> iterator = entries.getIterator(); iterator.hasNext(); ) {
-            Entry<MemorySegment> entry = iterator.next();
+        for (Entry<MemorySegment> entry : entries) {
             entriesSize += 2 * Long.BYTES + entry.key().byteSize()
                     + (entry.value() == null ? 0 : entry.value().byteSize());
             entriesCount++;
@@ -108,9 +107,7 @@ public final class Storage implements Closeable {
 
             long offsetIndex = FILE_PREFIX;
             long offsetData = indicesSize + FILE_PREFIX;
-            for (Iterator<Entry<MemorySegment>> iterator = entries.getIterator(); iterator.hasNext(); ) {
-                Entry<MemorySegment> entry = iterator.next();
-
+            for (Entry<MemorySegment> entry : entries) {
                 newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, offsetData);
                 offsetIndex += Long.BYTES;
 
@@ -256,7 +253,8 @@ public final class Storage implements Closeable {
     }
 
     @FunctionalInterface
-    public interface IterableData {
-        Iterator<Entry<MemorySegment>> getIterator() throws IOException;
+    public interface IterableData extends Iterable<Entry<MemorySegment>> {
+        @Override
+        Iterator<Entry<MemorySegment>> iterator();
     }
 }
