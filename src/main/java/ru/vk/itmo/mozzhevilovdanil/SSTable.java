@@ -24,6 +24,8 @@ public class SSTable {
     private final MemorySegment readPage;
     private final MemorySegment readIndex;
 
+    private boolean isCreated = false;
+
     SSTable(Arena arena, Config config, long tableIndex) throws IOException {
         Path tablePath = config.basePath().resolve(tableIndex + ".db");
         Path indexPath = config.basePath().resolve(tableIndex + ".index.db");
@@ -47,19 +49,14 @@ public class SSTable {
     }
 
     private MemorySegment getMemorySegment(long size, Path path, Arena arena) throws IOException {
-        boolean created = false;
-        MemorySegment pageCurrent;
+        MemorySegment currentMemorySegment;
         try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.READ)) {
-            pageCurrent = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
-            created = true;
+            currentMemorySegment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, size, arena);
+            isCreated = true;
         } catch (FileNotFoundException e) {
-            pageCurrent = null;
-        } finally {
-            if (!created) {
-                arena.close();
-            }
+            currentMemorySegment = null;
         }
-        return pageCurrent;
+        return currentMemorySegment;
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -128,5 +125,9 @@ public class SSTable {
             value = readPage.asSlice(innerOffset, valueSize);
         }
         return new BaseEntry<>(key, value);
+    }
+
+    public boolean isCreated() {
+        return isCreated;
     }
 }

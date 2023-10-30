@@ -10,7 +10,7 @@ import java.util.PriorityQueue;
 
 import static ru.vk.itmo.mozzhevilovdanil.DatabaseUtils.comparator;
 
-public class MergeIterator implements Iterator<Entry<MemorySegment>> {
+public class DatabaseIterator implements Iterator<Entry<MemorySegment>> {
 
     private static final Comparator<PeekIterator<Entry<MemorySegment>>> mergeIteratorComparatorWithoutId =
             (o1, o2) -> comparator.compare(o1.peek().key(), o2.peek().key());
@@ -25,8 +25,8 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             new PriorityQueue<>(mergeIteratorComparator);
     private Entry<MemorySegment> allIteratorActualTop;
 
-    public MergeIterator(Iterator<Entry<MemorySegment>> storageIterator,
-                         List<Iterator<Entry<MemorySegment>>> iterators) {
+    public DatabaseIterator(Iterator<Entry<MemorySegment>> storageIterator,
+                            List<Iterator<Entry<MemorySegment>>> iterators) {
         if (storageIterator.hasNext()) {
             queue.add(new PeekIterator<>(storageIterator, 0));
         }
@@ -39,15 +39,30 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public boolean hasNext() {
-        if (allIteratorActualTop != null) {
-            return true;
-        }
-        if (queue.isEmpty()) {
-            return false;
-        }
-        PeekIterator<Entry<MemorySegment>> topPeekIterator = queue.peek();
-        queue.poll();
+        Entry<MemorySegment> topPeekValue;
+        do {
+            if (allIteratorActualTop != null) {
+                return true;
+            }
+            if (queue.isEmpty()) {
+                return false;
+            }
+            PeekIterator<Entry<MemorySegment>> topPeekIterator = queue.peek();
+            queue.poll();
 
+            deleteSamePeeksOnOtherIterators(topPeekIterator);
+
+            topPeekValue = topPeekIterator.next();
+            if (topPeekIterator.hasNext()) {
+                queue.add(topPeekIterator);
+            }
+
+        } while (topPeekValue.value() == null);
+        allIteratorActualTop = topPeekValue;
+        return true;
+    }
+
+    private void deleteSamePeeksOnOtherIterators(PeekIterator<Entry<MemorySegment>> topPeekIterator) {
         while (queue.peek() != null) {
             PeekIterator<Entry<MemorySegment>> peek = queue.peek();
             if (mergeIteratorComparatorWithoutId.compare(topPeekIterator, peek) != 0) {
@@ -59,17 +74,6 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
                 queue.add(peek);
             }
         }
-
-        Entry<MemorySegment> topPeekValue = topPeekIterator.next();
-        if (topPeekIterator.hasNext()) {
-            queue.add(topPeekIterator);
-        }
-
-        if (topPeekValue.value() == null) {
-            return hasNext();
-        }
-        allIteratorActualTop = topPeekValue;
-        return true;
     }
 
     @Override

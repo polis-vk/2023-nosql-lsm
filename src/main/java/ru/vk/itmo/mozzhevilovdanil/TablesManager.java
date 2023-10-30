@@ -8,7 +8,10 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -18,10 +21,10 @@ import java.util.SortedMap;
 import static java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED;
 
 public class TablesManager {
-    final long tableIndex;
-    final Config config;
+    private final long tableIndex;
+    private final Config config;
     private final Arena arena = Arena.ofShared();
-    List<SSTable> ssTables = new ArrayList<>();
+    private final List<SSTable> ssTables = new ArrayList<>();
 
     public TablesManager(Config config) throws IOException {
         this.config = config;
@@ -31,15 +34,27 @@ public class TablesManager {
             ssTables.add(new SSTable(arena, config, tableIndex));
             return;
         }
+
         tableIndex = allFiles.length / 2L;
         for (long i = tableIndex; i >= 0; i--) {
             ssTables.add(new SSTable(arena, config, i));
         }
+
+        boolean isAnyTableAlive = false;
+        for (SSTable ssTable : ssTables) {
+            if (ssTable.isCreated()) {
+                isAnyTableAlive = true;
+                break;
+            }
+        }
+
+        if (!isAnyTableAlive){
+            arena.close();
+        }
     }
 
     private static FileChannel getFileChannel(Path tempIndexPath) throws IOException {
-        return FileChannel.open(tempIndexPath, StandardOpenOption.WRITE, StandardOpenOption.READ,
-                StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE);
+        return FileChannel.open(tempIndexPath, StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE);
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -62,45 +77,56 @@ public class TablesManager {
     }
 
     void store(SortedMap<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
-        Iterator<Entry<MemorySegment>> mergeIterator = storage.values().iterator();
-        arena.close();
+        Iterator<Entry<MemorySegment>> storageIterator = storage.values().iterator();
+        if (arena.scope().isAlive()){
+            arena.close();
+        }
 
-        if (!mergeIterator.hasNext()) {
+        if (!storageIterator.hasNext()) {
             return;
         }
 
         long size = 0;
         long indexSize = 0;
-        List<Entry<MemorySegment>> entries = new ArrayList<>();
-        while (mergeIterator.hasNext()) {
-            Entry<MemorySegment> entry = mergeIterator.next();
+        while (storageIterator.hasNext()) {
+            Entry<MemorySegment> entry = storageIterator.next();
             long entrySize = 0;
             if (entry.value() != null) {
                 entrySize = entry.value().byteSize();
             }
             size += entry.key().byteSize() + entrySize + 2L * Long.BYTES;
             indexSize += Long.BYTES;
-            entries.add(entry);
         }
 
         try (Arena writeArena = Arena.ofConfined()) {
             MemorySegment page;
-            try (FileChannel fileChannel = getFileChannel(config.basePath().resolve(tableIndex + ".db"))) {
+            Path tempDir = config.basePath().resolve("temporaryDir");
+            try {
+                Files.createDirectory(tempDir);
+            } catch (FileAlreadyExistsException ignored) {
+                // log if you need this? =)
+            }
+            Path tempIndexPath = tempDir.resolve(tableIndex + ".db");
+            Path tempDataBasePath = tempDir.resolve(tableIndex + ".index.db");
+            Path indexPath = config.basePath().resolve(tableIndex + ".db");
+            Path dataBasePath = config.basePath().resolve(tableIndex + ".index.db");
+
+            try (FileChannel fileChannel = getFileChannel(tempIndexPath)) {
                 page = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, size, writeArena);
             }
             MemorySegment index;
-            try (FileChannel fileChannel = getFileChannel(config.basePath().resolve(tableIndex + ".index.db"))) {
+            try (FileChannel fileChannel = getFileChannel(tempDataBasePath)) {
                 index = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, indexSize, writeArena);
             }
 
             long offset = 0;
             long indexOffset = 0;
 
-            for (Entry<MemorySegment> entry : entries) {
-                MemorySegment key = entry.key();
+            storageIterator = storage.values().iterator();
 
-                index.set(JAVA_LONG_UNALIGNED, indexOffset, offset);
-                indexOffset += Long.BYTES;
+            while (storageIterator.hasNext()) {
+                Entry<MemorySegment> entry = storageIterator.next();
+                MemorySegment key = entry.key();
 
                 page.set(JAVA_LONG_UNALIGNED, offset, key.byteSize());
                 offset += Long.BYTES;
@@ -124,7 +150,28 @@ public class TablesManager {
                 }
             }
 
+            offset = 0;
+            storageIterator = storage.values().iterator();
+
+            while (storageIterator.hasNext()) {
+                Entry<MemorySegment> entry = storageIterator.next();
+
+                index.set(JAVA_LONG_UNALIGNED, indexOffset, offset);
+                indexOffset += Long.BYTES;
+
+                MemorySegment key = entry.key();
+
+                offset += 2 * Long.BYTES + key.byteSize();
+
+                MemorySegment value = entry.value();
+
+                if (value != null) {
+                    offset += value.byteSize();
+                }
+            }
+
+            Files.move(tempDataBasePath, dataBasePath, StandardCopyOption.ATOMIC_MOVE);
+            Files.move(tempIndexPath, indexPath, StandardCopyOption.ATOMIC_MOVE);
         }
     }
-
 }

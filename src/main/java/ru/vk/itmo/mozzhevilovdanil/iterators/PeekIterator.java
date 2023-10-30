@@ -4,41 +4,36 @@ import java.util.Iterator;
 
 public class PeekIterator<T> implements Iterator<T> {
     private final long id;
-    private final Iterator<T> iterator;
+    private final Iterator<T> delegateIterator;
     private T peek;
 
     public PeekIterator(Iterator<T> iterator, long id) {
-        this.iterator = iterator;
+        this.delegateIterator = iterator;
         this.id = id;
     }
 
     @Override
     public boolean hasNext() {
-        if (peek != null) {
-            return true;
-        }
-        if (iterator.hasNext()) {
-            peek = iterator.next();
-            return true;
-        }
-        return false;
+        return peek != null || delegateIterator.hasNext();
     }
 
     @Override
     public T next() {
-        if (!hasNext()) {
-            return null;
-        }
+        updatePeek();
         T result = peek;
         peek = null;
         return result;
     }
 
     public T peek() {
-        if (!hasNext()) {
-            return null;
-        }
+        updatePeek();
         return peek;
+    }
+
+    private void updatePeek() {
+        if (peek == null && delegateIterator.hasNext()) {
+            peek = delegateIterator.next();
+        }
     }
 
     public long getId() {
