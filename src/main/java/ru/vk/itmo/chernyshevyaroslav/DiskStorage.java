@@ -208,8 +208,9 @@ public class DiskStorage {
 
         System.out.println(Arrays.toString(new File(String.valueOf(storagePath)).listFiles()));
         //Files.delete(indexTmp);
+        System.out.println("\n");
 
-        Files.move(storagePath.resolve("1"), storagePath.resolve("0"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.move(storagePath.resolve(String.valueOf(existingFiles.size())), storagePath.resolve("0"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         //Files.delete(tmpResult);
     }
 
