@@ -6,13 +6,22 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class Compactor {
+public final class CompactorUtils {
+
+    private CompactorUtils() {
+        throw new IllegalStateException("Utility class");
+    }
+
     public static void compact(Path storagePath) throws IOException {
         final Path indexFile = storagePath.resolve(DiskStorage.INDEX_IDX);
 
