@@ -10,7 +10,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -27,11 +26,12 @@ public class Storage {
 
     private static final String TABLE_FILENAME = "ssTable";
     private static final String TABLE_EXTENSION = ".dat";
+    private static final long NULL_SIZE = -1;
+    private static final long ENTRY_COUNT_OFFSET = 0;
 
     private final Arena arena = Arena.ofShared();
     private final Config config;
     private final List<MemorySegment> mappedSsTables;
-    private final MemorySegmentComparator memorySegmentComparator;
 
     /*
     Filling ssTable with bytes from the memory segment with a structure:
@@ -41,10 +41,14 @@ public class Storage {
     */
     public Storage(Config config) {
         this.config = config;
-        this.memorySegmentComparator = new MemorySegmentComparator();
         mappedSsTables = new ArrayList<>();
         Path tablesDir = config.basePath();
+        Logger logger = Logger.getLogger(this.getClass().getPackage().getName());
 
+        if (!Files.exists(tablesDir)) {
+            logger.warning("Can't find the file " + tablesDir);
+            return;
+        }
         try (Stream<Path> files = Files.list(tablesDir)) {
             files
                 .filter(path -> path.toString().endsWith(TABLE_EXTENSION))
@@ -55,12 +59,10 @@ public class Storage {
                         mappedSsTables.add(mapFile(tablePath, size, FileChannel.MapMode.READ_ONLY, arena,
                             StandardOpenOption.READ));
                     } catch (IOException e) {
+                        logger.severe("Can't find the file " + tablePath);
                         throw new ApplicationException("Can't access the file", e);
                     }
                 });
-        } catch (NoSuchFileException e) {
-            Logger logger = Logger.getLogger(this.getClass().getPackage().getName());
-            logger.warning("Can't find the file");
         } catch (IOException e) {
             throw new ApplicationException("Can't access the file", e);
         }
@@ -69,7 +71,7 @@ public class Storage {
 
     public Iterator<Entry<MemorySegment>> iterator(MemorySegment from, MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(mappedSsTables.size());
-        for (MemorySegment mappedSsTable: mappedSsTables) {
+        for (MemorySegment mappedSsTable : mappedSsTables) {
             long fromPos;
             long toPos;
             if (from == null) {
@@ -78,7 +80,7 @@ public class Storage {
                 fromPos = binarySearchIndex(mappedSsTable, from);
             }
             if (to == null) {
-                toPos = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+                toPos = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, ENTRY_COUNT_OFFSET);
             } else {
                 toPos = binarySearchIndex(mappedSsTable, to);
             }
@@ -119,7 +121,7 @@ public class Storage {
         try (Arena writeArena = Arena.ofConfined()) {
             String tableIndex = String.format("%010d", mappedSsTables.size());
             long entriesCount = entries.size();
-            long entriesStartIndex = Long.BYTES + Long.BYTES * entriesCount;
+            long entriesStartIndex = getOffsetInBytes(entriesCount);
             long ssTableSize = 0;
 
             for (Entry<MemorySegment> entry : entries) {
@@ -130,24 +132,23 @@ public class Storage {
             Path tablePath = config.basePath().resolve(TABLE_FILENAME + tableIndex + TABLE_EXTENSION);
             MemorySegment mappedSsTableFile = mapFile(tablePath, ssTableSize + entriesStartIndex,
                 FileChannel.MapMode.READ_WRITE, writeArena,
-                StandardOpenOption.READ, StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
 
-            long offset = 0;
-            long index = 0;
-            mappedSsTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entriesCount);
-            offset += Long.BYTES + Long.BYTES * entriesCount;
+            long indexOffset = Long.BYTES;
+            long dataOffset = 0;
+            mappedSsTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset, entriesCount);
+            dataOffset += entriesStartIndex;
             for (Entry<MemorySegment> entry : entries) {
-                mappedSsTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + Long.BYTES * index, offset);
-                index++;
-                offset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.key(), offset);
-                offset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.value(), offset);
+                mappedSsTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                indexOffset += Long.BYTES;
+                dataOffset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.key(), dataOffset);
+                dataOffset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.value(), dataOffset);
             }
         }
     }
 
     private static MemorySegment mapFile(Path filePath, long bytesSize, FileChannel.MapMode mapMode, Arena arena,
-                                  OpenOption... options) throws IOException {
+                                         OpenOption... options) throws IOException {
         try (FileChannel fileChannel = FileChannel.open(filePath, options)) {
             return fileChannel.map(mapMode, 0, bytesSize, arena);
         }
@@ -156,7 +157,7 @@ public class Storage {
     private static long writeSegmentToMappedTableFile(MemorySegment mappedTableFile,
                                                       MemorySegment segment, long offset) {
         if (segment == null) {
-            mappedTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
+            mappedTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, NULL_SIZE);
             return Long.BYTES;
         }
         mappedTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, segment.byteSize());
@@ -165,13 +166,18 @@ public class Storage {
     }
 
     private static Entry<MemorySegment> getEntryByIndex(MemorySegment mappedSsTable, long index) {
-        long entryPos = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + Long.BYTES * index);
-        long keySize = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, entryPos);
-        long valueSize = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, entryPos + Long.BYTES + keySize);
+        long entryOffset = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, getOffsetInBytes(index));
+        long keySize = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, entryOffset);
+        long valueSize = mappedSsTable.get(ValueLayout.JAVA_LONG_UNALIGNED, entryOffset + Long.BYTES + keySize);
         return new BaseEntry<>(
-            mappedSsTable.asSlice(entryPos + Long.BYTES, keySize),
-            valueSize == -1 ? null : mappedSsTable.asSlice(entryPos + Long.BYTES + keySize + Long.BYTES, valueSize)
+            mappedSsTable.asSlice(entryOffset + Long.BYTES, keySize),
+            valueSize == NULL_SIZE ? null :
+                mappedSsTable.asSlice(entryOffset + Long.BYTES + keySize + Long.BYTES, valueSize)
         );
+    }
+
+    private static long getOffsetInBytes(long index) {
+        return Long.BYTES + Long.BYTES * index;
     }
 
     private long binarySearchIndex(MemorySegment ssTable, MemorySegment key) {
@@ -180,17 +186,30 @@ public class Storage {
         long right = entriesCount - 1;
         while (left <= right) {
             long mid = (left + right) >>> 1;
-            long keyPos = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + Long.BYTES * mid);
-            long keySize = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, keyPos);
+            long keyOffset = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, getOffsetInBytes(mid));
+            long keySize = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, keyOffset);
+            keyOffset += Long.BYTES;
 
-            MemorySegment keyFromTable = ssTable.asSlice(keyPos + Long.BYTES, keySize);
-            int result = memorySegmentComparator.compare(keyFromTable, key);
+            long mismatchResult = MemorySegment.mismatch(ssTable, keyOffset, keyOffset + keySize,
+                key, 0, key.byteSize());
+            if (mismatchResult == -1) {
+                return mid;
+            }
+            if (mismatchResult == keySize) {
+                left = mid + 1;
+                continue;
+            }
+            if (mismatchResult == key.byteSize()) {
+                right = mid - 1;
+                continue;
+            }
+
+            int result = Byte.compare(ssTable.get(ValueLayout.JAVA_BYTE, keyOffset + mismatchResult),
+                key.get(ValueLayout.JAVA_BYTE, mismatchResult));
             if (result < 0) {
                 left = mid + 1;
-            } else if (result > 0) {
-                right = mid - 1;
             } else {
-                return mid;
+                right = mid - 1;
             }
         }
         return left;

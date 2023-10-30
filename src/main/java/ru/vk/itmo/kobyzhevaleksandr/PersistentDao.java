@@ -36,6 +36,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> entry = map.get(key);
+        if (entry != null && entry.value() != null) {
+            return entry;
+        }
+
         Iterator<Entry<MemorySegment>> iterator = get(key, null);
         if (!iterator.hasNext()) {
             return null;

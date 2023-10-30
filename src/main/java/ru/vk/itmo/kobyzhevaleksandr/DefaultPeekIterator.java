@@ -9,7 +9,6 @@ import java.util.NoSuchElementException;
 public class DefaultPeekIterator implements PeekIterator<Entry<MemorySegment>> {
 
     private final Iterator<Entry<MemorySegment>> iterator;
-    private boolean isPeeked;
     private Entry<MemorySegment> peekedEntry;
 
     public DefaultPeekIterator(Iterator<Entry<MemorySegment>> iterator) {
@@ -18,7 +17,7 @@ public class DefaultPeekIterator implements PeekIterator<Entry<MemorySegment>> {
 
     @Override
     public boolean hasNext() {
-        return isPeeked || iterator.hasNext();
+        return peekedEntry != null || iterator.hasNext();
     }
 
     @Override
@@ -26,12 +25,11 @@ public class DefaultPeekIterator implements PeekIterator<Entry<MemorySegment>> {
         if (!hasNext()) {
             throw new NoSuchElementException();
         }
-        if (!isPeeked) {
+        if (peekedEntry == null) {
             return iterator.next();
         }
 
         Entry<MemorySegment> entry = peekedEntry;
-        isPeeked = false;
         peekedEntry = null;
         return entry;
     }
@@ -41,9 +39,8 @@ public class DefaultPeekIterator implements PeekIterator<Entry<MemorySegment>> {
         if (!hasNext()) {
             throw new NoSuchElementException();
         }
-        if (!isPeeked) {
+        if (peekedEntry == null) {
             peekedEntry = iterator.next();
-            isPeeked = true;
         }
         return peekedEntry;
     }
