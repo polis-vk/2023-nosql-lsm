@@ -2,8 +2,8 @@ package ru.vk.itmo.chernyshevyaroslav;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.pashchenkoalexandr.PaschenkoDao;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -12,6 +12,9 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 public class DiskStorage {
 
@@ -134,25 +137,80 @@ public class DiskStorage {
     }
 
     public static void compact(Path storagePath) throws IOException {
-//        final Path indexTmp = storagePath.resolve("index.tmp");
-//        final Path indexFile = storagePath.resolve("index.idx");
-//
-//        try {
-//            Files.createFile(indexFile);
-//        } catch (FileAlreadyExistsException ignored) {
-//            // it is ok, actually it is normal state
-//        }
-//        List<String> existingFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-//
-//        Files.write(
-//                indexFile,
-//                "0",
-//                StandardOpenOption.WRITE,
-//                StandardOpenOption.CREATE,
-//                StandardOpenOption.TRUNCATE_EXISTING
-//        );
-//
-//        Files.delete(indexTmp);
+        //final Path indexTmp = storagePath.resolve("index.tmp");
+        final Path indexFile = storagePath.resolve("index.idx");
+        //final Path resultTmp = storagePath.resolve("data.tmp");
+        //final Path result = storagePath.resolve("0");
+        //System.out.println(indexTmp.toString());
+        System.out.println(indexFile.toString());
+        //System.out.println(resultTmp.toString());
+        //System.out.println(result.toString());
+
+        try {
+            Files.createFile(indexFile);
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
+        }
+        List<String> existingFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        System.out.println(existingFiles);
+
+        //Path tmpResult = storagePath.resolve(resultTmp);
+
+        Arena arena = Arena.ofConfined();
+
+        NavigableMap<MemorySegment, Entry<MemorySegment>> localStorage =
+                new ConcurrentSkipListMap<>(InMemoryDao::compare);
+        List<Iterator<Entry<MemorySegment>>> iterators = loadOrRecover(storagePath, arena).stream()
+                .map(it -> iterator(it, null, null)).toList();
+        if (iterators.isEmpty()) {
+            return;
+        }
+
+        for (Iterator<Entry<MemorySegment>>iterator : iterators) {
+            // MergeIterator ignore nulls -> clear tombstones ?
+            for (Iterator<Entry<MemorySegment>> it = iterator; it.hasNext();) {
+                Entry<MemorySegment> entry = it.next();
+                if (entry.value() == null) {
+                    localStorage.remove(entry.key());
+                }
+                else {
+                    localStorage.put(entry.key(), entry);
+                }
+            }
+        }
+
+        System.out.println(Arrays.toString(new File(String.valueOf(storagePath)).listFiles()));
+
+        for (String file : existingFiles) {
+            System.out.println(storagePath.resolve(file));
+            Files.delete(storagePath.resolve(file));
+        }
+
+        // resultIterator -> Iterable ?
+        save(storagePath, localStorage.values()/*() -> new MergeIterator<>(iterators,
+                Comparator.comparing(Entry::key, InMemoryDao::compare)) {
+            @Override
+            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+                return memorySegmentEntry.value() == null;
+            }
+        }*/);
+
+
+        //Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+
+        Files.writeString(
+                indexFile,
+                "0",
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        System.out.println(Arrays.toString(new File(String.valueOf(storagePath)).listFiles()));
+        //Files.delete(indexTmp);
+
+        Files.move(storagePath.resolve("1"), storagePath.resolve("0"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        //Files.delete(tmpResult);
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {

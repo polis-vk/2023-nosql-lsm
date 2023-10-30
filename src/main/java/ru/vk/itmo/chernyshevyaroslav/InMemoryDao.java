@@ -24,7 +24,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
-
     private final String DATAPATH = "data";
 
     public InMemoryDao(Config config) throws IOException {
@@ -102,22 +101,22 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         arena.close();
 
+        flush();
+    }
+
+    @Override
+    public void flush() throws IOException {
         if (!storage.isEmpty()) {
             DiskStorage.save(path, storage.values());
         }
     }
 
-//    @Override
-//    public void flush() throws IOException {
-//        if (!storage.isEmpty()) {
-//            DiskStorage.save(path, storage.values());
-//        }
-//    }
-
-//    @Override
-//    public void compact() throws IOException {
-//        DiskStorage.compact(path);
-//    }
+    @Override
+    public void compact() throws IOException {
+        flush();
+        storage.clear();
+        DiskStorage.compact(path);
+    }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
