@@ -9,18 +9,18 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.nio.file.Files;
 import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.Comparator;
-import java.util.NoSuchElementException;
-import java.util.NavigableMap;
-import java.util.List;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Iterator;
+import java.util.Comparator;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
+import java.util.NoSuchElementException;
 
 public class DiskStorage {
 
@@ -170,8 +170,7 @@ public class DiskStorage {
                 Entry<MemorySegment> entry = iterator.next();
                 if (entry.value() == null) {
                     localStorage.remove(entry.key());
-                }
-                else {
+                } else {
                     localStorage.put(entry.key(), entry);
                 }
             }
