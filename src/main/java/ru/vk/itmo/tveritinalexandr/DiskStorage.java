@@ -11,10 +11,11 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DiskStorage {
 
-    private final List<MemorySegment> segmentList;
+    private List<MemorySegment> segmentList;
 
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
@@ -36,6 +37,63 @@ public class DiskStorage {
                 return memorySegmentEntry.value() == null;
             }
         };
+    }
+
+    public void compact (Path storagePath, Arena arena) throws IOException {
+        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve("index.tmp");
+        if (segmentList.isEmpty()) return;
+        System.out.println(segmentList.size());
+        segmentList = DiskStorage.loadOrRecover(storagePath, arena);
+        NavigableMap<MemorySegment, Entry<MemorySegment>> compactedStorage = new ConcurrentSkipListMap<>(InMemoryDao::compare);
+
+        var deleteKeys = new HashSet<MemorySegment>();
+        for (var page : segmentList) {
+
+            var pageIterator = iterator(page, null, null);
+            while (pageIterator.hasNext()) {
+                var entry = pageIterator.next();
+                if (entry.value() == null || deleteKeys.contains(entry.key())) {
+                    deleteKeys.add(entry.key());
+                } else {
+                    compactedStorage.put(entry.key(), entry);
+                }
+            }
+        }
+
+        int fileName = 0;
+        DiskStorage.save(storagePath, compactedStorage.values());
+
+        while (fileName < segmentList.size()) {
+            Files.deleteIfExists(storagePath.resolve(String.valueOf(fileName)));
+            fileName ++;
+        }
+
+        Files.deleteIfExists(storagePath.resolve("compacted.sst"));
+        var fiels = Files.readAllLines(indexFile);
+        System.out.println(fiels.size());
+        System.out.println(".............");
+        for (var i : fiels) System.out.println(i);
+        System.out.println(".............");
+        System.out.println(segmentList.size());
+        Path source = storagePath.resolve(String.valueOf(segmentList.size()));
+        Path target = storagePath.resolve("compacted.sst");
+//        System.out.println(Files.exists(target));
+////        Files.createFile(target);
+//        System.out.println(Files.exists(target));
+        Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+
+        Files.write(
+                indexTmp,
+                List.of("compacted.sst"),
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        Files.deleteIfExists(indexFile);
+
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
