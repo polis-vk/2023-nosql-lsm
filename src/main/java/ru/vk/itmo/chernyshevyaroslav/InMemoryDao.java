@@ -22,10 +22,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
-    private final String DATAPATH = "data";
+    private final static String DATA_PATH = "data";
 
     public InMemoryDao(Config config) throws IOException {
-        this.path = config.basePath().resolve(DATAPATH);
+        this.path = config.basePath().resolve(DATA_PATH);
         Files.createDirectories(path);
 
         arena = Arena.ofShared();

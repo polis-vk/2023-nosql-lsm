@@ -9,12 +9,23 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.Path;
+import java.nio.file.Files;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
+import java.util.NoSuchElementException;
+import java.util.NavigableMap;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DiskStorage {
 
+    private static final String INDEX_IDX = "index.idx";
+    private static final String INDEX_TMP = "index.tmp";
     private final List<MemorySegment> segmentList;
 
     public DiskStorage(List<MemorySegment> segmentList) {
@@ -41,8 +52,8 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(INDEX_TMP);
+        final Path indexFile = storagePath.resolve(INDEX_IDX);
 
         try {
             Files.createFile(indexFile);
@@ -134,7 +145,7 @@ public class DiskStorage {
     }
 
     public static void compact(Path storagePath) throws IOException {
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexFile = storagePath.resolve(INDEX_IDX);
 
         try {
             Files.createFile(indexFile);
@@ -154,8 +165,8 @@ public class DiskStorage {
             return;
         }
 
-        for (Iterator<Entry<MemorySegment>>iterator : iterators) {
-            for (; iterator.hasNext();) {
+        for (Iterator<Entry<MemorySegment>> iterator : iterators) {
+            while (iterator.hasNext()) {
                 Entry<MemorySegment> entry = iterator.next();
                 if (entry.value() == null) {
                     localStorage.remove(entry.key());
@@ -180,12 +191,15 @@ public class DiskStorage {
                 StandardOpenOption.TRUNCATE_EXISTING
         );
 
-        Files.move(storagePath.resolve(String.valueOf(existingFiles.size())), storagePath.resolve("0"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.move(storagePath.resolve(String.valueOf(existingFiles.size())),
+                storagePath.resolve("0"),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING);
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(INDEX_TMP);
+        Path indexFile = storagePath.resolve(INDEX_IDX);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
