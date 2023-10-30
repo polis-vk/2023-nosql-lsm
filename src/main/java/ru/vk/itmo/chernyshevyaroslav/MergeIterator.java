@@ -36,9 +36,9 @@ public class MergeIterator<T> implements Iterator<T> {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
-            T peek = peek();
+            T newNext = peek();
             this.peek = null;
-            return peek;
+            return newNext;
         }
 
         private T peek() {

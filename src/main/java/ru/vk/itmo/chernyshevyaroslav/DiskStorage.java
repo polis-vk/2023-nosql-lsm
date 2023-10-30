@@ -18,14 +18,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.NavigableMap;
 import java.util.NoSuchElementException;
-import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DiskStorage {
 
-    private static final String INDEX_IDX = "index.idx";
-    private static final String INDEX_TMP = "index.tmp";
+    protected static final String INDEX_IDX = "index.idx";
+    protected static final String INDEX_TMP = "index.tmp";
     private final List<MemorySegment> segmentList;
 
     public DiskStorage(List<MemorySegment> segmentList) {
@@ -144,58 +142,6 @@ public class DiskStorage {
         Files.delete(indexTmp);
     }
 
-    public static void compact(Path storagePath) throws IOException {
-        final Path indexFile = storagePath.resolve(INDEX_IDX);
-
-        try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
-        }
-        List<String> existingFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-
-        Arena arena = Arena.ofConfined();
-
-        NavigableMap<MemorySegment, Entry<MemorySegment>> localStorage =
-                new ConcurrentSkipListMap<>(InMemoryDao::compare);
-        List<Iterator<Entry<MemorySegment>>> iterators = loadOrRecover(storagePath, arena).stream()
-                .map(it -> iterator(it, null, null)).toList();
-
-        if (iterators.isEmpty()) {
-            return;
-        }
-
-        for (Iterator<Entry<MemorySegment>> iterator : iterators) {
-            while (iterator.hasNext()) {
-                Entry<MemorySegment> entry = iterator.next();
-                if (entry.value() == null) {
-                    localStorage.remove(entry.key());
-                } else {
-                    localStorage.put(entry.key(), entry);
-                }
-            }
-        }
-
-        for (String file : existingFiles) {
-            Files.delete(storagePath.resolve(file));
-        }
-
-        save(storagePath, localStorage.values());
-
-        Files.writeString(
-                indexFile,
-                "0",
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
-        Files.move(storagePath.resolve(String.valueOf(existingFiles.size())),
-                storagePath.resolve("0"),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING);
-    }
-
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         Path indexTmp = storagePath.resolve(INDEX_TMP);
         Path indexFile = storagePath.resolve(INDEX_IDX);
@@ -274,7 +220,7 @@ public class DiskStorage {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
-    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
+    static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
         long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
         long recordsCount = recordsCount(page);

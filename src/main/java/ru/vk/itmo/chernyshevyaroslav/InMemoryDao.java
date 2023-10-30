@@ -114,7 +114,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void compact() throws IOException {
         flush();
         storage.clear();
-        DiskStorage.compact(path);
+        Compactor.compact(path);
     }
 
     @Override
