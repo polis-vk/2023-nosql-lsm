@@ -9,12 +9,22 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.stream.Stream;
 
 public class DiskStorage {
 
+    private static final String INDEX_TMP = "index.tmp";
+    private static final String INDEX_IDX = "index.idx";
     private final List<MemorySegment> segmentList;
 
     public DiskStorage(List<MemorySegment> segmentList) {
@@ -40,20 +50,14 @@ public class DiskStorage {
     }
 
     public void compact(Path storagePath, Iterator<Entry<MemorySegment>> firstIterator) throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(INDEX_TMP);
+        final Path indexFile = storagePath.resolve(INDEX_IDX);
         final Path compactPath = storagePath.resolve("compact");
         final Path compactResPath = storagePath.resolve("0");
 
         Iterator<Entry<MemorySegment>> iter = this.range(firstIterator, null, null);
         if (!iter.hasNext()) {
             return;
-        }
-
-        try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
         }
 
         long dataSize = 0;
@@ -126,7 +130,7 @@ public class DiskStorage {
                             try {
                                 Files.delete(path);
                             } catch (IOException e) {
-                                throw new RuntimeException(e);
+                                throw new ClearSsTablesException(e);
                             }
                         }
                     }
@@ -138,8 +142,8 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(INDEX_TMP);
+        final Path indexFile = storagePath.resolve(INDEX_IDX);
 
         try {
             Files.createFile(indexFile);
@@ -231,8 +235,8 @@ public class DiskStorage {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(INDEX_TMP);
+        Path indexFile = storagePath.resolve(INDEX_IDX);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -371,6 +375,12 @@ public class DiskStorage {
 
     private static long normalize(long value) {
         return value & ~(1L << 63);
+    }
+
+    private static class ClearSsTablesException extends RuntimeException {
+        public ClearSsTablesException(Throwable cause) {
+            super(cause);
+        }
     }
 
 }
