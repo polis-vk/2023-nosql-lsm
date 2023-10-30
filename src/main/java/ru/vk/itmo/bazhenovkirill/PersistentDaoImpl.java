@@ -34,16 +34,16 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return getInMemTable(from, to);
+        return storage.range(getInMemTable(from, to), from, to);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> value = memTable.get(key);
-        if (value == null) {
+        Entry<MemorySegment> entry = memTable.get(key);
+        if (entry == null) {
             return storage.get(key);
         }
-        return value;
+        return entry.value() == null ? null : entry;
     }
 
     @Override

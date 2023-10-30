@@ -109,44 +109,52 @@ public class Storage {
         for (int i = segments.size() - 1; i >= 0; --i) {
             long index = indexOf(segments.get(i), key);
             if (index >= 0) {
-                return getEntry(segments.get(i), index);
+                Entry<MemorySegment> entry = getEntry(segments.get(i), index);
+                return entry.value() == null ? null : entry;
             }
         }
         return null;
     }
 
-//    public Iterator<Entry<MemorySegment>> range(Iterator<Entry<MemorySegment>> inMemoryIterator,
-//                                                MemorySegment from,
-//                                                MemorySegment to) {
-//        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segments.size() + 1);
-//        for (MemorySegment segment : segments) {
-//            iterators.add(iterator(segment, from, to));
-//        }
-//        iterators.add(inMemoryIterator);
-//    }
+    public Iterator<Entry<MemorySegment>> range(Iterator<Entry<MemorySegment>> inMemoryIterator,
+                                                MemorySegment from,
+                                                MemorySegment to) {
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segments.size() + 1);
+        for (MemorySegment segment : segments) {
+            iterators.add(iterator(segment, from, to));
+        }
+        iterators.add(inMemoryIterator);
 
-//    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment segment, MemorySegment from, MemorySegment to) {
-//        long size = recordsCount(segment);
-//        long start = (from == null) ? 0 : normalize(indexOf(segment, from));
-//        long end = (to == null) ? size : normalize(indexOf(segment, to));
-//
-//        return new Iterator<>() {
-//            long inx = start;
-//
-//            @Override
-//            public boolean hasNext() {
-//                return inx < end;
-//            }
-//
-//            @Override
-//            public Entry<MemorySegment> next() {
-//                if (!hasNext()) {
-//                    throw new NoSuchElementException();
-//                }
-//                return getEntry(segment, inx++);
-//            }
-//        };
-//    }
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, comparator)) {
+            @Override
+            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+                return memorySegmentEntry.value() == null;
+            }
+        };
+    }
+
+    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment segment, MemorySegment from, MemorySegment to) {
+        long size = recordsCount(segment);
+        long start = (from == null) ? 0 : normalize(indexOf(segment, from));
+        long end = (to == null) ? size : normalize(indexOf(segment, to));
+
+        return new Iterator<>() {
+            long inx = start;
+
+            @Override
+            public boolean hasNext() {
+                return inx < end;
+            }
+
+            @Override
+            public Entry<MemorySegment> next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                return getEntry(segment, inx++);
+            }
+        };
+    }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long l = 0;
