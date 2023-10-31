@@ -22,7 +22,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path path;
     private final DiskStorage diskStorage;
 
-
     public PersistentDao(Config config) throws IOException {
         path = config.basePath().resolve("data");
         Files.createDirectories(path);
@@ -97,7 +96,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!storage.isEmpty()) {
             DiskStorage.save(path, storage.values());
         }
-//        storage.clear();
     }
 
     @Override

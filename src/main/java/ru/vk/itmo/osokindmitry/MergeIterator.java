@@ -1,11 +1,16 @@
 package ru.vk.itmo.osokindmitry;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+import java.util.PriorityQueue;
 
 public class MergeIterator<T> implements Iterator<T> {
 
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
+    PeekIterator<T> peek;
 
     private static class PeekIterator<T> implements Iterator<T> {
 
@@ -46,8 +51,6 @@ public class MergeIterator<T> implements Iterator<T> {
             return peek;
         }
     }
-
-    PeekIterator<T> peek;
 
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
@@ -110,7 +113,7 @@ public class MergeIterator<T> implements Iterator<T> {
     }
 
     protected boolean skip(T t) {
-        return false;
+        return t == null;
     }
 
     @Override

@@ -21,7 +21,9 @@ import java.util.List;
 public class DiskStorage {
 
     private final List<SsTable> tableList;
-
+    private static final String INDEX_FILE_NAME = "index";
+    private static final String SSTABLE_EXT = ".sstable";
+    private static final String TMP_EXT = ".tmp";
     public DiskStorage(List<Path> ssTablePaths, Arena arena) throws IOException {
         tableList = new ArrayList<>();
         for (Path path : ssTablePaths) {
@@ -50,8 +52,8 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve(Utils.INDEX_FILE_NAME + Utils.TMP_EXT);
-        final Path indexFile = storagePath.resolve(Utils.INDEX_FILE_NAME + Utils.SSTABLE_EXT);
+        final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
+        final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
 
         try {
             Files.createFile(indexFile);
@@ -60,7 +62,7 @@ public class DiskStorage {
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        String newFileName = existedFiles.size() + Utils.SSTABLE_EXT;
+        String newFileName = existedFiles.size() + SSTABLE_EXT;
 
         long dataSize = 0;
         long count = 0;
@@ -134,8 +136,8 @@ public class DiskStorage {
         if (tableList.isEmpty()) {
             return;
         }
-        final Path indexTmp = storagePath.resolve(Utils.INDEX_FILE_NAME + Utils.TMP_EXT);
-        final Path indexFile = storagePath.resolve(Utils.INDEX_FILE_NAME + Utils.SSTABLE_EXT);
+        final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
+        final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
 
         try {
             Files.createFile(indexFile);
@@ -156,7 +158,7 @@ public class DiskStorage {
         MemorySegment fileSegment;
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve("0" + Utils.TMP_EXT),
+                        storagePath.resolve("0" + TMP_EXT),
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE
@@ -188,15 +190,15 @@ public class DiskStorage {
             }
         }
 
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        Files.move(storagePath.resolve("0" + Utils.TMP_EXT), storagePath.resolve("0" + Utils.SSTABLE_EXT),
+        Files.move(storagePath.resolve("0" + TMP_EXT), storagePath.resolve("0" + SSTABLE_EXT),
                 StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         Files.writeString(
                 indexFile,
-                "0" + Utils.SSTABLE_EXT,
+                "0" + SSTABLE_EXT,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING

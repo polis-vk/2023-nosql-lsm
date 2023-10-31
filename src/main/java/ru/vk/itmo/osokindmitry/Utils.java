@@ -10,9 +10,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Utils {
-    public static final String INDEX_FILE_NAME = "index";
-    public static final String SSTABLE_EXT = ".sstable";
-    public static final String TMP_EXT = ".tmp";
+    private static final String INDEX_FILE_NAME = "index";
+    private static final String SSTABLE_EXT = ".sstable";
+    private static final String TMP_EXT = ".tmp";
 
     public static List<Path> loadOrRecover(Path storagePath) throws IOException {
         final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
@@ -36,4 +36,5 @@ public class Utils {
         }
         return result;
     }
+
 }
