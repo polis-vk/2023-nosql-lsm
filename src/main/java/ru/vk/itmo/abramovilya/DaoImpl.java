@@ -73,13 +73,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (map.isEmpty()) {
             return;
         }
-        int totalSStables = storage.getTotalSStables();
         storage.writeIteratorIntoFile(
                 mapByteSizeInFile(),
                 indexByteSizeInFile(),
-                map.values().iterator(),
-                storage.storagePath.resolve(Storage.SSTABLE_BASE_NAME + totalSStables),
-                storage.storagePath.resolve(Storage.INDEX_BASE_NAME + totalSStables)
+                map.values().iterator()
         );
     }
 

@@ -21,14 +21,15 @@ import java.util.List;
 public class Storage implements Closeable {
     private static final String COMPACTED_SUFFIX = "_compacted";
     private static final String COMPACTING_SUFFIX = "_compacting";
-    final Path storagePath;
     static final String SSTABLE_BASE_NAME = "storage";
     static final String INDEX_BASE_NAME = "table";
-    final Path metaFilePath;
-    final List<FileChannel> sstableFileChannels = new ArrayList<>();
-    final List<MemorySegment> sstableMappedList = new ArrayList<>();
-    final List<FileChannel> indexFileChannels = new ArrayList<>();
-    final List<MemorySegment> indexMappedList = new ArrayList<>();
+    final Path storagePath;
+    private final Path metaFilePath;
+    private final List<FileChannel> sstableFileChannels = new ArrayList<>();
+    private final List<MemorySegment> sstableMappedList = new ArrayList<>();
+    private final List<FileChannel> indexFileChannels = new ArrayList<>();
+    private final List<MemorySegment> indexMappedList = new ArrayList<>();
+    private final StorageFileWriter storageFileWriter = new StorageFileWriter();
 
     public Storage(Config config, Arena arena) throws IOException {
         storagePath = config.basePath();
@@ -41,19 +42,19 @@ public class Storage implements Closeable {
         }
 
         // Restore consistent state if db was dropped during compaction
-        if (Files.exists(storagePath.resolve(Storage.SSTABLE_BASE_NAME + COMPACTED_SUFFIX)) ||
-                Files.exists(storagePath.resolve(Storage.INDEX_BASE_NAME + COMPACTED_SUFFIX))) {
+        if (Files.exists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX))
+                || Files.exists(storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX))) {
             finishCompact();
         }
 
         // Delete artifacts from unsuccessful compaction
-        Files.deleteIfExists(storagePath.resolve(Storage.SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
-        Files.deleteIfExists(storagePath.resolve(Storage.SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
+        Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
+        Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
 
         int totalSSTables = Integer.parseInt(Files.readString(metaFilePath));
         for (int sstableNum = 0; sstableNum < totalSSTables; sstableNum++) {
-            Path sstablePath = storagePath.resolve(Storage.SSTABLE_BASE_NAME + sstableNum);
-            Path indexPath = storagePath.resolve(Storage.INDEX_BASE_NAME + sstableNum);
+            Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + sstableNum);
+            Path indexPath = storagePath.resolve(INDEX_BASE_NAME + sstableNum);
 
             FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
             sstableFileChannels.add(sstableFileChannel);
@@ -83,7 +84,7 @@ public class Storage implements Closeable {
         return null;
     }
 
-    int getTotalSStables() {
+    final int getTotalSStables() {
         return sstableFileChannels.size();
     }
 
@@ -137,6 +138,69 @@ public class Storage implements Closeable {
         return new BaseEntry<>(key, value);
     }
 
+    void writeIteratorIntoFile(long storageSize, long indexSize, Iterator<Entry<MemorySegment>> iterator)
+            throws IOException {
+
+        int totalSStables = getTotalSStables();
+        Path sstablePath = storagePath.resolve(Storage.SSTABLE_BASE_NAME + totalSStables);
+        Path indexPath = storagePath.resolve(Storage.INDEX_BASE_NAME + totalSStables);
+        storageFileWriter.writeIteratorIntoFile(storageSize, indexSize, iterator, sstablePath, indexPath);
+    }
+
+    private Entry<Long> calcCompactedSStableIndexSize(Iterator<Entry<MemorySegment>> iterator) {
+        long storageSize = 0;
+        long indexSize = 0;
+        while (iterator.hasNext()) {
+            Entry<MemorySegment> entry = iterator.next();
+            storageSize += entry.key().byteSize() + entry.value().byteSize() + 2 * Long.BYTES;
+            indexSize += Integer.BYTES + Long.BYTES;
+        }
+        return new BaseEntry<>(storageSize, indexSize);
+    }
+
+    void incTotalSStablesAmount() throws IOException {
+        int totalSStables = getTotalSStables();
+        Files.writeString(metaFilePath, String.valueOf(totalSStables + 1));
+    }
+
+    @Override
+    public void close() throws IOException {
+        for (FileChannel fc : sstableFileChannels) {
+            if (fc.isOpen()) fc.close();
+        }
+        for (FileChannel fc : indexFileChannels) {
+            if (fc.isOpen()) fc.close();
+        }
+    }
+
+    public MemorySegment mappedSStable(int i) {
+        return sstableMappedList.get(i);
+    }
+
+    public MemorySegment mappedIndex(int i) {
+        return indexMappedList.get(i);
+    }
+
+    void compact(Iterator<Entry<MemorySegment>> iterator1, Iterator<Entry<MemorySegment>> iterator2)
+            throws IOException {
+        Entry<Long> storageIndexSize = calcCompactedSStableIndexSize(iterator1);
+        Path compactingSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX);
+        Path compactingIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTING_SUFFIX);
+        storageFileWriter.writeIteratorIntoFile(storageIndexSize.key(),
+                storageIndexSize.value(),
+                iterator2,
+                compactingSStablePath,
+                compactingIndexPath);
+
+        // Move to ensure that compacting completed successfully
+        Path compactedSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
+        Path compactedIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX);
+        Files.move(compactingSStablePath, compactedSStablePath, StandardCopyOption.ATOMIC_MOVE);
+        Files.move(compactingIndexPath, compactedIndexPath, StandardCopyOption.ATOMIC_MOVE);
+
+        finishCompact();
+    }
+
     private void finishCompact() throws IOException {
         int totalSStables = getTotalSStables();
         for (int i = 0; i < totalSStables; i++) {
@@ -162,133 +226,6 @@ public class Storage implements Closeable {
         }
     }
 
-    void writeIteratorIntoFile(long storageSize,
-                               long indexSize,
-                               Iterator<Entry<MemorySegment>> iterator,
-                               Path sstablePath,
-                               Path indexPath) throws IOException {
-        long storageWriteOffset = 0;
-        long indexWriteOffset = 0;
-        try (var storageChannel = FileChannel.open(sstablePath,
-                StandardOpenOption.READ,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE);
-
-             var indexChannel = FileChannel.open(indexPath,
-                     StandardOpenOption.READ,
-                     StandardOpenOption.WRITE,
-                     StandardOpenOption.CREATE);
-
-             var writeArena = Arena.ofConfined()) {
-
-            MemorySegment mappedStorage =
-                    storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, storageSize, writeArena);
-            MemorySegment mappedIndex =
-                    indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, indexSize, writeArena);
-
-            int entryNum = 0;
-            while (iterator.hasNext()) {
-                var entry = iterator.next();
-                indexWriteOffset =
-                        writeEntryNumAndStorageOffset(mappedIndex, indexWriteOffset, entryNum, storageWriteOffset);
-                entryNum++;
-
-                storageWriteOffset = writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
-                storageWriteOffset = writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
-            }
-            mappedStorage.load();
-            mappedIndex.load();
-        }
-    }
-
-    private SStableSizeIndexSize calcCompactedSStableIndexSize(Iterator<Entry<MemorySegment>> iterator) {
-        long storageSize = 0;
-        long indexSize = 0;
-        while (iterator.hasNext()) {
-            Entry<MemorySegment> entry = iterator.next();
-            storageSize += entry.key().byteSize() + entry.value().byteSize() + 2 * Long.BYTES;
-            indexSize += Integer.BYTES + Long.BYTES;
-        }
-        return new SStableSizeIndexSize(storageSize, indexSize);
-    }
-
-    void incTotalSStablesAmount() throws IOException {
-        int totalSStables = getTotalSStables();
-        Files.writeString(metaFilePath, String.valueOf(totalSStables + 1));
-    }
-
-    static long writeEntryNumAndStorageOffset(MemorySegment mappedIndex,
-                                              long indexWriteOffset,
-                                              int entryNum,
-                                              long storageWriteOffset) {
-        long offset = indexWriteOffset;
-        mappedIndex.set(ValueLayout.JAVA_INT_UNALIGNED, offset, entryNum);
-        offset += Integer.BYTES;
-        mappedIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, storageWriteOffset);
-        offset += Long.BYTES;
-        return offset;
-    }
-
-    // Every memorySegment in file has the following structure:
-    // 8 bytes - size, <size> bytes - value
-    // If memorySegment has the size of -1 byte, then it means its value is DELETED
-
-    private static long writeMemorySegment(MemorySegment memorySegment, MemorySegment mapped, long writeOffset) {
-        long offset = writeOffset;
-        if (memorySegment == null) {
-            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
-            offset += Long.BYTES;
-        } else {
-            long msSize = memorySegment.byteSize();
-            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, msSize);
-            offset += Long.BYTES;
-            MemorySegment.copy(memorySegment, 0, mapped, offset, msSize);
-            offset += msSize;
-        }
-        return offset;
-    }
-
-    @Override
-    public void close() throws IOException {
-        for (FileChannel fc : sstableFileChannels) {
-            if (fc.isOpen()) fc.close();
-        }
-        for (FileChannel fc : indexFileChannels) {
-            if (fc.isOpen()) fc.close();
-        }
-    }
-
-    public MemorySegment mappedSStable(int i) {
-        return sstableMappedList.get(i);
-    }
-
-    public MemorySegment mappedIndex(int i) {
-        return indexMappedList.get(i);
-    }
-
-    // For some reason, Gradle issues an "Unused Variable" warning if this class is private
-    record SStableSizeIndexSize(long sstableSize, long indexSize) {
-    }
-
-    void compact(Iterator<Entry<MemorySegment>> iterator1, Iterator<Entry<MemorySegment>> iterator2) throws IOException {
-        SStableSizeIndexSize storageIndexSize = calcCompactedSStableIndexSize(iterator1);
-        Path compactingSStablePath = storagePath.resolve(Storage.SSTABLE_BASE_NAME + COMPACTING_SUFFIX);
-        Path compactingIndexPath = storagePath.resolve(Storage.INDEX_BASE_NAME + COMPACTING_SUFFIX);
-        writeIteratorIntoFile(storageIndexSize.sstableSize(),
-                storageIndexSize.indexSize(),
-                iterator2,
-                compactingSStablePath,
-                compactingIndexPath);
-
-        // Move to ensure that compacting completed successfully
-        Path compactedSStablePath = storagePath.resolve(Storage.SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
-        Path compactedIndexPath = storagePath.resolve(Storage.INDEX_BASE_NAME + COMPACTED_SUFFIX);
-        Files.move(compactingSStablePath, compactedSStablePath, StandardCopyOption.ATOMIC_MOVE);
-        Files.move(compactingIndexPath, compactedIndexPath, StandardCopyOption.ATOMIC_MOVE);
-
-        finishCompact();
-    }
-
     long findOffsetInIndex(MemorySegment from, MemorySegment to, int fileNum) {
         long readOffset = 0;
         MemorySegment storageMapped = sstableMappedList.get(fileNum);
@@ -305,8 +242,8 @@ public class Storage implements Closeable {
             }
             return Integer.BYTES;
         } else {
-            int foundIndex = Storage.upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
-            MemorySegment foundMemorySegment = Storage.getKeyFromSStable(storageMapped, indexMapped, foundIndex);
+            int foundIndex = upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
+            MemorySegment foundMemorySegment = getKeyFromSStable(storageMapped, indexMapped, foundIndex);
             if (DaoImpl.compareMemorySegments(foundMemorySegment, from) < 0
                     || (to != null && DaoImpl.compareMemorySegments(foundMemorySegment, to) >= 0)) {
                 return -1;
@@ -315,13 +252,16 @@ public class Storage implements Closeable {
         }
     }
 
-    private static int upperBound(MemorySegment key, MemorySegment storageMapped, MemorySegment indexMapped, long indexSize) {
+    private static int upperBound(MemorySegment key,
+                                  MemorySegment storageMapped,
+                                  MemorySegment indexMapped,
+                                  long indexSize) {
         int l = -1;
         int r = indexMapped.get(ValueLayout.JAVA_INT_UNALIGNED, indexSize - Long.BYTES - Integer.BYTES);
 
         while (r - l > 1) {
             int m = (r + l) / 2;
-            MemorySegment ms = Storage.getKeyFromSStable(storageMapped, indexMapped, m);
+            MemorySegment ms = getKeyFromSStable(storageMapped, indexMapped, m);
 
             if (DaoImpl.compareMemorySegments(key, ms) > 0) {
                 l = m;
