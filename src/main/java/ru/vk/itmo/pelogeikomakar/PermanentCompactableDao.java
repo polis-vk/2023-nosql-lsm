@@ -16,7 +16,7 @@ import java.nio.file.StandardOpenOption;
 public class PermanentCompactableDao extends PermanentDao {
 
     private boolean compacted;
-    private static final String zeroTmp = "0.tmp";
+    private static final String ZERO_TMP = "0.tmp";
 
     public PermanentCompactableDao(Config config) {
         super(config);
@@ -76,14 +76,14 @@ public class PermanentCompactableDao extends PermanentDao {
             indexTableSize *= Long.BYTES;
 
             FileChannel fileDataOut = FileChannel.open(daoConfig.basePath()
-                            .resolve(SSTABLE_NAME + zeroTmp),
+                            .resolve(SSTABLE_NAME + ZERO_TMP),
                     StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
             Arena arenaDataWriter = Arena.ofShared();
             MemorySegment memSegmentDataOut = fileDataOut.map(FileChannel.MapMode.READ_WRITE,
                     0, ssTableSizeOut, arenaDataWriter);
 
             FileChannel fileIndexOut = FileChannel.open(daoConfig.basePath()
-                            .resolve(INDEX_NAME + zeroTmp),
+                            .resolve(INDEX_NAME + ZERO_TMP),
                     StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
             Arena arenaIndexWriter = Arena.ofShared();
             MemorySegment memSegmentIndexOut = fileIndexOut.map(FileChannel.MapMode.READ_WRITE,
@@ -139,12 +139,12 @@ public class PermanentCompactableDao extends PermanentDao {
 
         if (!mapCurrent.isEmpty()) {
             Path sourceTable = daoConfig.basePath()
-                    .resolve(SSTABLE_NAME + zeroTmp);
+                    .resolve(SSTABLE_NAME + ZERO_TMP);
             Path targetTable = daoConfig.basePath()
                     .resolve(SSTABLE_NAME + Integer.toString(0));
 
             Path sourceIndex = daoConfig.basePath()
-                    .resolve(INDEX_NAME + zeroTmp);
+                    .resolve(INDEX_NAME + ZERO_TMP);
             Path targetIndex = daoConfig.basePath()
                     .resolve(INDEX_NAME + Integer.toString(0));
 
