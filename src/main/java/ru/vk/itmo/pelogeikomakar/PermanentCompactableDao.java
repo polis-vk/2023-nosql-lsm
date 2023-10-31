@@ -15,7 +15,7 @@ import java.nio.file.StandardOpenOption;
 
 public class PermanentCompactableDao extends PermanentDao {
 
-    private boolean compacted;
+    private boolean compactedOrClosed;
     private static final String ZERO_TMP = "0.tmp";
 
     public PermanentCompactableDao(Config config) {
@@ -129,7 +129,7 @@ public class PermanentCompactableDao extends PermanentDao {
     @Override
     public void compact() throws IOException {
 
-        compacted = true;
+        compactedOrClosed = true;
 
         loadActualData();
 
@@ -156,10 +156,10 @@ public class PermanentCompactableDao extends PermanentDao {
 
     @Override
     public void close() throws IOException {
-        if (compacted || mapCurrent.isEmpty()) {
+        if (compactedOrClosed || mapCurrent.isEmpty()) {
             return;
         }
-
+        compactedOrClosed = true;
         super.close();
     }
 }
