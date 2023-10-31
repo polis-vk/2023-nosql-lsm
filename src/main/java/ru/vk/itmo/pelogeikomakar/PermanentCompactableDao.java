@@ -57,18 +57,26 @@ public class PermanentCompactableDao extends PermanentDao {
         maxSSTable = 0;
     }
 
+    private long[] countOutFilesSize() {
+        long ssTableSizeOut = 0;
+        long indexTableSize = 0;
+        for (var item : mapCurrent.values()) {
+            if (item.value() == null) {
+                continue;
+            }
+            indexTableSize += 1;
+            ssTableSizeOut += item.key().byteSize() + item.value().byteSize() + Long.BYTES * 2L;
+        }
+        indexTableSize *= Long.BYTES;
+
+        return new long[]{indexTableSize, ssTableSizeOut};
+    }
+
     private void writeTmpTable() throws IOException {
         if (!mapCurrent.isEmpty()) {
-            long ssTableSizeOut = 0;
-            long indexTableSize = 0;
-            for (var item : mapCurrent.values()) {
-                if (item.value() == null) {
-                    continue;
-                }
-                indexTableSize += 1;
-                ssTableSizeOut += item.key().byteSize() + item.value().byteSize() + Long.BYTES * 2L;
-            }
-            indexTableSize *= Long.BYTES;
+            var sizes = countOutFilesSize();
+            long indexTableSize = sizes[0];
+            long ssTableSizeOut = sizes[1];
 
             Arena arenaWriter = Arena.ofShared();
             FileChannel fileDataOut = null;

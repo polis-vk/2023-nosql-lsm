@@ -28,7 +28,7 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>>(memorySegmentComparator);
 
     protected final ConcurrentMap<Integer, MemorySegment> ssTableMap = new ConcurrentHashMap<>();
-    protected final Arena arenaTableFiles = Arena.ofShared();;
+    protected final Arena arenaTableFiles = Arena.ofShared();
     protected final ConcurrentMap<Integer, MemorySegment> indexMap = new ConcurrentHashMap<>();
     protected int maxSSTable = -1;
     protected static final String SSTABLE_NAME = "SS_TABLE_PELOGEIKO-";
@@ -58,7 +58,6 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             try {
                 try (FileChannel tableFile = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
-                    //arenaTableCurr = Arena.ofShared();
                     ssTableCurr = tableFile.map(FileChannel.MapMode.READ_ONLY, 0,
                             Files.size(ssTablePath), arenaTableFiles);
                 }
