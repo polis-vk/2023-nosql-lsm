@@ -15,7 +15,8 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private final Comparator<Entry<MemorySegment>> comparator;
     private PeekIterator peekIterator;
 
-    public MergeIterator(Collection<Iterator<Entry<MemorySegment>>> iterators, Comparator<Entry<MemorySegment>> comparator) {
+    public MergeIterator(Collection<Iterator<Entry<MemorySegment>>> iterators,
+                         Comparator<Entry<MemorySegment>> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
         priorityQueue = new PriorityQueue<>(
@@ -70,8 +71,6 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             next = priorityQueue.peek();
         }
     }
-
-
 
     protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
         return memorySegmentEntry.value() == null;

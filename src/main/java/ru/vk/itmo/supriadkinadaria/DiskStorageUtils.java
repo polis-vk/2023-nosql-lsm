@@ -11,10 +11,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-public class DiskStorageUtils {
+public final class DiskStorageUtils {
     private DiskStorageUtils() {
 
     }
+
     public static MemorySegment slice(MemorySegment page, long start, long end) {
         return page.asSlice(start, end - start);
     }
