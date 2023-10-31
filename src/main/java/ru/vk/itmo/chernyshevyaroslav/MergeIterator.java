@@ -6,7 +6,7 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
 
-abstract public class MergeIterator<T> implements Iterator<T> {
+public abstract class MergeIterator<T> implements Iterator<T> {
 
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
@@ -52,7 +52,7 @@ abstract public class MergeIterator<T> implements Iterator<T> {
         }
     }
 
-    public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
+    protected MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
         priorityQueue = new PriorityQueue<>(
@@ -112,7 +112,7 @@ abstract public class MergeIterator<T> implements Iterator<T> {
         return peek;
     }
 
-    abstract protected boolean skip(T t);
+    protected abstract boolean skip(T t);
 
     @Override
     public boolean hasNext() {
