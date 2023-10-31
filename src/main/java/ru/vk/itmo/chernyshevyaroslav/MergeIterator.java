@@ -113,7 +113,7 @@ public class MergeIterator<T> implements Iterator<T> {
     }
 
     protected boolean skip(T t) {
-        return t == null;
+        return false;
     }
 
     @Override
