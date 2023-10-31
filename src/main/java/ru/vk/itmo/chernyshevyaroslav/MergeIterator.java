@@ -75,23 +75,21 @@ public abstract class MergeIterator<T> implements Iterator<T> {
                 return null;
             }
 
-            while (true) {
-                PeekIterator<T> next = priorityQueue.peek();
-                if (next == null) {
-                    break;
-                }
+            PeekIterator<T> next = priorityQueue.peek();
+            while (next != null) {
 
                 int compare = comparator.compare(peek.peek(), next.peek());
                 PeekIterator<T> poll = priorityQueue.peek();
                 if ((compare == 0) && (poll != null)) {
                     priorityQueue.remove();
                     poll.next();
-                    if (poll.hasNext()) {
-                        priorityQueue.add(poll);
-                    }
                 } else {
                     break;
                 }
+                if (poll.hasNext()) {
+                    priorityQueue.add(poll);
+                }
+                next = priorityQueue.peek();
             }
 
             if (peek.peek() == null) {
