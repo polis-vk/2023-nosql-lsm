@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Comparator<MemorySegment> comparator = InMemoryTreeDao::compare;
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
@@ -35,7 +35,10 @@ public class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySegment>>
 
     @Override
     public void compact() throws IOException {
+        DiskStorage.compact(path, () -> diskStorage.range(getInMemory(null, null), null, null));
 
+        arena.close();
+        storage = new ConcurrentSkipListMap<>(comparator);
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
