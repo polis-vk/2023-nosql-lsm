@@ -12,6 +12,9 @@ import java.util.List;
 import java.util.NoSuchElementException;
 
 public class DiskStorageUtils {
+    private DiskStorageUtils() {
+
+    }
     public static MemorySegment slice(MemorySegment page, long start, long end) {
         return page.asSlice(start, end - start);
     }
@@ -133,7 +136,7 @@ public class DiskStorageUtils {
             iterators.add(iterator(memorySegment, from, to));
         }
         iterators.add(firstIterator);
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, MemorySegmentDao::compare)) {
+        return new MergeIterator(iterators, Comparator.comparing(Entry::key, MemorySegmentDao::compare)) {
             @Override
             protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;
