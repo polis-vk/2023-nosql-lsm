@@ -12,19 +12,19 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Collections;
 import java.util.NoSuchElementException;
 
 public class DiskStorage {
     private static final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
     private final List<MemorySegment> segmentList;
-    private final static String indexFileName = "index.idx";
+    private static final String INDEX_FILE_NAME = "index.idx";
 
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
@@ -51,7 +51,7 @@ public class DiskStorage {
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve(indexFileName);
+        final Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
 
         try {
             Files.createFile(indexFile);
@@ -143,7 +143,7 @@ public class DiskStorage {
 
     public void compact(Path storagePath) throws IOException {
         final Path tmpFile = storagePath.resolve("tmp");
-        final Path indexFile = storagePath.resolve(indexFileName);
+        final Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
 
         try {
             Files.createFile(indexFile);
@@ -212,7 +212,7 @@ public class DiskStorage {
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve(indexFileName);
+        Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
