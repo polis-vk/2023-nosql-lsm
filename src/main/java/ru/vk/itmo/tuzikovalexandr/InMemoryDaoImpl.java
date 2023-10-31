@@ -7,6 +7,7 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.NavigableMap;
@@ -20,7 +21,8 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     private final Path path;
 
     public InMemoryDaoImpl(Config config) throws IOException {
-        this.path = config.basePath();
+        this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
 
         arena = Arena.ofShared();
 
