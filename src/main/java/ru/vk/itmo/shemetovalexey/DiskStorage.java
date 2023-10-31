@@ -16,7 +16,6 @@ public class DiskStorage {
         this.segmentList = segmentList;
     }
 
-
     public Iterator<Entry<MemorySegment>> range(
             Iterator<Entry<MemorySegment>> firstIterator,
             MemorySegment from,
