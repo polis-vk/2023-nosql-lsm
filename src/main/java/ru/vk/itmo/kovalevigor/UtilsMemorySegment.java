@@ -14,8 +14,12 @@ public final class UtilsMemorySegment {
         return memorySegment.get(ValueLayout.JAVA_BYTE, offset);
     }
 
+    public static long findDiff(final MemorySegment lhs, final MemorySegment rhs) {
+        return lhs.mismatch(rhs);
+    }
+
     public static int compare(final MemorySegment lhs, final MemorySegment rhs) {
-        final long mismatch = lhs.mismatch(rhs);
+        final long mismatch = findDiff(lhs, rhs);
         final long lhsSize = lhs.byteSize();
         final long rhsSize = rhs.byteSize();
         final long minSize = Math.min(lhsSize, rhsSize);
