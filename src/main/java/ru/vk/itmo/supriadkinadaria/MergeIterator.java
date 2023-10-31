@@ -11,7 +11,7 @@ import java.util.PriorityQueue;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
-    private final PriorityQueue<PeekIterator> priorityQueue;
+    private final PriorityQueue<PeekIterator> iteratorPriorityQueue;
     private final Comparator<Entry<MemorySegment>> comparator;
     private PeekIterator peekIterator;
 
@@ -19,7 +19,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
                          Comparator<Entry<MemorySegment>> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
-        priorityQueue = new PriorityQueue<>(
+        iteratorPriorityQueue = new PriorityQueue<>(
                 iterators.size(),
                 peekComp.thenComparing(o -> -o.id)
         );
@@ -27,25 +27,25 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         int id = 0;
         for (Iterator<Entry<MemorySegment>> iterator : iterators) {
             if (iterator.hasNext()) {
-                priorityQueue.add(new PeekIterator(id++, iterator));
+                iteratorPriorityQueue.add(new PeekIterator(id++, iterator));
             }
         }
     }
 
     private PeekIterator peek() {
         while (peekIterator == null) {
-            peekIterator = priorityQueue.poll();
+            peekIterator = iteratorPriorityQueue.poll();
             if (peekIterator == null) {
                 return null;
             }
 
-            filterIterators(priorityQueue);
+            filterIterators(iteratorPriorityQueue);
 
             if (peekIterator.peek() != null
                     && skip(peekIterator.peek())
                     && peekIterator.next() != null) {
                 if (peekIterator.hasNext()) {
-                    priorityQueue.add(peekIterator);
+                    iteratorPriorityQueue.add(peekIterator);
                 }
                 peekIterator = null;
             }
@@ -90,7 +90,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         Entry<MemorySegment> next = peekIteratorLocal.next();
         this.peekIterator = null;
         if (peekIteratorLocal.hasNext()) {
-            priorityQueue.add(peekIteratorLocal);
+            iteratorPriorityQueue.add(peekIteratorLocal);
         }
         return next;
     }
