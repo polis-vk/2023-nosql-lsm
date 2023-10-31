@@ -15,21 +15,20 @@ import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
-
     private final Arena arena;
     private final Path path;
     private final DiskStorage diskStorage;
 
 
-    public InMemoryDao(Config config) throws IOException {
+    public PersistentDao(Config config) throws IOException {
         path = config.basePath().resolve("data");
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
-        storage = new ConcurrentSkipListMap<>(InMemoryDao::compare);
+        storage = new ConcurrentSkipListMap<>(PersistentDao::compare);
 
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
@@ -102,6 +101,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
+        if (!storage.isEmpty()) {
+            flush();
+        }
         diskStorage.compact(path);
     }
 

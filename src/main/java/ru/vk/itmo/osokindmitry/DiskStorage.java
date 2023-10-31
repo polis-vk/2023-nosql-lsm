@@ -24,6 +24,10 @@ public class DiskStorage {
 
     private final List<MemorySegment> segmentList;
 
+    private static final String INDEX_FILE_NAME = "index";
+    private static final String SSTABLE_EXT = ".sstable";
+    private static final String TMP_EXT = ".tmp";
+
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
     }
@@ -39,7 +43,7 @@ public class DiskStorage {
         }
         iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, InMemoryDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
             @Override
             protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;
@@ -49,8 +53,8 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
+        final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
 
         try {
             Files.createFile(indexFile);
@@ -59,7 +63,7 @@ public class DiskStorage {
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        String newFileName = String.valueOf(existedFiles.size());
+        String newFileName = existedFiles.size() + SSTABLE_EXT;
 
         long dataSize = 0;
         long count = 0;
@@ -92,36 +96,24 @@ public class DiskStorage {
             // index:
             // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
             // key0_Start = data start = end of index
+            // data:
+            // |key0|value0|key1|value1|...
             long dataOffset = indexSize;
             int indexOffset = 0;
             for (Entry<MemorySegment> entry : iterable) {
                 fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                MemorySegment.copy(entry.key(), 0, fileSegment, dataOffset, entry.key().byteSize());
                 dataOffset += entry.key().byteSize();
                 indexOffset += Long.BYTES;
 
-                MemorySegment value = entry.value();
-                if (value == null) {
+                if (entry.value() == null) {
                     fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
                 } else {
                     fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                    dataOffset += value.byteSize();
+                    MemorySegment.copy(entry.value(), 0, fileSegment, dataOffset, entry.value().byteSize());
+                    dataOffset += entry.value().byteSize();
                 }
                 indexOffset += Long.BYTES;
-            }
-
-            // data:
-            // |key0|value0|key1|value1|...
-            dataOffset = indexSize;
-            for (Entry<MemorySegment> entry : iterable) {
-                MemorySegment key = entry.key();
-                MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
-                dataOffset += key.byteSize();
-
-                MemorySegment value = entry.value();
-                if (value != null) {
-                    MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
-                    dataOffset += value.byteSize();
-                }
             }
         }
 
@@ -142,8 +134,8 @@ public class DiskStorage {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
+        final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -178,8 +170,8 @@ public class DiskStorage {
         if (segmentList.isEmpty()) {
             return;
         }
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
+        final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
         try {
@@ -191,7 +183,7 @@ public class DiskStorage {
         MemorySegment fileSegment;
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve("0.tmp"),
+                        storagePath.resolve("0" + TMP_EXT),
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE
@@ -235,11 +227,11 @@ public class DiskStorage {
 
 
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        Files.move(storagePath.resolve("0.tmp"), storagePath.resolve("0.sstable"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.move(storagePath.resolve("0" + TMP_EXT), storagePath.resolve("0" + SSTABLE_EXT), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         Files.writeString(
                 indexFile,
-                "0.sstable",
+                "0" + SSTABLE_EXT,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
@@ -259,7 +251,7 @@ public class DiskStorage {
             iterators.add(iterator(memorySegment, null, null));
         }
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, InMemoryDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
             @Override
             protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;

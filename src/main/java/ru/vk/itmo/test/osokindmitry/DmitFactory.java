@@ -3,7 +3,7 @@ package ru.vk.itmo.test.osokindmitry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.osokindmitry.InMemoryDao;
+import ru.vk.itmo.osokindmitry.PersistentDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -16,7 +16,7 @@ public class DmitFactory implements DaoFactory.Factory<MemorySegment, Entry<Memo
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new InMemoryDao(config);
+        return new PersistentDao(config);
     }
 
     @Override
