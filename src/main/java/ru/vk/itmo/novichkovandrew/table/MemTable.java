@@ -20,12 +20,22 @@ public class MemTable extends AbstractTable implements Iterable<Entry<MemorySegm
     }
 
     public void upsert(Entry<MemorySegment> entry) {
-        byteSize.addAndGet(entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()));
+        updateByteSize(entry);
         entriesMap.put(entry.key(), entry);
     }
 
+    private void updateByteSize(Entry<MemorySegment> entry) {
+        if (entriesMap.containsKey(entry.key())) {
+            var oldValue = entriesMap.get(entry.key()).value();
+            byteSize.addAndGet(oldValue == null ? 0 : -oldValue.byteSize());
+        } else {
+            byteSize.addAndGet(entry.key().byteSize());
+        }
+        byteSize.addAndGet(entry.value() == null ? 0 : entry.value().byteSize());
+    }
+
     @Override
-    public int size() {
+    public int rows() {
         return entriesMap.size();
     }
 
@@ -54,20 +64,11 @@ public class MemTable extends AbstractTable implements Iterable<Entry<MemorySegm
         };
     }
 
+    @Override
     public long byteSize() {
         return this.byteSize.get();
     }
 
-    /**
-     * Return metadata length of SSTable file.
-     * Metadata contains amount of entries in sst, offsets and size of keys.
-     * It has the following format: <var>size keyOff1:valOff1 keyOff2:valOff2 ...
-     * keyOff_n:valOff_n keyOff_n+1:valOff_n+1</var>
-     * without any : and spaces.
-     */
-    public long getMetaDataSize() {
-        return 2L * (entriesMap.size() + 1) * Long.BYTES + Long.BYTES;
-    }
 
     private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, boolean fromInclusive,
                                                                         MemorySegment to, boolean toInclusive) {
@@ -85,16 +86,22 @@ public class MemTable extends AbstractTable implements Iterable<Entry<MemorySegm
 
     @Override
     public void close() {
-        entriesMap.clear();
-        byteSize.set(0);
+        clear();
     }
 
-    public boolean isTombstone(MemorySegment key) {
-        return entriesMap.containsKey(key) && entriesMap.get(key).value() == null;
-    }
+//    @Override
+//    public boolean isTombstone(MemorySegment key) {
+//        return entriesMap.containsKey(key) && entriesMap.get(key).value() == null;
+//    }
 
     @Override
     public Iterator<Entry<MemorySegment>> iterator() {
         return entriesMap.values().iterator();
+    }
+
+    @Override
+    public void clear() {
+        entriesMap.clear();
+        byteSize.set(0);
     }
 }

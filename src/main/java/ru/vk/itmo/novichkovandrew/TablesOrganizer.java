@@ -1,26 +1,21 @@
 package ru.vk.itmo.novichkovandrew;
 
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.novichkovandrew.exceptions.FileChannelException;
 import ru.vk.itmo.novichkovandrew.iterator.MergeIterator;
 import ru.vk.itmo.novichkovandrew.iterator.TableIterator;
-import ru.vk.itmo.novichkovandrew.table.AbstractTable;
-import ru.vk.itmo.novichkovandrew.table.MemTable;
-import ru.vk.itmo.novichkovandrew.table.SSTable;
+import ru.vk.itmo.novichkovandrew.table.*;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
-
-import static ru.vk.itmo.novichkovandrew.Utils.copyToSegment;
 
 /**
  * Class, that can organize different sst tables.
@@ -32,13 +27,6 @@ public class TablesOrganizer implements Closeable {
     private final Path path;
     private final List<AbstractTable> tables;
     private final MemTable memTable;
-
-    private final StandardOpenOption[] openOptions = new StandardOpenOption[]{
-            StandardOpenOption.CREATE,
-            StandardOpenOption.TRUNCATE_EXISTING,
-            StandardOpenOption.READ,
-            StandardOpenOption.WRITE,
-    };
 
     public TablesOrganizer(Path path, MemTable memTable) {
         this.memTable = memTable;
@@ -54,26 +42,27 @@ public class TablesOrganizer implements Closeable {
         );
     }
 
-    public void flushMemTable() throws IOException {
-        Path sstPath = sstTablePath(tables.size());
-        try (FileChannel sst = FileChannel.open(sstPath, openOptions);
-             Arena arena = Arena.ofConfined()
-        ) {
-            long metaSize = memTable.getMetaDataSize();
-            long sstOffset = 0L;
-            long indexOffset = Utils.writeLong(sst, 0L, memTable.size());
-            MemorySegment sstMap = sst.map(FileChannel.MapMode.READ_WRITE, metaSize, memTable.byteSize(), arena);
-            for (Entry<MemorySegment> entry : memTable) {
-                long keyOffset = sstOffset + metaSize;
-                long valueOffset = keyOffset + entry.key().byteSize();
-                valueOffset *= memTable.isTombstone(entry.key()) ? -1 : 1;
-                indexOffset = writePosToFile(sst, indexOffset, keyOffset, valueOffset);
-                sstOffset = copyToSegment(sstMap, entry.key(), sstOffset);
-                sstOffset = copyToSegment(sstMap, entry.value(), sstOffset);
+    public void flushMemTable() {
+        Handle handle = new Handle(memTable.byteSize(), Utils.indexByteSize(memTable.rows()));
+        Footer footer = new Footer(handle);
+        //todo: initialize filter, metablocks, etc.
+        writeIterable(Utils.sstTablePath(path, tables.size()), memTable.iterator(), footer);
+    }
+
+    private void writeIterable(Path iterablePath, Iterator<Entry<MemorySegment>> iterator, Footer footer) {
+        try (TableWriter writer = new MMapTableWriter(iterablePath, footer)) {
+            while (iterator.hasNext()) {
+                var entry = iterator.next();
+                writer.writeIndexHandle(entry);
+                writer.writeEntry(entry);
             }
-            writePosToFile(sst, indexOffset, sstOffset + metaSize, 0L);
+            writer.writeIndexHandle(Utils.EMPTY);
+            writer.writeFooter(footer);
+        } catch (IOException ex) {
+            throw new FileChannelException("Invalid initialize writer", ex);
         }
     }
+
 
     @Override
     public void close() throws IOException {
@@ -83,11 +72,32 @@ public class TablesOrganizer implements Closeable {
         tables.clear();
     }
 
+    public void compact() throws IOException {
+        Path compactPath = path.resolve("temp.txt");
+        Files.createFile(compactPath);
+        var iterator = mergeIterator(null, true, null, true);
+        long rows = tables.stream().mapToLong(Table::rows).sum();
+        long byteSize = tables.stream().mapToLong(Table::byteSize).sum();
+        Footer footer = new Footer(new Handle(byteSize, Utils.indexByteSize(rows)));
+        writeIterable(compactPath, iterator, footer);
+        Path tablePath = Utils.sstTablePath(path, 1);
+        deleteAllTables();
+        Files.move(compactPath, tablePath);
+        tables.add(memTable);
+        tables.add(new SSTable(tablePath, 1));
+    }
+
+
+    private void deleteAllTables() {
+        tables.forEach(AbstractTable::clear);
+        tables.clear();
+    }
+
     private List<AbstractTable> createTablesList() {
         Stream<AbstractTable> memStream = Stream.of(memTable);
         Stream<AbstractTable> sstStream = IntStream
                 .rangeClosed(1, Utils.filesCount(path))
-                .mapToObj(n -> new SSTable(sstTablePath(n), n));
+                .mapToObj(n -> new SSTable(Utils.sstTablePath(path, n), n));
         return Stream.concat(memStream, sstStream).collect(Collectors.toList());
     }
 
@@ -98,15 +108,5 @@ public class TablesOrganizer implements Closeable {
                 .collect(Collectors.toList());
     }
 
-    private synchronized Path sstTablePath(long suffix) {
-        String fileName = String.format("data-%s.txt", suffix);
-        return path.resolve(Path.of(fileName));
-    }
 
-    private long writePosToFile(FileChannel channel, long rawOffset, long keyOff, long valOff) {
-        long offset = rawOffset;
-        offset = Utils.writeLong(channel, offset, keyOff);
-        offset = Utils.writeLong(channel, offset, valOff);
-        return offset;
-    }
 }

@@ -23,4 +23,6 @@ public abstract class AbstractTable implements Table<MemorySegment> {
     public Comparator<MemorySegment> comparator() {
         return comparator;
     }
+
+    public abstract void clear();
 }

@@ -19,13 +19,18 @@ public class PersistentDao extends InMemoryDao {
     }
 
     @Override
-    public void flush() throws IOException {
+    public void flush() {
         organizer.flushMemTable();
     }
 
     @Override
+    public void compact() throws IOException {
+        organizer.compact();
+    }
+
+    @Override
     public void close() throws IOException {
-        if (memTable.size() != 0) flush();
+        if (memTable.rows() != 0) flush();
         organizer.close();
         super.close();
     }
