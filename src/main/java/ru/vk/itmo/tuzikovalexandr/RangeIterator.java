@@ -1,12 +1,17 @@
 package ru.vk.itmo.tuzikovalexandr;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+import java.util.PriorityQueue;
+import java.util.Queue;
 
-public class RangeIterator<T> implements Iterator<T> {
+public abstract class RangeIterator<T> implements Iterator<T> {
 
     private final Queue<PeekIterator<T>> iterators;
     private final Comparator<T> comparator;
-    private PeekIterator<T> peek;
+    private PeekIterator<T> peekIterator;
 
     public RangeIterator(Collection<Iterator<T>> peekIterators, Comparator<T> comparator) {
         this.comparator = comparator;
@@ -22,66 +27,74 @@ public class RangeIterator<T> implements Iterator<T> {
     }
 
     private PeekIterator<T> peek() {
-        while (peek == null) {
-            peek = iterators.poll();
-            if (peek == null) {
+        while (peekIterator == null) {
+            peekIterator = iterators.poll();
+            if (peekIterator == null) {
                 return null;
             }
 
-            while (true) {
-                PeekIterator<T> next = iterators.peek();
-                if (next == null) {
-                    break;
-                }
+            skipOldEntries();
 
-                int compare = comparator.compare(peek.peek(), next.peek());
-                if (compare == 0) {
-                    PeekIterator<T> poll = iterators.poll();
-                    if (poll != null) {
-                        poll.next();
-                        if (poll.hasNext()) {
-                            iterators.add(poll);
-                        }
-                    }
-                } else {
-                    break;
-                }
-            }
-
-            if (peek.peek() == null) {
-                peek = null;
-                continue;
-            }
-
-            if (skip(peek.peek())) {
-                peek.next();
-                if (peek.hasNext()) {
-                    iterators.add(peek);
-                }
-                peek = null;
-            }
+            skipNullEntries();
         }
 
-        return peek;
+        return peekIterator;
     }
 
-    protected boolean skip(T t) {
-        return false;
+    private void skipOldEntries() {
+        while (true) {
+            PeekIterator<T> next = iterators.peek();
+            if (next == null) {
+                break;
+            }
+
+            int compare = comparator.compare(peekIterator.peek(), next.peek());
+            if (compare == 0) {
+                PeekIterator<T> poll = iterators.poll();
+                if (poll != null) {
+                    poll.next();
+                    if (poll.hasNext()) {
+                        iterators.add(poll);
+                    }
+                }
+            } else {
+                break;
+            }
+        }
     }
+
+    private void skipNullEntries() {
+        if (peekIterator.peek() == null) {
+            peekIterator = null;
+            return;
+        }
+
+        if (skip(peekIterator.peek())) {
+            peekIterator.next();
+            if (peekIterator.hasNext()) {
+                iterators.add(peekIterator);
+            }
+            peekIterator = null;
+        }
+    }
+
+    protected abstract boolean skip(T entry);
 
     @Override
-    public boolean hasNext() { return peek() != null; }
+    public boolean hasNext() {
+        return peek() != null;
+    }
 
     @Override
     public T next() {
-        PeekIterator<T> peek = peek();
-        if (peek == null) {
+        PeekIterator<T> localPeekIterator = peek();
+        if (localPeekIterator == null) {
             throw new NoSuchElementException();
         }
-        T next = peek.next();
-        this.peek = null;
-        if (peek.hasNext()) {
-            iterators.add(peek);
+        T next = localPeekIterator.next();
+        this.peekIterator = null;
+        if (localPeekIterator.hasNext()) {
+            iterators.add(localPeekIterator);
         }
         return next;
     }

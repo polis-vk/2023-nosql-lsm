@@ -10,8 +10,19 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.DirectoryStream;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.OpenOption;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
+import java.util.Set;
 
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
@@ -61,7 +72,7 @@ public class SSTable {
     }
 
     // storage format: offsetFile |keyOffset|valueOffset| dataFile |key|value|
-    public static void saveMemData(Path basePath, Iterable<Entry<MemorySegment>> entries) throws IOException {
+    public void saveMemData(Path basePath, Iterable<Entry<MemorySegment>> entries) throws IOException {
         Path indexTmp = basePath.resolve(INDEX_TMP);
         Path indexFile = basePath.resolve(INDEX_FILE);
 
@@ -182,7 +193,8 @@ public class SSTable {
                     throw new NoSuchElementException();
                 }
 
-                Entry<MemorySegment> currentEntry = Utils.getEntryByKeyOffset(currentOffset, offsetSegment, dataSegment);
+                Entry<MemorySegment> currentEntry =
+                        Utils.getEntryByKeyOffset(currentOffset, offsetSegment, dataSegment);
 
                 currentOffset += Long.BYTES * 2;
                 return currentEntry;
@@ -190,7 +202,7 @@ public class SSTable {
         };
     }
 
-    public static void compactData(Path storagePath, Iterable<Entry<MemorySegment>> iterator) throws IOException {
+    public void compactData(Path storagePath, Iterable<Entry<MemorySegment>> iterator) throws IOException {
         saveMemData(storagePath, iterator);
 
         Path indexTmp = storagePath.resolve(INDEX_TMP);
@@ -214,7 +226,7 @@ public class SSTable {
         Files.delete(indexTmp);
     }
 
-    public static void deleteOldFiles(Path storagePath, String lastFileIndex) throws IOException {
+    public void deleteOldFiles(Path storagePath, String lastFileIndex) throws IOException {
         String lastFileNameOffset = OFFSET_PREFIX + lastFileIndex;
         String lastFileNameData = FILE_PREFIX + lastFileIndex;
 
@@ -263,7 +275,7 @@ public class SSTable {
         return -left * Long.BYTES * 2;
     }
 
-    public static List<Entry<MemorySegment>> loadData(Path storagePath, Arena arena) throws IOException {
+    public List<Entry<MemorySegment>> loadData(Path storagePath, Arena arena) throws IOException {
         Path indexTmp = storagePath.resolve(INDEX_TMP);
         Path indexFile = storagePath.resolve(INDEX_FILE);
 
@@ -299,7 +311,7 @@ public class SSTable {
         return result;
     }
 
-    private static String getNewFileIndex(List<String> existedFiles) {
+    private String getNewFileIndex(List<String> existedFiles) {
         if (existedFiles.isEmpty()) {
             return "1";
         }
