@@ -73,12 +73,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
     @Override
     public void compact() throws IOException {
-        Iterable<Entry<MemorySegment>> allData = () -> get(null, null);
-
-        if (allData.iterator().hasNext()) {
-            ssTable.compactData(path, allData);
-        }
-
+        ssTable.compactData(path, () -> get(null, null));
         memory.clear();
     }
 
