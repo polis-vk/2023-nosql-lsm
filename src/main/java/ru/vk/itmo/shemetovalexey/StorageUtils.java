@@ -19,11 +19,13 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-abstract class StorageUtils {
+class StorageUtils {
     private static final String TMP_DIRECTORY_NAME = "tmp";
     private static final String INDEX_FILE_NAME = "index";
     private static final String IDX_EXTENSION = ".idx";
     private static final String TMP_EXTENSION = ".tmp";
+
+    private StorageUtils() {}
 
     public static void compact(Path path, Iterable<Entry<MemorySegment>> iterable) throws IOException {
         try {
