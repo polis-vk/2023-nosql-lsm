@@ -28,9 +28,8 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>>(memorySegmentComparator);
 
     protected final ConcurrentMap<Integer, MemorySegment> ssTableMap = new ConcurrentHashMap<>();
-    protected final ConcurrentMap<Integer, Arena> arenaTableMap = new ConcurrentHashMap<>();
+    protected final Arena arenaTableFiles = Arena.ofShared();;
     protected final ConcurrentMap<Integer, MemorySegment> indexMap = new ConcurrentHashMap<>();
-    protected final ConcurrentMap<Integer, Arena> arenaIndexMap = new ConcurrentHashMap<>();
     protected int maxSSTable = -1;
     protected static final String SSTABLE_NAME = "SS_TABLE_PELOGEIKO-";
     protected static final String INDEX_NAME = "INDEX_PELOGEIKO-";
@@ -43,8 +42,6 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         daoConfig = config;
-        Arena arenaTableCurr;
-        Arena arenaIndexCurr;
         MemorySegment ssTableCurr;
         MemorySegment indexCurr;
 
@@ -61,22 +58,19 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             try {
                 try (FileChannel tableFile = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
-                    arenaTableCurr = Arena.ofShared();
+                    //arenaTableCurr = Arena.ofShared();
                     ssTableCurr = tableFile.map(FileChannel.MapMode.READ_ONLY, 0,
-                            Files.size(ssTablePath), arenaTableCurr);
+                            Files.size(ssTablePath), arenaTableFiles);
                 }
 
                 try (FileChannel indexFile = FileChannel.open(indexPath, StandardOpenOption.READ)) {
-                    arenaIndexCurr = Arena.ofShared();
                     indexCurr = indexFile.map(FileChannel.MapMode.READ_ONLY, 0,
-                            Files.size(indexPath), arenaIndexCurr);
+                            Files.size(indexPath), arenaTableFiles);
                 }
 
                 ssTableMap.put(ssTableNumber, ssTableCurr);
-                arenaTableMap.put(ssTableNumber, arenaTableCurr);
 
                 indexMap.put(ssTableNumber, indexCurr);
-                arenaIndexMap.put(ssTableNumber, arenaIndexCurr);
 
             } catch (IOException e) {
                 maxSSTable = ssTableNumber - 1;
@@ -175,15 +169,7 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
-        for (int key : arenaTableMap.keySet()) {
-            arenaTableMap.get(key).close();
-            arenaTableMap.remove(key);
-
-            arenaIndexMap.get(key).close();
-            arenaIndexMap.remove(key);
-        }
-        arenaTableMap.clear();
-        arenaIndexMap.clear();
+        arenaTableFiles.close();
         ssTableMap.clear();
         indexMap.clear();
 
@@ -194,48 +180,57 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         maxSSTable += 1;
 
-        FileChannel fileDataOut = FileChannel.open(daoConfig.basePath()
-                        .resolve(SSTABLE_NAME + Integer.toString(maxSSTable)),
-                StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
-        Arena arenaDataWriter = Arena.ofShared();
-        MemorySegment memSegmentDataOut = fileDataOut.map(FileChannel.MapMode.READ_WRITE,
-                0, ssTableSizeOut, arenaDataWriter);
+        Arena arenaWriter = Arena.ofShared();
+        FileChannel fileDataOut = null;
+        FileChannel fileIndexOut = null;
 
-        FileChannel fileIndexOut = FileChannel.open(daoConfig.basePath()
-                        .resolve(INDEX_NAME + Integer.toString(maxSSTable)),
-                StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
-        Arena arenaIndexWriter = Arena.ofShared();
-        MemorySegment memSegmentIndexOut = fileIndexOut.map(FileChannel.MapMode.READ_WRITE,
-                0, indexTableSize, arenaIndexWriter);
+        try {
+            fileDataOut = FileChannel.open(daoConfig.basePath()
+                            .resolve(SSTABLE_NAME + Integer.toString(maxSSTable)),
+                    StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
 
-        long offsetData = 0;
-        long offsetIndex = 0;
-        for (var item : mapCurrent.values()) {
-            memSegmentIndexOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, offsetData);
-            offsetIndex += Long.BYTES;
+            MemorySegment memSegmentDataOut = fileDataOut.map(FileChannel.MapMode.READ_WRITE,
+                    0, ssTableSizeOut, arenaWriter);
 
-            memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, item.key().byteSize());
-            offsetData += Long.BYTES;
+            fileIndexOut = FileChannel.open(daoConfig.basePath()
+                            .resolve(INDEX_NAME + Integer.toString(maxSSTable)),
+                    StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+            MemorySegment memSegmentIndexOut = fileIndexOut.map(FileChannel.MapMode.READ_WRITE,
+                    0, indexTableSize, arenaWriter);
 
-            MemorySegment.copy(item.key(), 0, memSegmentDataOut, offsetData, item.key().byteSize());
-            offsetData += item.key().byteSize();
+            long offsetData = 0;
+            long offsetIndex = 0;
+            for (var item : mapCurrent.values()) {
+                memSegmentIndexOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, offsetData);
+                offsetIndex += Long.BYTES;
 
-            if (item.value() == null) {
-                memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, -1);
-                offsetData += Long.BYTES;
-            } else {
-                memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, item.value().byteSize());
+                memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, item.key().byteSize());
                 offsetData += Long.BYTES;
 
-                MemorySegment.copy(item.value(), 0, memSegmentDataOut, offsetData, item.value().byteSize());
-                offsetData += item.value().byteSize();
+                MemorySegment.copy(item.key(), 0, memSegmentDataOut, offsetData, item.key().byteSize());
+                offsetData += item.key().byteSize();
+
+                if (item.value() == null) {
+                    memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, -1);
+                    offsetData += Long.BYTES;
+                } else {
+                    memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, item.value().byteSize());
+                    offsetData += Long.BYTES;
+
+                    MemorySegment.copy(item.value(), 0, memSegmentDataOut, offsetData, item.value().byteSize());
+                    offsetData += item.value().byteSize();
+                }
+
             }
-
+        } finally {
+            arenaWriter.close();
+            if (fileDataOut != null) {
+                fileDataOut.close();
+            }
+            if (fileIndexOut != null) {
+                fileIndexOut.close();
+            }
         }
-        arenaDataWriter.close();
-        arenaIndexWriter.close();
-        fileDataOut.close();
-        fileIndexOut.close();
     }
 
     @Override

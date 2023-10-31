@@ -47,18 +47,13 @@ public class PermanentCompactableDao extends PermanentDao {
     }
 
     private void deleteAllOldFiles() throws IOException {
+        arenaTableFiles.close();
         for (int ssTableNum = maxSSTable; ssTableNum >= 0; --ssTableNum) {
-            arenaTableMap.get(ssTableNum).close();
-            arenaTableMap.remove(ssTableNum);
-            arenaIndexMap.get(ssTableNum).close();
-            arenaIndexMap.remove(ssTableNum);
             Files.deleteIfExists(daoConfig.basePath()
                     .resolve(SSTABLE_NAME + Integer.toString(ssTableNum)));
             Files.deleteIfExists(daoConfig.basePath()
                     .resolve(INDEX_NAME + Integer.toString(ssTableNum)));
         }
-        arenaTableMap.clear();
-        arenaIndexMap.clear();
         maxSSTable = 0;
     }
 
@@ -75,47 +70,54 @@ public class PermanentCompactableDao extends PermanentDao {
             }
             indexTableSize *= Long.BYTES;
 
-            FileChannel fileDataOut = FileChannel.open(daoConfig.basePath()
-                            .resolve(SSTABLE_NAME + ZERO_TMP),
-                    StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
-            Arena arenaDataWriter = Arena.ofShared();
-            MemorySegment memSegmentDataOut = fileDataOut.map(FileChannel.MapMode.READ_WRITE,
-                    0, ssTableSizeOut, arenaDataWriter);
+            Arena arenaWriter = Arena.ofShared();
+            FileChannel fileDataOut = null;
+            FileChannel fileIndexOut = null;
 
-            FileChannel fileIndexOut = FileChannel.open(daoConfig.basePath()
-                            .resolve(INDEX_NAME + ZERO_TMP),
-                    StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
-            Arena arenaIndexWriter = Arena.ofShared();
-            MemorySegment memSegmentIndexOut = fileIndexOut.map(FileChannel.MapMode.READ_WRITE,
-                    0, indexTableSize, arenaIndexWriter);
+            try {
+                fileDataOut = FileChannel.open(daoConfig.basePath()
+                                .resolve(SSTABLE_NAME + ZERO_TMP),
+                        StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+                MemorySegment memSegmentDataOut = fileDataOut.map(FileChannel.MapMode.READ_WRITE,
+                        0, ssTableSizeOut, arenaWriter);
 
-            long offsetData = 0;
-            long offsetIndex = 0;
-            for (var item : mapCurrent.values()) {
-                if (item.value() == null) {
-                    continue;
-                } else {
-                    memSegmentIndexOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, offsetData);
-                    offsetIndex += Long.BYTES;
+                fileIndexOut = FileChannel.open(daoConfig.basePath()
+                                .resolve(INDEX_NAME + ZERO_TMP),
+                        StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+                MemorySegment memSegmentIndexOut = fileIndexOut.map(FileChannel.MapMode.READ_WRITE,
+                        0, indexTableSize, arenaWriter);
 
-                    memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, item.key().byteSize());
-                    offsetData += Long.BYTES;
+                long offsetData = 0;
+                long offsetIndex = 0;
+                for (var item : mapCurrent.values()) {
+                    if (item.value() == null) {
+                        continue;
+                    } else {
+                        memSegmentIndexOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, offsetData);
+                        offsetIndex += Long.BYTES;
 
-                    MemorySegment.copy(item.key(), 0, memSegmentDataOut, offsetData, item.key().byteSize());
-                    offsetData += item.key().byteSize();
+                        memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, item.key().byteSize());
+                        offsetData += Long.BYTES;
 
-                    memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, item.value().byteSize());
-                    offsetData += Long.BYTES;
+                        MemorySegment.copy(item.key(), 0, memSegmentDataOut, offsetData, item.key().byteSize());
+                        offsetData += item.key().byteSize();
 
-                    MemorySegment.copy(item.value(), 0, memSegmentDataOut, offsetData, item.value().byteSize());
-                    offsetData += item.value().byteSize();
+                        memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, item.value().byteSize());
+                        offsetData += Long.BYTES;
+
+                        MemorySegment.copy(item.value(), 0, memSegmentDataOut, offsetData, item.value().byteSize());
+                        offsetData += item.value().byteSize();
+                    }
                 }
-
+            } finally {
+                arenaWriter.close();
+                if (fileDataOut != null) {
+                    fileDataOut.close();
+                }
+                if (fileIndexOut != null) {
+                    fileIndexOut.close();
+                }
             }
-            arenaDataWriter.close();
-            arenaIndexWriter.close();
-            fileDataOut.close();
-            fileIndexOut.close();
         }
     }
 
