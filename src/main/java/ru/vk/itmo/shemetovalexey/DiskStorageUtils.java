@@ -1,4 +1,4 @@
-package ru.vk.itmo.pashchenkoalexandr;
+package ru.vk.itmo.shemetovalexey;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
@@ -9,47 +9,43 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.*;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-public class DiskStorage {
+class DiskStorageUtils {
+    private static final String TMP_DIRECTORY_NAME = "tmp";
+    private static final String INDEX_FILE_NAME = "index";
+    private static final String IDX_EXTENSION = ".idx";
+    private static final String TMP_EXTENSION = ".tmp";
 
-    private final List<MemorySegment> segmentList;
-
-    public DiskStorage(List<MemorySegment> segmentList) {
-        this.segmentList = segmentList;
-    }
-
-    public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
-            MemorySegment from,
-            MemorySegment to) {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
-        for (MemorySegment memorySegment : segmentList) {
-            iterators.add(iterator(memorySegment, from, to));
+    public static void compact(Path path, Iterable<Entry<MemorySegment>> iterable) throws IOException {
+        try {
+            Files.createDirectory(path.resolve(TMP_DIRECTORY_NAME));
+        } catch (IOException ignored) {
+            // it is mean, that directory already exist
         }
-        iterators.add(firstIterator);
-
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PaschenkoDao::compare)) {
-            @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
-                return memorySegmentEntry.value() == null;
-            }
-        };
+        final Path tmpDirectory = path.resolve(TMP_DIRECTORY_NAME);
+        DiskStorageUtils.save(tmpDirectory, iterable);
+        final Path indexFile = path.resolve(INDEX_FILE_NAME + IDX_EXTENSION);
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        for (String existedFile : existedFiles) {
+            Files.delete(path.resolve(existedFile));
+        }
+        final Path indexTmp = tmpDirectory.resolve(INDEX_FILE_NAME + IDX_EXTENSION);
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        final Path dataTmp = tmpDirectory.resolve(existedFiles.get(0));
+        final Path dataFile = path.resolve(existedFiles.get(0));
+        Files.move(dataTmp, dataFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXTENSION);
+        final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + IDX_EXTENSION);
 
         try {
             Files.createFile(indexFile);
@@ -141,8 +137,8 @@ public class DiskStorage {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXTENSION);
+        Path indexFile = storagePath.resolve(INDEX_FILE_NAME + IDX_EXTENSION);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -217,8 +213,7 @@ public class DiskStorage {
     private static long indexSize(MemorySegment segment) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
-
-    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
+    static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
         long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
         long recordsCount = recordsCount(page);
