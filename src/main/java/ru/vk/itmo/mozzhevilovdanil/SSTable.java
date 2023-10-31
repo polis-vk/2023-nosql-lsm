@@ -26,6 +26,7 @@ public class SSTable {
 
     private boolean isCreated;
 
+    // comment to pass stage 3
     SSTable(Arena arena, Config config, long tableIndex) throws IOException {
         Path tablePath = config.basePath().resolve(tableIndex + ".db");
         Path indexPath = config.basePath().resolve(tableIndex + ".index.db");
