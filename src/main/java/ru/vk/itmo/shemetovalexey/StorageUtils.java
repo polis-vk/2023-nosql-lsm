@@ -19,7 +19,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-class StorageUtils {
+abstract class StorageUtils {
     private static final String TMP_DIRECTORY_NAME = "tmp";
     private static final String INDEX_FILE_NAME = "index";
     private static final String IDX_EXTENSION = ".idx";
@@ -217,6 +217,7 @@ class StorageUtils {
     private static long indexSize(MemorySegment segment) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
+
     static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
         long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
