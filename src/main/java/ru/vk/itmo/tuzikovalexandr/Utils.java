@@ -37,4 +37,39 @@ public final class Utils {
 
         return new BaseEntry<>(keySegment, valueSegment);
     }
+
+    public static long binarySearch(MemorySegment key, MemorySegment offsetSegment,
+                                    MemorySegment dataSegment) {
+        long left = 0;
+        long right = offsetSegment.byteSize() / Long.BYTES - 1;
+
+        while (left <= right) {
+
+            long middle = (right - left) / 2 + left;
+
+            long offset = middle * Long.BYTES * 2;
+            if (offset >= offsetSegment.byteSize()) {
+                return -left * Long.BYTES * 2;
+            }
+
+            long keyOffset = offsetSegment.get(ValueLayout.JAVA_LONG, offset);
+
+            offset = middle * Long.BYTES * 2 + Long.BYTES;
+            long keySize = offsetSegment.get(ValueLayout.JAVA_LONG, offset) - keyOffset;
+
+            MemorySegment keySegment = dataSegment.asSlice(keyOffset, keySize);
+
+            int result = MemorySegmentComparator.compare(keySegment, key);
+
+            if (result < 0) {
+                left = middle + 1;
+            } else if (result > 0) {
+                right = middle - 1;
+            } else {
+                return middle * Long.BYTES * 2;
+            }
+        }
+
+        return -left * Long.BYTES * 2;
+    }
 }

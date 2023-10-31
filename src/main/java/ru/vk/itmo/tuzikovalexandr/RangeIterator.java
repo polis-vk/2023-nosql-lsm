@@ -13,7 +13,7 @@ public abstract class RangeIterator<T> implements Iterator<T> {
     private final Comparator<T> comparator;
     private PeekIterator<T> peekIterator;
 
-    public RangeIterator(Collection<Iterator<T>> peekIterators, Comparator<T> comparator) {
+    protected RangeIterator(Collection<Iterator<T>> peekIterators, Comparator<T> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
         iterators = new PriorityQueue<>(peekIterators.size(), peekComp.thenComparing(o -> -o.getPriority()));

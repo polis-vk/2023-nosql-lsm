@@ -24,7 +24,7 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
 
         arena = Arena.ofShared();
 
-        this.ssTable = new SSTable(config, arena);
+        this.ssTable = new SSTable(SSTable.loadData(path, arena));
     }
 
     @Override

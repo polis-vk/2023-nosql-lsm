@@ -1,7 +1,6 @@
 package ru.vk.itmo.tuzikovalexandr;
 
 import ru.vk.itmo.BaseEntry;
-import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
@@ -34,24 +33,14 @@ public class SSTable {
             StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING
     );
 
-    private final Path basePath;
     private static final String FILE_PREFIX = "data_";
     private static final String OFFSET_PREFIX = "offset_";
     private static final String INDEX_FILE = "index.idx";
     private static final String INDEX_TMP = "index.tmp";
-    private final Comparator<MemorySegment> comparator;
-    private List<Entry<MemorySegment>> files;
+    private final List<Entry<MemorySegment>> files;
 
-    public SSTable(Config config, Arena arena) throws IOException {
-        this.basePath = config.basePath();
-
-        if (Files.notExists(basePath)) {
-            comparator = null;
-            return;
-        }
-
-        comparator = MemorySegmentComparator::compare;
-        this.files = loadData(basePath, arena);
+    public SSTable(List<Entry<MemorySegment>> files) throws IOException {
+        this.files = files;
     }
 
     public Iterator<Entry<MemorySegment>> range(
@@ -73,8 +62,8 @@ public class SSTable {
 
     // storage format: offsetFile |keyOffset|valueOffset| dataFile |key|value|
     public void saveMemData(Path basePath, Iterable<Entry<MemorySegment>> entries) throws IOException {
-        Path indexTmp = basePath.resolve(INDEX_TMP);
-        Path indexFile = basePath.resolve(INDEX_FILE);
+        final Path indexTmp = basePath.resolve(INDEX_TMP);
+        final Path indexFile = basePath.resolve(INDEX_FILE);
 
         try {
             Files.createFile(indexFile);
@@ -163,7 +152,7 @@ public class SSTable {
             MemorySegment offsetSegment = files.get(i).key();
             MemorySegment dataSegment = files.get(i).value();
 
-            long offsetResult = binarySearch(key, offsetSegment, dataSegment);
+            long offsetResult = Utils.binarySearch(key, offsetSegment, dataSegment);
 
             if (offsetResult >= 0) {
                 return Utils.getEntryByKeyOffset(offsetResult, offsetSegment, dataSegment);
@@ -175,9 +164,9 @@ public class SSTable {
 
     public Iterator<Entry<MemorySegment>> readDataFromTo(MemorySegment offsetSegment, MemorySegment dataSegment,
                                              MemorySegment from, MemorySegment to) {
-        long start = from == null ? 0 : Math.abs(binarySearch(from, offsetSegment, dataSegment));
+        long start = from == null ? 0 : Math.abs(Utils.binarySearch(from, offsetSegment, dataSegment));
         long end = to == null ? offsetSegment.byteSize() - Long.BYTES * 2 :
-                Math.abs(binarySearch(to, offsetSegment, dataSegment)) - Long.BYTES * 2;
+                Math.abs(Utils.binarySearch(to, offsetSegment, dataSegment)) - Long.BYTES * 2;
 
         return new Iterator<>() {
             long currentOffset = start;
@@ -205,8 +194,8 @@ public class SSTable {
     public void compactData(Path storagePath, Iterable<Entry<MemorySegment>> iterator) throws IOException {
         saveMemData(storagePath, iterator);
 
-        Path indexTmp = storagePath.resolve(INDEX_TMP);
-        Path indexFile = storagePath.resolve(INDEX_FILE);
+        final Path indexTmp = storagePath.resolve(INDEX_TMP);
+        final Path indexFile = storagePath.resolve(INDEX_FILE);
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -233,49 +222,15 @@ public class SSTable {
         try (DirectoryStream<Path> fileStream = Files.newDirectoryStream(storagePath)) {
             for (Path path : fileStream) {
                 String fileName = path.getFileName().toString();
-                if (!fileName.equals(INDEX_FILE) && !fileName.equals(lastFileNameData) &&
-                        !fileName.equals(lastFileNameOffset) && !fileName.equals(INDEX_TMP)) {
+                if (!fileName.equals(INDEX_FILE) && !fileName.equals(lastFileNameData)
+                        && !fileName.equals(lastFileNameOffset) && !fileName.equals(INDEX_TMP)) {
                     Files.delete(path);
                 }
             }
         }
     }
 
-    private long binarySearch(MemorySegment key, MemorySegment offsetSegment, MemorySegment dataSegment) {
-        long left = 0;
-        long right = offsetSegment.byteSize() / Long.BYTES - 1;
-
-        while (left <= right) {
-
-            long middle = (right - left) / 2 + left;
-
-            long offset = middle * Long.BYTES * 2;
-            if (offset >= offsetSegment.byteSize()) {
-                return -left * Long.BYTES * 2;
-            }
-
-            long keyOffset = offsetSegment.get(ValueLayout.JAVA_LONG, offset);
-
-            offset = middle * Long.BYTES * 2 + Long.BYTES;
-            long keySize = offsetSegment.get(ValueLayout.JAVA_LONG, offset) - keyOffset;
-
-            MemorySegment keySegment = dataSegment.asSlice(keyOffset, keySize);
-
-            int result = comparator.compare(keySegment, key);
-
-            if (result < 0) {
-                left = middle + 1;
-            } else if (result > 0) {
-                right = middle - 1;
-            } else {
-                return middle * Long.BYTES * 2;
-            }
-        }
-
-        return -left * Long.BYTES * 2;
-    }
-
-    public List<Entry<MemorySegment>> loadData(Path storagePath, Arena arena) throws IOException {
+    public static List<Entry<MemorySegment>> loadData(Path storagePath, Arena arena) throws IOException {
         Path indexTmp = storagePath.resolve(INDEX_TMP);
         Path indexFile = storagePath.resolve(INDEX_FILE);
 
