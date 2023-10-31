@@ -3,6 +3,7 @@ package ru.vk.itmo.test.pelogeikomakar;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.pelogeikomakar.PermanentCompactableDao;
 import ru.vk.itmo.pelogeikomakar.PermanentDao;
 import ru.vk.itmo.test.DaoFactory;
 
@@ -15,7 +16,7 @@ import java.nio.charset.StandardCharsets;
 public class PermanentFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new PermanentDao(config);
+        return new PermanentCompactableDao(config);
     }
 
     @Override
