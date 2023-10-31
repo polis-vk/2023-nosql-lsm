@@ -30,7 +30,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena = Arena.ofShared();
         storage = new ConcurrentSkipListMap<>(PersistentDao::compare);
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        this.diskStorage = new DiskStorage(Utils.loadOrRecover(path), arena);
     }
 
     @Override
@@ -97,6 +97,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!storage.isEmpty()) {
             DiskStorage.save(path, storage.values());
         }
+//        storage.clear();
     }
 
     @Override
