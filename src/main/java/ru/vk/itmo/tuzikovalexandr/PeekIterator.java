@@ -1,17 +1,15 @@
 package ru.vk.itmo.tuzikovalexandr;
 
-import ru.vk.itmo.Entry;
-
-import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 
-public class PeekIterator implements Iterator<Entry<MemorySegment>> {
+public class PeekIterator<T> implements Iterator<T> {
 
-    private final long priority;
-    private Entry<MemorySegment> currentEntry;
-    private final Iterator<Entry<MemorySegment>> iterator;
+    private final int priority;
+    private T currentEntry;
+    private final Iterator<T> iterator;
 
-    public PeekIterator(Iterator<Entry<MemorySegment>> iterator, long priority) {
+    public PeekIterator(Iterator<T> iterator, int priority) {
         this.priority = priority;
         this.iterator = iterator;
     }
@@ -22,20 +20,26 @@ public class PeekIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     @Override
-    public Entry<MemorySegment> next() {
-        Entry<MemorySegment> next = peek();
+    public T next() {
+        if (!hasNext()) {
+            throw new NoSuchElementException();
+        }
+        T next = peek();
         currentEntry = null;
         return next;
     }
 
-    public Entry<MemorySegment> peek() {
+    public T peek() {
         if (currentEntry == null) {
+            if (!iterator.hasNext()) {
+                return null;
+            }
             currentEntry = iterator.next();
         }
         return currentEntry;
     }
 
-    public long getPriority() {
+    public int getPriority() {
         return priority;
     }
 }

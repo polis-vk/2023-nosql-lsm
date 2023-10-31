@@ -22,12 +22,4 @@ public final class MemorySegmentComparator {
 
         return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, offset), o2.get(ValueLayout.JAVA_BYTE, offset));
     }
-
-    public static int iteratorsCompare(PeekIterator o1, PeekIterator o2) {
-        int compare = MemorySegmentComparator.compare(o1.peek().key(), o2.peek().key());
-        if (compare == 0) {
-            return o1.getPriority() > o2.getPriority() ? -1 : 1;
-        }
-        return compare;
-    }
 }

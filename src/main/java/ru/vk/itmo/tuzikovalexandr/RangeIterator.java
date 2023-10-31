@@ -1,73 +1,88 @@
 package ru.vk.itmo.tuzikovalexandr;
 
-import ru.vk.itmo.Entry;
+import java.util.*;
 
-import java.lang.foreign.MemorySegment;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.PriorityQueue;
-import java.util.Queue;
+public class RangeIterator<T> implements Iterator<T> {
 
-public class RangeIterator implements Iterator<Entry<MemorySegment>> {
+    private final Queue<PeekIterator<T>> iterators;
+    private final Comparator<T> comparator;
+    private PeekIterator<T> peek;
 
-    private final Queue<PeekIterator> mergeIterators;
-    private MemorySegment previousSegment;
+    public RangeIterator(Collection<Iterator<T>> peekIterators, Comparator<T> comparator) {
+        this.comparator = comparator;
+        Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
+        iterators = new PriorityQueue<>(peekIterators.size(), peekComp.thenComparing(o -> -o.getPriority()));
 
-    public RangeIterator(List<PeekIterator> peekIterators) {
-        mergeIterators = new PriorityQueue<>(MemorySegmentComparator::iteratorsCompare);
-
-        peekIterators.removeIf(i -> !i.hasNext());
-        this.mergeIterators.addAll(peekIterators);
+        int priority = 0;
+        for (Iterator<T> iterator : peekIterators) {
+            if (iterator.hasNext()) {
+                iterators.add(new PeekIterator<>(iterator, priority++));
+            }
+        }
     }
 
-    @Override
-    public boolean hasNext() {
-        PeekIterator nextPeekIterator;
+    private PeekIterator<T> peek() {
+        while (peek == null) {
+            peek = iterators.poll();
+            if (peek == null) {
+                return null;
+            }
 
-        while ((nextPeekIterator = mergeIterators.peek()) != null) {
-            Entry<MemorySegment> current = nextPeekIterator.peek();
+            while (true) {
+                PeekIterator<T> next = iterators.peek();
+                if (next == null) {
+                    break;
+                }
 
-            if (current.value() == null) {
-                previousSegment = current.key();
-                reInsert();
+                int compare = comparator.compare(peek.peek(), next.peek());
+                if (compare == 0) {
+                    PeekIterator<T> poll = iterators.poll();
+                    if (poll != null) {
+                        poll.next();
+                        if (poll.hasNext()) {
+                            iterators.add(poll);
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            if (peek.peek() == null) {
+                peek = null;
                 continue;
             }
 
-            if (!isEquals(current.key(), previousSegment)) {
-                return true;
+            if (skip(peek.peek())) {
+                peek.next();
+                if (peek.hasNext()) {
+                    iterators.add(peek);
+                }
+                peek = null;
             }
-            reInsert();
         }
+
+        return peek;
+    }
+
+    protected boolean skip(T t) {
         return false;
     }
 
     @Override
-    public Entry<MemorySegment> next() {
-        Entry<MemorySegment> resultEntry = reInsert();
-        previousSegment = resultEntry.key();
+    public boolean hasNext() { return peek() != null; }
 
-        return resultEntry;
-    }
-
-    private Entry<MemorySegment> reInsert() {
-        PeekIterator nextIterator = mergeIterators.poll();
-        if (nextIterator == null) {
+    @Override
+    public T next() {
+        PeekIterator<T> peek = peek();
+        if (peek == null) {
             throw new NoSuchElementException();
         }
-
-        Entry<MemorySegment> resultEntry = nextIterator.next();
-        if (nextIterator.hasNext()) {
-            mergeIterators.add(nextIterator);
+        T next = peek.next();
+        this.peek = null;
+        if (peek.hasNext()) {
+            iterators.add(peek);
         }
-
-        return resultEntry;
-    }
-
-    private boolean isEquals(MemorySegment o1, MemorySegment o2) {
-        if (o2 == null) {
-            return false;
-        }
-        return MemorySegmentComparator.compare(o1, o2) == 0;
+        return next;
     }
 }

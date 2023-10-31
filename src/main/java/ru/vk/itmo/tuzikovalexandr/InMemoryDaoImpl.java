@@ -5,9 +5,10 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Path;
 import java.util.Iterator;
-import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -15,38 +16,37 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memory =
             new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
     private final SSTable ssTable;
+    private final Arena arena;
+    private final Path path;
 
     public InMemoryDaoImpl(Config config) throws IOException {
-        this.ssTable = new SSTable(config);
+        this.path = config.basePath();
+
+        arena = Arena.ofShared();
+
+        this.ssTable = new SSTable(config, arena);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        Iterator<Entry<MemorySegment>> memoryIterator;
+        return ssTable.range(getInMemory(from, to), from, to);
+    }
 
+    public Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            memoryIterator = memory.values().iterator();
+            return memory.values().iterator();
         } else if (from == null) {
-            memoryIterator = memory.headMap(to, false).values().iterator();
+            return memory.headMap(to, false).values().iterator();
         } else if (to == null) {
-            memoryIterator = memory.tailMap(from, true).values().iterator();
-        } else {
-            memoryIterator = memory.subMap(from, true, to, false).values().iterator();
+            return memory.tailMap(from, true).values().iterator();
         }
 
-        if (ssTable.isNullIndexList()) {
-            return memoryIterator;
-        }
-
-        List<PeekIterator> iterators = ssTable.readDataFromTo(from, to);
-        iterators.add(new PeekIterator(memoryIterator, ssTable.getIndexListSize() + 1));
-
-        return new RangeIterator(iterators);
+        return memory.subMap(from, true, to, false).values().iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        var entry = memory.get(key);
+        Entry<MemorySegment> entry = memory.get(key);
 
         if (entry == null) {
             entry = ssTable.readData(key);
@@ -70,16 +70,26 @@ public class InMemoryDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>
     }
 
     @Override
-    public void flush() throws IOException {
-        throw new UnsupportedOperationException("");
+    public void compact() throws IOException {
+        Iterable<Entry<MemorySegment>> allData = () -> get(null, null);
+
+        if (allData.iterator().hasNext()) {
+            ssTable.compactData(path, allData);
+        }
+
+        memory.clear();
     }
 
     @Override
     public void close() throws IOException {
-        if (memory.isEmpty()) {
+        if (!arena.scope().isAlive()) {
             return;
         }
 
-        ssTable.saveMemData(memory.values());
+        arena.close();
+
+        if (!memory.isEmpty()) {
+            ssTable.saveMemData(path, memory.values());
+        }
     }
 }

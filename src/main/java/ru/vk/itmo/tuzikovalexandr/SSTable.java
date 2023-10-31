@@ -9,16 +9,9 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.OpenOption;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Stream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.util.*;
 
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
@@ -31,58 +24,57 @@ public class SSTable {
     );
 
     private final Path basePath;
-    private final Arena readArena;
     private static final String FILE_PREFIX = "data_";
     private static final String OFFSET_PREFIX = "offset_";
+    private static final String INDEX_FILE = "index.idx";
+    private static final String INDEX_TMP = "index.tmp";
     private final Comparator<MemorySegment> comparator;
-    private final List<BaseEntry<MemorySegment>> files;
-    private final List<Integer> listIndex;
+    private List<Entry<MemorySegment>> files;
 
-    public SSTable(Config config) throws IOException {
+    public SSTable(Config config, Arena arena) throws IOException {
         this.basePath = config.basePath();
 
         if (Files.notExists(basePath)) {
-            listIndex = null;
-            readArena = null;
-            files = null;
             comparator = null;
             return;
         }
 
-        listIndex = getAllIndex();
-        readArena = Arena.ofConfined();
-        files = new ArrayList<>();
         comparator = MemorySegmentComparator::compare;
+        this.files = loadData(basePath, arena);
+    }
 
-        for (Integer index : listIndex) {
-            Path offsetFullPath = basePath.resolve(OFFSET_PREFIX + index);
-            Path fileFullPath = basePath.resolve(FILE_PREFIX + index);
-
-            try (FileChannel fcOffset = FileChannel.open(offsetFullPath, StandardOpenOption.READ);
-                 FileChannel fcData = FileChannel.open(fileFullPath, StandardOpenOption.READ)) {
-
-                MemorySegment readSegmentOffset = fcOffset.map(
-                        READ_ONLY, 0, Files.size(offsetFullPath), readArena
-                );
-                MemorySegment readSegmentData = fcData.map(
-                        READ_ONLY, 0, Files.size(fileFullPath), readArena
-                );
-
-                files.add(new BaseEntry<>(readSegmentOffset, readSegmentData));
-            }
+    public Iterator<Entry<MemorySegment>> range(
+            Iterator<Entry<MemorySegment>> firstIterator,
+            MemorySegment from,
+            MemorySegment to) {
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(files.size() + 1);
+        for (Entry<MemorySegment> entry : files) {
+            iterators.add(readDataFromTo(entry.key(), entry.value(), from, to));
         }
+        iterators.add(firstIterator);
+        return new RangeIterator<>(iterators, Comparator.comparing(Entry::key, MemorySegmentComparator::compare)) {
+            @Override
+            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+                return memorySegmentEntry.value() == null;
+            }
+        };
     }
 
     // storage format: offsetFile |keyOffset|valueOffset| dataFile |key|value|
-    public void saveMemData(Collection<Entry<MemorySegment>> entries) throws IOException {
-        if (!readArena.scope().isAlive()) {
-            return;
+    public static void saveMemData(Path basePath, Iterable<Entry<MemorySegment>> entries) throws IOException {
+        Path indexTmp = basePath.resolve(INDEX_TMP);
+        Path indexFile = basePath.resolve(INDEX_FILE);
+
+        try {
+            Files.createFile(indexFile);
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
         }
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        readArena.close();
+        String newFileName = getNewFileIndex(existedFiles);
 
-        long[] offsets = new long[entries.size() * 2];
-
+        int countOffsets = 0;
         long offsetData = 0;
         long memorySize = 0;
         for (Entry<MemorySegment> entry : entries) {
@@ -93,13 +85,15 @@ public class SSTable {
             if (entry.value() == null) {
                 memorySize += Long.BYTES;
             }
+            countOffsets++;
         }
+
+        long[] offsets = new long[countOffsets * 2];
+
         int index = 0;
 
-        int fileIndex = getNewFIleIndex();
-
-        try (FileChannel fcData = FileChannel.open(basePath.resolve(FILE_PREFIX + fileIndex), openOptions);
-             FileChannel fcOffset = FileChannel.open(basePath.resolve(OFFSET_PREFIX + fileIndex), openOptions);
+        try (FileChannel fcData = FileChannel.open(basePath.resolve(FILE_PREFIX + newFileName), openOptions);
+             FileChannel fcOffset = FileChannel.open(basePath.resolve(OFFSET_PREFIX + newFileName), openOptions);
              Arena writeArena = Arena.ofConfined()) {
 
             MemorySegment writeSegmentData = fcData.map(READ_WRITE, 0, memorySize, writeArena);
@@ -132,14 +126,29 @@ public class SSTable {
                     writeSegmentOffset, ValueLayout.JAVA_LONG,0, offsets.length
             );
         }
+
+        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+
+        List<String> list = new ArrayList<>(existedFiles.size() + 1);
+        list.addAll(existedFiles);
+        list.add(newFileName);
+        Files.write(
+                indexFile,
+                list,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        Files.delete(indexTmp);
     }
 
     public Entry<MemorySegment> readData(MemorySegment key) {
-        if (listIndex == null || key == null) {
+        if (files == null || key == null) {
             return null;
         }
 
-        for (int i = listIndex.size() - 1; i >= 0; i--) {
+        for (int i = files.size() - 1; i >= 0; i--) {
             MemorySegment offsetSegment = files.get(i).key();
             MemorySegment dataSegment = files.get(i).value();
 
@@ -153,29 +162,71 @@ public class SSTable {
         return null;
     }
 
-    public List<PeekIterator> readDataFromTo(MemorySegment from, MemorySegment to) {
-        if (listIndex == null) {
-            return new ArrayList<>();
-        }
+    public Iterator<Entry<MemorySegment>> readDataFromTo(MemorySegment offsetSegment, MemorySegment dataSegment,
+                                             MemorySegment from, MemorySegment to) {
+        long start = from == null ? 0 : Math.abs(binarySearch(from, offsetSegment, dataSegment));
+        long end = to == null ? offsetSegment.byteSize() - Long.BYTES * 2 :
+                Math.abs(binarySearch(to, offsetSegment, dataSegment)) - Long.BYTES * 2;
 
-        List<PeekIterator> iterator = new ArrayList<>();
+        return new Iterator<>() {
+            long currentOffset = start;
 
-        for (int i = listIndex.size() - 1; i >= 0; i--) {
-            MemorySegment offsetSegment = files.get(i).key();
-            MemorySegment dataSegment = files.get(i).value();
-
-            long start = from == null ? 0 : Math.abs(binarySearch(from, offsetSegment, dataSegment));
-            long end = to == null ? offsetSegment.byteSize() - Long.BYTES * 2 :
-                    Math.abs(binarySearch(to, offsetSegment, dataSegment)) - Long.BYTES * 2;
-
-            if (start > end) {
-                continue;
+            @Override
+            public boolean hasNext() {
+                return currentOffset <= end;
             }
 
-            iterator.add(new PeekIterator(new FileIterator(offsetSegment, dataSegment, start, end), i));
-        }
+            @Override
+            public Entry<MemorySegment> next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
 
-        return iterator;
+                Entry<MemorySegment> currentEntry = Utils.getEntryByKeyOffset(currentOffset, offsetSegment, dataSegment);
+
+                currentOffset += Long.BYTES * 2;
+                return currentEntry;
+            }
+        };
+    }
+
+    public static void compactData(Path storagePath, Iterable<Entry<MemorySegment>> iterator) throws IOException {
+        saveMemData(storagePath, iterator);
+
+        Path indexTmp = storagePath.resolve(INDEX_TMP);
+        Path indexFile = storagePath.resolve(INDEX_FILE);
+
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+
+        String lastFileIndex = existedFiles.getLast();
+
+        deleteOldFiles(storagePath, lastFileIndex);
+
+        Files.writeString(
+                indexFile,
+                lastFileIndex,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        Files.delete(indexTmp);
+    }
+
+    public static void deleteOldFiles(Path storagePath, String lastFileIndex) throws IOException {
+        String lastFileNameOffset = OFFSET_PREFIX + lastFileIndex;
+        String lastFileNameData = FILE_PREFIX + lastFileIndex;
+
+        try (DirectoryStream<Path> fileStream = Files.newDirectoryStream(storagePath)) {
+            for (Path path : fileStream) {
+                String fileName = path.getFileName().toString();
+                if (!fileName.equals(INDEX_FILE) && !fileName.equals(lastFileNameData) &&
+                        !fileName.equals(lastFileNameOffset) && !fileName.equals(INDEX_TMP)) {
+                    Files.delete(path);
+                }
+            }
+        }
     }
 
     private long binarySearch(MemorySegment key, MemorySegment offsetSegment, MemorySegment dataSegment) {
@@ -212,37 +263,48 @@ public class SSTable {
         return -left * Long.BYTES * 2;
     }
 
-    public boolean isNullIndexList() {
-        return listIndex == null;
+    public static List<Entry<MemorySegment>> loadData(Path storagePath, Arena arena) throws IOException {
+        Path indexTmp = storagePath.resolve(INDEX_TMP);
+        Path indexFile = storagePath.resolve(INDEX_FILE);
+
+        if (Files.exists(indexTmp)) {
+            Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } else {
+            try {
+                Files.createFile(indexFile);
+            } catch (FileAlreadyExistsException ignored) {
+                // it is ok, actually it is normal state
+            }
+        }
+
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        List<Entry<MemorySegment>> result = new ArrayList<>(existedFiles.size());
+        for (String fileName : existedFiles) {
+            Path offsetFullPath = storagePath.resolve(OFFSET_PREFIX + fileName);
+            Path fileFullPath = storagePath.resolve(FILE_PREFIX + fileName);
+
+            try (FileChannel fcOffset = FileChannel.open(offsetFullPath, StandardOpenOption.READ);
+                 FileChannel fcData = FileChannel.open(fileFullPath, StandardOpenOption.READ)) {
+                MemorySegment readSegmentOffset = fcOffset.map(
+                        READ_ONLY, 0, Files.size(offsetFullPath), arena
+                );
+                MemorySegment readSegmentData = fcData.map(
+                        READ_ONLY, 0, Files.size(fileFullPath), arena
+                );
+
+                result.add(new BaseEntry<>(readSegmentOffset, readSegmentData));
+            }
+        }
+
+        return result;
     }
 
-    public long getIndexListSize() {
-        if (isNullIndexList()) {
-            return 0;
+    private static String getNewFileIndex(List<String> existedFiles) {
+        if (existedFiles.isEmpty()) {
+            return "1";
         }
-        return listIndex.size();
-    }
 
-    private List<Integer> getAllIndex() throws IOException {
-        List<Integer> index = new ArrayList<>();
-
-        try (Stream<Path> fileStream = Files.list(basePath)) {
-            fileStream.forEach(path -> {
-                String fileName = path.getFileName().toString();
-                if (fileName.startsWith(FILE_PREFIX)) {
-                    index.add(Utils.getIntIndexFromString(fileName));
-                }
-            });
-        }
-        index.sort(Integer::compare);
-
-        return index;
-    }
-
-    private int getNewFIleIndex() {
-        if (isNullIndexList()) {
-            return 1;
-        }
-        return listIndex.size() + 1;
+        int lastIndex = Integer.parseInt(existedFiles.getLast());
+        return String.valueOf(lastIndex + 1);
     }
 }

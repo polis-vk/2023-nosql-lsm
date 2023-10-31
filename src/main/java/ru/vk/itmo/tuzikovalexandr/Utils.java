@@ -6,8 +6,6 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-import static java.lang.Integer.parseInt;
-
 public final class Utils {
     private Utils() {
     }
@@ -38,12 +36,5 @@ public final class Utils {
         MemorySegment keySegment = dataSegment.asSlice(keyOffset, keySize);
 
         return new BaseEntry<>(keySegment, valueSegment);
-    }
-
-    public static Integer getIntIndexFromString(String fileName) {
-        String pattern = "data_";
-
-        int startIdx = fileName.indexOf(pattern) + pattern.length();
-        return parseInt(fileName.substring(startIdx), 10);
     }
 }
