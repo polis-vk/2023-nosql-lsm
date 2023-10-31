@@ -5,6 +5,7 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -36,6 +37,7 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final String SSTABLE_NAME = "SS_TABLE_PELOGEIKO-";
     private static final String INDEX_NAME = "INDEX_PELOGEIKO-";
     private final Config daoConfig;
+    private boolean compacted = false;
 
     public PermanentDao(Config config) {
         if (config == null) {
@@ -62,13 +64,13 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             try {
                 try (FileChannel tableFile = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
-                    arenaTableCurr = Arena.ofConfined();
+                    arenaTableCurr = Arena.ofShared();
                     ssTableCurr = tableFile.map(FileChannel.MapMode.READ_ONLY, 0,
                             Files.size(ssTablePath), arenaTableCurr);
                 }
 
                 try (FileChannel indexFile = FileChannel.open(indexPath, StandardOpenOption.READ)) {
-                    arenaIndexCurr = Arena.ofConfined();
+                    arenaIndexCurr = Arena.ofShared();
                     indexCurr = indexFile.map(FileChannel.MapMode.READ_ONLY, 0,
                             Files.size(indexPath), arenaIndexCurr);
                 }
@@ -169,9 +171,141 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         MemorySegment currValue = currentTable.asSlice(offset, sizeOfVal);
         return new BaseEntry<MemorySegment>(currKey, currValue);
     }
+    private void loadActualData() {
+        for (int ssTableNum = maxSSTable; ssTableNum >= 0; --ssTableNum) {
+            MemorySegment tableCurr = ssTableMap.get(ssTableNum);
+            long tableSize = tableCurr.byteSize();
+            long dataOffset = 0;
+
+            while (dataOffset < tableSize) {
+                long sizeOfKey = tableCurr.get(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset);
+                MemorySegment currKey = tableCurr.asSlice(dataOffset + Long.BYTES, sizeOfKey);
+
+                long valueOffset = dataOffset + Long.BYTES + sizeOfKey;
+                long valueSize = tableCurr.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
+
+                if (! mapCurrent.containsKey(currKey) && valueSize > 0) {
+                    MemorySegment currValue = tableCurr.asSlice(valueOffset + Long.BYTES, valueSize);
+                    var entry = new BaseEntry<MemorySegment>(currKey, currValue);
+                    mapCurrent.put(currKey, entry);
+                }
+
+                dataOffset = valueOffset + Long.BYTES + (valueSize > 0 ? valueSize : 0);
+            }
+        }
+    }
+
+    private void deleteAllOldFiles() throws IOException {
+        for (int ssTableNum = maxSSTable; ssTableNum >= 0; --ssTableNum) {
+            arenaTableMap.get(ssTableNum).close();
+            arenaTableMap.remove(ssTableNum);
+            arenaIndexMap.get(ssTableNum).close();
+            arenaIndexMap.remove(ssTableNum);
+            Files.deleteIfExists(daoConfig.basePath()
+                    .resolve(SSTABLE_NAME + Integer.toString(ssTableNum)));
+            Files.deleteIfExists(daoConfig.basePath()
+                    .resolve(INDEX_NAME + Integer.toString(ssTableNum)));
+        }
+        arenaTableMap.clear();
+        arenaIndexMap.clear();
+        maxSSTable = 0;
+    }
+    private void writeTmpTable() throws IOException {
+        if (!mapCurrent.isEmpty()) {
+            long ssTableSizeOut = 0;
+            long indexTableSize = 0;
+            for (var item : mapCurrent.values()) {
+                if (item.value() == null) {
+                    continue;
+                }
+                indexTableSize += 1;
+                ssTableSizeOut += item.key().byteSize() + item.value().byteSize() + Long.BYTES * 2L;
+            }
+            indexTableSize *= Long.BYTES;
+
+            FileChannel fileDataOut = FileChannel.open(daoConfig.basePath()
+                            .resolve(SSTABLE_NAME + "0.tmp"),
+                    StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+            Arena arenaDataWriter = Arena.ofShared();
+            MemorySegment memSegmentDataOut = fileDataOut.map(FileChannel.MapMode.READ_WRITE,
+                    0, ssTableSizeOut, arenaDataWriter);
+
+            FileChannel fileIndexOut = FileChannel.open(daoConfig.basePath()
+                            .resolve(INDEX_NAME + "0.tmp"),
+                    StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+            Arena arenaIndexWriter = Arena.ofShared();
+            MemorySegment memSegmentIndexOut = fileIndexOut.map(FileChannel.MapMode.READ_WRITE,
+                    0, indexTableSize, arenaIndexWriter);
+
+            long offsetData = 0;
+            long offsetIndex = 0;
+            for (var item : mapCurrent.values()) {
+                if (item.value() == null) {
+                    continue;
+                } else {
+                    memSegmentIndexOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, offsetData);
+                    offsetIndex += Long.BYTES;
+
+                    memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, item.key().byteSize());
+                    offsetData += Long.BYTES;
+
+                    MemorySegment.copy(item.key(), 0, memSegmentDataOut, offsetData, item.key().byteSize());
+                    offsetData += item.key().byteSize();
+
+                    memSegmentDataOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetData, item.value().byteSize());
+                    offsetData += Long.BYTES;
+
+                    MemorySegment.copy(item.value(), 0, memSegmentDataOut, offsetData, item.value().byteSize());
+                    offsetData += item.value().byteSize();
+                }
+
+            }
+            arenaDataWriter.close();
+            arenaIndexWriter.close();
+            fileDataOut.close();
+            fileIndexOut.close();
+        }
+    }
+
+    private void renameFile(Path source, Path target) throws IOException {
+        File fileTempTable = new File(source.toString());
+        File fileOutTable = new File(target.toString());
+        fileTempTable.renameTo(fileOutTable);
+        Files.deleteIfExists(source);
+    }
+    @Override
+    public void compact() throws IOException {
+
+        compacted = true;
+
+        loadActualData();
+
+        writeTmpTable();
+
+        deleteAllOldFiles();
+
+        if (!mapCurrent.isEmpty()) {
+            Path sourceTable = daoConfig.basePath()
+                    .resolve(SSTABLE_NAME + "0.tmp");
+            Path targetTable = daoConfig.basePath()
+                    .resolve(SSTABLE_NAME + Integer.toString(0));
+
+            Path sourceIndex = daoConfig.basePath()
+                    .resolve(INDEX_NAME + "0.tmp");
+            Path targetIndex = daoConfig.basePath()
+                    .resolve(INDEX_NAME + Integer.toString(0));
+
+            renameFile(sourceTable, targetTable);
+            renameFile(sourceIndex, targetIndex);
+        }
+
+    }
 
     @Override
     public void close() throws IOException {
+        if (compacted || mapCurrent.isEmpty()) {
+            return;
+        }
         if (daoConfig == null || mapCurrent.isEmpty()) {
             return;
         }
@@ -198,14 +332,14 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         FileChannel fileDataOut = FileChannel.open(daoConfig.basePath()
                         .resolve(SSTABLE_NAME + Integer.toString(maxSSTable)),
                 StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
-        Arena arenaDataWriter = Arena.ofConfined();
+        Arena arenaDataWriter = Arena.ofShared();
         MemorySegment memSegmentDataOut = fileDataOut.map(FileChannel.MapMode.READ_WRITE,
                 0, ssTableSizeOut, arenaDataWriter);
 
         FileChannel fileIndexOut = FileChannel.open(daoConfig.basePath()
                         .resolve(INDEX_NAME + Integer.toString(maxSSTable)),
                 StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE);
-        Arena arenaIndexWriter = Arena.ofConfined();
+        Arena arenaIndexWriter = Arena.ofShared();
         MemorySegment memSegmentIndexOut = fileIndexOut.map(FileChannel.MapMode.READ_WRITE,
                 0, indexTableSize, arenaIndexWriter);
 
@@ -237,7 +371,6 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arenaIndexWriter.close();
         fileDataOut.close();
         fileIndexOut.close();
-
     }
 
     @Override
