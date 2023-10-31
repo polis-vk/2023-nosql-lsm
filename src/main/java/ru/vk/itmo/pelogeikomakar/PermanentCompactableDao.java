@@ -16,7 +16,7 @@ import java.nio.file.StandardOpenOption;
 public class PermanentCompactableDao extends PermanentDao {
 
     private boolean compacted;
-    private final String zeroTmp = "0.tmp";
+    private static final String zeroTmp = "0.tmp";
 
     public PermanentCompactableDao(Config config) {
         super(config);
