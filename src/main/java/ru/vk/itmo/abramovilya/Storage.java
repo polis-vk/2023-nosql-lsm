@@ -18,12 +18,12 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-public class Storage implements Closeable {
+class Storage implements Closeable {
     private static final String COMPACTED_SUFFIX = "_compacted";
     private static final String COMPACTING_SUFFIX = "_compacting";
-    static final String SSTABLE_BASE_NAME = "storage";
-    static final String INDEX_BASE_NAME = "table";
-    final Path storagePath;
+    private static final String SSTABLE_BASE_NAME = "storage";
+    private static final String INDEX_BASE_NAME = "index";
+    private final Path storagePath;
     private final Path metaFilePath;
     private final List<FileChannel> sstableFileChannels = new ArrayList<>();
     private final List<MemorySegment> sstableMappedList = new ArrayList<>();
@@ -31,7 +31,7 @@ public class Storage implements Closeable {
     private final List<MemorySegment> indexMappedList = new ArrayList<>();
     private final StorageFileWriter storageFileWriter = new StorageFileWriter();
 
-    public Storage(Config config, Arena arena) throws IOException {
+    Storage(Config config, Arena arena) throws IOException {
         storagePath = config.basePath();
 
         Files.createDirectories(storagePath);
