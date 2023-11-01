@@ -24,6 +24,7 @@ public class DiskStorage {
     private static final String INDEX_FILE_NAME = "index";
     private static final String SSTABLE_EXT = ".sstable";
     private static final String TMP_EXT = ".tmp";
+
     public DiskStorage(List<Path> ssTablePaths, Arena arena) throws IOException {
         tableList = new ArrayList<>();
         for (Path path : ssTablePaths) {
