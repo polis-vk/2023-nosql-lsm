@@ -43,10 +43,7 @@ public class SSTable {
                 this.offsets = new ArrayList<>();
 
                 MemorySegment offsetsSegment = offsetsFileChannel.map(
-                        MapMode.READ_ONLY,
-                        0,
-                        offsetsFileChannel.size(),
-                        arena
+                        MapMode.READ_ONLY, 0, offsetsFileChannel.size(), arena
                 );
                 for (int i = 0; i < countRecords; ++i) {
                     offsets.add(offsetsSegment.get(ValueLayout.JAVA_LONG, i * Long.BYTES));
@@ -224,11 +221,7 @@ public class SSTable {
                     dataSegmentOffset += key.byteSize();
                     if (value != null) {
                         MemorySegment.copy(
-                                value,
-                                0,
-                                dataSegment,
-                                dataSegmentOffset,
-                                value.byteSize()
+                                value, 0, dataSegment, dataSegmentOffset, value.byteSize()
                         );
                         dataSegmentOffset += value.byteSize();
                     }
