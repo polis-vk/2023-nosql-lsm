@@ -108,7 +108,11 @@ public class DiskStorage {
 
                 MemorySegment value = entry.value();
                 if (value == null) {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, MemorySegmentUtils.tombstone(dataOffset));
+                    fileSegment.set(
+                            ValueLayout.JAVA_LONG_UNALIGNED,
+                            indexOffset,
+                            MemorySegmentUtils.tombstone(dataOffset)
+                    );
                 } else {
                     fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                     dataOffset += value.byteSize();
@@ -196,7 +200,8 @@ public class DiskStorage {
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : MemorySegmentUtils.normalize(MemorySegmentUtils.indexOf(page, from));
-        long recordIndexTo = to == null ? MemorySegmentUtils.recordsCount(page) : MemorySegmentUtils.normalize(MemorySegmentUtils.indexOf(page, to));
+        long recordIndexTo = to == null ? MemorySegmentUtils.recordsCount(page)
+                : MemorySegmentUtils.normalize(MemorySegmentUtils.indexOf(page, to));
         long recordsCount = MemorySegmentUtils.recordsCount(page);
 
         return new Iterator<>() {
