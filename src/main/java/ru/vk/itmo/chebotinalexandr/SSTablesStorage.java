@@ -29,6 +29,7 @@ public class SSTablesStorage {
     private static final String SSTABLE_NAME = "sstable_";
     private static final String SSTABLE_EXTENSION = ".dat";
     private static final long TOMBSTONE = -1;
+    private static final long COMPACTION_NOT_FINISHED_TAG = -1;
     private final Path basePath;
     private static final long OFFSET_FOR_SIZE = 0;
     private static final long OLDEST_SS_TABLE_INDEX = 0;
@@ -42,14 +43,7 @@ public class SSTablesStorage {
         sstables = new ArrayList<>();
 
         if (compactionTmpFileExists()) {
-            try {
-                deleteOldSSTables(basePath);
-                Path pathTmp = basePath.resolve(SSTABLE_NAME + ".tmp");
-                Files.move(pathTmp, pathTmp.resolveSibling(SSTABLE_NAME + OLDEST_SS_TABLE_INDEX + SSTABLE_EXTENSION),
-                        StandardCopyOption.ATOMIC_MOVE);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
+            restoreCompaction();
         }
 
         try (Stream<Path> stream = Files.list(basePath)) {
@@ -82,6 +76,29 @@ public class SSTablesStorage {
     private boolean compactionTmpFileExists() {
         Path pathTmp = basePath.resolve(SSTABLE_NAME + ".tmp");
         return Files.exists(pathTmp);
+    }
+
+    private void restoreCompaction() {
+        Path pathTmp = basePath.resolve(SSTABLE_NAME + ".tmp");
+
+        try (FileChannel channel = FileChannel.open(pathTmp, StandardOpenOption.READ)) {
+            MemorySegment tmpSstable = channel.map(
+                    FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
+
+            long tag = tmpSstable.get(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE);
+            if (tag != COMPACTION_NOT_FINISHED_TAG) {
+                deleteOldSSTables(basePath);
+                Files.move(pathTmp, pathTmp.resolveSibling(SSTABLE_NAME + OLDEST_SS_TABLE_INDEX + SSTABLE_EXTENSION),
+                        StandardCopyOption.ATOMIC_MOVE);
+            } else {
+                Files.delete(pathTmp);
+            }
+
+        } catch (FileNotFoundException | NoSuchFileException e) {
+            arena.close();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private int parsePriority(Path path) {
@@ -189,6 +206,7 @@ public class SSTablesStorage {
                 offset = writeEntry(entry, memorySegment, offset);
                 i++;
             }
+
         }
         arena.close();
     }
@@ -249,14 +267,12 @@ public class SSTablesStorage {
                     StandardOpenOption.WRITE,
                     StandardOpenOption.CREATE)) {
 
-                memorySegment = channel.map(
-                        FileChannel.MapMode.READ_WRITE,
-                        0,
-                        sizeForCompaction,
+                memorySegment = channel.map(FileChannel.MapMode.READ_WRITE, 0, sizeForCompaction,
                         arenaForCompact);
             }
 
             long offset = 0;
+            memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE, COMPACTION_NOT_FINISHED_TAG);
             offset += Long.BYTES; //header
             offset += Long.BYTES * entryCount; //key offsets
 
