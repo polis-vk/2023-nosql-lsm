@@ -98,17 +98,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        flush();
-        diskStorage.compact(path, arena, diskStorage, getInMemory(null, null));
+        diskStorage.compact(path, diskStorage, getInMemory(null, null));
     }
 
+    // Не был уверен, допускаются ли конкурентные вызовы flush
     @Override
-    public void flush() throws IOException {
-        if (storage.isEmpty()) {
-            return;
-        }
-//        DiskStorage.save(path, storage.values());
-//        storage.clear();
+    public synchronized void flush() throws IOException {
+        DiskStorage.save(path, storage.values());
     }
 
     @Override
@@ -120,7 +116,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
+            flush();
         }
     }
 }

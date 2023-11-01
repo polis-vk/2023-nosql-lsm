@@ -11,11 +11,10 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
-import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DiskStorage {
 
-    private List<MemorySegment> segmentList;
+    private final List<MemorySegment> segmentList;
 
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
@@ -39,81 +38,31 @@ public class DiskStorage {
         };
     }
 
-    public void compact(Path storagePath, Arena arena, DiskStorage diskStorage, Iterator<Entry<MemorySegment>> firstIterator) throws IOException {
+    public void compact(Path storagePath, DiskStorage diskStorage, Iterator<Entry<MemorySegment>> inMemoryIterator)
+            throws IOException {
         final Path indexFile = storagePath.resolve("index.idx");
         final Path indexTmp = storagePath.resolve("index.tmp");
-        if (segmentList.isEmpty() && !firstIterator.hasNext()) return;
 
-//        var iterator = range(firstIterator, null, null);
-//
-//
-//        long dataSize = 0;
-//        long count = 0;
-//        while (iterator.hasNext()) {
-//            var entry = iterator.next();
-//            dataSize += entry.key().byteSize();
-//            MemorySegment value = entry.value();
-//            if (value != null) {
-//                dataSize += value.byteSize();
-//            }
-//            count++;
-//        }
-//        long indexSize = count * 2 * Long.BYTES;
-//
-//        DiskStorage.save(storagePath, (Iterable<Entry<MemorySegment>>) iterator);
-//
-//            var pageIterator = iterator(page, null, null);
-//            while (pageIterator.hasNext()) {
-//                var entry = pageIterator.next();
-//                if (entry.value() == null || deleteKeys.contains(entry.key())) {
-//                    deleteKeys.add(entry.key());
-//                } else {
-//                    compactedStorage.put(entry.key(), entry);
-//                }
-//            }
+        if (segmentList.isEmpty() && !inMemoryIterator.hasNext()) return;
 
-        /// мы хотим заменить скиплист мапу на новый файл и сразу пистаь туда
-        /// нужен новый метод котоый пишет в новый файл и схраняет его
-        /// также мы хотим хранить в памяти все ключи чтобы знать какие стоит добавлять, а какие нет
-        /// также мы хотим сделать это сегодня и закинуть ПР
+        int maybeExistingFileName = 0;
 
-        ///!! Подумать что-то с loadOrRecover (заменить его или как-то прерделать алгоритм)
+        DiskStorage.saveForCompact(storagePath, diskStorage, inMemoryIterator);
 
-        ///Давай просто хуилион рас вызывать mergeIterator и сделаем рабочий выриант)
-        //////// - реализуем метод saveForCompact(), который принимает итератор
-        ///есть трабл что при вызове mergeIertor есть проблемы, поэтому в дальнейщейм нужно отказаться
-        ///от исопльщования memoryMap и использовать только таблицы и таблицу flushMemory map
-        ///так мы горантируем что состояние не изменится
-
-        ///во время компакта нужно использовать дургое название файла (compacted and compacting)
-//    }
-
-        int fileName = 0;
-
-        DiskStorage.saveForCompact(storagePath, diskStorage, firstIterator);
-//
-        while (fileName < segmentList.size()) {
-            Files.deleteIfExists(storagePath.resolve(String.valueOf(fileName)));
-            fileName ++;
+        while (maybeExistingFileName < segmentList.size()) {
+            Files.deleteIfExists(storagePath.resolve(String.valueOf(maybeExistingFileName)));
+            maybeExistingFileName ++;
         }
-//
-        Files.deleteIfExists(storagePath.resolve("compacted.sst"));
-//        var fiels = Files.readAllLines(indexFile);
-//        System.out.println(fiels.size());
-//        System.out.println(".............");
-//        for (var i : fiels) System.out.println(i);
-//        System.out.println(".............");
-//        System.out.println(segmentList.size());
-        Path source = storagePath.resolve(String.valueOf(segmentList.size()));
-        Path target = storagePath.resolve("compacted.sst");
-        System.out.println(Files.exists(target));
-        Files.createFile(target);
-////        System.out.println(Files.exists(target));
+
+        Files.deleteIfExists(storagePath.resolve("compacted"));
+
+        Path source = storagePath.resolve("compacting");
+        Path target = storagePath.resolve("compacted");
         Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-//
+
         Files.write(
                 indexTmp,
-                List.of("compacted.sst"),
+                List.of("compacted"),
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
@@ -124,11 +73,15 @@ public class DiskStorage {
         Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
-
-    public static void saveForCompact(Path storagePath, DiskStorage diskStorage, Iterator<Entry<MemorySegment>> firstIterator)
+    // В методе есть много схожей логики с методом save(),
+    //но решил нарушить DRY, чтобы вам было удобнее проверять т.к. я взял референс 3-ого этапа
+    //и скорее всего весь PR будет зелёным)
+    public static void saveForCompact(Path storagePath, DiskStorage diskStorage,
+                                      Iterator<Entry<MemorySegment>> inMemoryIterator)
             throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
+        final String compactingFileName = "compacting";
 
         try {
             Files.createFile(indexFile);
@@ -137,11 +90,10 @@ public class DiskStorage {
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        String newFileName = String.valueOf(existedFiles.size());
-
+        // index_size:
         long dataSize = 0;
         long count = 0;
-        var firstCycle = diskStorage.range(firstIterator, null, null);
+        var firstCycle = diskStorage.range(inMemoryIterator, null, null);
         while (firstCycle.hasNext()) {
             var entry = firstCycle.next();
             dataSize += entry.key().byteSize();
@@ -156,7 +108,7 @@ public class DiskStorage {
 
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve(newFileName),
+                        storagePath.resolve(compactingFileName),
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE
@@ -170,43 +122,29 @@ public class DiskStorage {
                     writeArena
             );
 
-            // index:
-            // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
-            // key0_Start = data start = end of index
+            // Прыгаем по страницам, но в 1 проход по итератору
+            // index_and_data:
             long dataOffset = indexSize;
             int indexOffset = 0;
-            var secondCycle = diskStorage.range(firstIterator, null, null);
+            var secondCycle = diskStorage.range(inMemoryIterator, null, null);
             while (secondCycle.hasNext()){
                 var entry = secondCycle.next();
+                MemorySegment key = entry.key();
                 fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                dataOffset += entry.key().byteSize();
+                MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
+
+                dataOffset += key.byteSize();
                 indexOffset += Long.BYTES;
 
                 MemorySegment value = entry.value();
                 if (value == null) {
                     fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
                 } else {
+                    MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
                     fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                     dataOffset += value.byteSize();
                 }
                 indexOffset += Long.BYTES;
-            }
-
-            // data:
-            // |key0|value0|key1|value1|...
-            dataOffset = indexSize;
-            var thirdCycle = diskStorage.range(firstIterator, null, null);
-            while (thirdCycle.hasNext()) {
-                var entry = thirdCycle.next();
-                MemorySegment key = entry.key();
-                MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
-                dataOffset += key.byteSize();
-
-                MemorySegment value = entry.value();
-                if (value != null) {
-                    MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
-                    dataOffset += value.byteSize();
-                }
             }
         }
 
@@ -214,7 +152,7 @@ public class DiskStorage {
 
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
-        list.add(newFileName);
+        list.add(compactingFileName);
         Files.write(
                 indexFile,
                 list,
@@ -222,7 +160,6 @@ public class DiskStorage {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
-
         Files.delete(indexTmp);
     }
 
