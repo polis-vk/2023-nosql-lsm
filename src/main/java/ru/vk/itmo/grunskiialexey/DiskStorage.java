@@ -20,7 +20,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.NoSuchElementException;
-import java.util.function.Function;
 
 public class DiskStorage {
     private final List<MemorySegment> segmentList;
@@ -135,7 +134,10 @@ public class DiskStorage {
         Files.delete(indexTmp);
     }
 
-    public void compact(Path storagePath, NavigableMap<MemorySegment, Entry<MemorySegment>> iterable) throws IOException {
+    public void compact(
+            Path storagePath,
+            NavigableMap<MemorySegment, Entry<MemorySegment>> iterable
+    ) throws IOException {
         if (segmentList.isEmpty() || (segmentList.size() == 1 && iterable.isEmpty())) {
             return;
         }
