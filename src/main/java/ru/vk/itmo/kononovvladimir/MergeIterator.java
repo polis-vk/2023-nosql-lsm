@@ -1,7 +1,7 @@
 package ru.vk.itmo.kononovvladimir;
 
-import java.util.Comparator;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
@@ -10,6 +10,7 @@ public class MergeIterator<T> implements Iterator<T> {
 
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
+    PeekIterator<T> peekIterator;
 
     private static class PeekIterator<T> implements Iterator<T> {
 
@@ -51,8 +52,6 @@ public class MergeIterator<T> implements Iterator<T> {
         }
     }
 
-    PeekIterator<T> peekIterator;
-
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
@@ -76,25 +75,10 @@ public class MergeIterator<T> implements Iterator<T> {
                 return null;
             }
 
-            while (true) {
-                PeekIterator<T> next = priorityQueue.peek();
-                if (next == null) {
-                    break;
-                }
-
-                int compare = comparator.compare(peekIterator.peek(), next.peek());
-                if (compare == 0) {
-                    PeekIterator<T> poll = priorityQueue.poll();
-                    if (poll != null) {
-                        poll.next();
-                        if (poll.hasNext()) {
-                            priorityQueue.add(poll);
-                        }
-                    }
-                } else {
-                    break;
-                }
-            }
+            PeekIterator<T> next;
+            do {
+                next = priorityQueue.peek();
+            } while (updatePeek(next));
 
             if (peekIterator.peek() == null) {
                 peekIterator = null;
@@ -111,6 +95,28 @@ public class MergeIterator<T> implements Iterator<T> {
         }
 
         return peekIterator;
+    }
+
+    //Спасибо код климату за мемы
+    private boolean updatePeek(PeekIterator<T> next) {
+
+        if (next == null) {
+            return false;
+        }
+
+        int compare = comparator.compare(peekIterator.peek(), next.peek());
+        if (compare == 0) {
+            PeekIterator<T> poll = priorityQueue.poll();
+            if (poll != null) {
+                poll.next();
+                if (poll.hasNext()) {
+                    priorityQueue.add(poll);
+                }
+            }
+            return true;
+        } else {
+            return false;
+        }
     }
 
     protected boolean skip(T t) {
