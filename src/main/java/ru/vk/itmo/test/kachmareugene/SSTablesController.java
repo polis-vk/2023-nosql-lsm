@@ -17,9 +17,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.Iterator;
 import java.util.SortedMap;
 import java.util.stream.Stream;
 
@@ -39,7 +39,7 @@ public class SSTablesController {
     private static final long ONE_LINE_SIZE = 4 * Long.BYTES;
     private static final String INDEX_COMMON_PREF = "index";
     private final Arena arenaForReading = Arena.ofShared();
-    private boolean isClosedArena = false;
+    private boolean isClosedArena;
     private final Comparator<MemorySegment> segComp;
 
     public SSTablesController(Path dir, Comparator<MemorySegment> com) {
@@ -205,7 +205,6 @@ public class SSTablesController {
 
             MemorySegment mappedIndex = indexChannel.map(
                     FileChannel.MapMode.READ_WRITE, currOffsetIndex, indexLength, saveArena);
-
 
             for (Entry<MemorySegment> kv : iter) {
                 currOffsetIndex = dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
