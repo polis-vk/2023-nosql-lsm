@@ -6,32 +6,32 @@ import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
 public final class MemorySegmentUtils {
 
-    public static int compareMemorySegments(MemorySegment l, MemorySegment r) {
+    public static int compareMemorySegments(MemorySegment left, MemorySegment right) {
         return compareMemorySegments(
-                l, 0, l.byteSize(),
-                r, 0, r.byteSize()
+                left, 0, left.byteSize(),
+                right, 0, right.byteSize()
         );
     }
 
     public static int compareMemorySegments(
-            MemorySegment l,
-            long lFromOffset,
-            long lToOffset,
-            MemorySegment r,
-            long rFromOffset,
-            long rToOffset
+            MemorySegment left,
+            long leftFromOffset,
+            long leftToOffset,
+            MemorySegment right,
+            long rightFromOffset,
+            long rightToOffset
     ) {
-        if (l == null) {
-            return r == null ? 0 : -1;
-        } else if (r == null) {
+        if (left == null) {
+            return right == null ? 0 : -1;
+        } else if (right == null) {
             return 1;
         }
 
-        long lSize = lToOffset - lFromOffset;
-        long rSize = rToOffset - rFromOffset;
+        long lSize = leftToOffset - leftFromOffset;
+        long rSize = rightToOffset - rightFromOffset;
         long mismatch = MemorySegment.mismatch(
-                l, lFromOffset, lToOffset,
-                r, rFromOffset, rToOffset
+                left, leftFromOffset, leftToOffset,
+                right, rightFromOffset, rightToOffset
         );
 
         if (mismatch == lSize) {
@@ -45,11 +45,10 @@ public final class MemorySegmentUtils {
         }
 
         return Byte.compareUnsigned(
-                l.get(JAVA_BYTE, lFromOffset + mismatch),
-                r.get(JAVA_BYTE, rFromOffset + mismatch)
+                left.get(JAVA_BYTE, leftFromOffset + mismatch),
+                right.get(JAVA_BYTE, rightFromOffset + mismatch)
         );
     }
-
 
     private MemorySegmentUtils() {
     }

@@ -40,7 +40,7 @@ public class SSTable {
             try (FileChannel offsetsFileChannel = FileChannel.open(offsetsFile, READ)) {
                 this.data = dataFileChannel.map(MapMode.READ_ONLY, 0, dataFileChannel.size(), arena);
 
-                this.countRecords = (int) (offsetsFileChannel.size() / ValueLayout.JAVA_LONG.byteSize());
+                this.countRecords = (int) (offsetsFileChannel.size() / Long.BYTES);
                 this.offsets = new ArrayList<>();
                 MemorySegment offsetsSegment = offsetsFileChannel.map(
                         MapMode.READ_ONLY,
@@ -50,10 +50,7 @@ public class SSTable {
                 );
 
                 for (int i = 0; i < countRecords; ++i) {
-                    offsets.add(offsetsSegment.get(
-                            ValueLayout.JAVA_LONG,
-                            i * ValueLayout.JAVA_LONG.byteSize()
-                    ));
+                    offsets.add(offsetsSegment.get(ValueLayout.JAVA_LONG, i * Long.BYTES));
                 }
             }
         }
@@ -84,8 +81,7 @@ public class SSTable {
         Iterator<Long> offsetsIterator = offsets.subList(fromIndex, toIndex).iterator();
         return new LazyIterator<>(
                 () -> {
-                    long offset = offsetsIterator.next();
-                    RecordInfo recordInfo = getRecordInfo(offset);
+                    RecordInfo recordInfo = getRecordInfo(offsetsIterator.next());
                     return new BaseEntry<>(readKey(recordInfo), readValue(recordInfo));
                 },
                 offsetsIterator::hasNext
@@ -122,7 +118,6 @@ public class SSTable {
 
     private RecordInfo getRecordInfo(long recordOffset) {
         long curOffset = recordOffset;
-        byte meta = data.get(ValueLayout.JAVA_BYTE, curOffset);
         ++curOffset;
 
         byte sizeInfo = data.get(ValueLayout.JAVA_BYTE, curOffset);
@@ -143,6 +138,7 @@ public class SSTable {
 
         long keySize = NumberUtils.fromBytes(keySizeInBytes);
         long valueSize = NumberUtils.fromBytes(valueSizeInBytes);
+        byte meta = data.get(ValueLayout.JAVA_BYTE, recordOffset);
 
         return new RecordInfo(meta, keySize, curOffset, valueSize, curOffset + keySize);
     }
@@ -183,16 +179,10 @@ public class SSTable {
                 }
 
                 MemorySegment dataSegment = dataFileChannel.map(
-                        MapMode.READ_WRITE,
-                        0,
-                        dataSize,
-                        arena
+                        MapMode.READ_WRITE, 0, dataSize, arena
                 );
                 MemorySegment offsetsSegment = offsetsFileChannel.map(
-                        MapMode.READ_WRITE,
-                        0,
-                        ValueLayout.JAVA_LONG.byteSize() * entries.size(),
-                        arena
+                        MapMode.READ_WRITE, 0, Long.BYTES * entries.size(), arena
                 );
                 long dataSegmentOffset = 0;
                 long offsetsSegmentOffset = 0;
@@ -206,7 +196,7 @@ public class SSTable {
                             : NumberUtils.toBytes(value.byteSize());
 
                     offsetsSegment.set(ValueLayout.JAVA_LONG, offsetsSegmentOffset, dataSegmentOffset);
-                    offsetsSegmentOffset += ValueLayout.JAVA_LONG.byteSize();
+                    offsetsSegmentOffset += Long.BYTES;
 
                     byte meta = buildMeta(entry);
                     byte sizeInfo = (byte) ((keySizeInBytes.length << 4) | valueSizeInBytes.length);
