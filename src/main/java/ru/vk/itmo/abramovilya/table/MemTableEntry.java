@@ -15,7 +15,7 @@ public class MemTableEntry implements TableEntry {
 
     @Override
     public MemorySegment value() {
-        if (current == null){
+        if (current == null) {
             return null;
         }
         return current.value();

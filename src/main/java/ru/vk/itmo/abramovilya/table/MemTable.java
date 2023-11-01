@@ -14,8 +14,7 @@ public class MemTable implements Table {
         iterator = map.values().iterator();
         if (iterator.hasNext()) {
             currentEntry = new MemTableEntry(iterator.next(), this);
-        }
-        else {
+        } else {
             currentEntry = new MemTableEntry(null, this);
         }
     }
