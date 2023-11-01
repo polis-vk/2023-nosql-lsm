@@ -20,7 +20,6 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.SortedMap;
 import java.util.stream.Stream;
 
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -168,20 +167,11 @@ public class SSTablesController {
         return null;
     }
 
-    private long dumpLong(MemorySegment mapped, long value, long offset) {
-        mapped.set(ValueLayout.JAVA_LONG, offset, value);
-        return offset + Long.BYTES;
-    }
-
-    private long dumpSegment(MemorySegment mapped, MemorySegment data, long offset) {
-        MemorySegment.copy(data, 0, mapped, offset, data.byteSize());
-        return offset + data.byteSize();
-    }
-
     public void dumpIterator(Iterable<Entry<MemorySegment>> iter) throws IOException {
         Iterator<Entry<MemorySegment>> iter1 = iter.iterator();
 
         if (ssTablesDir == null || !iter1.hasNext()) {
+            closeArena();
             return;
         }
         LocalDateTime time = LocalDateTime.now(ZoneId.systemDefault());
@@ -196,7 +186,7 @@ public class SSTablesController {
             long indexLength = 0L;
             while (iter1.hasNext()) {
                 var seg = iter1.next();
-                ssTableLenght += seg.key().byteSize() + seg.value().byteSize();
+                ssTableLenght += seg.key().byteSize() + getValueOrNull(seg).byteSize();
                 indexLength += ONE_LINE_SIZE;
             }
             long currOffsetSSTable = 0L;
@@ -204,61 +194,17 @@ public class SSTablesController {
 
             MemorySegment mappedSSTable = ssTableChannel.map(
                     FileChannel.MapMode.READ_WRITE, currOffsetSSTable, ssTableLenght, saveArena);
-
             MemorySegment mappedIndex = indexChannel.map(
                     FileChannel.MapMode.READ_WRITE, currOffsetIndex, indexLength, saveArena);
 
             for (Entry<MemorySegment> kv : iter) {
-                currOffsetIndex = dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
-                currOffsetSSTable = dumpSegment(mappedSSTable, kv.key(), currOffsetSSTable);
-                currOffsetIndex = dumpLong(mappedIndex, kv.key().byteSize(), currOffsetIndex);
+                currOffsetIndex = Utils.dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
+                currOffsetSSTable = Utils.dumpSegment(mappedSSTable, kv.key(), currOffsetSSTable);
+                currOffsetIndex = Utils.dumpLong(mappedIndex, kv.key().byteSize(), currOffsetIndex);
 
-                currOffsetIndex = dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
-                currOffsetSSTable = dumpSegment(mappedSSTable, getValueOrNull(kv), currOffsetSSTable);
-                currOffsetIndex = dumpLong(mappedIndex, rightByteSize(kv), currOffsetIndex);
-            }
-        }
-    }
-
-    public void dumpMemTableToSStable(SortedMap<MemorySegment, Entry<MemorySegment>> mp) throws IOException {
-
-        if (ssTablesDir == null || mp.isEmpty()) {
-            closeArena();
-            return;
-        }
-        LocalDateTime time = LocalDateTime.now(ZoneId.systemDefault());
-        Set<OpenOption> options = Set.of(WRITE, READ, CREATE);
-        try (FileChannel ssTableChannel =
-                     FileChannel.open(ssTablesDir.resolve(SS_TABLE_COMMON_PREF + formatter.format(time)), options);
-             FileChannel indexChannel =
-                     FileChannel.open(ssTablesDir.resolve(INDEX_COMMON_PREF + formatter.format(time)), options);
-             Arena saveArena = Arena.ofConfined()) {
-
-            long ssTableLenght = 0L;
-            long indexLength = mp.size() * ONE_LINE_SIZE;
-
-            for (var kv : mp.values()) {
-                ssTableLenght +=
-                        kv.key().byteSize() + getValueOrNull(kv).byteSize();
-            }
-
-            long currOffsetSSTable = 0L;
-            long currOffsetIndex = 0L;
-
-            MemorySegment mappedSSTable = ssTableChannel.map(
-                    FileChannel.MapMode.READ_WRITE, currOffsetSSTable, ssTableLenght, saveArena);
-
-            MemorySegment mappedIndex = indexChannel.map(
-                    FileChannel.MapMode.READ_WRITE, currOffsetIndex, indexLength, saveArena);
-
-            for (var kv : mp.values()) {
-                currOffsetIndex = dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
-                currOffsetSSTable = dumpSegment(mappedSSTable, kv.key(), currOffsetSSTable);
-                currOffsetIndex = dumpLong(mappedIndex, kv.key().byteSize(), currOffsetIndex);
-
-                currOffsetIndex = dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
-                currOffsetSSTable = dumpSegment(mappedSSTable, getValueOrNull(kv), currOffsetSSTable);
-                currOffsetIndex = dumpLong(mappedIndex, rightByteSize(kv), currOffsetIndex);
+                currOffsetIndex = Utils.dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
+                currOffsetSSTable = Utils.dumpSegment(mappedSSTable, getValueOrNull(kv), currOffsetSSTable);
+                currOffsetIndex = Utils.dumpLong(mappedIndex, rightByteSize(kv), currOffsetIndex);
             }
         } finally {
             closeArena();
