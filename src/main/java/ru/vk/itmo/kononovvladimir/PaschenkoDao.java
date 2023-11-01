@@ -8,12 +8,12 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.NavigableMap;
+import java.nio.file.StandardOpenOption;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -72,6 +72,68 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         storage.put(entry.key(), entry);
+    }
+
+    @Override
+    public void compact() throws IOException {
+        Iterator<Entry<MemorySegment>> iterator = get(null, null);
+/*        long size = 0;
+        int count = 0;
+        while (iterator.hasNext()) {
+            Entry<MemorySegment> entry = iterator.next();
+            size += entry.key().byteSize() + entry.value().byteSize() + Long.BYTES * 2;
+            count++;
+        }*/
+        final Path indexFile = path.resolve("index.idx");
+        final Path indexTmp = path.resolve("index.tmp");
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        Iterator<Entry<MemorySegment>> finalIterator = iterator;
+
+        for (String file: existedFiles){
+            Files.deleteIfExists(path.resolve(file));
+        }
+        Files.deleteIfExists(indexFile);
+        Files.createFile(indexTmp);
+        DiskStorage.save(path, () -> finalIterator);
+        storage.clear();
+
+
+/*        try (
+                FileChannel fileChannel = FileChannel.open(
+                        path.resolve("dataTmp"),
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.READ,
+                        StandardOpenOption.CREATE
+                );
+                Arena writeArena = Arena.ofConfined()
+        ) {
+            MemorySegment fileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    size,
+                    writeArena
+            );
+
+            long offsetKeys = 0;
+            long offsetData = 2L * Long.BYTES * count;
+            while (iterator.hasNext()) {
+                Entry<MemorySegment> entry = iterator.next();
+                MemorySegment.copy(entry.key(), 0, fileSegment, offsetKeys, entry.key().byteSize());
+                MemorySegment.copy(entry.value(), 0, fileSegment, offsetData, entry.value().byteSize());
+                offsetKeys += entry.key().byteSize();
+                offsetData += entry.value().byteSize();
+            }
+
+            String newFileName = String.valueOf(0);
+
+            Files.write(
+                    path.resolve("index.idx"),
+                    List.of(newFileName),
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING
+            );
+        }*/
     }
 
     @Override
