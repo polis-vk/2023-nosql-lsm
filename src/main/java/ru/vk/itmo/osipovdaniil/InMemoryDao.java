@@ -26,7 +26,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Arena arena;
 
-    private final DiskStorage diskStorage;
+    private DiskStorage diskStorage;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentMap
             = new ConcurrentSkipListMap<>(Utils::compareMemorySegments);
 
@@ -44,6 +44,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public void compact() throws IOException {
+        flush();
         final List<Entry<MemorySegment>> list = new ArrayList<>();
         final Iterator<Entry<MemorySegment>> allValuesIterator = get(null, null);
         while (allValuesIterator.hasNext()) {
@@ -57,6 +58,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         DiskStorage.deleteAll(path);
         Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
     /**
