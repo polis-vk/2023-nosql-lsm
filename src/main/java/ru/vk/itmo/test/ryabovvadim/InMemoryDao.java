@@ -236,7 +236,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             deleteSSTables();
             memoryTable.clear();
-            ssTables.add(new SSTable(config.basePath(), ssTableName, arena));
+
+            SSTable compactedSSTable = new SSTable(config.basePath(), ssTableName, arena);
+            compactedSSTable.rename("1");
+            ssTables.add(compactedSSTable);
         }
     }
 

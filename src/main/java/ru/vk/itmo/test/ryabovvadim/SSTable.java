@@ -36,8 +36,8 @@ public class SSTable {
         this.parentPath = parentPath;
         this.name = name;
 
-        Path dataFile = FileUtils.makePath(parentPath, name, FileUtils.DATA_FILE_EXT);
-        Path offsetsFile = FileUtils.makePath(parentPath, name, FileUtils.OFFSETS_FILE_EXT);
+        Path dataFile = getDataFilePath();
+        Path offsetsFile = getOffsetFilePath();
 
         try (FileChannel dataFileChannel = FileChannel.open(dataFile, READ)) {
             try (FileChannel offsetsFileChannel = FileChannel.open(offsetsFile, READ)) {
@@ -85,10 +85,6 @@ public class SSTable {
         );
     }
 
-    public String getName() {
-        return name;
-    }
-
     private int binSearchIndex(MemorySegment key, boolean lowerBound) {
         int l = -1;
         int r = countRecords;
@@ -114,23 +110,18 @@ public class SSTable {
     }
 
     private RecordInfo getRecordInfo(long recordOffset) {
-        long curOffset = recordOffset;
-        ++curOffset;
-
-        byte sizeInfo = data.get(ValueLayout.JAVA_BYTE, curOffset);
-        ++curOffset;
+        long curOffset = recordOffset + 1;
+        byte sizeInfo = data.get(ValueLayout.JAVA_BYTE, curOffset++);
         int keySizeSize = sizeInfo >> 4;
         int valueSizeSize = sizeInfo & 0xf;
 
         byte[] keySizeInBytes = new byte[keySizeSize];
         for (int i = 0; i < keySizeSize; ++i) {
-            keySizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, curOffset);
-            ++curOffset;
+            keySizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, curOffset++);
         }
         byte[] valueSizeInBytes = new byte[valueSizeSize];
         for (int i = 0; i < valueSizeSize; ++i) {
-            valueSizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, curOffset);
-            ++curOffset;
+            valueSizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, curOffset++);
         }
 
         long keySize = NumberUtils.fromBytes(keySizeInBytes);
@@ -194,13 +185,11 @@ public class SSTable {
                     offsetsSegment.set(ValueLayout.JAVA_LONG, offsetsSegmentOffset, dataSegmentOffset);
                     offsetsSegmentOffset += Long.BYTES;
 
-                    byte meta = buildMeta(entry);
+                    byte meta = SSTableMeta.buildMeta(entry);
                     byte sizeInfo = (byte) ((keySizeInBytes.length << 4) | valueSizeInBytes.length);
 
-                    dataSegment.set(ValueLayout.JAVA_BYTE, dataSegmentOffset, meta);
-                    dataSegmentOffset += 1;
-                    dataSegment.set(ValueLayout.JAVA_BYTE, dataSegmentOffset, sizeInfo);
-                    dataSegmentOffset += 1;
+                    dataSegment.set(ValueLayout.JAVA_BYTE, dataSegmentOffset++, meta);
+                    dataSegment.set(ValueLayout.JAVA_BYTE, dataSegmentOffset++, sizeInfo);
 
                     MemorySegment.copy(
                             keySizeInBytes,
@@ -233,25 +222,42 @@ public class SSTable {
         }
     }
 
-    private static byte buildMeta(Entry<MemorySegment> entry) {
-        byte meta = 0;
-
-        if (entry.value() == null) {
-            meta |= SSTableMeta.REMOVE_VALUE;
-        }
-        return meta;
+    public void delete() throws IOException {
+        Files.deleteIfExists(getDataFilePath());
+        Files.deleteIfExists(getOffsetFilePath());
     }
 
-    public void delete() throws IOException {
-        Files.deleteIfExists(FileUtils.makePath(parentPath, name, FileUtils.DATA_FILE_EXT));
-        Files.deleteIfExists(FileUtils.makePath(parentPath, name, FileUtils.OFFSETS_FILE_EXT));
+    public void rename(String newName) throws IOException {
+        Files.move(getDataFilePath(), FileUtils.makePath(parentPath, newName, FileUtils.DATA_FILE_EXT));
+        Files.move(getOffsetFilePath(), FileUtils.makePath(parentPath, newName, FileUtils.OFFSETS_FILE_EXT));
+    }
+
+    private Path getDataFilePath() {
+        return FileUtils.makePath(parentPath, name, FileUtils.DATA_FILE_EXT);
+    }
+
+    private Path getOffsetFilePath() {
+        return FileUtils.makePath(parentPath, name, FileUtils.OFFSETS_FILE_EXT);
+    }
+
+    public String getName() {
+        return name;
     }
 
     private static class SSTableMeta {
         private static final byte REMOVE_VALUE = 0x1;
 
-        private static boolean isRemovedValue(byte meta) {
+        public static boolean isRemovedValue(byte meta) {
             return (meta & REMOVE_VALUE) == REMOVE_VALUE;
+        }
+
+        public static byte buildMeta(Entry<MemorySegment> entry) {
+            byte meta = 0;
+
+            if (entry.value() == null) {
+                meta |= SSTableMeta.REMOVE_VALUE;
+            }
+            return meta;
         }
     }
 
