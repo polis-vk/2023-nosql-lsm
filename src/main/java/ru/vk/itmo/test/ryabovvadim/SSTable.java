@@ -273,12 +273,45 @@ public class SSTable {
         }
     }
 
-    private record RecordInfo(
-            byte meta,
-            long keySize,
-            long keyOffset,
-            long valueSize,
-            long valueOffset
-    ) {
+    private static final class RecordInfo {
+        private final byte meta;
+        private final long keySize;
+        private final long keyOffset;
+        private final long valueSize;
+        private final long valueOffset;
+
+        private RecordInfo(
+                byte meta,
+                long keySize,
+                long keyOffset,
+                long valueSize,
+                long valueOffset
+        ) {
+            this.meta = meta;
+            this.keySize = keySize;
+            this.keyOffset = keyOffset;
+            this.valueSize = valueSize;
+            this.valueOffset = valueOffset;
+        }
+
+        public byte meta() {
+            return meta;
+        }
+
+        public long keySize() {
+            return keySize;
+        }
+
+        public long keyOffset() {
+            return keyOffset;
+        }
+
+        public long valueSize() {
+            return valueSize;
+        }
+
+        public long valueOffset() {
+            return valueOffset;
+        }
     }
 }
