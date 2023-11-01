@@ -38,35 +38,35 @@ public class SSTable {
                 this.countRecords = (int) (offsetsFileChannel.size() / ValueLayout.JAVA_LONG.byteSize());
                 this.offsets = new ArrayList<>();
                 MemorySegment offsetsSegment = offsetsFileChannel.map(
-                    MapMode.READ_ONLY, 
-                    0, 
-                    offsetsFileChannel.size(), 
-                    arena
+                        MapMode.READ_ONLY,
+                        0,
+                        offsetsFileChannel.size(),
+                        arena
                 );
 
                 for (int i = 0; i < countRecords; ++i) {
                     offsets.add(offsetsSegment.get(
-                        ValueLayout.JAVA_LONG, 
-                        i * ValueLayout.JAVA_LONG.byteSize()
+                            ValueLayout.JAVA_LONG,
+                            i * ValueLayout.JAVA_LONG.byteSize()
                     ));
                 }
             }
         }
     }
-    
+
     public Entry<MemorySegment> findEntry(MemorySegment key) {
         int offsetIndex = binSearchIndex(key, true);
-        
+
         if (offsetIndex < 0) {
             return null;
         }
-        return new BaseEntry<>(key, readValue(offsets.get(offsetIndex)));
+        return new BaseEntry<>(key, readValue(getRecordInfo(offsets.get(offsetIndex))));
     }
-    
+
     public FutureIterator<Entry<MemorySegment>> findEntries(MemorySegment from, MemorySegment to) {
         int fromIndex = 0;
         int toIndex = countRecords;
-        
+
         if (from != null) {
             int fromOffsetIndex = binSearchIndex(from, true);
             fromIndex = fromOffsetIndex < 0 ? -(fromOffsetIndex + 1) : fromOffsetIndex;
@@ -75,29 +75,33 @@ public class SSTable {
             int toOffsetIndex = binSearchIndex(to, false);
             toIndex = toOffsetIndex < 0 ? -toOffsetIndex : toOffsetIndex;
         }
-        
+
         Iterator<Long> offsetsIterator = offsets.subList(fromIndex, toIndex).iterator();
         return new LazyIterator<>(
-            () -> {
-                long offset = offsetsIterator.next();
-                return new BaseEntry<>(readKey(offset), readValue(offset));
-            },
-            offsetsIterator::hasNext
+                () -> {
+                    long offset = offsetsIterator.next();
+                    RecordInfo recordInfo = getRecordInfo(offset);
+                    return new BaseEntry<>(readKey(recordInfo), readValue(recordInfo));
+                },
+                offsetsIterator::hasNext
         );
     }
 
     public String getName() {
         return name;
     }
-    
+
     private int binSearchIndex(MemorySegment key, boolean lowerBound) {
         int l = -1;
         int r = countRecords;
 
         while (l + 1 < r) {
             int mid = (l + r) / 2;
-            MemorySegment curKey = readKey(offsets.get(mid));
-            int compareResult = FileUtils.MEMORY_SEGMENT_COMPARATOR.compare(curKey, key);
+            RecordInfo recordInfo = getRecordInfo(offsets.get(mid));
+            int compareResult = FileUtils.compareMemorySegments(
+                    data, recordInfo.getKeyOffset(), recordInfo.getValueOffset(),
+                    key, 0, key.byteSize()
+            );
 
             if (compareResult == 0) {
                 return mid;
@@ -107,63 +111,54 @@ public class SSTable {
                 l = mid;
             }
         }
-        
+
         return lowerBound ? -r - 1 : -l - 1;
     }
 
-    private MemorySegment readKey(long offset) {
-        long curOffset = offset;
-        ++curOffset;
-        byte sizeInfo = data.get(ValueLayout.JAVA_BYTE, curOffset);
-        ++curOffset;
-        int keySizeSize = sizeInfo >> 4;
-        int valueSizeSize = sizeInfo & 0xf;
-
-        byte[] keySizeInBytes = new byte[keySizeSize];
-        for (int i = 0; i < keySizeSize; ++i) {
-            keySizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, curOffset);
-            curOffset += 1;
-        }
-        long keySize = NumberUtils.fromBytes(keySizeInBytes);
-        curOffset += valueSizeSize;
-
-        return data.asSlice(curOffset, keySize);
-    }
-
-    private MemorySegment readValue(long offset) {
-        long curOffset = offset;
+    private RecordInfo getRecordInfo(long recordOffset) {
+        long curOffset = recordOffset;
         byte meta = data.get(ValueLayout.JAVA_BYTE, curOffset);
-        if ((meta & SSTableMeta.REMOVE_VALUE) == SSTableMeta.REMOVE_VALUE) {
-            return null;            
-        }
+        ++curOffset;
 
-        curOffset += 1;
         byte sizeInfo = data.get(ValueLayout.JAVA_BYTE, curOffset);
-        curOffset += 1;
+        ++curOffset;
         int keySizeSize = sizeInfo >> 4;
         int valueSizeSize = sizeInfo & 0xf;
 
         byte[] keySizeInBytes = new byte[keySizeSize];
-        byte[] valueSizeInBytes = new byte[valueSizeSize];
         for (int i = 0; i < keySizeSize; ++i) {
             keySizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, curOffset);
-            curOffset += 1;
+            ++curOffset;
         }
+        byte[] valueSizeInBytes = new byte[valueSizeSize];
         for (int i = 0; i < valueSizeSize; ++i) {
             valueSizeInBytes[i] = data.get(ValueLayout.JAVA_BYTE, curOffset);
-            curOffset += 1;
+            ++curOffset;
         }
+
         long keySize = NumberUtils.fromBytes(keySizeInBytes);
         long valueSize = NumberUtils.fromBytes(valueSizeInBytes);
 
-        return data.asSlice(curOffset + keySize, valueSize);
+        return new RecordInfo(meta, keySize, curOffset, valueSize, curOffset + keySize);
+    }
+
+    private MemorySegment readKey(RecordInfo recordInfo) {
+        return data.asSlice(recordInfo.getKeyOffset(), recordInfo.getKeySize());
+    }
+
+    private MemorySegment readValue(RecordInfo recordInfo) {
+        if (SSTableMeta.isRemovedValue(recordInfo.getMeta())) {
+            return null;
+        }
+
+        return data.asSlice(recordInfo.getValueOffset(), recordInfo.getValueSize());
     }
 
     public static void save(
-        Path prefix,
-        String name,
-        Collection<Entry<MemorySegment>> entries,
-        Arena arena
+            Path prefix,
+            String name,
+            Collection<Entry<MemorySegment>> entries,
+            Arena arena
     ) throws IOException {
         Path dataFile = FileUtils.makePath(prefix, name, FileUtils.DATA_FILE_EXT);
         Path offsetsFile = FileUtils.makePath(prefix, name, FileUtils.OFFSETS_FILE_EXT);
@@ -183,16 +178,16 @@ public class SSTable {
                 }
 
                 MemorySegment dataSegment = dataFileChannel.map(
-                    MapMode.READ_WRITE,
-                    0,
-                    dataSize,
-                    arena
+                        MapMode.READ_WRITE,
+                        0,
+                        dataSize,
+                        arena
                 );
                 MemorySegment offsetsSegment = offsetsFileChannel.map(
-                    MapMode.READ_WRITE,
-                    0,
-                    ValueLayout.JAVA_LONG.byteSize() * entries.size(),
-                    arena
+                        MapMode.READ_WRITE,
+                        0,
+                        ValueLayout.JAVA_LONG.byteSize() * entries.size(),
+                        arena
                 );
                 long dataSegmentOffset = 0;
                 long offsetsSegmentOffset = 0;
@@ -201,9 +196,9 @@ public class SSTable {
                     MemorySegment key = entry.key();
                     MemorySegment value = entry.value();
                     byte[] keySizeInBytes = NumberUtils.toBytes(key.byteSize());
-                    byte[] valueSizeInBytes = value == null 
-                        ? new byte[0] 
-                        : NumberUtils.toBytes(value.byteSize());
+                    byte[] valueSizeInBytes = value == null
+                            ? new byte[0]
+                            : NumberUtils.toBytes(value.byteSize());
 
                     offsetsSegment.set(ValueLayout.JAVA_LONG, offsetsSegmentOffset, dataSegmentOffset);
                     offsetsSegmentOffset += ValueLayout.JAVA_LONG.byteSize();
@@ -238,11 +233,11 @@ public class SSTable {
                     dataSegmentOffset += key.byteSize();
                     if (value != null) {
                         MemorySegment.copy(
-                            value, 
-                            0,
-                            dataSegment,
-                            dataSegmentOffset,
-                            value.byteSize()
+                                value,
+                                0,
+                                dataSegment,
+                                dataSegmentOffset,
+                                value.byteSize()
                         );
                         dataSegmentOffset += value.byteSize();
                     }
@@ -250,18 +245,64 @@ public class SSTable {
             }
         }
     }
-    
+
     private static byte buildMeta(Entry<MemorySegment> entry) {
         byte meta = 0;
 
         if (entry.value() == null) {
             meta |= SSTableMeta.REMOVE_VALUE;
         }
-        
+
         return meta;
     }
-    
+
     private static class SSTableMeta {
         private static final byte REMOVE_VALUE = 0x1;
+
+        private static boolean isRemovedValue(byte meta) {
+            return (meta & REMOVE_VALUE) == REMOVE_VALUE;
+        }
+    }
+
+    private static class RecordInfo {
+        private final byte meta;
+        private final long keySize;
+        private final long keyOffset;
+        private final long valueSize;
+        private final long valueOffset;
+
+        public RecordInfo(
+                byte meta,
+                long keySize,
+                long keyOffset,
+                long valueSize,
+                long valueOffset
+        ) {
+            this.meta = meta;
+            this.keySize = keySize;
+            this.keyOffset = keyOffset;
+            this.valueSize = valueSize;
+            this.valueOffset = valueOffset;
+        }
+
+        public byte getMeta() {
+            return meta;
+        }
+
+        public long getKeySize() {
+            return keySize;
+        }
+
+        public long getKeyOffset() {
+            return keyOffset;
+        }
+
+        public long getValueSize() {
+            return valueSize;
+        }
+
+        public long getValueOffset() {
+            return valueOffset;
+        }
     }
 }

@@ -14,32 +14,46 @@ public final class FileUtils {
     public static final String DATA_FILE_EXT = "data";
     public static final String OFFSETS_FILE_EXT = "offsets";
 
-    public static final Comparator<? super MemorySegment> MEMORY_SEGMENT_COMPARATOR = (firstSegment, secondSegment) -> {
-        if (firstSegment == null) {
-            return secondSegment == null ? 0 : -1;
-        } else if (secondSegment == null) {
+    public static final Comparator<? super Entry<MemorySegment>> ENTRY_COMPARATOR =
+        Comparator.comparing(Entry::key, FileUtils::compareMemorySegments);
+    
+    public static int compareMemorySegments(MemorySegment l, MemorySegment r) {
+        return compareMemorySegments(l, 0, l.byteSize(), r, 0, r.byteSize());
+    }
+    
+    public static int compareMemorySegments(
+        MemorySegment l,
+        long lFromOffset,
+        long lToOffset,
+        MemorySegment r,
+        long rFromOffset,
+        long rToOffset
+    ) {
+        if (l == null) {
+            return r == null ? 0 : -1;
+        } else if (r == null) {
             return 1;
         }
 
-        long firstSegmentSize = firstSegment.byteSize();
-        long secondSegmentSize = secondSegment.byteSize();
-        long mismatchOffset = firstSegment.mismatch(secondSegment);
+        long lSize = lToOffset - lFromOffset;
+        long rSize = rToOffset - rFromOffset;
+        long mismatch = MemorySegment.mismatch(l, lFromOffset, lToOffset, r, rFromOffset, rToOffset);
 
-        if (mismatchOffset == firstSegmentSize) {
+        if (mismatch == lSize) {
             return -1;
         }
-        if (mismatchOffset == secondSegmentSize) {
+        if (mismatch == rSize) {
             return 1;
         }
-        if (mismatchOffset == -1) {
-            return Long.compare(firstSegmentSize, secondSegmentSize);
+        if (mismatch == -1) {
+            return 0;
         }
 
-        return Byte.compare(firstSegment.get(JAVA_BYTE, mismatchOffset), secondSegment.get(JAVA_BYTE, mismatchOffset));
-    };
-
-    public static final Comparator<? super Entry<MemorySegment>> ENTRY_COMPARATOR =
-        Comparator.comparing(Entry::key, MEMORY_SEGMENT_COMPARATOR);
+        return Byte.compareUnsigned(
+            l.get(JAVA_BYTE, lFromOffset + mismatch), 
+            r.get(JAVA_BYTE, rFromOffset + mismatch)
+        );
+    }
 
     public static Path makePath(Path prefix, String name, String extension) {
         return Path.of(prefix.toString(), name + "." + extension);
