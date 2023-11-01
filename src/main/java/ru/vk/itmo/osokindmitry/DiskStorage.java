@@ -51,6 +51,14 @@ public class DiskStorage {
         };
     }
 
+    /**
+     * Stores memTable as follows:
+     * index:
+     * |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
+     * key0_Start = data start = end of index
+     * data:
+     * |key0|value0|key1|value1|...
+     */
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
@@ -67,6 +75,7 @@ public class DiskStorage {
 
         long dataSize = 0;
         long count = 0;
+
         for (Entry<MemorySegment> entry : iterable) {
             dataSize += entry.key().byteSize();
 
@@ -93,11 +102,6 @@ public class DiskStorage {
                     writeArena
             );
 
-            // index:
-            // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
-            // key0_Start = data start = end of index
-            // data:
-            // |key0|value0|key1|value1|...
             long dataOffset = indexSize;
             int indexOffset = 0;
             for (Entry<MemorySegment> entry : iterable) {
@@ -117,6 +121,11 @@ public class DiskStorage {
             }
         }
 
+        updateIndex(indexFile, indexTmp, existedFiles, newFileName);
+    }
+
+    private static void updateIndex(Path indexFile, Path indexTmp, List<String> existedFiles, String newFileName)
+            throws IOException {
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
@@ -129,7 +138,6 @@ public class DiskStorage {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
-
         Files.delete(indexTmp);
     }
 
@@ -137,7 +145,6 @@ public class DiskStorage {
         if (tableList.isEmpty()) {
             return;
         }
-        final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
 
         try {
@@ -191,7 +198,15 @@ public class DiskStorage {
             }
         }
 
+        updateIndexAndCleanUp(storagePath, indexFile);
+        tableList.clear();
+        tableList.add(new SsTable(fileSegment));
+    }
+
+    private void updateIndexAndCleanUp(Path storagePath, Path indexFile) throws IOException {
+
         final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
 
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         Files.move(storagePath.resolve("0" + TMP_EXT), storagePath.resolve("0" + SSTABLE_EXT),
@@ -205,11 +220,16 @@ public class DiskStorage {
                 StandardOpenOption.TRUNCATE_EXISTING
         );
 
-        for (int i = 1; i < existedFiles.size(); i++) {
-            Files.delete(storagePath.resolve(existedFiles.get(i)));
+        try {
+            for (int i = 1; i < existedFiles.size(); i++) {
+                Files.delete(storagePath.resolve(existedFiles.get(i)));
+            }
+        } catch (IOException e) {
+            // If we fail during delete, db will recover with index.tmp that points to deleted files
+            Files.delete(indexTmp);
+            throw new IOException("Failed when deleting old sstables");
         }
-        tableList.clear();
-        tableList.add(new SsTable(fileSegment));
+
         Files.delete(indexTmp);
     }
 
