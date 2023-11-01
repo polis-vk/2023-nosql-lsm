@@ -1,20 +1,22 @@
-package ru.vk.itmo.test.viktorkorotkikh;
+package ru.vk.itmo.test.mozzhevilovdanil;
 
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.mozzhevilovdanil.MozzhevilovDao;
 import ru.vk.itmo.test.DaoFactory;
-import ru.vk.itmo.viktorkorotkikh.LSMDaoImpl;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
 @DaoFactory(stage = 3)
-public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new LSMDaoImpl(config.basePath());
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new MozzhevilovDao(config);
     }
 
     @Override
