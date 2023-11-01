@@ -53,7 +53,7 @@ public abstract class MergeIterator<T> implements Iterator<T> {
         }
     }
 
-    public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
+    protected MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
         Comparator<MergeIterator.PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
         priorityQueue = new PriorityQueue<>(
@@ -76,25 +76,7 @@ public abstract class MergeIterator<T> implements Iterator<T> {
                 return null;
             }
 
-            while (true) {
-                MergeIterator.PeekIterator<T> next = priorityQueue.peek();
-                if (next == null) {
-                    break;
-                }
-
-                int compare = comparator.compare(peek.peek(), next.peek());
-                if (compare == 0) {
-                    MergeIterator.PeekIterator<T> poll = priorityQueue.poll();
-                    if (poll != null) {
-                        poll.next();
-                        if (poll.hasNext()) {
-                            priorityQueue.add(poll);
-                        }
-                    }
-                } else {
-                    break;
-                }
-            }
+            mergeWithPeekIterator();
 
             if (peek.peek() == null) {
                 peek = null;
@@ -113,7 +95,30 @@ public abstract class MergeIterator<T> implements Iterator<T> {
         return peek;
     }
 
-    abstract protected boolean skip(T value);
+    private void mergeWithPeekIterator() {
+        while (true) {
+            MergeIterator.PeekIterator<T> next = priorityQueue.peek();
+            if (next == null) {
+                break;
+            }
+
+            int compare = comparator.compare(peek.peek(), next.peek());
+            if (compare == 0) {
+                MergeIterator.PeekIterator<T> poll = priorityQueue.poll();
+                if (poll == null) {
+                    continue;
+                }
+                poll.next();
+                if (poll.hasNext()) {
+                    priorityQueue.add(poll);
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    protected abstract boolean skip(T value);
 
     @Override
     public boolean hasNext() {
