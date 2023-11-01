@@ -87,7 +87,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public boolean hasNext() {
-        PeekIteratorWrapper nextIterator = this.iterators.peek();
+        PeekIteratorWrapper nextIterator = iterators.peek();
         return nextIterator != null;
     }
 
