@@ -197,7 +197,7 @@ public class DiskStorage {
                     try {
                         Files.delete(file);
                     } catch (IOException ignored) {
-                        // it is ok (no)
+                        // it is ok
                     }
                 }
             });
