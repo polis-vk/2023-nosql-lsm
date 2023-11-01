@@ -1,86 +1,133 @@
 package ru.vk.itmo.emelyanovpavel;
 
-import ru.vk.itmo.Entry;
+import java.util.*;
 
-import java.lang.foreign.MemorySegment;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.Objects;
-import java.util.PriorityQueue;
-import java.util.Queue;
+public class MergeIterator<T> implements Iterator<T> {
 
-public class MergeIterator implements Iterator<Entry<MemorySegment>> {
+    private final PriorityQueue<PeekIterator<T>> priorityQueue;
+    private final Comparator<T> comparator;
+    private PeekIterator<T> peek;
 
-    private final Queue<PeekIterator<Entry<MemorySegment>>> priorityQueue;
+    private static class PeekIterator<T> implements Iterator<T> {
 
-    public MergeIterator(List<PeekIterator<Entry<MemorySegment>>> iterators) {
+        public final int id;
+        private final Iterator<T> delegate;
+        private T peek;
+
+        private PeekIterator(int id, Iterator<T> delegate) {
+            this.id = id;
+            this.delegate = delegate;
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (peek == null) {
+                return delegate.hasNext();
+            }
+            return true;
+        }
+
+        @Override
+        public T next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            T peek = peek();
+            this.peek = null;
+            return peek;
+        }
+
+        private T peek() {
+            if (peek == null) {
+                if (!delegate.hasNext()) {
+                    return null;
+                }
+                peek = delegate.next();
+            }
+            return peek;
+        }
+    }
+
+    public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
+        this.comparator = comparator;
+        Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
         priorityQueue = new PriorityQueue<>(
                 iterators.size(),
-                getPriorityQueueComparator()
+                peekComp.thenComparing(o -> -o.id)
         );
-        List<PeekIterator<Entry<MemorySegment>>> iteratorsCopy = iterators.stream()
-                .filter(Objects::nonNull)
-                .filter(Iterator::hasNext)
-                .toList();
-        priorityQueue.addAll(iteratorsCopy);
-        skipDeletedEntry();
+
+        int id = 0;
+        for (Iterator<T> iterator : iterators) {
+            if (iterator.hasNext()) {
+                priorityQueue.add(new PeekIterator<>(id++, iterator));
+            }
+        }
+    }
+
+    private PeekIterator<T> peek() {
+        while (peek == null) {
+            peek = priorityQueue.poll();
+            if (peek == null) {
+                return null;
+            }
+
+            while (true) {
+                PeekIterator<T> next = priorityQueue.peek();
+                if (next == null) {
+                    break;
+                }
+
+                int compare = comparator.compare(peek.peek(), next.peek());
+                if (compare == 0) {
+                    PeekIterator<T> poll = priorityQueue.poll();
+                    if (poll != null) {
+                        poll.next();
+                        if (poll.hasNext()) {
+                            priorityQueue.add(poll);
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            if (peek.peek() == null) {
+                peek = null;
+                continue;
+            }
+
+            if (skip(peek.peek())) {
+                peek.next();
+                if (peek.hasNext()) {
+                    priorityQueue.add(peek);
+                }
+                peek = null;
+            }
+        }
+
+        return peek;
+    }
+
+    protected boolean skip(T t) {
+        return t == null;
     }
 
     @Override
     public boolean hasNext() {
-        return !priorityQueue.isEmpty();
+        return peek() != null;
     }
 
     @Override
-    public Entry<MemorySegment> next() {
-        if (!hasNext()) {
+    public T next() {
+        PeekIterator<T> peekIt = peek();
+        if (peekIt == null) {
             throw new NoSuchElementException();
         }
-        PeekIterator<Entry<MemorySegment>> it = priorityQueue.remove();
-        Entry<MemorySegment> current = it.next();
-        deleteByKey(current.key());
-        if (it.hasNext()) {
-            priorityQueue.add(it);
+        T next = peekIt.next();
+        this.peek = null;
+        if (peekIt.hasNext()) {
+            priorityQueue.add(peekIt);
         }
-        skipDeletedEntry();
-        return current;
-    }
-
-    private void deleteByKey(MemorySegment key) {
-        while (!priorityQueue.isEmpty() && priorityQueue.peek().peek().key().mismatch(key) == -1) {
-            PeekIterator<Entry<MemorySegment>> it = priorityQueue.remove();
-            it.next();
-            if (it.hasNext()) {
-                priorityQueue.add(it);
-            }
-        }
-    }
-
-    private static Comparator<? super PeekIterator<Entry<MemorySegment>>> getPriorityQueueComparator() {
-        return Comparator
-                .comparing(
-                        (PeekIterator<Entry<MemorySegment>> it) -> it.peek().key(),
-                        new MemorySegmentComparator()
-                )
-                .thenComparing(
-                        PeekIterator::getPriority,
-                        Comparator.reverseOrder()
-                );
-    }
-
-    private void skipDeletedEntry() {
-        while (isCurrentElementEmpty()) {
-            PeekIterator<Entry<MemorySegment>> it = priorityQueue.remove();
-            deleteByKey(it.next().key());
-            if (it.hasNext()) {
-                priorityQueue.add(it);
-            }
-        }
-    }
-
-    private boolean isCurrentElementEmpty() {
-        return !priorityQueue.isEmpty() && priorityQueue.peek().peek().value() == null;
+        return next;
     }
 }
