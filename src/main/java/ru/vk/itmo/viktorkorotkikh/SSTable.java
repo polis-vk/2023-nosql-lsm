@@ -38,12 +38,12 @@ public final class SSTable {
     private static final long ENTRY_METADATA_SIZE = Long.BYTES;
     private final int index;
 
-    private final boolean hasTombstones;
+    private final boolean hasNoTombstones;
 
-    private SSTable(MemorySegment mappedSSTableFile, int index, boolean hasTombstones) {
+    private SSTable(MemorySegment mappedSSTableFile, int index, boolean hasNoTombstones) {
         this.mappedSSTableFile = mappedSSTableFile;
         this.index = index;
-        this.hasTombstones = hasTombstones;
+        this.hasNoTombstones = hasNoTombstones;
     }
 
     private static Comparator<Path> ssTablePathComparator() {
@@ -93,8 +93,8 @@ public final class SSTable {
             if (mappedSSTableFile.byteSize() == 0) {
                 throw new IOException("Couldn't read empty ssTable file");
             }
-            boolean hasTombstones = mappedSSTableFile.get(ValueLayout.JAVA_BOOLEAN, 0);
-            return new SSTable(mappedSSTableFile, index, hasTombstones);
+            boolean hasNoTombstones = mappedSSTableFile.get(ValueLayout.JAVA_BOOLEAN, 0);
+            return new SSTable(mappedSSTableFile, index, hasNoTombstones);
         }
     }
 
@@ -104,7 +104,7 @@ public final class SSTable {
     }
 
     public static boolean isCompacted(List<SSTable> ssTables) {
-        return ssTables.isEmpty() || (ssTables.size() == 1 && !ssTables.getFirst().hasTombstones);
+        return ssTables.isEmpty() || (ssTables.size() == 1 && ssTables.getFirst().hasNoTombstones);
     }
 
     public SSTableIterator iterator(MemorySegment from, MemorySegment to) {
@@ -181,18 +181,23 @@ public final class SSTable {
 
             long offset = entriesDataOffset;
             Iterator<Entry<MemorySegment>> entryIterator = iteratorSupplier.get();
-            boolean hasTombstones = false;
+            // by default file contains JAVA_BYTE == 0 with offset 0
+            // so if we have possibly compacted file and it has JAVA_BYTE == 0 with offset 0
+            // then it is corrupted
+            // otherwise we have unbroken file without tombstones (compacted)
+            // owing to this we use hasNoTombstones condition
+            boolean hasNoTombstones = true;
             while (entryIterator.hasNext()) {
                 Entry<MemorySegment> entry = entryIterator.next();
                 if (entry.value() == null) {
-                    hasTombstones = true;
+                    hasNoTombstones = false;
                 }
                 offset += writeMemorySegment(mappedSSTableFile, entry.key(), offset);
                 offset += writeMemorySegment(mappedSSTableFile, entry.value(), offset);
             }
 
             mappedSSTableFile.force();
-            mappedSSTableFile.set(ValueLayout.JAVA_BOOLEAN, 0, hasTombstones);
+            mappedSSTableFile.set(ValueLayout.JAVA_BOOLEAN, 0, hasNoTombstones);
             mappedSSTableFile.force();
             return tmpSSTable;
         }
@@ -281,7 +286,7 @@ public final class SSTable {
             return false;
         }
         try (Arena arena = Arena.ofConfined()) {
-            return !loadOne(arena, compacted, 0).hasTombstones;
+            return !loadOne(arena, compacted, 0).hasNoTombstones;
         } catch (IOException ignored) {
             return false;
         }
