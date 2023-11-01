@@ -13,7 +13,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 
-public class Loader {
+public final class Loader {
 
     private Loader() {
 

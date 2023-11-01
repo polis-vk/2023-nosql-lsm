@@ -19,7 +19,7 @@ import java.util.List;
 
 import static ru.vk.itmo.tveritinalexandr.Utils.tombstone;
 
-public class Compactor {
+public final class Compactor {
 
     private Compactor() {
     }
@@ -39,7 +39,7 @@ public class Compactor {
         } catch (FileAlreadyExistsException ignored) {
             // it is ok, actually it is normal state
         }
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
         // index_size:
         long dataSize = 0;

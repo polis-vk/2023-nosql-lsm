@@ -22,7 +22,6 @@ import java.util.NoSuchElementException;
 
 import static ru.vk.itmo.tveritinalexandr.Compactor.compactAndSave;
 import static ru.vk.itmo.tveritinalexandr.Utils.normalize;
-import static ru.vk.itmo.tveritinalexandr.Utils.recordsCount;
 import static ru.vk.itmo.tveritinalexandr.Utils.slice;
 import static ru.vk.itmo.tveritinalexandr.Utils.tombstone;
 
@@ -269,5 +268,14 @@ public class DiskStorage {
             return startOfKey(segment, recordIndex + 1);
         }
         return segment.byteSize();
+    }
+
+    private static long recordsCount(MemorySegment segment) {
+        long indexSize = indexSize(segment);
+        return indexSize / Long.BYTES / 2;
+    }
+
+    private static long indexSize(MemorySegment segment) {
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 }
