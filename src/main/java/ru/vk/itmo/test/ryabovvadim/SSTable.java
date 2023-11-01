@@ -16,6 +16,7 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -93,7 +94,7 @@ public class SSTable {
             int mid = (l + r) / 2;
             RecordInfo recordInfo = getRecordInfo(offsets.get(mid));
             int compareResult = MemorySegmentUtils.compareMemorySegments(
-                    data, recordInfo.getKeyOffset(), recordInfo.getValueOffset(),
+                    data, recordInfo.keyOffset(), recordInfo.valueOffset(),
                     key, 0, key.byteSize()
             );
 
@@ -132,14 +133,14 @@ public class SSTable {
     }
 
     private MemorySegment readKey(RecordInfo recordInfo) {
-        return data.asSlice(recordInfo.getKeyOffset(), recordInfo.getKeySize());
+        return data.asSlice(recordInfo.keyOffset(), recordInfo.keySize());
     }
 
     private MemorySegment readValue(RecordInfo recordInfo) {
-        if (SSTableMeta.isRemovedValue(recordInfo.getMeta())) {
+        if (SSTableMeta.isRemovedValue(recordInfo.meta())) {
             return null;
         }
-        return data.asSlice(recordInfo.getValueOffset(), recordInfo.getValueSize());
+        return data.asSlice(recordInfo.valueOffset(), recordInfo.valueSize());
     }
 
     public static void save(
@@ -228,8 +229,16 @@ public class SSTable {
     }
 
     public void rename(String newName) throws IOException {
-        Files.move(getDataFilePath(), FileUtils.makePath(parentPath, newName, FileUtils.DATA_FILE_EXT));
-        Files.move(getOffsetFilePath(), FileUtils.makePath(parentPath, newName, FileUtils.OFFSETS_FILE_EXT));
+        Files.move(
+                getDataFilePath(),
+                FileUtils.makePath(parentPath, newName, FileUtils.DATA_FILE_EXT),
+                StandardCopyOption.ATOMIC_MOVE
+        );
+        Files.move(
+                getOffsetFilePath(),
+                FileUtils.makePath(parentPath, newName, FileUtils.OFFSETS_FILE_EXT),
+                StandardCopyOption.ATOMIC_MOVE
+        );
     }
 
     private Path getDataFilePath() {
@@ -244,7 +253,7 @@ public class SSTable {
         return name;
     }
 
-    private static class SSTableMeta {
+    private static final class SSTableMeta {
         private static final byte REMOVE_VALUE = 0x1;
 
         public static boolean isRemovedValue(byte meta) {
@@ -259,47 +268,17 @@ public class SSTable {
             }
             return meta;
         }
+
+        private SSTableMeta() {
+        }
     }
 
-    private static class RecordInfo {
-        private final byte meta;
-        private final long keySize;
-        private final long keyOffset;
-        private final long valueSize;
-        private final long valueOffset;
-
-        public RecordInfo(
-                byte meta,
-                long keySize,
-                long keyOffset,
-                long valueSize,
-                long valueOffset
-        ) {
-            this.meta = meta;
-            this.keySize = keySize;
-            this.keyOffset = keyOffset;
-            this.valueSize = valueSize;
-            this.valueOffset = valueOffset;
-        }
-
-        public byte getMeta() {
-            return meta;
-        }
-
-        public long getKeySize() {
-            return keySize;
-        }
-
-        public long getKeyOffset() {
-            return keyOffset;
-        }
-
-        public long getValueSize() {
-            return valueSize;
-        }
-
-        public long getValueOffset() {
-            return valueOffset;
-        }
+    private record RecordInfo(
+            byte meta,
+            long keySize,
+            long keyOffset,
+            long valueSize,
+            long valueOffset
+    ) {
     }
 }
