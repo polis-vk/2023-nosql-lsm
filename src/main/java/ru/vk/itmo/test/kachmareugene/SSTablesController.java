@@ -108,7 +108,11 @@ public class SSTablesController {
         List<SSTableRowInfo> ans = new ArrayList<>();
 
         for (int i = ssTables.size() - 1; i >= 0; i--) {
-            long entryIndexesLine = searchKeyInFile(ssTablesIndexes.get(i), ssTables.get(i), key);
+            long entryIndexesLine = 0;
+            if (key != null) {
+                entryIndexesLine = searchKeyInFile(ssTablesIndexes.get(i), ssTables.get(i), key);
+             }
+
             if (entryIndexesLine < 0) {
                 continue;
             }
