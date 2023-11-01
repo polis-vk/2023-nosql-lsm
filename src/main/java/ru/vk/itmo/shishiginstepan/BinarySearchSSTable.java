@@ -250,8 +250,10 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
                 this.currentEntryIndex++;
                 return new BaseEntry<>(
                         tableSegment.asSlice(keyOffset, normalize(valOffset) - keyOffset),
-                        valOffset < 0 ?
-                                null :
+                        valOffset < 0
+                                ?
+                                null
+                                :
                                 tableSegment.asSlice(
                                         normalize(valOffset),
                                         nextOffset - normalize(valOffset)

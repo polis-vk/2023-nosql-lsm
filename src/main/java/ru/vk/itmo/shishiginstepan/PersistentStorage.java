@@ -24,6 +24,9 @@ public class PersistentStorage {
     );
 
     private static final class CompactionError extends RuntimeException {
+        public CompactionError(Exception e) {
+            super(e);
+        }
     }
 
     PersistentStorage(Path basePath) {
@@ -95,7 +98,7 @@ public class PersistentStorage {
             Files.delete(sstable.indexPath);
             Files.delete(sstable.tablePath);
         } catch (IOException e) {
-            throw new CompactionError();
+            throw new CompactionError(e);
         }
         sstables.remove(sstable);
     }
