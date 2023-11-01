@@ -4,7 +4,6 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -19,16 +18,20 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final Comparator<MemorySegment> comparator = PaschenkoDao::compare;
+    private final Comparator<MemorySegment> comparator = MemesDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
+    final Path indexFile;
+    final Path indexTmp;
 
-    public PaschenkoDao(Config config) throws IOException {
+    public MemesDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
+        indexFile = path.resolve("index.idx");
+        indexTmp = path.resolve("index.tmp");
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
@@ -79,21 +82,20 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        final Path indexFile = path.resolve("index.idx");
-        final Path indexTmp = path.resolve("index.tmp");
         final Iterator<Entry<MemorySegment>> iterator = get(null, null);
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        for (String file : existedFiles) {
-            File file1 = new File(path.resolve(file).toAbsolutePath().toString());
-            file1.setWritable(true);
-            file1.deleteOnExit();
+        if (Files.exists(indexFile)) {
+            //Вдруг неожиданно пропадет из-за внешних обстоятельств
+            List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+            Files.deleteIfExists(indexFile);
+
+            for (String fileName : existedFiles) {
+                Files.deleteIfExists(path.resolve(fileName));
+            }
         }
-        Files.deleteIfExists(indexFile);
-        Files.createFile(indexTmp);
-
-        DiskStorage.save(path, () -> iterator);
         storage.clear();
+
+        DiskStorage.save(path, () -> iterator, indexTmp, indexFile);
     }
 
     @Override
@@ -127,7 +129,7 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
+            DiskStorage.save(path, storage.values(), indexTmp, indexFile);
         }
     }
 }

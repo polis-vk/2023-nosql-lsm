@@ -38,19 +38,16 @@ public class DiskStorage {
         }
         iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PaschenkoDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, MemesDao::compare)) {
             @Override
             protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
-                return memorySegmentEntry.value() == null;
+                return memorySegmentEntry == null || memorySegmentEntry.value() == null;
             }
         };
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
+    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable, Path indexTmp, Path indexFile)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
-
         try {
             Files.createFile(indexFile);
         } catch (FileAlreadyExistsException ignored) {
