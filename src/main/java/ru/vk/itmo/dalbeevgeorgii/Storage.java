@@ -28,10 +28,12 @@ public final class Storage implements Closeable {
     private static final long FILE_PREFIX = Long.BYTES;
     private final Arena arena;
     private final List<MemorySegment> ssTables;
+    private final boolean isOk;
 
-    private Storage(Arena arena, List<MemorySegment> ssTables) {
+    private Storage(Arena arena, List<MemorySegment> ssTables, boolean isOk) {
         this.arena = arena;
         this.ssTables = ssTables;
+        this.isOk = isOk;
     }
 
     public static Storage load(Config config) throws IOException {
@@ -56,10 +58,10 @@ public final class Storage implements Closeable {
                         }
                     });
         } catch (NoSuchFileException e) {
-            return new Storage(arena, ssTables);
+            return new Storage(arena, ssTables, true);
         }
 
-        return new Storage(arena, ssTables);
+        return new Storage(arena, ssTables, ssTables.size() <= 1);
     }
 
     public static void save(Config config, Collection<Entry<MemorySegment>> entries, Storage storage)
@@ -73,18 +75,27 @@ public final class Storage implements Closeable {
         }
 
         int nextSSTable = storage.ssTables.size();
-        String indexWithZeroPadding = String.format("%010d", nextSSTable);
-        Path path = config.basePath().resolve(DB_PREFIX + indexWithZeroPadding + DB_EXTENSION);
+        String nextIndexWithLeadingZeroes = String.format("%05d", nextSSTable);
+        Path path = config.basePath().resolve(DB_PREFIX + nextIndexWithLeadingZeroes + DB_EXTENSION);
+        saveIterable(path, entries::iterator);
+    }
 
-        long indicesSize = (long) Long.BYTES * entries.size();
-        long sizeOfNewSSTable = indicesSize + FILE_PREFIX;
+    private static void saveIterable(Path path, IterableEntries entries) throws IOException {
+        Files.deleteIfExists(path);
+
+        long entriesCount = 0;
+        long entriesSize = 0;
         for (Entry<MemorySegment> entry : entries) {
-            sizeOfNewSSTable += 2 * Long.BYTES + entry.key().byteSize()
+            entriesSize += 2 * Long.BYTES + entry.key().byteSize()
                     + (entry.value() == null ? 0 : entry.value().byteSize());
+            entriesCount++;
         }
 
+        long indicesSize = entriesCount * Long.BYTES;
+        long sizeOfNewSSTable = FILE_PREFIX + indicesSize + entriesSize;
+
         try (Arena arenaSave = Arena.ofConfined();
-             var channel = FileChannel.open(
+             FileChannel channel = FileChannel.open(
                      path,
                      StandardOpenOption.READ,
                      StandardOpenOption.WRITE,
@@ -94,7 +105,7 @@ public final class Storage implements Closeable {
 
             MemorySegment newSSTable = channel.map(FileChannel.MapMode.READ_WRITE, 0, sizeOfNewSSTable, arenaSave);
 
-            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, entries.size());
+            newSSTable.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, entriesCount);
 
             long offsetIndex = FILE_PREFIX;
             long offsetData = indicesSize + FILE_PREFIX;
@@ -106,6 +117,26 @@ public final class Storage implements Closeable {
             }
 
         }
+    }
+
+    public static void compact(Config config, IterableEntries entries) throws IOException {
+        Path tmpCompactedPath = config.basePath().resolve(DB_PREFIX + ".tmp" + DB_EXTENSION);
+        saveIterable(tmpCompactedPath, entries);
+
+        Path path = config.basePath();
+        for (int i = 0; ; i++) {
+            Path p = path.resolve(DB_PREFIX + String.format("%05d", i) + DB_EXTENSION);
+            if (!Files.deleteIfExists(p)) {
+                break;
+            }
+        }
+
+        Files.move(tmpCompactedPath, path.resolve(DB_PREFIX + String.format("%05d", 0) + DB_EXTENSION));
+    }
+
+    public interface IterableEntries extends Iterable<Entry<MemorySegment>> {
+        @Override
+        Iterator<Entry<MemorySegment>> iterator();
     }
 
     public static long saveEntrySegment(MemorySegment newSSTable, Entry<MemorySegment> entry, long offsetData) {
@@ -221,5 +252,9 @@ public final class Storage implements Closeable {
         if (arena.scope().isAlive()) {
             arena.close();
         }
+    }
+
+    public boolean isOk() {
+        return isOk;
     }
 }
