@@ -69,7 +69,6 @@ public class MemTable extends AbstractTable implements Iterable<Entry<MemorySegm
         return this.byteSize.get();
     }
 
-
     private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, boolean fromInclusive,
                                                                         MemorySegment to, boolean toInclusive) {
         if (from != null && to != null) {
@@ -88,11 +87,6 @@ public class MemTable extends AbstractTable implements Iterable<Entry<MemorySegm
     public void close() {
         clear();
     }
-
-//    @Override
-//    public boolean isTombstone(MemorySegment key) {
-//        return entriesMap.containsKey(key) && entriesMap.get(key).value() == null;
-//    }
 
     @Override
     public Iterator<Entry<MemorySegment>> iterator() {

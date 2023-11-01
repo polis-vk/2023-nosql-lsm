@@ -14,7 +14,6 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.Objects;
 
@@ -99,8 +98,7 @@ public class SSTable extends AbstractTable {
         long keyOffset = getKeyOffset(index);
         long valueOffset = Math.abs(getValueOffset(index));
         return data.asSlice(keyOffset, valueOffset - keyOffset);
-        //return copyToArena(keyOffset, valueOffset);
-    } // todo to list?
+    }
 
     private MemorySegment getValueByIndex(int index) {
         Objects.checkIndex(index, rows);
@@ -110,9 +108,7 @@ public class SSTable extends AbstractTable {
         }
         long nextKeyOffset = getKeyOffset(index + 1);
         return data.asSlice(valueOffset, nextKeyOffset - valueOffset);
-        // return copyToArena(valueOffset, nextKeyOffset);
     }
-
 
     private int binarySearch(MemorySegment key) {
         int l = 0;

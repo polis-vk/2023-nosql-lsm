@@ -1,6 +1,5 @@
 package ru.vk.itmo.novichkovandrew.table;
 
-
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.Utils;
 import ru.vk.itmo.novichkovandrew.exceptions.FileChannelException;
@@ -12,7 +11,6 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-
 
 /**
  * Write table or tables into file.
@@ -38,8 +36,8 @@ public class MMapTableWriter implements TableWriter {
         this.indexHandle = footer.getIndexHandle();
         this.dataOffset = 0L;
         this.indexOffset = 0L;
-        this.data = channel.map(FileChannel.MapMode.READ_WRITE, 0L, indexHandle.offset(), arena); //todo: fix it to buffer;
-        this.index = channel.map(FileChannel.MapMode.READ_WRITE, indexHandle.offset(), indexHandle.size(), arena);//todo: fix it to buffer;
+        this.data = channel.map(FileChannel.MapMode.READ_WRITE, 0L, indexHandle.offset(), arena);
+        this.index = channel.map(FileChannel.MapMode.READ_WRITE, indexHandle.offset(), indexHandle.size(), arena);
     }
 
     @Override
@@ -99,7 +97,6 @@ public class MMapTableWriter implements TableWriter {
         dest.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, value);
         return offset + Long.BYTES;
     }
-
 
     @Override
     public void close() throws IOException {

@@ -4,7 +4,14 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.exceptions.FileChannelException;
 import ru.vk.itmo.novichkovandrew.iterator.MergeIterator;
 import ru.vk.itmo.novichkovandrew.iterator.TableIterator;
-import ru.vk.itmo.novichkovandrew.table.*;
+import ru.vk.itmo.novichkovandrew.table.AbstractTable;
+import ru.vk.itmo.novichkovandrew.table.Footer;
+import ru.vk.itmo.novichkovandrew.table.Handle;
+import ru.vk.itmo.novichkovandrew.table.MMapTableWriter;
+import ru.vk.itmo.novichkovandrew.table.MemTable;
+import ru.vk.itmo.novichkovandrew.table.SSTable;
+import ru.vk.itmo.novichkovandrew.table.Table;
+import ru.vk.itmo.novichkovandrew.table.TableWriter;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -63,7 +70,6 @@ public class TablesOrganizer implements Closeable {
         }
     }
 
-
     @Override
     public void close() throws IOException {
         for (var table : tables) {
@@ -87,7 +93,6 @@ public class TablesOrganizer implements Closeable {
         tables.add(new SSTable(tablePath, 1));
     }
 
-
     private void deleteAllTables() {
         tables.forEach(AbstractTable::clear);
         tables.clear();
@@ -107,6 +112,4 @@ public class TablesOrganizer implements Closeable {
                 .map(t -> t.tableIterator(from, fromInclusive, to, toInclusive))
                 .collect(Collectors.toList());
     }
-
-
 }

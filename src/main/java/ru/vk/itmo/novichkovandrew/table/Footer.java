@@ -21,12 +21,11 @@ public class Footer {
         return indexHandle;
     }
 
-
     public static Footer createFooter(MemorySegment segment) {
         if (segment.byteSize() != Utils.FOOTER_SIZE) {
             throw new InvalidBlockException(
-                    String.format("Invalid memory segment in footer place," +
-                            " expected: %s bytes, actual: %s", Utils.FOOTER_SIZE, segment.byteSize())
+                    String.format("Invalid memory segment in footer place,"
+                            + " expected: %s bytes, actual: %s", Utils.FOOTER_SIZE, segment.byteSize())
             );
         }
         long offset = segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0L);
