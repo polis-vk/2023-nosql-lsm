@@ -169,19 +169,14 @@ public class SSTablesController {
             closeArena();
             return;
         }
+        String suff = String.valueOf(Utils.getMaxNumberOfFile(ssTablesDir, SS_TABLE_COMMON_PREF) + 1);
         Set<OpenOption> options = Set.of(WRITE, READ, CREATE);
         try (FileChannel ssTableChannel =
                      FileChannel.open(ssTablesDir
-                             .resolve(SS_TABLE_COMMON_PREF +
-                                     String.valueOf(
-                                             Utils.getMaxNumberOfFile(ssTablesDir, SS_TABLE_COMMON_PREF) + 1)),
-                             options);
+                             .resolve(SS_TABLE_COMMON_PREF + suff), options);
              FileChannel indexChannel =
                      FileChannel.open(ssTablesDir
-                             .resolve(INDEX_COMMON_PREF +
-                                     String.valueOf(
-                                             Utils.getMaxNumberOfFile(ssTablesDir, INDEX_COMMON_PREF) + 1)),
-                             options);
+                             .resolve(INDEX_COMMON_PREF + suff), options);
              Arena saveArena = Arena.ofConfined()) {
 
             long ssTableLenght = 0L;
