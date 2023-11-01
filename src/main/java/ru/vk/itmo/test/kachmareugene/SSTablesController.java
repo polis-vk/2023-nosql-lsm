@@ -35,7 +35,7 @@ public class SSTablesController {
     private final List<Path> ssTablesPaths = new ArrayList<>();
     private final List<Path> ssTablesIndexesPaths = new ArrayList<>();
     private static final String SS_TABLE_COMMON_PREF = "ssTable";
-    // index format: (long) keyOffset, (long) keyLen, (long) valueOffset, (long) valueLen
+    //  index format: (long) keyOffset, (long) keyLen, (long) valueOffset, (long) valueLen
     private static final long ONE_LINE_SIZE = 4 * Long.BYTES;
     private static final String INDEX_COMMON_PREF = "index";
     private final Arena arenaForReading = Arena.ofShared();
