@@ -52,27 +52,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (Files.notExists(config.basePath())) {
             Files.createDirectory(config.basePath());
         }
-
-        NavigableSet<Long> dataFileNumbers = new TreeSet<>(Comparator.reverseOrder());
-        Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                if (file.getFileName().toString().endsWith("." + DATA_FILE_EXT)) {
-                    dataFileNumbers.add(Long.parseLong(
-                            file.getFileName().toString().substring(
-                                    0,
-                                    file.getFileName().toString().indexOf("." + DATA_FILE_EXT)
-                            )
-                    ));
-                }
-
-                return FileVisitResult.CONTINUE;
-            }
-        });
-
-        for (long number : dataFileNumbers) {
-            ssTables.add(new SSTable(config.basePath(), Long.toString(number), arena));
-        }
+        openSSTables();
     }
 
     @Override
@@ -221,9 +201,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         if (existsPath() && !memoryTable.isEmpty()) {
-            String nameSavedTable = saveEntries(memoryTable.values());
+            long ssTableId = saveEntries(memoryTable.values());
             memoryTable.clear();
-            ssTables.add(new SSTable(config.basePath(), nameSavedTable, arena));
+            ssTables.add(new SSTable(config.basePath(), ssTableId, arena));
         }
     }
 
@@ -232,27 +212,50 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (existsPath()) {
             List<Entry<MemorySegment>> entries = new ArrayList<>();
             all().forEachRemaining(entries::add);
-            String ssTableName = saveEntries(entries);
-
             deleteSSTables();
             memoryTable.clear();
 
-            SSTable compactedSSTable = new SSTable(config.basePath(), ssTableName, arena);
-            compactedSSTable.rename("1");
-            ssTables.add(compactedSSTable);
+            if (!entries.isEmpty()) {
+                saveEntries(entries);
+                openSSTables();
+            }
         }
     }
 
-    private String saveEntries(Collection<Entry<MemorySegment>> entries) throws IOException {
+    private void openSSTables() throws IOException {
+        if (existsPath() && ssTables.isEmpty()) {
+            NavigableSet<Long> dataFileIds = new TreeSet<>(Comparator.reverseOrder());
+            Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (file.getFileName().toString().endsWith("." + DATA_FILE_EXT)) {
+                        dataFileIds.add(Long.parseLong(
+                                file.getFileName().toString().substring(
+                                        0,
+                                        file.getFileName().toString().indexOf("." + DATA_FILE_EXT)
+                                )
+                        ));
+                    }
+
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+
+            for (long id : dataFileIds) {
+                ssTables.add(new SSTable(config.basePath(), id, arena));
+            }
+        }
+    }
+
+    private long saveEntries(Collection<Entry<MemorySegment>> entries) throws IOException {
         FileUtils.createParentDirectories(config.basePath());
 
         long maxTableNumber = 0;
         for (SSTable ssTable : ssTables) {
-            maxTableNumber = Math.max(maxTableNumber, Long.parseLong(ssTable.getName()));
+            maxTableNumber = Math.max(maxTableNumber, ssTable.getId());
         }
-        SSTable.save(config.basePath(), Long.toString(maxTableNumber + 1), entries, arena);
-
-        return Long.toString(maxTableNumber + 1);
+        SSTable.save(config.basePath(), maxTableNumber + 1, entries, arena);
+        return maxTableNumber + 1;
     }
 
     private boolean existsPath() {

@@ -16,7 +16,6 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -28,14 +27,14 @@ import static java.nio.file.StandardOpenOption.WRITE;
 
 public class SSTable {
     private final Path parentPath;
-    private final String name;
+    private final long id;
     private final MemorySegment data;
     private final int countRecords;
     private final List<Long> offsets;
 
-    public SSTable(Path parentPath, String name, Arena arena) throws IOException {
+    public SSTable(Path parentPath, long id, Arena arena) throws IOException {
         this.parentPath = parentPath;
-        this.name = name;
+        this.id = id;
 
         Path dataFile = getDataFilePath();
         Path offsetsFile = getOffsetFilePath();
@@ -145,12 +144,12 @@ public class SSTable {
 
     public static void save(
             Path prefix,
-            String name,
+            long id,
             Collection<Entry<MemorySegment>> entries,
             Arena arena
     ) throws IOException {
-        Path dataFile = FileUtils.makePath(prefix, name, FileUtils.DATA_FILE_EXT);
-        Path offsetsFile = FileUtils.makePath(prefix, name, FileUtils.OFFSETS_FILE_EXT);
+        Path dataFile = FileUtils.makePath(prefix, Long.toString(id), FileUtils.DATA_FILE_EXT);
+        Path offsetsFile = FileUtils.makePath(prefix, Long.toString(id), FileUtils.OFFSETS_FILE_EXT);
 
         try (FileChannel dataFileChannel = FileChannel.open(dataFile, CREATE, WRITE, READ)) {
             try (FileChannel offsetsFileChannel = FileChannel.open(offsetsFile, CREATE, WRITE, READ)) {
@@ -228,29 +227,16 @@ public class SSTable {
         Files.deleteIfExists(getOffsetFilePath());
     }
 
-    public void rename(String newName) throws IOException {
-        Files.move(
-                getDataFilePath(),
-                FileUtils.makePath(parentPath, newName, FileUtils.DATA_FILE_EXT),
-                StandardCopyOption.ATOMIC_MOVE
-        );
-        Files.move(
-                getOffsetFilePath(),
-                FileUtils.makePath(parentPath, newName, FileUtils.OFFSETS_FILE_EXT),
-                StandardCopyOption.ATOMIC_MOVE
-        );
-    }
-
     private Path getDataFilePath() {
-        return FileUtils.makePath(parentPath, name, FileUtils.DATA_FILE_EXT);
+        return FileUtils.makePath(parentPath, Long.toString(id), FileUtils.DATA_FILE_EXT);
     }
 
     private Path getOffsetFilePath() {
-        return FileUtils.makePath(parentPath, name, FileUtils.OFFSETS_FILE_EXT);
+        return FileUtils.makePath(parentPath, Long.toString(id), FileUtils.OFFSETS_FILE_EXT);
     }
 
-    public String getName() {
-        return name;
+    public long getId() {
+        return id;
     }
 
     private static final class SSTableMeta {
