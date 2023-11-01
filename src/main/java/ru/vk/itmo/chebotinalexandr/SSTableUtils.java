@@ -5,7 +5,7 @@ import java.lang.foreign.ValueLayout;
 
 import static ru.vk.itmo.chebotinalexandr.SSTablesStorage.OFFSET_FOR_SIZE;
 
-public class SSTableUtils {
+public final class SSTableUtils {
 
     private SSTableUtils() {
 
