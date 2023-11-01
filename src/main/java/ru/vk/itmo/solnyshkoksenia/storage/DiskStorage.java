@@ -1,7 +1,9 @@
-package ru.vk.itmo.solnyshkoksenia;
+package ru.vk.itmo.solnyshkoksenia.storage;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.solnyshkoksenia.MemorySegmentComparator;
+import ru.vk.itmo.solnyshkoksenia.MergeIterator;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -19,6 +21,17 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+
+import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.endOfKey;
+import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.endOfValue;
+import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.mapFile;
+import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.normalize;
+import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.putEntry;
+import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.recordsCount;
+import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.slice;
+import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.startOfKey;
+import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.startOfValue;
+import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.tombstone;
 
 public class DiskStorage {
     private static final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
@@ -85,7 +98,6 @@ public class DiskStorage {
                 Arena writeArena = Arena.ofConfined()
         ) {
             MemorySegment fileSegment = mapFile(fileChannel, indexSize + dataSize, writeArena);
-
 
             // index:
             // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
@@ -156,7 +168,6 @@ public class DiskStorage {
                 Arena writeArena = Arena.ofConfined()
         ) {
             MemorySegment fileSegment = mapFile(fileChannel, indexSize + dataSize, writeArena);
-
 
             Entry<Long> offsets = new BaseEntry<>(indexSize, 0L);
             while (iterator1.hasNext()) {
@@ -244,47 +255,6 @@ public class DiskStorage {
         return tombstone(left);
     }
 
-    private static Entry<Long> putEntry(MemorySegment fileSegment, Entry<Long> offsets, Entry<MemorySegment> entry) {
-        long dataOffset = offsets.key();
-        long indexOffset = offsets.value();
-        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-        indexOffset += Long.BYTES;
-
-        MemorySegment key = entry.key();
-        MemorySegment value = entry.value();
-        MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
-        dataOffset += key.byteSize();
-
-        if (value == null) {
-            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
-        } else {
-            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-            MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
-            dataOffset += value.byteSize();
-        }
-        indexOffset += Long.BYTES;
-
-        return new BaseEntry<>(dataOffset, indexOffset);
-    }
-
-    private static MemorySegment mapFile(FileChannel fileChannel, long size, Arena arena) throws IOException {
-        return fileChannel.map(
-                FileChannel.MapMode.READ_WRITE,
-                0,
-                size,
-                arena
-        );
-    }
-
-    private static long recordsCount(MemorySegment segment) {
-        long indexSize = indexSize(segment);
-        return indexSize / Long.BYTES / 2;
-    }
-
-    private static long indexSize(MemorySegment segment) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
-    }
-
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
         long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
@@ -313,40 +283,5 @@ public class DiskStorage {
                 return new BaseEntry<>(key, value);
             }
         };
-    }
-
-    private static MemorySegment slice(MemorySegment page, long start, long end) {
-        return page.asSlice(start, end - start);
-    }
-
-    private static long startOfKey(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
-    }
-
-    private static long endOfKey(MemorySegment segment, long recordIndex) {
-        return normalizedStartOfValue(segment, recordIndex);
-    }
-
-    private static long normalizedStartOfValue(MemorySegment segment, long recordIndex) {
-        return normalize(startOfValue(segment, recordIndex));
-    }
-
-    private static long startOfValue(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
-    }
-
-    private static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
-        if (recordIndex < recordsCount - 1) {
-            return startOfKey(segment, recordIndex + 1);
-        }
-        return segment.byteSize();
-    }
-
-    private static long tombstone(long offset) {
-        return 1L << 63 | offset;
-    }
-
-    private static long normalize(long value) {
-        return value & ~(1L << 63);
     }
 }
