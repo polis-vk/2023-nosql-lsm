@@ -9,17 +9,23 @@ public class MemTableEntry implements TableEntry {
     private final MemTable memTable;
 
     public MemTableEntry(Entry<MemorySegment> entry, MemTable memTable) {
-        current = entry;
+        this.current = entry;
         this.memTable = memTable;
     }
 
     @Override
     public MemorySegment value() {
+        if (current == null) {
+            return null;
+        }
         return current.value();
     }
 
     @Override
     public MemorySegment key() {
+        if (current == null) {
+            return null;
+        }
         return current.key();
     }
 

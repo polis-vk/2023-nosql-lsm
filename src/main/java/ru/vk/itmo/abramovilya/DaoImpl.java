@@ -215,9 +215,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                      StandardOpenOption.CREATE);
 
              var writeArena = Arena.ofConfined()) {
-
-            MemorySegment mappedStorage =
-                    storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcMapByteSizeInFile(), writeArena);
             MemorySegment mappedIndex =
                     indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcIndexByteSizeInFile(), writeArena);
 
@@ -227,11 +224,22 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                         writeEntryNumAndStorageOffset(mappedIndex, indexWriteOffset, entryNum, storageWriteOffset);
                 entryNum++;
 
+                storageWriteOffset += 2 * Long.BYTES;
+                storageWriteOffset += entry.key().byteSize();
+                if (entry.value() != null) {
+                    storageWriteOffset += entry.value().byteSize();
+                }
+            }
+            mappedIndex.force();
+
+            MemorySegment mappedStorage =
+                    storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcMapByteSizeInFile(), writeArena);
+            storageWriteOffset = 0;
+            for (var entry : map.values()) {
                 storageWriteOffset = writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
                 storageWriteOffset = writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
             }
-            mappedStorage.load();
-            mappedIndex.load();
+            mappedStorage.force();
         }
     }
 

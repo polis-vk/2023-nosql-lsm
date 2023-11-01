@@ -14,8 +14,6 @@ import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
 
-import static ru.vk.itmo.abramovilya.DaoImpl.getKeyStorageOffset;
-
 class DaoIterator implements Iterator<Entry<MemorySegment>> {
     private final PriorityQueue<TableEntry> priorityQueue = new PriorityQueue<>();
     private final MemorySegment from;
@@ -134,7 +132,7 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
             return Integer.BYTES;
         } else {
             int foundIndex = DaoImpl.upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
-            long keyStorageOffset = getKeyStorageOffset(indexMapped, foundIndex);
+            long keyStorageOffset = DaoImpl.getKeyStorageOffset(indexMapped, foundIndex);
             long keySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
             keyStorageOffset += Long.BYTES;
 
