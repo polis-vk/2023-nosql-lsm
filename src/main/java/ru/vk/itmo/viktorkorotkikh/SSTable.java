@@ -90,7 +90,10 @@ public final class SSTable {
         try (FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
             MemorySegment mappedSSTableFile =
                     fileChannel.map(FileChannel.MapMode.READ_ONLY, 0L, fileChannel.size(), arena);
-            boolean hasTombstones = mappedSSTableFile.get(ValueLayout.JAVA_BOOLEAN, Long.BYTES);
+            if (mappedSSTableFile.byteSize() == 0) {
+                throw new IOException("Couldn't read empty ssTable file");
+            }
+            boolean hasTombstones = mappedSSTableFile.get(ValueLayout.JAVA_BOOLEAN, 0);
             return new SSTable(mappedSSTableFile, index, hasTombstones);
         }
     }
@@ -150,7 +153,10 @@ public final class SSTable {
             long entriesDataSize,
             Path tmpSSTable
     ) throws IOException {
-        if (entriesSize == 0) return null;
+        if (entriesSize == 0) {
+            Files.deleteIfExists(tmpSSTable);
+            return tmpSSTable;
+        }
         MemorySegment mappedSSTableFile;
 
         long entriesDataOffset = METADATA_SIZE + ENTRY_METADATA_SIZE * entriesSize;
@@ -187,6 +193,7 @@ public final class SSTable {
 
             mappedSSTableFile.force();
             mappedSSTableFile.set(ValueLayout.JAVA_BOOLEAN, 0, hasTombstones);
+            mappedSSTableFile.force();
             return tmpSSTable;
         }
     }
@@ -255,7 +262,7 @@ public final class SSTable {
             Path compactedSSTable,
             Path basePath
     ) throws IOException {
-        if (compactedSSTable == null) {
+        if (!Files.exists(compactedSSTable)) {
             return new ArrayList<>(0);
         }
         Path newSSTable = Files.move(
