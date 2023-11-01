@@ -20,19 +20,18 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private Arena arena;
     private DiskStorage diskStorage;
-    private Path path;
 
     public DaoImpl() {
         // Empty constructor
     }
 
     public DaoImpl(Config config) throws IOException {
-        this.path = config.basePath().resolve("data");
+        Path path = config.basePath().resolve("data");
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena), path);
     }
 
     @Override
@@ -82,12 +81,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
-            this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
-        }
+        diskStorage.compact(storage.values());
         storage.clear();
-        diskStorage.compact(path);
     }
 
     @Override
@@ -99,7 +94,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
+            diskStorage.save(storage.values());
         }
     }
 }

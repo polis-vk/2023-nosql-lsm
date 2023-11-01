@@ -15,7 +15,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -23,11 +22,13 @@ import java.util.NoSuchElementException;
 
 public class DiskStorage {
     private static final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
-    private final List<MemorySegment> segmentList;
     private static final String INDEX_FILE_NAME = "index.idx";
+    private final Path storagePath;
+    private final List<MemorySegment> segmentList;
 
-    public DiskStorage(List<MemorySegment> segmentList) {
+    public DiskStorage(List<MemorySegment> segmentList, Path storagePath) {
         this.segmentList = segmentList;
+        this.storagePath = storagePath;
     }
 
     public Iterator<Entry<MemorySegment>> range(
@@ -48,7 +49,7 @@ public class DiskStorage {
         };
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
+    public void save(Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
@@ -62,17 +63,10 @@ public class DiskStorage {
 
         String newFileName = String.valueOf(existedFiles.size());
 
-        long dataSize = 0;
-        long count = 0;
+        Entry<Long> sizes = new BaseEntry<>(0L, 0L);
         for (Entry<MemorySegment> entry : iterable) {
-            dataSize += entry.key().byteSize();
-            MemorySegment value = entry.value();
-            if (value != null) {
-                dataSize += value.byteSize();
-            }
-            count++;
+            sizes = countSize(entry, sizes);
         }
-        long indexSize = count * 2 * Long.BYTES;
 
         try (
                 FileChannel fileChannel = FileChannel.open(
@@ -83,12 +77,7 @@ public class DiskStorage {
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
-            MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    indexSize + dataSize,
-                    writeArena
-            );
+            MemorySegment fileSegment = mapFile(fileChannel, sizes.key() + sizes.value(), writeArena);
 
             // index:
             // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
@@ -96,7 +85,7 @@ public class DiskStorage {
 
             // data:
             // |key0|value0|key1|value1|...
-            Entry<Long> offsets = new BaseEntry<>(indexSize, 0L);
+            Entry<Long> offsets = new BaseEntry<>(sizes.value(), 0L);
             for (Entry<MemorySegment> entry : iterable) {
                 offsets = putEntry(fileSegment, offsets, entry);
             }
@@ -118,30 +107,7 @@ public class DiskStorage {
         Files.delete(indexTmp);
     }
 
-    private static Entry<Long> putEntry(MemorySegment fileSegment, Entry<Long> offsets, Entry<MemorySegment> entry) {
-        long dataOffset = offsets.key();
-        long indexOffset = offsets.value();
-        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-        indexOffset += Long.BYTES;
-
-        MemorySegment key = entry.key();
-        MemorySegment value = entry.value();
-        MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
-        dataOffset += key.byteSize();
-
-        if (value == null) {
-            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
-        } else {
-            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-            MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
-            dataOffset += value.byteSize();
-        }
-        indexOffset += Long.BYTES;
-
-        return new BaseEntry<>(dataOffset, indexOffset);
-    }
-
-    public void compact(Path storagePath) throws IOException {
+    public void compact(Iterable<Entry<MemorySegment>> iterable) throws IOException {
         final Path tmpFile = storagePath.resolve("tmp");
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
 
@@ -150,26 +116,19 @@ public class DiskStorage {
         } catch (FileAlreadyExistsException ignored) {
             // it is ok, actually it is normal state
         }
+
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        if (existedFiles.isEmpty()) {
+        if (existedFiles.isEmpty() && !iterable.iterator().hasNext()) {
             return; // nothing to compact
         }
 
-        // TODO pass the storage here
-        Iterator<Entry<MemorySegment>> iterator = range(Collections.emptyIterator(), null, null);
-        Iterator<Entry<MemorySegment>> iterator1 = range(Collections.emptyIterator(), null, null);
+        Iterator<Entry<MemorySegment>> iterator = range(iterable.iterator(), null, null);
+        Iterator<Entry<MemorySegment>> iterator1 = range(iterable.iterator(), null, null);
 
-        long dataSize = 0;
-        long indexSize = 0;
+        Entry<Long> sizes = new BaseEntry<>(0L, 0L);
         while (iterator.hasNext()) {
-            indexSize += Long.BYTES * 2;
-            Entry<MemorySegment> entry = iterator.next();
-            dataSize += entry.key().byteSize();
-            MemorySegment value = entry.value();
-            if (value != null) {
-                dataSize += value.byteSize();
-            }
+            sizes = countSize(iterator.next(), sizes);
         }
 
         try (
@@ -181,14 +140,9 @@ public class DiskStorage {
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
-            MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    indexSize + dataSize,
-                    writeArena
-            );
+            MemorySegment fileSegment = mapFile(fileChannel, sizes.key() + sizes.value(), writeArena);
 
-            Entry<Long> offsets = new BaseEntry<>(indexSize, 0L);
+            Entry<Long> offsets = new BaseEntry<>(sizes.value(), 0L);
             while (iterator1.hasNext()) {
                 offsets = putEntry(fileSegment, offsets, iterator1.next());
             }
@@ -229,12 +183,7 @@ public class DiskStorage {
         for (String fileName : existedFiles) {
             Path file = storagePath.resolve(fileName);
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-                MemorySegment fileSegment = fileChannel.map(
-                        FileChannel.MapMode.READ_WRITE,
-                        0,
-                        Files.size(file),
-                        arena
-                );
+                MemorySegment fileSegment = mapFile(fileChannel, Files.size(file), arena);
                 result.add(fileSegment);
             }
         }
@@ -277,6 +226,48 @@ public class DiskStorage {
         }
 
         return tombstone(left);
+    }
+
+    private static Entry<Long> putEntry(MemorySegment fileSegment, Entry<Long> offsets, Entry<MemorySegment> entry) {
+        long dataOffset = offsets.key();
+        long indexOffset = offsets.value();
+        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+        indexOffset += Long.BYTES;
+
+        MemorySegment key = entry.key();
+        MemorySegment value = entry.value();
+        MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
+        dataOffset += key.byteSize();
+
+        if (value == null) {
+            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
+        } else {
+            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+            MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
+            dataOffset += value.byteSize();
+        }
+        indexOffset += Long.BYTES;
+
+        return new BaseEntry<>(dataOffset, indexOffset);
+    }
+
+    private static MemorySegment mapFile(FileChannel fileChannel, long size, Arena arena) throws IOException {
+        return fileChannel.map(
+                FileChannel.MapMode.READ_WRITE,
+                0,
+                size,
+                arena
+        );
+    }
+
+    private static Entry<Long> countSize(Entry<MemorySegment> entry, Entry<Long> sizes) {
+        long dataSize = sizes.key();
+        dataSize += entry.key().byteSize();
+        MemorySegment value = entry.value();
+        if (value != null) {
+            dataSize += value.byteSize();
+        }
+        return new BaseEntry<>(dataSize, sizes.value() + Long.BYTES * 2);
     }
 
     private static long recordsCount(MemorySegment segment) {
@@ -352,5 +343,4 @@ public class DiskStorage {
     private static long normalize(long value) {
         return value & ~(1L << 63);
     }
-
 }
