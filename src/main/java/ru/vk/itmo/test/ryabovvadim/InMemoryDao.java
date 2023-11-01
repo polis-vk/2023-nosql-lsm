@@ -3,6 +3,7 @@ package ru.vk.itmo.test.ryabovvadim;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.test.ryabovvadim.iterators.EntrySkipNullsIterator;
 import ru.vk.itmo.test.ryabovvadim.iterators.FutureIterator;
 import ru.vk.itmo.test.ryabovvadim.iterators.GatheringIterator;
 import ru.vk.itmo.test.ryabovvadim.iterators.LazyIterator;
@@ -143,14 +144,15 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         List<FutureIterator<Entry<MemorySegment>>> loadedIterators = load(from, to);
         Iterator<Entry<MemorySegment>> entriesIterator = entries.values().iterator();
 
+        if (loadedIterators.isEmpty()) {
+            return new EntrySkipNullsIterator(entriesIterator);
+        }
+
         int priority = 0;
         List<PriorityIterator<Entry<MemorySegment>>> priorityIterators = new ArrayList<>();
 
         if (entriesIterator.hasNext()) {
-            priorityIterators.add(new PriorityIterator<>(
-                    new LazyIterator<>(entriesIterator::next, entriesIterator::hasNext),
-                    priority
-            ));
+            priorityIterators.add(new PriorityIterator<>(new LazyIterator<>(entriesIterator), priority));
             ++priority;
         }
         for (FutureIterator<Entry<MemorySegment>> it : loadedIterators) {
@@ -166,31 +168,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 Comparator.comparing(Entry::key, MemorySegmentUtils::compareMemorySegments)
         );
 
-        return new FutureIterator<>() {
-            @Override
-            public Entry<MemorySegment> showNext() {
-                skipNulls();
-                return gatheringIterator.showNext();
-            }
-
-            @Override
-            public boolean hasNext() {
-                skipNulls();
-                return gatheringIterator.hasNext();
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                skipNulls();
-                return gatheringIterator.next();
-            }
-
-            private void skipNulls() {
-                while (gatheringIterator.hasNext() && gatheringIterator.showNext().value() == null) {
-                    gatheringIterator.next();
-                }
-            }
-        };
+        return new EntrySkipNullsIterator(gatheringIterator);
     }
 
     @Override
