@@ -9,7 +9,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
-public class Utils {
+public final class Utils {
     private static final String INDEX_FILE_NAME = "index";
     private static final String SSTABLE_EXT = ".sstable";
     private static final String TMP_EXT = ".tmp";
