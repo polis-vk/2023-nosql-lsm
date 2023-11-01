@@ -1,7 +1,6 @@
 package ru.vk.itmo.test.ryabovvadim.utils;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
@@ -56,7 +55,7 @@ public final class MemorySegmentUtils {
                 src,
                 0,
                 dst,
-                ValueLayout.JAVA_BYTE,
+                JAVA_BYTE,
                 offsetDst,
                 src.length
         );
