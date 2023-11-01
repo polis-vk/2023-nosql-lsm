@@ -291,6 +291,7 @@ public class SSTablesController {
         deleteFiles(ssTablesPaths);
         deleteFiles(ssTablesIndexesPaths);
     }
+
     private void deleteFiles(List<Path> files) throws IOException {
         for (Path file : files) {
             Files.deleteIfExists(file);

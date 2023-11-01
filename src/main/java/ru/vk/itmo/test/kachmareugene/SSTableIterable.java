@@ -11,6 +11,7 @@ public class SSTableIterable implements Iterable<Entry<MemorySegment>> {
     private final SSTablesController controller;
     private final MemorySegment from;
     private final MemorySegment to;
+
     public SSTableIterable(Collection<Entry<MemorySegment>> it, SSTablesController controller,
                            MemorySegment from, MemorySegment to) {
         memTable = it;
