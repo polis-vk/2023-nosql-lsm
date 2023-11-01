@@ -1,20 +1,26 @@
 package ru.vk.itmo.test.dyagayalexandra;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.dyagayalexandra.InMemoryDao;
+import ru.vk.itmo.dyagayalexandra.Storage;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory
-public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+@DaoFactory(stage = 2)
+public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+        return new Storage();
+    }
+
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
+        return new Storage(config);
     }
 
     @Override
