@@ -41,12 +41,11 @@ public class SkipDeletedIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     public void skipDeleted() {
-        if (this.iterator.hasNext()) {
+        while (this.iterator.hasNext()) {
             Entry<MemorySegment> next = this.peekNext();
             if (next.value() == null) {
                 this.prefetched = null;
-                this.skipDeleted();
-            }
+            } else break;
         }
     }
 }
