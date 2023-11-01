@@ -49,6 +49,26 @@ public class DiskStorage {
         return storagePath.resolve(INDEX);
     }
 
+    public static void deleteAll(final Path storagePath) throws IOException {
+        final Path indexFile = getIndexPath(storagePath);
+        final Path indexTmp = getIndexTmpPath(storagePath);
+        try {
+            Files.createFile(indexFile);
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
+        }
+        final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        for (String fileName : existedFiles) {
+            try {
+                Files.delete(storagePath.resolve(fileName));
+            } catch (IOException ignored) {
+                // it's ok
+            }
+        }
+        Files.delete(indexFile);
+        Files.deleteIfExists(indexTmp);
+    }
+
     public static void save(final Path storagePath, final Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = getIndexTmpPath(storagePath);

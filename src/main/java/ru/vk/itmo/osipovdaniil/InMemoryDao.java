@@ -3,21 +3,24 @@ package ru.vk.itmo.osipovdaniil;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.pashchenkoalexandr.DiskStorage;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String DATA = "data";
+    private final Path tmpPath;
 
     private final Path path;
 
@@ -29,9 +32,30 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao(final Config config) throws IOException {
         this.path = config.basePath().resolve(DATA);
+        this.tmpPath = config.basePath().resolve(DATA + "tmp");
         Files.createDirectories(path);
         this.arena = Arena.ofShared();
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+    }
+
+    /**
+     * Compacts data (no-op by default).
+     */
+    @Override
+    public void compact() throws IOException {
+        final List<Entry<MemorySegment>> list = new ArrayList<>();
+        final Iterator<Entry<MemorySegment>> allValuesIterator = get(null, null);
+        while (allValuesIterator.hasNext()) {
+            final Entry<MemorySegment> entry = allValuesIterator.next();
+            if (entry.value() != null) {
+                list.add(allValuesIterator.next());
+            }
+        }
+        if (!list.isEmpty()) {
+            DiskStorage.save(tmpPath, list);
+        }
+        DiskStorage.deleteAll(path);
+        Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
     /**
@@ -97,16 +121,22 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         memorySegmentMap.put(entry.key(), entry);
     }
 
+    /**
+     * Persists data (no-op by default).
+     */
+    @Override
+    public void flush() throws IOException {
+        if (!memorySegmentMap.isEmpty()) {
+            DiskStorage.save(path, memorySegmentMap.values());
+        }
+    }
+
     @Override
     public void close() throws IOException {
         if (!arena.scope().isAlive()) {
             return;
         }
-
         arena.close();
-
-        if (!memorySegmentMap.isEmpty()) {
-            DiskStorage.save(path, memorySegmentMap.values());
-        }
+        flush();
     }
 }
