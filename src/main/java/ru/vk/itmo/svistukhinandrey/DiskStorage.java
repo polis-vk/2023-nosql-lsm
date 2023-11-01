@@ -196,7 +196,7 @@ public class DiskStorage {
                 if (Files.isRegularFile(file)) {
                     try {
                         Files.delete(file);
-                    } catch (IOException ignore) {
+                    } catch (IOException ignored) {
                         // it is ok (no)
                     }
                 }
