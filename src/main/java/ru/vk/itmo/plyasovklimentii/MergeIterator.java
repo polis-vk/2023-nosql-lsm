@@ -36,9 +36,9 @@ public class MergeIterator<T> implements Iterator<T> {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
-            T peek = peek();
+            T next = peek();
             this.peek = null;
-            return peek;
+            return next;
         }
 
         private T peek() {
@@ -51,7 +51,6 @@ public class MergeIterator<T> implements Iterator<T> {
             return peek;
         }
     }
-
 
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
@@ -69,53 +68,55 @@ public class MergeIterator<T> implements Iterator<T> {
         }
     }
 
-    private PeekIterator<T> peek() {
+    PeekIterator<T> peek() {
         while (peek == null) {
             peek = priorityQueue.poll();
             if (peek == null) {
                 return null;
             }
 
-            while (true) {
-                PeekIterator<T> next = priorityQueue.peek();
-                if (next == null) {
-                    break;
-                }
-
-                int compare = comparator.compare(peek.peek(), next.peek());
-                if (compare == 0) {
-                    PeekIterator<T> poll = priorityQueue.poll();
-                    if (poll != null) {
-                        poll.next();
-                        if (poll.hasNext()) {
-                            priorityQueue.add(poll);
-                        }
-                    }
-                } else {
-                    break;
-                }
-            }
-
-            if (peek.peek() == null) {
-                peek = null;
-                continue;
-            }
-
-            if (skip(peek.peek())) {
-                peek.next();
-                if (peek.hasNext()) {
-                    priorityQueue.add(peek);
-                }
-                peek = null;
+            removeDuplicates();
+            if (peek.peek() == null || skip(peek.peek())) {
+                processSkipped();
             }
         }
 
         return peek;
     }
 
+    private void removeDuplicates() {
+        while (true) {
+            PeekIterator<T> next = priorityQueue.peek();
+            if (next == null) {
+                break;
+            }
+
+            int compare = comparator.compare(peek.peek(), next.peek());
+            if (compare == 0) {
+                PeekIterator<T> poll = priorityQueue.poll();
+                if (poll != null) {
+                    poll.next();
+                    if (poll.hasNext()) {
+                        priorityQueue.add(poll);
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    private void processSkipped() {
+        peek.next();
+        if (peek.hasNext()) {
+            priorityQueue.add(peek);
+        }
+        peek = null;
+    }
+
 
     protected boolean skip(T t) {
-        return false;
+        return t == null;
     }
 
     @Override
