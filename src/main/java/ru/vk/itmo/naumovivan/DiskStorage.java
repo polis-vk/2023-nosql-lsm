@@ -9,11 +9,8 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -21,6 +18,90 @@ import java.util.List;
 import java.util.NoSuchElementException;
 
 public class DiskStorage {
+
+    // Average L2 cache size about 1MB,
+    // so to make SSTable index completely holdable in L2 cache
+    // we should store no more than 1 * 1024 * 1024 / 8 / 2 = 2 ** 16 entries
+    private static final int SSTABLE_MAX_ENTRIES = (1 << 16);
+    private static final String INDEX_FILENAME = "index.idx";
+
+    private static class MemorySegmentEntryView implements Comparable<MemorySegmentEntryView> {
+        private final MemorySegment keyPage;
+        private final long keyOffsetStart;
+        private final long keyOffsetEnd;
+        private final MemorySegment valuePage;
+        private final long valueOffsetStart;
+        private final long valueOffsetEnd;
+
+        public static MemorySegmentEntryView fromFileRecord(final MemorySegment sstable,
+                                                            final long recordIndex,
+                                                            final long recordsCount) {
+            final long startOfValue = startOfValue(sstable, recordIndex);
+            return new MemorySegmentEntryView(sstable, startOfKey(sstable, recordIndex), normalize(startOfValue),
+                                              sstable, startOfValue, endOfValue(sstable, recordIndex, recordsCount));
+        }
+
+        public static MemorySegmentEntryView fromEntry(final Entry<MemorySegment> entry) {
+            final MemorySegment key = entry.key();
+            final MemorySegment value = entry.value();
+            return new MemorySegmentEntryView(key, 0, key.byteSize(),
+                                              value, 0, value == null ? -1 : value.byteSize());
+        }
+
+        public MemorySegmentEntryView(final MemorySegment keyPage,
+                                      final long keyOffsetStart,
+                                      final long keyOffsetEnd,
+                                      final MemorySegment valuePage,
+                                      final long valueOffsetStart,
+                                      final long valueOffsetEnd) {
+            this.keyPage = keyPage;
+            this.keyOffsetStart = keyOffsetStart;
+            this.keyOffsetEnd = keyOffsetEnd;
+            this.valuePage = valuePage;
+            this.valueOffsetStart = valueOffsetStart;
+            this.valueOffsetEnd = valueOffsetEnd;
+        }
+
+        public long keySize() {
+            return keyOffsetEnd - keyOffsetStart;
+        }
+
+        public long valueSize() {
+            return isValueDeleted() ? 0 : valueOffsetEnd - valueOffsetStart;
+        }
+
+        public boolean isValueDeleted() {
+            return valuePage == null || isTombstone(valueOffsetStart);
+        }
+
+        public void copyKey(final MemorySegment filePage, final long fileOffset) {
+            MemorySegment.copy(keyPage, keyOffsetStart, filePage, fileOffset, keySize());
+        }
+
+        public void copyValue(final MemorySegment filePage, final long fileOffset) {
+            MemorySegment.copy(valuePage, valueOffsetStart, filePage, fileOffset, valueSize());
+        }
+
+        @Override
+        public int compareTo(final MemorySegmentEntryView other) {
+            final long mismatch = MemorySegment.mismatch(keyPage, keyOffsetStart, keyOffsetEnd,
+                    other.keyPage, other.keyOffsetStart, other.keyOffsetEnd);
+            if (mismatch == -1) {
+                return 0;
+            }
+
+            if (mismatch == keyOffsetEnd - keyOffsetStart) {
+                return -1;
+            }
+            if (mismatch == other.keyOffsetEnd - other.keyOffsetStart) {
+                return 1;
+            }
+
+            final byte b1 = keyPage.get(ValueLayout.JAVA_BYTE, keyOffsetStart + mismatch);
+            final byte b2 = other.keyPage.get(ValueLayout.JAVA_BYTE, other.keyOffsetStart + mismatch);
+            return Byte.compare(b1, b2);
+        }
+    }
 
     private final List<MemorySegment> segmentList;
 
@@ -48,8 +129,8 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(INDEX_FILENAME + ".tmp");
+        final Path indexFile = storagePath.resolve(INDEX_FILENAME);
 
         try {
             Files.createFile(indexFile);
@@ -140,9 +221,144 @@ public class DiskStorage {
         Files.delete(indexTmp);
     }
 
+    private MergeIterator<MemorySegmentEntryView> getViewMergeIterator(final Iterator<Entry<MemorySegment>> firstIterator) {
+        final List<Iterator<MemorySegmentEntryView>> iterators = new ArrayList<>(segmentList.size() + 1);
+        for (final MemorySegment memorySegment : segmentList) {
+            final long recordsCount = recordsCount(memorySegment);
+
+            iterators.add(new Iterator<>() {
+                long index = 0;
+
+                @Override
+                public boolean hasNext() {
+                    return index < recordsCount;
+                }
+
+                @Override
+                public MemorySegmentEntryView next() {
+                    if (!hasNext()) {
+                        throw new NoSuchElementException();
+                    }
+                    return MemorySegmentEntryView.fromFileRecord(memorySegment, index++, recordsCount);
+                }
+            });
+        }
+
+        iterators.add(new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                return firstIterator.hasNext();
+            }
+
+            @Override
+            public MemorySegmentEntryView next() {
+                return MemorySegmentEntryView.fromEntry(firstIterator.next());
+            }
+        });
+
+        return new MergeIterator<>(iterators, MemorySegmentEntryView::compareTo) {
+            @Override
+            protected boolean skip(final MemorySegmentEntryView view) {
+                return view.isValueDeleted();
+            }
+        };
+    }
+
+    public void overwriteData(final Path storagePath, final Iterator<Entry<MemorySegment>> firstIterator) throws IOException {
+        final Path parentPath = storagePath.getParent();
+        final Path storageName = storagePath.getFileName();
+        if (parentPath == null || storageName == null) {
+            throw new IOException("storagePath has no parent or filename");
+        }
+
+        final List<String> newFiles = new ArrayList<>();
+        final Path newStoragePath = Files.createTempDirectory(parentPath, "");
+
+        final MergeIterator<MemorySegmentEntryView> mergeIterator = getViewMergeIterator(firstIterator);
+
+        while (true) {
+            final List<MemorySegmentEntryView> views = new ArrayList<>(SSTABLE_MAX_ENTRIES);
+            long dataSize = 0;
+
+            while (views.size() < SSTABLE_MAX_ENTRIES) {
+                if (!mergeIterator.hasNext()) {
+                    break;
+                }
+                final MemorySegmentEntryView view = mergeIterator.next();
+                if (!view.isValueDeleted()) {
+                    dataSize += view.keySize();
+                    dataSize += view.valueSize();
+                    views.add(view);
+                }
+            }
+
+            if (views.isEmpty()) {
+                break;
+            }
+
+            final long indexSize = (long) views.size() * 2 * Long.BYTES;
+
+            final String newFileName = String.valueOf(newFiles.size());
+            newFiles.add(newFileName);
+            try (
+                    final FileChannel fileChannel = FileChannel.open(
+                            newStoragePath.resolve(newFileName),
+                            StandardOpenOption.READ,
+                            StandardOpenOption.WRITE,
+                            StandardOpenOption.CREATE,
+                            StandardOpenOption.TRUNCATE_EXISTING
+                    );
+                    final Arena writeArena = Arena.ofConfined()
+            ) {
+                final MemorySegment fileSegment = fileChannel.map(
+                        FileChannel.MapMode.READ_WRITE,
+                        0,
+                        indexSize + dataSize,
+                        writeArena
+                );
+                long indexOffset = 0;
+                long dataOffset = indexSize;
+                for (final MemorySegmentEntryView view : views) {
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                    indexOffset += Long.BYTES;
+                    view.copyKey(fileSegment, dataOffset);
+                    dataOffset += view.keySize();
+
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                    indexOffset += Long.BYTES;
+                    view.copyValue(fileSegment, dataOffset);
+                    dataOffset += view.valueSize();
+                }
+            }
+        }
+
+        Files.write(newStoragePath.resolve(INDEX_FILENAME),
+                newFiles,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
+
+        final Path tempDirectory = Files.createTempDirectory(parentPath, "");
+        Files.move(storagePath, tempDirectory, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.move(newStoragePath, storagePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.walkFileTree(tempDirectory, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
+                Files.delete(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult postVisitDirectory(final Path dir, final IOException exc) throws IOException {
+                Files.delete(dir);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+    }
+
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(INDEX_FILENAME + ".tmp");
+        Path indexFile = storagePath.resolve(INDEX_FILENAME);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -283,4 +499,7 @@ public class DiskStorage {
         return value & ~(1L << 63);
     }
 
+    private static boolean isTombstone(long offset) {
+        return (offset & 1L << 63) != 0;
+    }
 }

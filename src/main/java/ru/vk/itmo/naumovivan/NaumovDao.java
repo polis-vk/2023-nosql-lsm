@@ -97,6 +97,12 @@ public class NaumovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
+    public void compact() throws IOException {
+        diskStorage.overwriteData(path, storage.values().iterator());
+        storage.clear();
+    }
+
+    @Override
     public void close() throws IOException {
         if (!arena.scope().isAlive()) {
             return;
