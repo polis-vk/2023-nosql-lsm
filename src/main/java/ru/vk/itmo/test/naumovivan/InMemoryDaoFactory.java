@@ -3,7 +3,7 @@ package ru.vk.itmo.test.naumovivan;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.naumovivan.InMemoryDao;
+import ru.vk.itmo.naumovivan.NaumovDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -15,12 +15,17 @@ import java.nio.charset.StandardCharsets;
 public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(final Config config) throws IOException {
-        return new InMemoryDao(config);
+        return new NaumovDao(config);
     }
 
     @Override
     public String toString(final MemorySegment memorySegment) {
-        return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
+        if (memorySegment == null) {
+            return null;
+        }
+
+        byte[] array = memorySegment.toArray(ValueLayout.JAVA_BYTE);
+        return new String(array, StandardCharsets.UTF_8);
     }
 
     @Override
