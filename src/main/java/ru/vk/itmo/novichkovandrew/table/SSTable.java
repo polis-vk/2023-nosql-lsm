@@ -68,8 +68,8 @@ public class SSTable extends AbstractTable {
     public TableIterator<MemorySegment> tableIterator(MemorySegment from, boolean fromInclusive,
                                                       MemorySegment to, boolean toInclusive) {
         return new TableIterator<>() {
-            int start = (from == null ? 0 : binarySearch(from)) + Boolean.compare(!fromInclusive, false);
-            final int end = (to == null ? rows : binarySearch(to)) + Boolean.compare(toInclusive, true);
+            private int start = (from == null ? 0 : binarySearch(from)) + Boolean.compare(!fromInclusive, false);
+            private final int end = (to == null ? rows : binarySearch(to)) + Boolean.compare(toInclusive, true);
 
             @Override
             public int getTableNumber() {
