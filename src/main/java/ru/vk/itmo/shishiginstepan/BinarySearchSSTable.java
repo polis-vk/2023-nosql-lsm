@@ -21,9 +21,10 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     private final MemorySegment tableSegment;
     private final MemorySegment indexSegment;
     public int id;
-
+    public boolean closed = false;
     public final Path tablePath;
     public final Path indexPath;
+    private final Arena arena;
 
     private static class SSTableCreationException extends RuntimeException {
         public SSTableCreationException(Throwable cause) {
@@ -37,7 +38,14 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
         }
     }
 
+    private static class ClosedSSTableAccess extends RuntimeException {
+        public ClosedSSTableAccess() {
+            super();
+        }
+    }
+
     BinarySearchSSTable(Path path, Arena arena) {
+        this.arena = arena;
         this.id = Integer.parseInt(path.getFileName().toString().substring(8));
         tablePath = path;
         indexPath = Paths.get(path.toAbsolutePath() + "_index");
@@ -248,5 +256,12 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
                 );
             }
         };
+    }
+
+    public void close() {
+        if (closed) throw new ClosedSSTableAccess();
+        arena.close();
+        closed = true;
+
     }
 }

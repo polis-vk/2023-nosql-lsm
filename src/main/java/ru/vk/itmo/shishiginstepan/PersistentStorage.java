@@ -18,39 +18,40 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class PersistentStorage {
-    private final Arena arena;
     private final Path basePath;
     private final NavigableSet<BinarySearchSSTable> sstables = new ConcurrentSkipListSet<>(
             Comparator.comparingInt(ss -> -ss.id)
     );
 
     PersistentStorage(Path basePath) {
-        this.arena = Arena.ofShared();
         this.basePath = basePath;
         try (var sstablesFiles = Files.list(basePath)) {
             sstablesFiles.filter(
                     x -> !x.getFileName().toString().contains("_index")
             ).map(
-                    path -> new BinarySearchSSTable(path, arena)).forEach(this.sstables::add);
+                    path -> new BinarySearchSSTable(path, Arena.ofShared())).forEach(this.sstables::add);
         } catch (IOException e) {
             Logger.getAnonymousLogger().log(Level.WARNING, "Failed reading SSTABLE (probably deleted)");
         }
     }
 
     public void close() {
-        this.arena.close();
+        for (var sstable: sstables) {
+            sstable.close();
+        }
     }
 
     public BinarySearchSSTable store(Collection<Entry<MemorySegment>> data) {
         int nextSStableID = this.sstables.isEmpty() ? 0 : this.sstables.first().id + 1;
         Path newSSTPath = BinarySearchSSTable.writeSSTable(data, basePath, nextSStableID);
-        BinarySearchSSTable sstable = new BinarySearchSSTable(newSSTPath, this.arena);
+        BinarySearchSSTable sstable = new BinarySearchSSTable(newSSTPath, Arena.ofShared());
         this.sstables.add(sstable);
         return sstable;
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
         for (BinarySearchSSTable sstable : this.sstables) {
+            if (sstable.closed) continue;
             Entry<MemorySegment> ssTableResult = sstable.get(key);
             if (ssTableResult != null) {
                 return ssTableResult;
@@ -61,7 +62,10 @@ public class PersistentStorage {
 
     public List<Iterator<Entry<MemorySegment>>> get(MemorySegment from, MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
-        this.sstables.forEach((var sstable) -> iterators.add(sstable.scan(from, to)));
+        for (var sstable: sstables) {
+            if (sstable.closed) continue;
+            iterators.add(sstable.scan(from, to));
+        }
         return iterators;
     }
 
@@ -78,12 +82,18 @@ public class PersistentStorage {
             if (table.id == compactedTable.id) {
                 continue;
             }
-            try {
-                Files.delete(table.indexPath);
-                Files.delete(table.tablePath);
-            } catch (IOException e) {
-                throw new RuntimeException();
-            }
+            compactionClean(table);
         }
+    }
+
+    private void compactionClean(BinarySearchSSTable sstable) {
+        sstable.close();
+        try {
+            Files.delete(sstable.indexPath);
+            Files.delete(sstable.tablePath);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        sstables.remove(sstable);
     }
 }
