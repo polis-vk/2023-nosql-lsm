@@ -5,6 +5,7 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.kovalchukvladislav.model.DaoIterator;
 import ru.vk.itmo.kovalchukvladislav.model.EntryExtractor;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -15,9 +16,11 @@ import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends AbstractInMemoryDao<D, E> {
     //  ===================================
@@ -25,7 +28,6 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     //  ===================================
     private static final ValueLayout.OfLong LONG_LAYOUT = ValueLayout.JAVA_LONG_UNALIGNED;
     private static final String OFFSETS_FILENAME_PREFIX = "offsets_";
-    private static final String METADATA_FILENAME = "metadata";
     private static final String DB_FILENAME_PREFIX = "db_";
 
     //  ===================================
@@ -33,7 +35,6 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     //  ===================================
 
     private final Path basePath;
-    private final Path metadataPath;
     private final Arena arena = Arena.ofShared();
     private final EntryExtractor<D, E> extractor;
 
@@ -41,7 +42,7 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     //  Storages
     //  ===================================
 
-    private final int storagesCount;
+    private final AtomicInteger storagesCount = new AtomicInteger(0);
     private final List<MemorySegment> dbMappedSegments;
     private final List<MemorySegment> offsetMappedSegments;
 
@@ -53,38 +54,51 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
         if (!Files.exists(basePath)) {
             Files.createDirectory(basePath);
         }
-        this.metadataPath = basePath.resolve(METADATA_FILENAME);
-
-        this.storagesCount = getCountFromMetadataOrCreate();
-        this.dbMappedSegments = new ArrayList<>(storagesCount);
-        this.offsetMappedSegments = new ArrayList<>(storagesCount);
-
-        for (int i = 0; i < storagesCount; i++) {
-            readFileAndMapToSegment(DB_FILENAME_PREFIX, i, dbMappedSegments);
-            readFileAndMapToSegment(OFFSETS_FILENAME_PREFIX, i, offsetMappedSegments);
-        }
+        this.dbMappedSegments = new ArrayList<>();
+        this.offsetMappedSegments = new ArrayList<>();
+        readFilesAndMapToSegment();
     }
 
     //  ===================================
     //  Restoring state
     //  ===================================
-    private int getCountFromMetadataOrCreate() throws IOException {
-        if (!Files.exists(metadataPath)) {
-            Files.writeString(metadataPath, "0", StandardOpenOption.WRITE, StandardOpenOption.CREATE);
-            return 0;
+
+    private void readFilesAndMapToSegment() throws IOException {
+        File dir = new File(basePath.toString());
+        File[] files = dir.listFiles(it -> it.getName().startsWith(DB_FILENAME_PREFIX));
+        if (files == null) {
+            return;
         }
-        return Integer.parseInt(Files.readString(metadataPath));
+        Arrays.sort(files);
+
+        for (File file : files) {
+            String name = file.getName();
+            int index = name.indexOf(DB_FILENAME_PREFIX);
+            if (index == -1) {
+                continue;
+            }
+            String timestamp = name.substring(index + DB_FILENAME_PREFIX.length());
+            readFileAndMapToSegment(timestamp);
+        }
     }
 
-    private void readFileAndMapToSegment(String filenamePrefix, int index,
-                                         List<MemorySegment> segments) throws IOException {
-        Path path = basePath.resolve(filenamePrefix + index);
-        try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
+    private void readFileAndMapToSegment(String timestamp) throws IOException {
+        Path dbPath = basePath.resolve(DB_FILENAME_PREFIX + timestamp);
+        Path offsetsPath = basePath.resolve(OFFSETS_FILENAME_PREFIX + timestamp);
+        if (!Files.exists(dbPath) || !Files.exists(offsetsPath)) {
+            return;
+        }
+        try (FileChannel dbChannel = FileChannel.open(dbPath, StandardOpenOption.READ);
+             FileChannel offsetChannel = FileChannel.open(offsetsPath, StandardOpenOption.READ)) {
 
-            MemorySegment segment = channel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(path), arena);
-            segments.add(segment);
+            MemorySegment db = dbChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(dbPath), arena);
+            MemorySegment offsets = offsetChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(offsetsPath), arena);
+            dbMappedSegments.add(db);
+            offsetMappedSegments.add(offsets);
+            storagesCount.incrementAndGet();
         }
     }
+
 
     //  ===================================
     //  Finding in storage
@@ -106,7 +120,7 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     }
 
     private E findInStorages(D key) {
-        for (int i = storagesCount - 1; i >= 0; i--) {
+        for (int i = storagesCount.get() - 1; i >= 0; i--) {
             MemorySegment storage = dbMappedSegments.get(i);
             MemorySegment offsets = offsetMappedSegments.get(i);
 
@@ -128,7 +142,25 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     //  ===================================
     //  Writing data
     //  ===================================
-    private void writeData() throws IOException {
+
+    private void writeMemoryDAO() throws IOException {
+        writeData(dao.values().iterator(), dao.size(), getDAOBytesSize());
+    }
+
+    private void writeMemoryAndStorageDAO() throws IOException {
+        Iterator<E> allIterator = all();
+        long entriesCount = 0;
+        long daoSize = 0;
+
+        while (allIterator.hasNext()) {
+            E next = allIterator.next();
+            entriesCount++;
+            daoSize += extractor.size(next);
+        }
+        writeData(all(), entriesCount, daoSize);
+    }
+
+    private void writeData(Iterator<E> daoIterator, long entriesCount, long daoSize) throws IOException {
         Path dbPath = basePath.resolve(DB_FILENAME_PREFIX + storagesCount);
         Path offsetsPath = basePath.resolve(OFFSETS_FILENAME_PREFIX + storagesCount);
 
@@ -143,14 +175,14 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
              FileChannel offsets = FileChannel.open(offsetsPath, options);
              Arena confinedArena = Arena.ofConfined()) {
 
-            long dbSize = getDAOBytesSize();
-            long offsetsSize = (long) dao.size() * Long.BYTES;
-            MemorySegment fileSegment = db.map(FileChannel.MapMode.READ_WRITE, 0, dbSize, confinedArena);
+            long offsetsSize = entriesCount * Long.BYTES;
+            MemorySegment fileSegment = db.map(FileChannel.MapMode.READ_WRITE, 0, daoSize, confinedArena);
             MemorySegment offsetsSegment = offsets.map(FileChannel.MapMode.READ_WRITE, 0, offsetsSize, confinedArena);
 
             int i = 0;
             long offset = 0;
-            for (E entry : dao.values()) {
+            while (daoIterator.hasNext()) {
+                E entry = daoIterator.next();
                 offsetsSegment.setAtIndex(LONG_LAYOUT, i, offset);
                 i += 1;
                 offset = extractor.writeEntry(entry, fileSegment, offset);
@@ -171,19 +203,46 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     //  ===================================
     //  Flush and close
     //  ===================================
+    private void clear() {
+        dao.clear();
+        dbMappedSegments.clear();
+        offsetMappedSegments.clear();
+        storagesCount.set(0);
+    }
+
     @Override
     public synchronized void flush() throws IOException {
         if (!dao.isEmpty()) {
-            writeData();
-            Files.writeString(metadataPath, String.valueOf(storagesCount + 1));
+            writeMemoryDAO();
         }
     }
 
     @Override
     public synchronized void close() throws IOException {
+        compact();
         if (arena.scope().isAlive()) {
             arena.close();
         }
-        flush();
+    }
+
+    @Override
+    public void compact() throws IOException {
+        writeMemoryAndStorageDAO();
+        clear();
+        deleteFilesExceptLatest(DB_FILENAME_PREFIX);
+        deleteFilesExceptLatest(OFFSETS_FILENAME_PREFIX);
+        readFilesAndMapToSegment();
+    }
+
+    private void deleteFilesExceptLatest(String prefix) throws IOException {
+        File dir = new File(basePath.toString());
+        File[] files = dir.listFiles(it -> it.getName().startsWith(prefix));
+        if (files == null) {
+            return;
+        }
+        Arrays.sort(files);
+        for (int i = 0; i + 1 < files.length; i++) {
+            Files.delete(files[i].toPath());
+        }
     }
 }
