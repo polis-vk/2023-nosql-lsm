@@ -90,15 +90,16 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
         return indexList.subList(startPos, endPos).iterator();
     }
 
-    public static long[] getMapSize(final SortedMap<MemorySegment, Entry<MemorySegment>> map) {
-        final long[] sizes = new long[2];
+    public static SizeInfo getMapSize(final SortedMap<MemorySegment, Entry<MemorySegment>> map) {
+        long keysSize = 0;
+        long valuesSize = 0;
         for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : map.entrySet()) {
             final MemorySegment value = entry.getValue().value();
 
-            sizes[0] += entry.getKey().byteSize();
-            sizes[1] += value == null ? 0 : value.byteSize();
+            keysSize += entry.getKey().byteSize();
+            valuesSize += value == null ? 0 : value.byteSize();
         }
-        return sizes;
+        return new SizeInfo(map.size(), keysSize, valuesSize);
     }
 
     public static void write(
@@ -106,11 +107,8 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
             final Path path,
             final String name
     ) throws IOException {
-        final long[] sizes = getMapSize(map);
         try (Arena arena = Arena.ofConfined(); SStorageDumper dumper = new SStorageDumper(
-                map.size(),
-                sizes[0],
-                sizes[1],
+                getMapSize(map),
                 getDataPath(path, name),
                 getIndexPath(path, name),
                 arena
@@ -121,12 +119,8 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
         }
     }
 
-    public long size() {
-        return indexList.size();
-    }
-
-    public long[] getSplitSizes() {
-        return new long[]{indexList.keysSize(), indexList.valuesSize()};
+    public SizeInfo getSizeInfo() {
+        return new SizeInfo(indexList.size(), indexList.keysSize(), indexList.valuesSize());
     }
 
     public void delete() throws IOException {

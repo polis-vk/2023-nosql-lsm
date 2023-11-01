@@ -84,15 +84,12 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         return value;
     }
 
-    private long[] getTotalInfoSize() {
-        final long[] sizes = new long[3];
+    private SizeInfo getTotalInfoSize() {
+        final SizeInfo result = new SizeInfo();
         for (SSTable ssTable: ssTables) {
-            final long[] ssTableSizes = ssTable.getSplitSizes();
-            sizes[0] += ssTable.size();
-            sizes[1] += ssTableSizes[0];
-            sizes[2] += ssTableSizes[1];
+            result.add(ssTable.getSizeInfo());
         }
-        return sizes;
+        return result;
     }
 
     public void compact(final SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
@@ -106,19 +103,14 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         }
         Path tableTmpPath = null;
         Path indexTmpPath = null;
-        final long[] memorySizes = SSTable.getMapSize(map);
-        final long[] sizes = getTotalInfoSize();
-        sizes[0] += map.size();
-        sizes[1] += memorySizes[0];
-        sizes[2] += memorySizes[1];
+        final SizeInfo sizes = SSTable.getMapSize(map);
+        sizes.add(getTotalInfoSize());
         try {
             tableTmpPath = Files.createTempFile(null, null);
             indexTmpPath = Files.createTempFile(null, null);
-            final long[] realSize = new long[3];
+            final SizeInfo realSize = new SizeInfo();
             try (Arena tmpArena = Arena.ofConfined(); SStorageDumper dumper = new SStorageDumper(
-                    sizes[0],
-                    sizes[1],
-                    sizes[2],
+                    sizes,
                     tableTmpPath,
                     indexTmpPath,
                     tmpArena
@@ -131,20 +123,20 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
                     final Entry<MemorySegment> entry = iterator.next();
                     if (entry.value() != null) {
                         dumper.writeEntry(entry);
-                        realSize[0] += 1;
-                        realSize[1] += entry.key().byteSize();
-                        realSize[2] += entry.value().byteSize();
+                        realSize.size += 1;
+                        realSize.keysSize += entry.key().byteSize();
+                        realSize.valuesSize += entry.value().byteSize();
                     }
                 }
-                dumper.setKeysSize(realSize[1]);
-                dumper.setValuesSize(realSize[2]);
+                dumper.setKeysSize(realSize.keysSize);
+                dumper.setValuesSize(realSize.valuesSize);
             }
 
             try (FileChannel dataChannel = FileChannel.open(tableTmpPath, StandardOpenOption.WRITE);
                  FileChannel indexChannel = FileChannel.open(indexTmpPath, StandardOpenOption.WRITE)
             ) {
-                dataChannel.truncate(SStorageDumper.getSize(realSize[1], realSize[2]));
-                indexChannel.truncate(SStorageDumper.getIndexSize(realSize[0]));
+                dataChannel.truncate(SStorageDumper.getSize(realSize.keysSize, realSize.valuesSize));
+                indexChannel.truncate(SStorageDumper.getIndexSize(realSize.size));
             }
 
             for (SSTable ssTable : ssTables) {
@@ -155,6 +147,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
                 }
             }
             ssTables.clear();
+
             final String sstableName = getNextSSTableName();
             final Path dataPath = SSTable.getDataPath(root, sstableName);
             final Path indexPath = SSTable.getIndexPath(root, sstableName);

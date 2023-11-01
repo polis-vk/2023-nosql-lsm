@@ -11,32 +11,41 @@ import java.nio.file.Path;
 public class SStorageDumper extends Dumper {
 
     protected final IndexDumper indexDumper;
-    private final MemorySegment keysSegment;
-    private final MemorySegment valuesSegment;
-    private long keysOffset = 0;
-    private long valuesOffset = 0;
-    private final Path tempKeysFile;
-    private final Path tempValuesFile;
+    private final SegmentWriter keysWriter;
+    private final SegmentWriter valuesWriter;
 
     protected SStorageDumper(
-            final long entryCount,
-            final long keysSize,
-            final long valuesSize,
+            final SizeInfo sizeInfo,
             final Path storagePath,
             final Path indexPath,
             final Arena arena
     ) throws IOException {
-        super(storagePath, getSize(keysSize, valuesSize), arena);
+        super(storagePath, getSize(sizeInfo.keysSize, sizeInfo.valuesSize), arena);
 
-        tempKeysFile = Files.createTempFile(null, null);
-        tempValuesFile = Files.createTempFile(null, null);
+        keysWriter = new SegmentWriter(
+                Files.createTempFile(null, null),
+                sizeInfo.keysSize,
+                arena
+        );
+        try {
+            valuesWriter = new SegmentWriter(
+                    Files.createTempFile(null, null),
+                    sizeInfo.valuesSize,
+                    arena
+            );
+        } catch (IOException e) {
+            Files.deleteIfExists(keysWriter.path);
+            throw e;
+        }
+        try {
+            indexDumper = new IndexDumper(sizeInfo.size, indexPath, arena);
+        } catch (IOException e) {
+            deleteSupportFiles();
+            throw e;
+        }
 
-        keysSegment = UtilsMemorySegment.mapWriteSegment(tempKeysFile, keysSize, arena);
-        valuesSegment = UtilsMemorySegment.mapWriteSegment(tempValuesFile, valuesSize, arena);
-
-        indexDumper = new IndexDumper(entryCount, indexPath, arena);
-        indexDumper.setKeysSize(keysSize);
-        indexDumper.setValuesSize(valuesSize);
+        indexDumper.setKeysSize(sizeInfo.keysSize);
+        indexDumper.setValuesSize(sizeInfo.valuesSize);
     }
 
     public static long getSize(final long keysSize, final long valuesSize) {
@@ -60,62 +69,37 @@ public class SStorageDumper extends Dumper {
         indexDumper.writeHead();
     }
 
-    private void writeKey(final MemorySegment segment) {
-        final long size = segment.byteSize();
-        MemorySegment.copy(
-                segment,
-                0,
-                keysSegment,
-                keysOffset,
-                size
-        );
-        keysOffset += size;
-    }
-
-    private void writeValue(final MemorySegment segment) {
-        final long size = segment.byteSize();
-        MemorySegment.copy(
-                segment,
-                0,
-                valuesSegment,
-                valuesOffset,
-                size
-        );
-        valuesOffset += size;
-    }
-
     public void writeEntry(final Entry<MemorySegment> entry) {
-        final long keyOffset = keysOffset;
-        writeKey(entry.key());
+        final long keyOffset = keysWriter.offset;
+        keysWriter.writeMemorySegment(entry.key());
 
         final long valueOffset;
         final MemorySegment valueSegment = entry.value();
         if (valueSegment == null) {
             valueOffset = -1;
         } else {
-            valueOffset = valuesOffset;
-            writeValue(valueSegment);
+            valueOffset = valuesWriter.offset;
+            valuesWriter.writeMemorySegment(valueSegment);
         }
         indexDumper.writeEntry(keyOffset, valueOffset);
+    }
 
+    private void deleteSupportFiles() throws IOException {
+        try {
+            Files.deleteIfExists(keysWriter.path);
+        } finally {
+            Files.deleteIfExists(valuesWriter.path);
+        }
     }
 
     @Override
     public void close() throws IOException {
-        try {
-            writeHead();
-            offset = writeMemorySegment(keysSegment, offset, indexDumper.keysSize);
-            offset = writeMemorySegment(valuesSegment, offset, indexDumper.valuesSize);
-        } finally {
-            try {
-                indexDumper.close();
-            } finally {
-                try {
-                    Files.deleteIfExists(tempKeysFile);
-                } finally {
-                    Files.deleteIfExists(tempValuesFile);
-                }
-            }
-        }
+        writeHead();
+        offset = writeMemorySegment(keysWriter.memorySegment, offset, indexDumper.keysSize);
+        offset = writeMemorySegment(valuesWriter.memorySegment, offset, indexDumper.valuesSize);
+
+        indexDumper.close();
+
+        deleteSupportFiles();
     }
 }

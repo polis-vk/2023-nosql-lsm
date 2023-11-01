@@ -22,7 +22,7 @@ public class IndexDumper extends Dumper {
         this.keysSize = 0;
         this.valuesSize = 0;
         this.nullCount = 0;
-        this.offset = HEAD_SIZE;
+        offset = HEAD_SIZE;
     }
 
     public static long getSize(final long entryCount) {
@@ -66,7 +66,7 @@ public class IndexDumper extends Dumper {
     }
 
     @Override
-    public void close() throws IOException {
+    public void close() {
         fillNulls(valuesSize);
     }
 }
