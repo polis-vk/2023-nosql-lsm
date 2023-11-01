@@ -8,11 +8,7 @@ import ru.vk.itmo.abramovilya.table.TableEntry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NavigableMap;
-import java.util.NoSuchElementException;
-import java.util.PriorityQueue;
+import java.util.*;
 
 class DaoIterator implements Iterator<Entry<MemorySegment>> {
     private final PriorityQueue<TableEntry> priorityQueue = new PriorityQueue<>();
@@ -137,7 +133,8 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
             keyStorageOffset += Long.BYTES;
 
             if (DaoImpl.compareMemorySegmentsUsingOffset(from, storageMapped, keyStorageOffset, keySize) > 0
-                    || (to != null && DaoImpl.compareMemorySegmentsUsingOffset(to, storageMapped, keyStorageOffset, keySize) <= 0)) {
+                    || (to != null && DaoImpl.compareMemorySegmentsUsingOffset(
+                            to, storageMapped, keyStorageOffset, keySize) <= 0)) {
                 return -1;
             }
             return (long) foundIndex * (Integer.BYTES + Long.BYTES) + Integer.BYTES;

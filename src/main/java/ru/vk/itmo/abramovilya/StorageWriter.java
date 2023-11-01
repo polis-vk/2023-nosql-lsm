@@ -12,6 +12,9 @@ import java.nio.file.StandardOpenOption;
 import java.util.NavigableMap;
 
 class StorageWriter {
+    private StorageWriter() {
+    }
+
     static long writeEntryNumAndStorageOffset(MemorySegment mappedIndex,
                                               long indexWriteOffset,
                                               int entryNum,
@@ -90,5 +93,4 @@ class StorageWriter {
             mappedStorage.force();
         }
     }
-
 }
