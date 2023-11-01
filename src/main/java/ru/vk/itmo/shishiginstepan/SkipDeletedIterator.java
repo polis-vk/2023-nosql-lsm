@@ -17,34 +17,34 @@ public class SkipDeletedIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public boolean hasNext() {
-        skipDeleted();
-        return iterator.hasNext() || prefetched != null;
+        this.skipDeleted();
+        return this.iterator.hasNext() || this.prefetched != null;
     }
 
     @Override
     public Entry<MemorySegment> next() {
-        skipDeleted();
-        if (prefetched == null) {
-            return iterator.next();
+        this.skipDeleted();
+        if (this.prefetched == null) {
+            return this.iterator.next();
         } else {
-            Entry<MemorySegment> toReturn = prefetched;
-            prefetched = null;
+            Entry<MemorySegment> toReturn = this.prefetched;
+            this.prefetched = null;
             return toReturn;
         }
     }
 
     public Entry<MemorySegment> peekNext() {
-        if (prefetched == null) {
-            prefetched = iterator.next();
+        if (this.prefetched == null) {
+            this.prefetched = this.iterator.next();
         }
-        return prefetched;
+        return this.prefetched;
     }
 
     public void skipDeleted() {
-        while (iterator.hasNext()) {
-            Entry<MemorySegment> next = peekNext();
+        while (this.iterator.hasNext()) {
+            Entry<MemorySegment> next = this.peekNext();
             if (next.value() == null) {
-                prefetched = null;
+                this.prefetched = null;
             } else break;
         }
     }

@@ -32,6 +32,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         return keysCompared;
     });
 
+
     private static class PeekIteratorWrapper implements Iterator<Entry<MemorySegment>> {
         private Entry<MemorySegment> prefetched;
         private final Iterator<Entry<MemorySegment>> iterator;
@@ -45,33 +46,33 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
         @Override
         public boolean hasNext() {
-            return iterator.hasNext() || prefetched != null;
+            return this.iterator.hasNext() || this.prefetched != null;
         }
 
         @Override
         public Entry<MemorySegment> next() {
-            if (prefetched == null) {
-                return iterator.next();
+            if (this.prefetched == null) {
+                return this.iterator.next();
             } else {
-                Entry<MemorySegment> toReturn = prefetched;
-                prefetched = null;
+                Entry<MemorySegment> toReturn = this.prefetched;
+                this.prefetched = null;
                 return toReturn;
             }
         }
 
         public Entry<MemorySegment> peek() {
-            if (prefetched == null) {
-                prefetched = iterator.next();
+            if (this.prefetched == null) {
+                this.prefetched = this.iterator.next();
             }
-            return prefetched;
+            return this.prefetched;
         }
 
         public void skip() {
-            if (prefetched != null) {
-                prefetched = null;
+            if (this.prefetched != null) {
+                this.prefetched = null;
                 return;
             }
-            iterator.next();
+            this.iterator.next();
         }
     }
 
@@ -80,14 +81,14 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         for (int i = 0; i < iterators.size(); i++) {
             Iterator<Entry<MemorySegment>> iterator = iterators.get(i);
             if (iterator.hasNext()) {
-                iterators.add(new PeekIteratorWrapper(iterator, i));
+                this.iterators.add(new PeekIteratorWrapper(iterator, i));
             }
         }
     }
 
     @Override
     public boolean hasNext() {
-        PeekIteratorWrapper nextIterator = iterators.peek();
+        PeekIteratorWrapper nextIterator = this.iterators.peek();
         return nextIterator != null;
     }
 
@@ -96,7 +97,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         PeekIteratorWrapper nextIterator = iterators.remove();
         Entry<MemorySegment> nextEntry = nextIterator.next();
         if (nextIterator.hasNext()) {
-            iterators.add(nextIterator);
+            this.iterators.add(nextIterator);
         }
         skipOverrides(nextEntry);
         return nextEntry;
@@ -104,13 +105,13 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     private void skipOverrides(Entry<MemorySegment> entry) {
         while (hasNext()) {
-            PeekIteratorWrapper nextIterator = iterators.peek();
+            PeekIteratorWrapper nextIterator = this.iterators.peek();
             if (nextIterator == null) break;
             Entry<MemorySegment> nextEntry = nextIterator.peek();
             if (keyComparator.compare(entry.key(), nextEntry.key()) == 0) {
                 nextIterator.skip();
-                iterators.remove();
-                if (nextIterator.hasNext()) iterators.add(nextIterator);
+                this.iterators.remove();
+                if (nextIterator.hasNext()) this.iterators.add(nextIterator);
             } else break;
         }
 

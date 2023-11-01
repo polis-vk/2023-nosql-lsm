@@ -21,7 +21,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     private final MemorySegment tableSegment;
     private final MemorySegment indexSegment;
     public int id;
-    public boolean closed;
+    public boolean closed = false;
     public final Path tablePath;
     public final Path indexPath;
     private final Arena arena;
@@ -45,29 +45,28 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     }
 
     BinarySearchSSTable(Path path, Arena arena) {
-        closed = false;
         this.arena = arena;
-        id = Integer.parseInt(path.getFileName().toString().substring(8));
+        this.id = Integer.parseInt(path.getFileName().toString().substring(8));
         tablePath = path;
         indexPath = Paths.get(path.toAbsolutePath() + "_index");
 
         try {
             if (Files.exists(tablePath)) {
-                tableSize = Files.size(tablePath);
+                this.tableSize = Files.size(tablePath);
             }
             if (Files.exists(indexPath)) {
-                indexSize = Files.size(indexPath);
+                this.indexSize = Files.size(indexPath);
             }
         } catch (IOException e) {
             throw new SSTableCreationException(e);
         }
         try (FileChannel fileChannel = FileChannel.open(tablePath, StandardOpenOption.READ)) {
-            tableSegment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, tableSize, arena);
+            this.tableSegment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, tableSize, arena);
         } catch (IOException e) {
             throw new SSTableRWException(e);
         }
         try (FileChannel fileChannel = FileChannel.open(indexPath, StandardOpenOption.READ)) {
-            indexSegment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, indexSize, arena);
+            this.indexSegment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, indexSize, arena);
         } catch (IOException e) {
             throw new SSTableRWException(e);
         }
@@ -146,7 +145,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
 
     private long searchEntryPosition(MemorySegment key, boolean exact) {
         long l = 0;
-        long r = indexSize / (Long.BYTES * 2) - 1;
+        long r = this.indexSize / (Long.BYTES * 2) - 1;
         long m;
         while (l <= r) {
             m = l + (r - l) / 2;
@@ -181,7 +180,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         MemorySegment val;
-        long m = searchEntryPosition(key, true);
+        long m = this.searchEntryPosition(key, true);
         if (m == -1) return null;
         long valOffset = getValOffset(m);
         long recordEnd = getRecordEnd(m);
@@ -196,12 +195,12 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
         if (keyFrom == null) {
             startIndex = 0;
         } else {
-            startIndex = searchEntryPosition(keyFrom, false);
+            startIndex = this.searchEntryPosition(keyFrom, false);
         }
         if (keyTo == null) {
-            endIndex = indexSize / (Long.BYTES * 2);
+            endIndex = this.indexSize / (Long.BYTES * 2);
         } else {
-            endIndex = searchEntryPosition(keyTo, false);
+            endIndex = this.searchEntryPosition(keyTo, false);
         }
         return iterator(
                 startIndex,
@@ -216,6 +215,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     private static long normalize(long value) {
         return value & ~(1L << 63);
     }
+
 
     private long getKeyOffset(long recordIndex) {
         return indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * Long.BYTES * 2);
@@ -234,13 +234,14 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
         }
     }
 
+
     private Iterator<Entry<MemorySegment>> iterator(long startEntryIndex, long endEntryIndex) {
         return new Iterator<>() {
             long currentEntryIndex = startEntryIndex;
 
             @Override
             public boolean hasNext() {
-                return currentEntryIndex != endEntryIndex;
+                return this.currentEntryIndex != endEntryIndex;
             }
 
             @Override
@@ -248,15 +249,10 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
                 var keyOffset = getKeyOffset(currentEntryIndex);
                 var valOffset = getValOffset(currentEntryIndex);
                 long nextOffset = getRecordEnd(currentEntryIndex);
-                currentEntryIndex++;
+                this.currentEntryIndex++;
                 return new BaseEntry<>(
                         tableSegment.asSlice(keyOffset, normalize(valOffset) - keyOffset),
-                        valOffset < 0 ?
-                                null :
-                                tableSegment.asSlice(
-                                        normalize(valOffset),
-                                        nextOffset - normalize(valOffset)
-                                )
+                        valOffset < 0 ? null : tableSegment.asSlice(normalize(valOffset), nextOffset - normalize(valOffset))
                 );
             }
         };
