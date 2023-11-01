@@ -5,9 +5,9 @@ import ru.vk.itmo.abramovilya.DaoImpl;
 import java.lang.foreign.MemorySegment;
 
 public interface TableEntry extends Comparable<TableEntry> {
-    MemorySegment getValue();
+    MemorySegment value();
 
-    MemorySegment getKey();
+    MemorySegment key();
 
     int number();
 
@@ -15,7 +15,7 @@ public interface TableEntry extends Comparable<TableEntry> {
 
     @Override
     default int compareTo(TableEntry other) {
-        int compare = DaoImpl.compareMemorySegments(this.getKey(), other.getKey());
+        int compare = DaoImpl.compareMemorySegments(this.key(), other.key());
         if (compare != 0) {
             return compare;
         }

@@ -10,13 +10,17 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
+import java.util.NavigableMap;
 
-class StorageFileWriter {
-    void writeIteratorIntoFile(long storageSize,
-                               long indexSize,
-                               Iterator<Entry<MemorySegment>> iterator,
-                               Path sstablePath,
-                               Path indexPath) throws IOException {
+final class StorageFileWriter {
+    private StorageFileWriter() {
+    }
+
+    static void writeIteratorIntoFile(long storageSize,
+                                      long indexSize,
+                                      Iterator<Entry<MemorySegment>> iterator,
+                                      Path sstablePath,
+                                      Path indexPath) throws IOException {
         long storageWriteOffset = 0;
         long indexWriteOffset = 0;
         try (var storageChannel = FileChannel.open(sstablePath,
@@ -46,8 +50,65 @@ class StorageFileWriter {
                 storageWriteOffset = writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
                 storageWriteOffset = writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
             }
-            mappedStorage.load();
-            mappedIndex.load();
+            mappedStorage.force();
+            mappedIndex.force();
+        }
+    }
+
+    // writeMapIntoFile and writeIteratorInto file are pretty much the same,
+    // but I can't use writeIteratorIntoFile here due to optimization purposes:
+    // I have to write sstable and index separately
+    // I can't use writeMapIntoFile's code in the method above either,
+    // because it will slow down the execution due to the need of creating iterator twice
+    // And it also won't give any speed boost,
+    // because I would still be in need to find iterator.next() entry in another file
+    static void writeMapIntoFile(long sstableSize,
+                                        long indexSize,
+                                        NavigableMap<MemorySegment, Entry<MemorySegment>> map,
+                                        Path sstablePath,
+                                        Path indexPath) throws IOException {
+        long storageWriteOffset = 0;
+        long indexWriteOffset = 0;
+        try (var storageChannel = FileChannel.open(sstablePath,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE);
+
+             var indexChannel = FileChannel.open(indexPath,
+                     StandardOpenOption.READ,
+                     StandardOpenOption.WRITE,
+                     StandardOpenOption.CREATE);
+
+             var writeArena = Arena.ofConfined()) {
+            MemorySegment mappedIndex =
+                    indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, indexSize, writeArena);
+
+            int entryNum = 0;
+            for (var entry : map.values()) {
+                indexWriteOffset = writeEntryNumAndStorageOffset(
+                        mappedIndex,
+                        indexWriteOffset,
+                        entryNum,
+                        storageWriteOffset
+                );
+                entryNum++;
+
+                storageWriteOffset += 2 * Long.BYTES;
+                storageWriteOffset += entry.key().byteSize();
+                if (entry.value() != null) {
+                    storageWriteOffset += entry.value().byteSize();
+                }
+            }
+            mappedIndex.force();
+
+            MemorySegment mappedStorage =
+                    storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, sstableSize, writeArena);
+            storageWriteOffset = 0;
+            for (var entry : map.values()) {
+                storageWriteOffset = writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
+                storageWriteOffset = writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
+            }
+            mappedStorage.force();
         }
     }
 
@@ -80,4 +141,5 @@ class StorageFileWriter {
         }
         return offset;
     }
+
 }

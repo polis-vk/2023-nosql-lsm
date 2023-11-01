@@ -17,6 +17,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.NavigableMap;
 
 class Storage implements Closeable {
     private static final String COMPACTED_SUFFIX = "_compacted";
@@ -29,7 +30,6 @@ class Storage implements Closeable {
     private final List<MemorySegment> sstableMappedList = new ArrayList<>();
     private final List<FileChannel> indexFileChannels = new ArrayList<>();
     private final List<MemorySegment> indexMappedList = new ArrayList<>();
-    private final StorageFileWriter storageFileWriter = new StorageFileWriter();
 
     Storage(Config config, Arena arena) throws IOException {
         storagePath = config.basePath();
@@ -97,21 +97,26 @@ class Storage implements Closeable {
         MemorySegment indexMapped = indexMappedList.get(sstableNum);
 
         int foundIndex = upperBound(key, storageMapped, indexMapped, indexMapped.byteSize());
-        MemorySegment foundKey = getKeyFromSStable(storageMapped, indexMapped, foundIndex);
-        if (foundKey.mismatch(key) == -1) {
+        long keyStorageOffset = getKeyStorageOffset(indexMapped, foundIndex);
+        long foundKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
+        keyStorageOffset += Long.BYTES;
+
+        if (MemorySegment.mismatch(key,
+                0,
+                key.byteSize(),
+                storageMapped,
+                keyStorageOffset,
+                keyStorageOffset + foundKeySize) == -1) {
             return getEntryFromIndexFile(storageMapped, indexMapped, foundIndex);
         }
         return null;
     }
 
-    static MemorySegment getKeyFromSStable(MemorySegment sstableMapped, MemorySegment indexMapped, int entryNum) {
-        long offsetInStorageFile = indexMapped.get(
+    static long getKeyStorageOffset(MemorySegment indexMapped, int entryNum) {
+        return indexMapped.get(
                 ValueLayout.JAVA_LONG_UNALIGNED,
                 (long) (Integer.BYTES + Long.BYTES) * entryNum + Integer.BYTES
         );
-
-        long msSize = sstableMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetInStorageFile);
-        return sstableMapped.asSlice(offsetInStorageFile + Long.BYTES, msSize);
     }
 
     private Entry<MemorySegment> getEntryFromIndexFile(MemorySegment sstableMapped,
@@ -138,13 +143,13 @@ class Storage implements Closeable {
         return new BaseEntry<>(key, value);
     }
 
-    void writeIteratorIntoFile(long storageSize, long indexSize, Iterator<Entry<MemorySegment>> iterator)
+    void writeMapIntoFile(long sstableSize, long indexSize, NavigableMap<MemorySegment, Entry<MemorySegment>> map)
             throws IOException {
 
         int totalSStables = getTotalSStables();
         Path sstablePath = storagePath.resolve(Storage.SSTABLE_BASE_NAME + totalSStables);
         Path indexPath = storagePath.resolve(Storage.INDEX_BASE_NAME + totalSStables);
-        storageFileWriter.writeIteratorIntoFile(storageSize, indexSize, iterator, sstablePath, indexPath);
+        StorageFileWriter.writeMapIntoFile(sstableSize, indexSize, map, sstablePath, indexPath);
     }
 
     private Entry<Long> calcCompactedSStableIndexSize(Iterator<Entry<MemorySegment>> iterator) {
@@ -186,7 +191,7 @@ class Storage implements Closeable {
         Entry<Long> storageIndexSize = calcCompactedSStableIndexSize(iterator1);
         Path compactingSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX);
         Path compactingIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTING_SUFFIX);
-        storageFileWriter.writeIteratorIntoFile(storageIndexSize.key(),
+        StorageFileWriter.writeIteratorIntoFile(storageIndexSize.key(),
                 storageIndexSize.value(),
                 iterator2,
                 compactingSStablePath,
@@ -243,9 +248,13 @@ class Storage implements Closeable {
             return Integer.BYTES;
         } else {
             int foundIndex = upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
-            MemorySegment foundMemorySegment = getKeyFromSStable(storageMapped, indexMapped, foundIndex);
-            if (DaoImpl.compareMemorySegments(foundMemorySegment, from) < 0
-                    || (to != null && DaoImpl.compareMemorySegments(foundMemorySegment, to) >= 0)) {
+            long keyStorageOffset = getKeyStorageOffset(indexMapped, foundIndex);
+            long keySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
+            keyStorageOffset += Long.BYTES;
+
+            if (DaoImpl.compareMemorySegmentsUsingOffset(from, storageMapped, keyStorageOffset, keySize) > 0
+                    || (to != null && DaoImpl.compareMemorySegmentsUsingOffset(
+                    to, storageMapped, keyStorageOffset, keySize) <= 0)) {
                 return -1;
             }
             return (long) foundIndex * (Integer.BYTES + Long.BYTES) + Integer.BYTES;
@@ -261,9 +270,11 @@ class Storage implements Closeable {
 
         while (r - l > 1) {
             int m = (r + l) / 2;
-            MemorySegment ms = getKeyFromSStable(storageMapped, indexMapped, m);
+            long keyStorageOffset = getKeyStorageOffset(indexMapped, m);
+            long keySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
+            keyStorageOffset += Long.BYTES;
 
-            if (DaoImpl.compareMemorySegments(key, ms) > 0) {
+            if (DaoImpl.compareMemorySegmentsUsingOffset(key, storageMapped, keyStorageOffset, keySize) > 0) {
                 l = m;
             } else {
                 r = m;

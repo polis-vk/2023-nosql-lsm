@@ -14,12 +14,18 @@ public class MemTableEntry implements TableEntry {
     }
 
     @Override
-    public MemorySegment getValue() {
+    public MemorySegment value() {
+        if (current == null){
+            return null;
+        }
         return current.value();
     }
 
     @Override
-    public MemorySegment getKey() {
+    public MemorySegment key() {
+        if (current == null) {
+            return null;
+        }
         return current.key();
     }
 

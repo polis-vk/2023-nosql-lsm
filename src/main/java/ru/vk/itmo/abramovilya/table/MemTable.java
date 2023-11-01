@@ -12,7 +12,12 @@ public class MemTable implements Table {
 
     public MemTable(NavigableMap<MemorySegment, Entry<MemorySegment>> map) {
         iterator = map.values().iterator();
-        currentEntry = new MemTableEntry(iterator.next(), this);
+        if (iterator.hasNext()) {
+            currentEntry = new MemTableEntry(iterator.next(), this);
+        }
+        else {
+            currentEntry = new MemTableEntry(null, this);
+        }
     }
 
     @Override

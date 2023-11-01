@@ -24,13 +24,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return new DaoIterator(
-                storage.getTotalSStables(),
-                from,
-                to,
-                storage,
-                map
-        );
+        return new DaoIterator(storage.getTotalSStables(), from, to, storage, map);
     }
 
     @Override
@@ -73,10 +67,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (map.isEmpty()) {
             return;
         }
-        storage.writeIteratorIntoFile(
+        storage.writeMapIntoFile(
                 mapByteSizeInFile(),
                 indexByteSizeInFile(),
-                map.values().iterator()
+                map
         );
     }
 
@@ -115,5 +109,26 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return 1;
         }
         return Byte.compare(segment1.get(ValueLayout.JAVA_BYTE, offset), segment2.get(ValueLayout.JAVA_BYTE, offset));
+    }
+
+    public static int compareMemorySegmentsUsingOffset(MemorySegment segment1,
+                                                       MemorySegment segment2,
+                                                       long segment2Offset,
+                                                       long segment2Size) {
+        long mismatch = MemorySegment.mismatch(segment1,
+                0,
+                segment1.byteSize(),
+                segment2,
+                segment2Offset,
+                segment2Offset + segment2Size);
+        if (mismatch == -1) {
+            return 0;
+        } else if (mismatch == segment1.byteSize()) {
+            return -1;
+        } else if (mismatch == segment2Size) {
+            return 1;
+        }
+        return Byte.compare(segment1.get(ValueLayout.JAVA_BYTE, mismatch),
+                segment2.get(ValueLayout.JAVA_BYTE, segment2Offset + mismatch));
     }
 }
