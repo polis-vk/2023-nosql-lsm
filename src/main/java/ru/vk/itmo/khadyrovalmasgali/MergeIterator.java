@@ -5,6 +5,7 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -12,8 +13,6 @@ import java.util.Queue;
 import java.util.SortedMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentNavigableMap;
-
-import static ru.vk.itmo.khadyrovalmasgali.PersistentDao.comparator;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
@@ -25,7 +24,8 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             MemorySegment from,
             MemorySegment to,
             ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> data,
-            List<SSTable> sstables) {
+            List<SSTable> sstables,
+            Comparator<MemorySegment> comparator) {
         priorityMap = new TreeMap<>(comparator);
         iters = new ArrayList<>();
         Iterator<Entry<MemorySegment>> inMemoryIt;

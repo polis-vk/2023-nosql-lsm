@@ -8,29 +8,31 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-import static ru.vk.itmo.khadyrovalmasgali.PersistentDao.comparator;
-
 public class SSTable implements Comparable<SSTable> {
 
     private MemorySegment mappedData;
     private MemorySegment mappedIndexes;
     private long keysCount;
-    private final long timestamp;
+    private final long tableNum;
+    private final Path dataPath;
+    private final Path indexesPath;
+    private final Path metaPath;
     public static final String SSTABLE_NAME_PREFIX = "ss";
     public static final String INDEX_NAME_PREFIX = "ind";
     public static final String META_NAME_PREFIX = "meta";
 
-    public SSTable(Path path, String timestamp, Logger logger, Arena arena) {
-        this.timestamp = Long.parseLong(timestamp);
-        Path dataPath = path.resolve(SSTABLE_NAME_PREFIX + timestamp);
-        Path indexesPath = path.resolve(INDEX_NAME_PREFIX + timestamp);
-        Path metaPath = path.resolve(META_NAME_PREFIX + timestamp);
+    public SSTable(Path path, String tableNum, Logger logger, Arena arena) {
+        this.tableNum = Long.parseLong(tableNum);
+        dataPath = path.resolve(SSTABLE_NAME_PREFIX + tableNum);
+        indexesPath = path.resolve(INDEX_NAME_PREFIX + tableNum);
+        metaPath = path.resolve(META_NAME_PREFIX + tableNum);
         try (FileChannel channel = FileChannel.open(
                 dataPath,
                 StandardOpenOption.READ)) {
@@ -83,14 +85,25 @@ public class SSTable implements Comparable<SSTable> {
             long offset = mappedIndexes.get(ValueLayout.JAVA_LONG_UNALIGNED, mid * Long.BYTES);
             long keySize = mappedData.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
-            MemorySegment midKey = mappedData.asSlice(offset, keySize);
-            int cmp = comparator.compare(midKey, key);
-            if (cmp < 0) {
+            long mismatch = MemorySegment.mismatch(mappedData, offset, offset + keySize, key, 0, key.byteSize());
+            if (mismatch == keySize) {
                 low = mid + 1;
-            } else if (cmp > 0) {
+                continue;
+            }
+            if (mismatch == key.byteSize()) {
+                high = mid - 1;
+                continue;
+            }
+            if (mismatch == -1) {
+                return mid;
+            }
+
+            int b1 = Byte.toUnsignedInt(mappedData.get(ValueLayout.JAVA_BYTE, offset + mismatch));
+            int b2 = Byte.toUnsignedInt(key.get(ValueLayout.JAVA_BYTE, mismatch));
+            if (b1 > b2) {
                 high = mid - 1;
             } else {
-                return mid;
+                low = mid + 1;
             }
         }
         return -(low + 1);
@@ -147,6 +160,12 @@ public class SSTable implements Comparable<SSTable> {
 
     @Override
     public int compareTo(SSTable o) {
-        return Long.compare(o.timestamp, timestamp);
+        return Long.compare(o.tableNum, tableNum);
+    }
+
+    public void delete() throws IOException {
+        Files.delete(dataPath);
+        Files.delete(indexesPath);
+        Files.delete(metaPath);
     }
 }
