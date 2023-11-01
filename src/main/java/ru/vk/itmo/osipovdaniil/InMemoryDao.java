@@ -30,7 +30,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.path = config.basePath().resolve(DATA);
         Files.createDirectories(path);
         this.arena = Arena.ofShared();
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        this.diskStorage = new DiskStorage(DiskStorageUtils.loadOrRecover(path, arena));
     }
 
     /**
@@ -41,10 +41,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         flush();
         final Iterable<Entry<MemorySegment>> iterable = () -> get(null, null);
         if (iterable.iterator().hasNext()) {
-            DiskStorage.deleteAll(path);
-            DiskStorage.save(path, iterable);
+            DiskStorageUtils.deleteAll(path);
+            DiskStorageUtils.save(path, iterable);
         }
-        diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        diskStorage = new DiskStorage(DiskStorageUtils.loadOrRecover(path, arena));
     }
 
     /**
@@ -116,7 +116,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         if (!memorySegmentMap.isEmpty()) {
-            DiskStorage.save(path, memorySegmentMap.values());
+            DiskStorageUtils.save(path, memorySegmentMap.values());
         }
     }
 
