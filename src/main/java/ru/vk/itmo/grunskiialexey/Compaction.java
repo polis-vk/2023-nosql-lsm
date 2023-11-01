@@ -20,15 +20,6 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 
-import static ru.vk.itmo.grunskiialexey.DiskStorage.endOfKey;
-import static ru.vk.itmo.grunskiialexey.DiskStorage.endOfValue;
-import static ru.vk.itmo.grunskiialexey.DiskStorage.indexOf;
-import static ru.vk.itmo.grunskiialexey.DiskStorage.normalize;
-import static ru.vk.itmo.grunskiialexey.DiskStorage.recordsCount;
-import static ru.vk.itmo.grunskiialexey.DiskStorage.slice;
-import static ru.vk.itmo.grunskiialexey.DiskStorage.startOfKey;
-import static ru.vk.itmo.grunskiialexey.DiskStorage.startOfValue;
-
 public class Compaction {
     private static final String NAME_INDEX_FILE = "index.idx";
     private final List<MemorySegment> segmentList;
@@ -130,9 +121,9 @@ public class Compaction {
     }
 
     private Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
-        long recordsCount = recordsCount(page);
+        long recordIndexFrom = from == null ? 0 : DiskStorage.normalize(DiskStorage.indexOf(page, from));
+        long recordIndexTo = to == null ? DiskStorage.recordsCount(page) : DiskStorage.normalize(DiskStorage.indexOf(page, to));
+        long recordsCount = DiskStorage.recordsCount(page);
 
         return new Iterator<>() {
             long index = recordIndexFrom;
@@ -147,12 +138,12 @@ public class Compaction {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
-                long startOfValue = startOfValue(page, index);
+                MemorySegment key = DiskStorage.slice(page, DiskStorage.startOfKey(page, index), DiskStorage.endOfKey(page, index));
+                long startOfValue = DiskStorage.startOfValue(page, index);
                 MemorySegment value =
                         startOfValue < 0
                                 ? null
-                                : slice(page, startOfValue, endOfValue(page, index, recordsCount));
+                                : DiskStorage.slice(page, startOfValue, DiskStorage.endOfValue(page, index, recordsCount));
                 index++;
                 return new BaseEntry<>(key, value);
             }
