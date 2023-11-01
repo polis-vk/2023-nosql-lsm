@@ -60,8 +60,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         } else {
             memIterator = this.memStorage.subMap(from, to).sequencedValues().iterator();
         }
-        List<Iterator<Entry<MemorySegment>>> persistentIterators = this.persistentStorage.get(from, to);
-        persistentIterators.add(0, memIterator);
+        List<Iterator<Entry<MemorySegment>>> persistentIterators = this.persistentStorage.get(from, to, memIterator);
         return new SkipDeletedIterator(
                 new MergeIterator(persistentIterators)
         );
