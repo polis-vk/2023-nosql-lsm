@@ -42,8 +42,6 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     //  ===================================
 
     private final int storagesCount;
-    private final List<FileChannel> dbFileChannels;
-    private final List<FileChannel> offsetChannels;
     private final List<MemorySegment> dbMappedSegments;
     private final List<MemorySegment> offsetMappedSegments;
 
@@ -58,14 +56,12 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
         this.metadataPath = basePath.resolve(METADATA_FILENAME);
 
         this.storagesCount = getCountFromMetadataOrCreate();
-        this.dbFileChannels = new ArrayList<>(storagesCount);
-        this.offsetChannels = new ArrayList<>(storagesCount);
         this.dbMappedSegments = new ArrayList<>(storagesCount);
         this.offsetMappedSegments = new ArrayList<>(storagesCount);
 
         for (int i = 0; i < storagesCount; i++) {
-            readFileAndMapToSegment(DB_FILENAME_PREFIX, i, dbFileChannels, dbMappedSegments);
-            readFileAndMapToSegment(OFFSETS_FILENAME_PREFIX, i, offsetChannels, offsetMappedSegments);
+            readFileAndMapToSegment(DB_FILENAME_PREFIX, i, dbMappedSegments);
+            readFileAndMapToSegment(OFFSETS_FILENAME_PREFIX, i, offsetMappedSegments);
         }
     }
 
@@ -81,13 +77,11 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     }
 
     private void readFileAndMapToSegment(String filenamePrefix, int index,
-                                         List<FileChannel> channels,
                                          List<MemorySegment> segments) throws IOException {
         Path path = basePath.resolve(filenamePrefix + index);
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
 
             MemorySegment segment = channel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(path), arena);
-            channels.add(channel);
             segments.add(segment);
         }
     }
@@ -191,15 +185,5 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
             arena.close();
         }
         flush();
-        closeChannels(dbFileChannels);
-        closeChannels(offsetChannels);
-    }
-
-    private void closeChannels(List<FileChannel> channels) throws IOException {
-        for (FileChannel channel : channels) {
-            if (channel.isOpen()) {
-                channel.close();
-            }
-        }
     }
 }

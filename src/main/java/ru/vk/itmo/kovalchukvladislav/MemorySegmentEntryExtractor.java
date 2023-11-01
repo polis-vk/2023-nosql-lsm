@@ -7,16 +7,17 @@ import ru.vk.itmo.kovalchukvladislav.model.EntryExtractor;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class MemorySegmentEntryExtractor implements EntryExtractor<MemorySegment, Entry<MemorySegment>> {
+public final class MemorySegmentEntryExtractor implements EntryExtractor<MemorySegment, Entry<MemorySegment>> {
     public static final MemorySegmentEntryExtractor INSTANCE = new MemorySegmentEntryExtractor();
-    private static final ValueLayout.OfLong LONG_LAYOUT = ValueLayout.JAVA_LONG_UNALIGNED;
-    private static final ValueLayout.OfByte BYTE_LAYOUT = ValueLayout.JAVA_BYTE;
-    private static final int SIZE_LENGTH = Long.BYTES;
+    private static final long SIZE_LENGTH = ValueLayout.JAVA_BYTE.byteSize();
     private static final long VALUE_IS_NULL_SIZE = -1;
+
+    private MemorySegmentEntryExtractor() {
+    }
 
     @Override
     public MemorySegment readValue(MemorySegment memorySegment, long offset) {
-        long size = memorySegment.get(LONG_LAYOUT, offset);
+        long size = memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
         if (size == VALUE_IS_NULL_SIZE) {
             return null;
         }
@@ -26,11 +27,11 @@ public class MemorySegmentEntryExtractor implements EntryExtractor<MemorySegment
     @Override
     public long writeValue(MemorySegment valueSegment, MemorySegment memorySegment, long offset) {
         if (valueSegment == null) {
-            memorySegment.set(LONG_LAYOUT, offset, VALUE_IS_NULL_SIZE);
+            memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, VALUE_IS_NULL_SIZE);
             return offset + SIZE_LENGTH;
         }
         long size = valueSegment.byteSize();
-        memorySegment.set(LONG_LAYOUT, offset, size);
+        memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, size);
         MemorySegment.copy(valueSegment, 0, memorySegment, offset + SIZE_LENGTH, size);
         return offset + SIZE_LENGTH + size;
     }
@@ -57,7 +58,7 @@ public class MemorySegmentEntryExtractor implements EntryExtractor<MemorySegment
 
         while (left + 1 < right) {
             long middle = left + (right - left) / 2;
-            long middleOffset = offsets.getAtIndex(LONG_LAYOUT, middle);
+            long middleOffset = offsets.getAtIndex(ValueLayout.JAVA_LONG_UNALIGNED, middle);
             MemorySegment middleKey = readValue(storage, middleOffset);
 
             if (compare(middleKey, key) <= 0) {
@@ -66,7 +67,7 @@ public class MemorySegmentEntryExtractor implements EntryExtractor<MemorySegment
                 right = middle;
             }
         }
-        return left == -1 ? -1 : offsets.getAtIndex(LONG_LAYOUT, left);
+        return left == -1 ? -1 : offsets.getAtIndex(ValueLayout.JAVA_LONG_UNALIGNED, left);
     }
 
     @Override
@@ -89,6 +90,14 @@ public class MemorySegmentEntryExtractor implements EntryExtractor<MemorySegment
 
     @Override
     public int compare(MemorySegment a, MemorySegment b) {
+        if (a == null && b == null) {
+            return 0;
+        } else if (a == null) {
+            return 1;
+        } else if (b == null) {
+            return -1;
+        }
+
         long diffIndex = a.mismatch(b);
         if (diffIndex == -1) {
             return 0;
@@ -98,8 +107,8 @@ public class MemorySegmentEntryExtractor implements EntryExtractor<MemorySegment
             return 1;
         }
 
-        byte byteA = a.getAtIndex(BYTE_LAYOUT, diffIndex);
-        byte byteB = b.getAtIndex(BYTE_LAYOUT, diffIndex);
+        byte byteA = a.getAtIndex(ValueLayout.JAVA_BYTE, diffIndex);
+        byte byteB = b.getAtIndex(ValueLayout.JAVA_BYTE, diffIndex);
         return Byte.compare(byteA, byteB);
     }
 }
