@@ -14,7 +14,7 @@ import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
 
-import static ru.vk.itmo.abramovilya.DaoImpl.getKeyFromStorage;
+import static ru.vk.itmo.abramovilya.DaoImpl.getKeyStorageOffset;
 
 class DaoIterator implements Iterator<Entry<MemorySegment>> {
     private final PriorityQueue<TableEntry> priorityQueue = new PriorityQueue<>();
@@ -79,39 +79,39 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
         }
 
         TableEntry minEntry = priorityQueue.remove();
-        MemorySegment key = minEntry.getKey();
+        MemorySegment key = minEntry.key();
         removeExpiredValues(key);
 
         TableEntry minEntryTableNextEntry = minEntry.table().nextEntry();
         if (minEntryTableNextEntry != null
-                && (to == null || DaoImpl.compareMemorySegments(minEntryTableNextEntry.getKey(), to) < 0)) {
+                && (to == null || DaoImpl.compareMemorySegments(minEntryTableNextEntry.key(), to) < 0)) {
             priorityQueue.add(minEntryTableNextEntry);
         }
-        MemorySegment value = minEntry.getValue();
+        MemorySegment value = minEntry.value();
         cleanUpSStableQueue();
         return new BaseEntry<>(key, value);
     }
 
     private void removeExpiredValues(MemorySegment minMemorySegment) {
-        while (!priorityQueue.isEmpty() && priorityQueue.peek().getKey().mismatch(minMemorySegment) == -1) {
+        while (!priorityQueue.isEmpty() && priorityQueue.peek().key().mismatch(minMemorySegment) == -1) {
             TableEntry entryWithSameMin = priorityQueue.remove();
 
             TableEntry entryWithSameMinNext = entryWithSameMin.table().nextEntry();
             if (entryWithSameMinNext != null
-                    && (to == null || DaoImpl.compareMemorySegments(entryWithSameMinNext.getKey(), to) < 0)) {
+                    && (to == null || DaoImpl.compareMemorySegments(entryWithSameMinNext.key(), to) < 0)) {
                 priorityQueue.add(entryWithSameMinNext);
             }
         }
     }
 
     private void cleanUpSStableQueue() {
-        while (!priorityQueue.isEmpty() && priorityQueue.peek().getValue() == null) {
+        while (!priorityQueue.isEmpty() && priorityQueue.peek().value() == null) {
             TableEntry minEntry = priorityQueue.remove();
-            removeExpiredValues(minEntry.getKey());
+            removeExpiredValues(minEntry.key());
 
             TableEntry minEntryNext = minEntry.table().nextEntry();
             if (minEntryNext != null
-                    && (to == null || DaoImpl.compareMemorySegments(minEntryNext.getKey(), to) < 0)) {
+                    && (to == null || DaoImpl.compareMemorySegments(minEntryNext.key(), to) < 0)) {
                 priorityQueue.add(minEntryNext);
             }
         }
@@ -134,9 +134,12 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
             return Integer.BYTES;
         } else {
             int foundIndex = DaoImpl.upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
-            MemorySegment foundMemorySegment = getKeyFromStorage(storageMapped, indexMapped, foundIndex);
-            if (DaoImpl.compareMemorySegments(foundMemorySegment, from) < 0
-                    || (to != null && DaoImpl.compareMemorySegments(foundMemorySegment, to) >= 0)) {
+            long keyStorageOffset = getKeyStorageOffset(indexMapped, foundIndex);
+            long keySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
+            keyStorageOffset += Long.BYTES;
+
+            if (DaoImpl.compareMemorySegmentsUsingOffset(from, storageMapped, keyStorageOffset, keySize) > 0
+                    || (to != null && DaoImpl.compareMemorySegmentsUsingOffset(to, storageMapped, keyStorageOffset, keySize) <= 0)) {
                 return -1;
             }
             return (long) foundIndex * (Integer.BYTES + Long.BYTES) + Integer.BYTES;

@@ -21,12 +21,12 @@ public class SSTableEntry implements TableEntry {
     }
 
     @Override
-    public MemorySegment getKey() {
+    public MemorySegment key() {
         return currentKey;
     }
 
     @Override
-    public MemorySegment getValue() {
+    public MemorySegment value() {
         long valueOffset = storageFileOffset + Long.BYTES + currentKey.byteSize();
         long valueSize = mappedStorageFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
         if (valueSize == -1) {

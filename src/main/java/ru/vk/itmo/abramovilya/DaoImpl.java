@@ -103,8 +103,16 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         MemorySegment indexMapped = indexMappedList.get(sstableNum);
 
         int foundIndex = upperBound(key, storageMapped, indexMapped, indexMapped.byteSize());
-        MemorySegment foundKey = getKeyFromStorage(storageMapped, indexMapped, foundIndex);
-        if (foundKey.mismatch(key) == -1) {
+        long keyStorageOffset = getKeyStorageOffset(indexMapped, foundIndex);
+        long foundKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
+        keyStorageOffset += Long.BYTES;
+
+        if (MemorySegment.mismatch(key,
+                0,
+                key.byteSize(),
+                storageMapped,
+                keyStorageOffset,
+                keyStorageOffset + foundKeySize) == -1) {
             return getEntryFromIndexFile(storageMapped, indexMapped, foundIndex);
         }
         return null;
@@ -116,9 +124,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         while (r - l > 1) {
             int m = (r + l) / 2;
-            MemorySegment ms = getKeyFromStorage(storageMapped, indexMapped, m);
+            long keyStorageOffset = getKeyStorageOffset(indexMapped, m);
+            long keySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
+            keyStorageOffset += Long.BYTES;
 
-            if (compareMemorySegments(key, ms) > 0) {
+            if (compareMemorySegmentsUsingOffset(key, storageMapped, keyStorageOffset, keySize) > 0) {
                 l = m;
             } else {
                 r = m;
@@ -127,14 +137,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         return r;
     }
 
-    static MemorySegment getKeyFromStorage(MemorySegment storageMapped, MemorySegment indexMapped, int entryNum) {
-        long offsetInStorageFile = indexMapped.get(
+    static long getKeyStorageOffset(MemorySegment indexMapped, int entryNum) {
+        return indexMapped.get(
                 ValueLayout.JAVA_LONG_UNALIGNED,
                 (long) (Integer.BYTES + Long.BYTES) * entryNum + Integer.BYTES
         );
-
-        long msSize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetInStorageFile);
-        return storageMapped.asSlice(offsetInStorageFile + Long.BYTES, msSize);
     }
 
     private Entry<MemorySegment> getEntryFromIndexFile(MemorySegment storageMapped,
@@ -279,14 +286,37 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public static int compareMemorySegments(MemorySegment segment1, MemorySegment segment2) {
-        long offset = segment1.mismatch(segment2);
-        if (offset == -1) {
+        long mismatch = segment1.mismatch(segment2);
+        if (mismatch == -1) {
             return 0;
-        } else if (offset == segment1.byteSize()) {
+        } else if (mismatch == segment1.byteSize()) {
             return -1;
-        } else if (offset == segment2.byteSize()) {
+        } else if (mismatch == segment2.byteSize()) {
             return 1;
         }
-        return Byte.compare(segment1.get(ValueLayout.JAVA_BYTE, offset), segment2.get(ValueLayout.JAVA_BYTE, offset));
+        return Byte.compare(segment1.get(ValueLayout.JAVA_BYTE, mismatch),
+                segment2.get(ValueLayout.JAVA_BYTE, mismatch));
+    }
+
+    public static int compareMemorySegmentsUsingOffset(MemorySegment segment1,
+                                                       MemorySegment segment2,
+                                                       long segment2Offset,
+                                                       long segment2Size) {
+        long mismatch = MemorySegment.mismatch(segment1,
+                0,
+                segment1.byteSize(),
+                segment2,
+                segment2Offset,
+                segment2Offset + segment2Size);
+        if (mismatch == -1) {
+            return 0;
+        } else if (mismatch == segment1.byteSize()) {
+            return -1;
+        } else if (mismatch == segment2Size) {
+            return 1;
+        }
+        return Byte.compare(segment1.get(ValueLayout.JAVA_BYTE, mismatch),
+                segment2.get(ValueLayout.JAVA_BYTE, segment2Offset + mismatch));
+
     }
 }
