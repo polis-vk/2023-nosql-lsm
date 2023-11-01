@@ -97,6 +97,14 @@ public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
+    public void compact() throws IOException {
+        Iterator<Entry<MemorySegment>> allElementsIterator1 = get(null, null);
+        Iterator<Entry<MemorySegment>> allElementsIterator2 = get(null, null);
+        diskStorage.compact(path, allElementsIterator1, allElementsIterator2);
+        storage.clear();
+    }
+
+    @Override
     public void close() throws IOException {
         if (!arena.scope().isAlive()) {
             return;
