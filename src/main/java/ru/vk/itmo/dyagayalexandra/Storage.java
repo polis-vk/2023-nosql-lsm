@@ -5,6 +5,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.List;
@@ -55,7 +56,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
                     new EntryKeyComparator()
             );
 
-            return new SkipNullIterator(new PeekingIterator(0, mergeIterator), fileManager);
+            return new SkipNullIterator(new PeekingIterator(0, mergeIterator));
         }
     }
 
@@ -66,16 +67,13 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
         } else {
             Iterator<Entry<MemorySegment>> iterator = get(key, null);
             if (!iterator.hasNext()) {
-                fileManager.clearFileIterators();
                 return null;
             }
 
             Entry<MemorySegment> next = iterator.next();
             if (new MemorySegmentComparator().compare(key, next.key()) == 0) {
-                fileManager.clearFileIterators();
                 return next;
             }
-            fileManager.clearFileIterators();
             return null;
         }
     }
@@ -87,15 +85,39 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() {
-        throw new UnsupportedOperationException("Flush is not supported!");
+        if (dataStorage.isEmpty() || fileManager == null) {
+            return;
+        }
+
+        fileManager.flush(dataStorage);
+    }
+
+    @Override
+    public void compact() {
+        Iterator<Entry<MemorySegment>> iterator = get(null, null);
+        if (!iterator.hasNext()) {
+            return;
+        }
+
+        if (fileManager == null) {
+            return;
+        }
+
+        try {
+            fileManager.performCompact(iterator, !dataStorage.isEmpty());
+        } catch (IOException e) {
+            throw new UncheckedIOException("Error when executing the compact.", e);
+        }
     }
 
     @Override
     public void close() throws IOException {
-        if (fileManager != null) {
-            fileManager.save(dataStorage);
+        if (fileManager == null) {
+            return;
         }
 
+        flush();
+        fileManager.closeArena();
         dataStorage.clear();
     }
 }

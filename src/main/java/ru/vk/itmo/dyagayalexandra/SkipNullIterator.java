@@ -9,21 +9,15 @@ import java.util.NoSuchElementException;
 public class SkipNullIterator implements Iterator<Entry<MemorySegment>> {
 
     private final PeekingIterator iterator;
-    private final FileManager fileManager;
 
-    public SkipNullIterator(PeekingIterator iterator, FileManager fileManager) {
+    public SkipNullIterator(PeekingIterator iterator) {
         this.iterator = iterator;
-        this.fileManager = fileManager;
     }
 
     @Override
     public boolean hasNext() {
         while (iterator.hasNext() && iterator.peek().value() == null) {
             iterator.next();
-        }
-
-        if (!iterator.hasNext()) {
-            fileManager.clearFileIterators();
         }
 
         return iterator.hasNext();
@@ -34,13 +28,7 @@ public class SkipNullIterator implements Iterator<Entry<MemorySegment>> {
         if (!hasNext()) {
             throw new NoSuchElementException("There is no next element.");
         }
-
-        Entry<MemorySegment> nextEntry = iterator.next();
-
-        if (!hasNext()) {
-            fileManager.clearFileIterators();
-        }
-
-        return nextEntry;
+        
+        return iterator.next();
     }
 }
