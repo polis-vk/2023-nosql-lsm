@@ -1,9 +1,9 @@
 package ru.vk.itmo.reshetnikovaleksei.iterators;
 
+import ru.vk.itmo.Entry;
+
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
-
-import ru.vk.itmo.Entry;
 
 public class PeekingIterator implements Iterator<Entry<MemorySegment>> {
     private final Iterator<Entry<MemorySegment>> iterator;

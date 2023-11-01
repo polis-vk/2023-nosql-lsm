@@ -1,5 +1,11 @@
 package ru.vk.itmo.reshetnikovaleksei;
 
+import ru.vk.itmo.Config;
+import ru.vk.itmo.Dao;
+import ru.vk.itmo.Entry;
+import ru.vk.itmo.reshetnikovaleksei.iterators.MergeIterator;
+import ru.vk.itmo.reshetnikovaleksei.iterators.PeekingIterator;
+
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
@@ -7,12 +13,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-
-import ru.vk.itmo.Config;
-import ru.vk.itmo.Dao;
-import ru.vk.itmo.Entry;
-import ru.vk.itmo.reshetnikovaleksei.iterators.MergeIterator;
-import ru.vk.itmo.reshetnikovaleksei.iterators.PeekingIterator;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable;
@@ -69,7 +69,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private Iterator<Entry<MemorySegment>> allIterators(MemorySegment from, MemorySegment to) {
         List<PeekingIterator> iterators = new ArrayList<>();
 
-        Iterator<Entry<MemorySegment>> memoryIterator = memoryIterator(from ,to);
+        Iterator<Entry<MemorySegment>> memoryIterator = memoryIterator(from, to);
         Iterator<Entry<MemorySegment>> filesIterator = ssTableManager.get(from, to);
 
         iterators.add(new PeekingIterator(memoryIterator, 1));

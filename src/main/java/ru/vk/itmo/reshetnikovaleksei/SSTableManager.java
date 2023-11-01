@@ -1,5 +1,10 @@
 package ru.vk.itmo.reshetnikovaleksei;
 
+import ru.vk.itmo.Config;
+import ru.vk.itmo.Entry;
+import ru.vk.itmo.reshetnikovaleksei.iterators.MergeIterator;
+import ru.vk.itmo.reshetnikovaleksei.iterators.PeekingIterator;
+
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -15,11 +20,6 @@ import java.util.List;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.stream.Stream;
 
-import ru.vk.itmo.Config;
-import ru.vk.itmo.Entry;
-import ru.vk.itmo.reshetnikovaleksei.iterators.MergeIterator;
-import ru.vk.itmo.reshetnikovaleksei.iterators.PeekingIterator;
-
 import static ru.vk.itmo.reshetnikovaleksei.SSTable.DATA_PREFIX;
 import static ru.vk.itmo.reshetnikovaleksei.SSTable.INDEX_PREFIX;
 
@@ -29,13 +29,16 @@ public class SSTableManager implements AutoCloseable {
     private final Path basePath;
     private final List<SSTable> ssTables;
 
-    private int lastIdx = 0;
-    private boolean isClosed = false;
+    private int lastIdx;
+    private boolean isClosed;
 
     public SSTableManager(Config config) throws IOException {
         this.arena = Arena.ofShared();
         this.basePath = config.basePath();
         this.ssTables = new ArrayList<>();
+
+        this.lastIdx = 0;
+        this.isClosed = false;
 
         if (!Files.exists(basePath)) {
             return;

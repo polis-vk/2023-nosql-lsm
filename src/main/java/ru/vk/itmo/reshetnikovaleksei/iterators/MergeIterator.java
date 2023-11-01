@@ -1,16 +1,17 @@
 package ru.vk.itmo.reshetnikovaleksei.iterators;
 
+import ru.vk.itmo.Entry;
+
 import java.lang.foreign.MemorySegment;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
 import java.util.Queue;
 
-import ru.vk.itmo.Entry;
-
-public class MergeIterator implements Iterator<Entry<MemorySegment>> {
+public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private final Queue<PeekingIterator> queue;
 
     private MergeIterator(Queue<PeekingIterator> queue) {
@@ -47,7 +48,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> next() {
         if (!hasNext()) {
-            throw new RuntimeException("no next element");
+            throw new NoSuchElementException("no next element");
         }
 
         PeekingIterator currIterator = queue.remove();

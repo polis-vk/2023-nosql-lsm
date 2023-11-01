@@ -1,12 +1,13 @@
 package ru.vk.itmo.reshetnikovaleksei.iterators;
 
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.util.Iterator;
-
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.reshetnikovaleksei.MemorySegmentComparator;
+
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
@@ -48,7 +49,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> next() {
         if (!hasNext()) {
-            throw new RuntimeException("No next element");
+            throw new NoSuchElementException("No next element");
         }
 
         long keyOffset;

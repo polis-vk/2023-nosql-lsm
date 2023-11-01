@@ -7,9 +7,10 @@ import java.util.Comparator;
 public class MemorySegmentComparator implements Comparator<MemorySegment> {
     private static MemorySegmentComparator instance;
 
-    private MemorySegmentComparator() { }
+    private MemorySegmentComparator() {
+    }
 
-    public static MemorySegmentComparator getInstance() {
+    public synchronized static MemorySegmentComparator getInstance() {
         if (instance == null) {
             instance = new MemorySegmentComparator();
         }
