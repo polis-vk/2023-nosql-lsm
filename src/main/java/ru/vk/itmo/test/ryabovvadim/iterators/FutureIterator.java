@@ -1,4 +1,4 @@
-package ru.vk.itmo.test.ryabovvadim;
+package ru.vk.itmo.test.ryabovvadim.iterators;
 
 import java.util.Iterator;
 

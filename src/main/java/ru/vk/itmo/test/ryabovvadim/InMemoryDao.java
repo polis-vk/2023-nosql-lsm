@@ -3,6 +3,11 @@ package ru.vk.itmo.test.ryabovvadim;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.test.ryabovvadim.iterators.FutureIterator;
+import ru.vk.itmo.test.ryabovvadim.iterators.GatheringIterator;
+import ru.vk.itmo.test.ryabovvadim.iterators.LazyIterator;
+import ru.vk.itmo.test.ryabovvadim.iterators.PriorityIterator;
+import ru.vk.itmo.test.ryabovvadim.utils.FileUtils;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -23,13 +28,12 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-import static ru.vk.itmo.test.ryabovvadim.FileUtils.DATA_FILE_EXT;
-import static ru.vk.itmo.test.ryabovvadim.FileUtils.ENTRY_COMPARATOR;
+import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DATA_FILE_EXT;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena = Arena.ofShared();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable =
-        new ConcurrentSkipListMap<>(FileUtils::compareMemorySegments);
+            new ConcurrentSkipListMap<>(FileUtils::compareMemorySegments);
     private final Config config;
     private final List<SSTable> ssTables = new ArrayList<>();
 
@@ -53,10 +57,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                 if (file.getFileName().toString().endsWith("." + DATA_FILE_EXT)) {
                     dataFileNumbers.add(Long.parseLong(
-                        file.getFileName().toString().substring(
-                            0, 
-                            file.getFileName().toString().indexOf("." + DATA_FILE_EXT)
-                        )
+                            file.getFileName().toString().substring(
+                                    0,
+                                    file.getFileName().toString().indexOf("." + DATA_FILE_EXT)
+                            )
                     ));
                 }
 
@@ -72,7 +76,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> result = memoryTable.get(key);
-        
+
         if (result == null) {
             result = load(key);
         }
@@ -125,23 +129,23 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 return handleDeletededEntry(entry);
             }
         }
-        
+
         return null;
     }
 
-    private FutureIterator<Entry<MemorySegment>> load(MemorySegment from, MemorySegment to) {
+    private List<FutureIterator<Entry<MemorySegment>>> load(MemorySegment from, MemorySegment to) {
         List<FutureIterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
-        
+
         for (SSTable ssTable : ssTables) {
             FutureIterator<Entry<MemorySegment>> iterator = ssTable.findEntries(from, to);
             if (iterator.hasNext()) {
                 iterators.add(iterator);
             }
         }
-        
-        return new SingleValueGatheringIterator<>(iterators, ENTRY_COMPARATOR);
+
+        return iterators;
     }
-    
+
     private Entry<MemorySegment> handleDeletededEntry(Entry<MemorySegment> entry) {
         if (entry == null || entry.value() == null) {
             return null;
@@ -150,46 +154,58 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private FutureIterator<Entry<MemorySegment>> makeIteratorWithSkipNulls(
-            Map<MemorySegment, Entry<MemorySegment>> entries, 
-            MemorySegment from, 
+            Map<MemorySegment, Entry<MemorySegment>> entries,
+            MemorySegment from,
             MemorySegment to
     ) {
+        List<FutureIterator<Entry<MemorySegment>>> loadedIterators = load(from, to);
         Iterator<Entry<MemorySegment>> entriesIterator = entries.values().iterator();
-        LazyIterator<Entry<MemorySegment>> futureEntriesIterator = new LazyIterator<>(
-            entriesIterator::next, 
-            entriesIterator::hasNext
-        );
-        SingleValueGatheringIterator<Entry<MemorySegment>> iterator = new SingleValueGatheringIterator<>(
-            List.of(futureEntriesIterator, load(from, to)), 
-            ENTRY_COMPARATOR
+
+        int priority = 0;
+        List<PriorityIterator<Entry<MemorySegment>>> priorityIterators = new ArrayList<>();
+
+        if (entriesIterator.hasNext()) {
+            priorityIterators.add(new PriorityIterator<>(
+                    new LazyIterator<>(entriesIterator::next, entriesIterator::hasNext),
+                    priority
+            ));
+            ++priority;
+        }
+        for (FutureIterator<Entry<MemorySegment>> it : loadedIterators) {
+            priorityIterators.add(new PriorityIterator<>(it, priority++));
+        }
+
+        GatheringIterator<Entry<MemorySegment>> gatheringIterator = new GatheringIterator<>(
+                priorityIterators,
+                Comparator.comparing(
+                        it -> ((PriorityIterator<Entry<MemorySegment>>) it).showNext().key(),
+                        FileUtils::compareMemorySegments
+                ).thenComparingInt(it -> ((PriorityIterator<Entry<MemorySegment>>) it).getPriority()),
+                Comparator.comparing(Entry::key, FileUtils::compareMemorySegments)
         );
 
-        return new FutureIterator<Entry<MemorySegment>>() {
+        return new FutureIterator<>() {
             @Override
             public Entry<MemorySegment> showNext() {
                 skipNulls();
-                return iterator.showNext();
+                return gatheringIterator.showNext();
             }
 
             @Override
             public boolean hasNext() {
                 skipNulls();
-                return iterator.hasNext();
+                return gatheringIterator.hasNext();
             }
 
             @Override
             public Entry<MemorySegment> next() {
                 skipNulls();
-                return iterator.next();
+                return gatheringIterator.next();
             }
-            
+
             private void skipNulls() {
-                while (iterator.hasNext()) {
-                    if (iterator.showNext().value() == null) {
-                        iterator.next();
-                    } else {
-                        break;
-                    }
+                while (gatheringIterator.hasNext() && gatheringIterator.showNext().value() == null) {
+                    gatheringIterator.next();
                 }
             }
         };
@@ -208,7 +224,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             ssTables.add(new SSTable(config.basePath(), nameSavedTable, arena));
         }
     }
-    
+
     private String saveMemoryTable(Path path) throws IOException {
         FileUtils.createParentDirectories(config.basePath());
 
@@ -217,10 +233,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             maxTableNumber = Math.max(maxTableNumber, Long.parseLong(ssTable.getName()));
         }
         SSTable.save(path, Long.toString(maxTableNumber + 1), memoryTable.values(), arena);
-        
+
         return Long.toString(maxTableNumber + 1);
     }
-    
+
     private boolean existsPath() {
         return config != null && config.basePath() != null;
     }

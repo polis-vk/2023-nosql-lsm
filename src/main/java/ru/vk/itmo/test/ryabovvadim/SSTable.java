@@ -2,6 +2,10 @@ package ru.vk.itmo.test.ryabovvadim;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.test.ryabovvadim.iterators.FutureIterator;
+import ru.vk.itmo.test.ryabovvadim.iterators.LazyIterator;
+import ru.vk.itmo.test.ryabovvadim.utils.FileUtils;
+import ru.vk.itmo.test.ryabovvadim.utils.NumberUtils;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
