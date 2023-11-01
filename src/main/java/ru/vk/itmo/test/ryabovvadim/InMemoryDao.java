@@ -210,8 +210,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                     if (FileUtils.hasExtension(file, DATA_FILE_EXT)) {
-                        long ssTableId = Long.parseLong(FileUtils.extractFileName(file, DATA_FILE_EXT));
-                        ssTables.add(new SSTable(config.basePath(), ssTableId, arena));
+                        ssTables.add(new SSTable(
+                                config.basePath(),
+                                Long.parseLong(FileUtils.extractFileName(file, DATA_FILE_EXT)),
+                                arena
+                        ));
                     }
 
                     return FileVisitResult.CONTINUE;
