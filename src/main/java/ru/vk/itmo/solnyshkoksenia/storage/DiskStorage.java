@@ -22,20 +22,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.endOfKey;
-import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.endOfValue;
-import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.mapFile;
-import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.normalize;
-import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.putEntry;
-import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.recordsCount;
-import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.slice;
-import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.startOfKey;
-import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.startOfValue;
-import static ru.vk.itmo.solnyshkoksenia.storage.StorageUtils.tombstone;
-
 public class DiskStorage {
     private static final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
     private static final String INDEX_FILE_NAME = "index.idx";
+    private static final StorageUtils utils = new StorageUtils();
     private final Path storagePath;
     private final List<MemorySegment> segmentList;
 
@@ -97,7 +87,7 @@ public class DiskStorage {
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
-            MemorySegment fileSegment = mapFile(fileChannel, indexSize + dataSize, writeArena);
+            MemorySegment fileSegment = utils.mapFile(fileChannel, indexSize + dataSize, writeArena);
 
             // index:
             // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
@@ -107,7 +97,7 @@ public class DiskStorage {
             // |key0|value0|key1|value1|...
             Entry<Long> offsets = new BaseEntry<>(indexSize, 0L);
             for (Entry<MemorySegment> entry : iterable) {
-                offsets = putEntry(fileSegment, offsets, entry);
+                offsets = utils.putEntry(fileSegment, offsets, entry);
             }
         }
 
@@ -167,11 +157,11 @@ public class DiskStorage {
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
-            MemorySegment fileSegment = mapFile(fileChannel, indexSize + dataSize, writeArena);
+            MemorySegment fileSegment = utils.mapFile(fileChannel, indexSize + dataSize, writeArena);
 
             Entry<Long> offsets = new BaseEntry<>(indexSize, 0L);
             while (iterator1.hasNext()) {
-                offsets = putEntry(fileSegment, offsets, iterator1.next());
+                offsets = utils.putEntry(fileSegment, offsets, iterator1.next());
             }
         }
 
@@ -210,7 +200,7 @@ public class DiskStorage {
         for (String fileName : existedFiles) {
             Path file = storagePath.resolve(fileName);
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-                MemorySegment fileSegment = mapFile(fileChannel, Files.size(file), arena);
+                MemorySegment fileSegment = utils.mapFile(fileChannel, Files.size(file), arena);
                 result.add(fileSegment);
             }
         }
@@ -219,15 +209,15 @@ public class DiskStorage {
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
-        long recordsCount = recordsCount(segment);
+        long recordsCount = utils.recordsCount(segment);
 
         long left = 0;
         long right = recordsCount - 1;
         while (left <= right) {
             long mid = (left + right) >>> 1;
 
-            long startOfKey = startOfKey(segment, mid);
-            long endOfKey = endOfKey(segment, mid);
+            long startOfKey = utils.startOfKey(segment, mid);
+            long endOfKey = utils.endOfKey(segment, mid);
             long mismatch = MemorySegment.mismatch(segment, startOfKey, endOfKey, key, 0, key.byteSize());
             if (mismatch == -1) {
                 return mid;
@@ -252,13 +242,13 @@ public class DiskStorage {
             }
         }
 
-        return tombstone(left);
+        return utils.tombstone(left);
     }
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
-        long recordsCount = recordsCount(page);
+        long recordIndexFrom = from == null ? 0 : utils.normalize(indexOf(page, from));
+        long recordIndexTo = to == null ? utils.recordsCount(page) : utils.normalize(indexOf(page, to));
+        long recordsCount = utils.recordsCount(page);
 
         return new Iterator<>() {
             long index = recordIndexFrom;
@@ -273,12 +263,12 @@ public class DiskStorage {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
-                long startOfValue = startOfValue(page, index);
+                MemorySegment key = utils.slice(page, utils.startOfKey(page, index), utils.endOfKey(page, index));
+                long startOfValue = utils.startOfValue(page, index);
                 MemorySegment value =
                         startOfValue < 0
                                 ? null
-                                : slice(page, startOfValue, endOfValue(page, index, recordsCount));
+                                : utils.slice(page, startOfValue, utils.endOfValue(page, index, recordsCount));
                 index++;
                 return new BaseEntry<>(key, value);
             }
