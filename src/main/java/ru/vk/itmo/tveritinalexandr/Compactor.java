@@ -21,6 +21,9 @@ import static ru.vk.itmo.tveritinalexandr.Utils.tombstone;
 
 public class Compactor {
 
+    private Compactor() {
+    }
+
     // В методе есть много схожей логики с методом DiskStorage.save(),
     //но решил нарушить DRY, чтобы вам было удобнее проверять т.к. я взял референс 3-ого этапа
     //и скорее всего весь PR будет зелёным)

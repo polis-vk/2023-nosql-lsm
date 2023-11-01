@@ -5,6 +5,9 @@ import java.lang.foreign.ValueLayout;
 
 public class Utils {
 
+    private Utils() {
+    }
+
     public static long recordsCount(MemorySegment segment) {
         long indexSize = indexSize(segment);
         return indexSize / Long.BYTES / 2;

@@ -56,7 +56,7 @@ public class DiskStorage {
             throws IOException {
         final Path indexFile = storagePath.resolve("index.idx");
         final Path indexTmp = storagePath.resolve("index.tmp");
-
+        final String compactedFileName = "compacted";
         if (segmentList.isEmpty() && !inMemoryIterator.hasNext()) return;
 
         int maybeExistingFileName = 0;
@@ -68,15 +68,15 @@ public class DiskStorage {
             maybeExistingFileName++;
         }
 
-        Files.deleteIfExists(storagePath.resolve("compacted"));
+        Files.deleteIfExists(storagePath.resolve(compactedFileName));
 
         Path source = storagePath.resolve("compacting");
-        Path target = storagePath.resolve("compacted");
+        Path target = storagePath.resolve(compactedFileName);
         Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         Files.write(
                 indexTmp,
-                List.of("compacted"),
+                List.of(compactedFileName),
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING

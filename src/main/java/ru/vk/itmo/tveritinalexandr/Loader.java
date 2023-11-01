@@ -14,6 +14,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class Loader {
+
+    private Loader() {
+
+    }
+
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         Path indexTmp = storagePath.resolve("index.tmp");
         Path indexFile = storagePath.resolve("index.idx");
