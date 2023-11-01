@@ -202,57 +202,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + currSStableNum);
         Path indexPath = storagePath.resolve(INDEX_BASE_NAME + currSStableNum);
 
-        long storageWriteOffset = 0;
-        long indexWriteOffset = 0;
-        try (var storageChannel = FileChannel.open(sstablePath,
-                StandardOpenOption.READ,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE);
-
-             var indexChannel = FileChannel.open(indexPath,
-                     StandardOpenOption.READ,
-                     StandardOpenOption.WRITE,
-                     StandardOpenOption.CREATE);
-
-             var writeArena = Arena.ofConfined()) {
-            MemorySegment mappedIndex =
-                    indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcIndexByteSizeInFile(), writeArena);
-
-            int entryNum = 0;
-            for (var entry : map.values()) {
-                indexWriteOffset =
-                        writeEntryNumAndStorageOffset(mappedIndex, indexWriteOffset, entryNum, storageWriteOffset);
-                entryNum++;
-
-                storageWriteOffset += 2 * Long.BYTES;
-                storageWriteOffset += entry.key().byteSize();
-                if (entry.value() != null) {
-                    storageWriteOffset += entry.value().byteSize();
-                }
-            }
-            mappedIndex.force();
-
-            MemorySegment mappedStorage =
-                    storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, calcMapByteSizeInFile(), writeArena);
-            storageWriteOffset = 0;
-            for (var entry : map.values()) {
-                storageWriteOffset = writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
-                storageWriteOffset = writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
-            }
-            mappedStorage.force();
-        }
-    }
-
-    private static long writeEntryNumAndStorageOffset(MemorySegment mappedIndex,
-                                                      long indexWriteOffset,
-                                                      int entryNum,
-                                                      long storageWriteOffset) {
-        long offset = indexWriteOffset;
-        mappedIndex.set(ValueLayout.JAVA_INT_UNALIGNED, offset, entryNum);
-        offset += Integer.BYTES;
-        mappedIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, storageWriteOffset);
-        offset += Long.BYTES;
-        return offset;
+        StorageWriter.writeSStableAndIndex(sstablePath,
+                calcMapByteSizeInFile(),
+                indexPath,
+                calcIndexByteSizeInFile(),
+                map);
     }
 
     private int getTotalSStables() {
@@ -273,24 +227,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
         return size;
-    }
-
-    // Every memorySegment in file has the following structure:
-    // 8 bytes - size, <size> bytes - value
-    // If memorySegment has the size of -1 byte, then it means its value is DELETED
-    private static long writeMemorySegment(MemorySegment memorySegment, MemorySegment mapped, long writeOffset) {
-        long offset = writeOffset;
-        if (memorySegment == null) {
-            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
-            offset += Long.BYTES;
-        } else {
-            long msSize = memorySegment.byteSize();
-            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, msSize);
-            offset += Long.BYTES;
-            MemorySegment.copy(memorySegment, 0, mapped, offset, msSize);
-            offset += msSize;
-        }
-        return offset;
     }
 
     public static int compareMemorySegments(MemorySegment segment1, MemorySegment segment2) {
