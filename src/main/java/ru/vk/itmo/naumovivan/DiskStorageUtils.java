@@ -14,7 +14,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 
-public class DiskStorageUtils {
+public final class DiskStorageUtils {
     private DiskStorageUtils() {
     }
 
