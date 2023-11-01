@@ -1,6 +1,7 @@
 package ru.vk.itmo.test.ryabovvadim.utils;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
@@ -47,6 +48,17 @@ public final class MemorySegmentUtils {
         return Byte.compareUnsigned(
                 left.get(JAVA_BYTE, leftFromOffset + mismatch),
                 right.get(JAVA_BYTE, rightFromOffset + mismatch)
+        );
+    }
+
+    public static void copyByteArray(byte[] src, MemorySegment dst, long offsetDst) {
+        MemorySegment.copy(
+                src,
+                0,
+                dst,
+                ValueLayout.JAVA_BYTE,
+                offsetDst,
+                src.length
         );
     }
 

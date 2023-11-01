@@ -35,7 +35,6 @@ public class SSTable {
     public SSTable(Path parentPath, long id, Arena arena) throws IOException {
         this.parentPath = parentPath;
         this.id = id;
-
         Path dataFile = getDataFilePath();
         Path offsetsFile = getOffsetFilePath();
 
@@ -88,7 +87,6 @@ public class SSTable {
     private int binSearchIndex(MemorySegment key, boolean lowerBound) {
         int l = -1;
         int r = countRecords;
-
         while (l + 1 < r) {
             int mid = (l + r) / 2;
             RecordInfo recordInfo = getRecordInfo(offsets.get(mid));
@@ -105,7 +103,6 @@ public class SSTable {
                 l = mid;
             }
         }
-
         return lowerBound ? -r - 1 : -l - 1;
     }
 
@@ -127,7 +124,6 @@ public class SSTable {
         long keySize = NumberUtils.fromBytes(keySizeInBytes);
         long valueSize = NumberUtils.fromBytes(valueSizeInBytes);
         byte meta = data.get(ValueLayout.JAVA_BYTE, recordOffset);
-
         return new RecordInfo(meta, keySize, curOffset, valueSize, curOffset + keySize);
     }
 
@@ -150,7 +146,6 @@ public class SSTable {
     ) throws IOException {
         Path dataFile = FileUtils.makePath(prefix, Long.toString(id), FileUtils.DATA_FILE_EXT);
         Path offsetsFile = FileUtils.makePath(prefix, Long.toString(id), FileUtils.OFFSETS_FILE_EXT);
-
         try (FileChannel dataFileChannel = FileChannel.open(dataFile, CREATE, WRITE, READ)) {
             try (FileChannel offsetsFileChannel = FileChannel.open(offsetsFile, CREATE, WRITE, READ)) {
                 long dataSize = 0;
@@ -165,11 +160,12 @@ public class SSTable {
                     }
                 }
 
-                MemorySegment dataSegment = dataFileChannel.map(
-                        MapMode.READ_WRITE, 0, dataSize, arena
-                );
+                MemorySegment dataSegment = dataFileChannel.map(MapMode.READ_WRITE, 0, dataSize, arena);
                 MemorySegment offsetsSegment = offsetsFileChannel.map(
-                        MapMode.READ_WRITE, 0, Long.BYTES * entries.size(), arena
+                        MapMode.READ_WRITE,
+                        0,
+                        Long.BYTES * entries.size(),
+                        arena
                 );
                 long dataSegmentOffset = 0;
                 long offsetsSegmentOffset = 0;
@@ -187,27 +183,12 @@ public class SSTable {
 
                     byte meta = SSTableMeta.buildMeta(entry);
                     byte sizeInfo = (byte) ((keySizeInBytes.length << 4) | valueSizeInBytes.length);
-
                     dataSegment.set(ValueLayout.JAVA_BYTE, dataSegmentOffset++, meta);
                     dataSegment.set(ValueLayout.JAVA_BYTE, dataSegmentOffset++, sizeInfo);
 
-                    MemorySegment.copy(
-                            keySizeInBytes,
-                            0,
-                            dataSegment,
-                            ValueLayout.JAVA_BYTE,
-                            dataSegmentOffset,
-                            keySizeInBytes.length
-                    );
+                    MemorySegmentUtils.copyByteArray(keySizeInBytes, dataSegment, dataSegmentOffset);
                     dataSegmentOffset += keySizeInBytes.length;
-                    MemorySegment.copy(
-                            valueSizeInBytes,
-                            0,
-                            dataSegment,
-                            ValueLayout.JAVA_BYTE,
-                            dataSegmentOffset,
-                            valueSizeInBytes.length
-                    );
+                    MemorySegmentUtils.copyByteArray(valueSizeInBytes, dataSegment, dataSegmentOffset);
                     dataSegmentOffset += valueSizeInBytes.length;
                     MemorySegment.copy(key, 0, dataSegment, dataSegmentOffset, key.byteSize());
                     dataSegmentOffset += key.byteSize();

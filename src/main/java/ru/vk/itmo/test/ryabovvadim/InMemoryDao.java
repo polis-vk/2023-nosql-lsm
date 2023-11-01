@@ -212,7 +212,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (existsPath()) {
             List<Entry<MemorySegment>> entries = new ArrayList<>();
             all().forEachRemaining(entries::add);
-            deleteSSTables();
+
+            for (SSTable ssTable : ssTables) {
+                ssTable.delete();
+            }
+            ssTables.clear();
             memoryTable.clear();
 
             if (!entries.isEmpty()) {
@@ -260,12 +264,5 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private boolean existsPath() {
         return config != null && config.basePath() != null;
-    }
-
-    private void deleteSSTables() throws IOException {
-        for (SSTable ssTable : ssTables) {
-            ssTable.delete();
-        }
-        ssTables.clear();
     }
 }
