@@ -85,11 +85,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    @Override
-    public void flush() throws IOException {
-        throw new UnsupportedOperationException("Not implement");
-    }
-
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
         long mismatch = memorySegment1.mismatch(memorySegment2);
         if (mismatch == -1) {
