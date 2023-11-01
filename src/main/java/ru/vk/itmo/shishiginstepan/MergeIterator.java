@@ -105,7 +105,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         // Пропуск всех значений с теми же ключами (записи которые "перетираются" более новыми)
         for (var iterator : this.iterators) {
             if (!iterator.hasNext()) continue;
-            if (keyComparator.compare(nextEntry.key(), iterator.peekNext().key()) == 0) {
+            if (nextEntry.key().mismatch(iterator.peekNext().key()) == -1) {
                 iterator.skip();
             }
         }
