@@ -57,7 +57,8 @@ public class DiskStorage {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final String compactedFileName = "compacted";
         // compacted - название файла, который остается после вызова compact()
-        // compacting - файл, который должен быть переименован в compacted (в конце обработки) и остаться одним после вызова compact()
+        // compacting - файл, который должен быть переименован в compacted (в конце обработки)
+        // и остаться единственным (в однопоточном вызове) после вызова compact()
         if (segmentList.isEmpty() && !inMemoryIterator.hasNext()) return;
 
         int maybeExistingFileName = 0;
