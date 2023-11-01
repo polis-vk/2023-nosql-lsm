@@ -35,9 +35,9 @@ public class MergeIterator<T> implements Iterator<T> {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
-            T peek = peek();
+            T element = peek();
             this.peek = null;
-            return peek;
+            return element;
         }
 
         private T peek() {
@@ -70,13 +70,16 @@ public class MergeIterator<T> implements Iterator<T> {
     }
 
     private PeekIterator<T> peek() {
+        // while exists take
         while (peek == null) {
+            // Getting peek for one file or in-memory
             peek = priorityQueue.poll();
             if (peek == null) {
                 return null;
             }
 
             while (true) {
+                // getting first thing
                 PeekIterator<T> next = priorityQueue.peek();
                 if (next == null) {
                     break;
@@ -84,13 +87,7 @@ public class MergeIterator<T> implements Iterator<T> {
 
                 int compare = comparator.compare(peek.peek(), next.peek());
                 if (compare == 0) {
-                    PeekIterator<T> poll = priorityQueue.poll();
-                    if (poll != null) {
-                        poll.next();
-                        if (poll.hasNext()) {
-                            priorityQueue.add(poll);
-                        }
-                    }
+                    skipEqualsElement();
                 } else {
                     break;
                 }
@@ -101,15 +98,30 @@ public class MergeIterator<T> implements Iterator<T> {
                 continue;
             }
 
-            if (skip(peek.peek())) {
-                peek.next();
-                if (peek.hasNext()) {
-                    priorityQueue.add(peek);
-                }
-                peek = null;
-            }
+            peek = skipRemovedEntry(peek);
         }
 
+        return peek;
+    }
+
+    private void skipEqualsElement() {
+        PeekIterator<T> poll = priorityQueue.poll();
+        if (poll != null) {
+            poll.next();
+            if (poll.hasNext()) {
+                priorityQueue.add(poll);
+            }
+        }
+    }
+
+    private PeekIterator<T> skipRemovedEntry(PeekIterator<T> peek) {
+        if (skip(peek.peek())) {
+            peek.next();
+            if (peek.hasNext()) {
+                priorityQueue.add(peek);
+            }
+            return null;
+        }
         return peek;
     }
 
