@@ -275,7 +275,7 @@ public final class SSTable {
         }
         try (Arena arena = Arena.ofConfined()) {
             return !loadOne(arena, compacted, 0).hasTombstones;
-        } catch (IOException _) {
+        } catch (IOException ignored) {
             return false;
         }
     }
