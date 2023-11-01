@@ -10,9 +10,6 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 
 public class StorageUtils {
-    public StorageUtils() {
-    }
-
     protected MemorySegment slice(MemorySegment page, long start, long end) {
         return page.asSlice(start, end - start);
     }
