@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.PriorityQueue;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
-    private final Comparator<MemorySegment> keyComparator = (o1, o2) -> {
+    private static final Comparator<MemorySegment> keyComparator = (o1, o2) -> {
         long mismatch = o1.mismatch(o2);
         if (mismatch == -1) {
             return 0;
@@ -107,7 +107,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             PeekIteratorWrapper nextIterator = this.iterators.peek();
             if (nextIterator == null) break;
             Entry<MemorySegment> nextEntry = nextIterator.peek();
-            if (keyComparator.compare(entry.key(), nextEntry.key()) == 0) {
+            if (entry.key().mismatch(nextEntry.key()) == -1) {
                 nextIterator.skip();
                 this.iterators.remove();
                 if (nextIterator.hasNext()) this.iterators.add(nextIterator);

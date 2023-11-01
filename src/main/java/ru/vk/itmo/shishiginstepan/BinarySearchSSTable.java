@@ -155,23 +155,22 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
             long mismatch = MemorySegment.mismatch(key, 0, key.byteSize(), tableSegment, keyOffset, valOffset);
             if (mismatch == -1) {
                 return m;
+            }
+            if (mismatch == valOffset - keyOffset) {
+                l = m + 1;
+                continue;
+            }
+            if (mismatch == key.byteSize()) {
+                r = m - 1;
+                continue;
+            }
+            byte b1 = key.get(ValueLayout.JAVA_BYTE, mismatch);
+            byte b2 = tableSegment.get(ValueLayout.JAVA_BYTE, keyOffset + mismatch);
+            int keysBytesCompared = Byte.compare(b1, b2);
+            if (keysBytesCompared < 0) {
+                r = m - 1;
             } else {
-                if (mismatch == valOffset - keyOffset) {
-                    l = m + 1;
-                    continue;
-                }
-                if (mismatch == key.byteSize()) {
-                    r = m - 1;
-                    continue;
-                }
-                byte b1 = key.get(ValueLayout.JAVA_BYTE, mismatch);
-                byte b2 = tableSegment.get(ValueLayout.JAVA_BYTE, keyOffset + mismatch);
-                int keysBytesCompared = Byte.compare(b1, b2);
-                if (keysBytesCompared < 0) {
-                    r = m - 1;
-                } else {
-                    l = m + 1;
-                }
+                l = m + 1;
             }
         }
         return exact ? -1 : l;

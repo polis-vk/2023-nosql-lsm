@@ -23,7 +23,6 @@ public class SkipDeletedIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> next() {
-        this.skipDeleted();
         if (this.prefetched == null) {
             return this.iterator.next();
         } else {
