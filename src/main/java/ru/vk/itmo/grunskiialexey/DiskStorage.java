@@ -23,6 +23,8 @@ import java.util.NoSuchElementException;
 
 public class DiskStorage {
     private final List<MemorySegment> segmentList;
+    private static final String NAME_TMP_INDEX_FILE = "index.tmp";
+    private static final String NAME_INDEX_FILE = "index.idx";
 
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
@@ -48,8 +50,8 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(NAME_TMP_INDEX_FILE);
+        final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
 
         try {
             Files.createFile(indexFile);
@@ -138,7 +140,7 @@ public class DiskStorage {
             return;
         }
 
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
         final Path newTmpCompactedFileName = storagePath.resolve("-1");
         final Path newCompactedFileName = storagePath.resolve("0");
 
@@ -203,8 +205,8 @@ public class DiskStorage {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(NAME_TMP_INDEX_FILE);
+        Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
