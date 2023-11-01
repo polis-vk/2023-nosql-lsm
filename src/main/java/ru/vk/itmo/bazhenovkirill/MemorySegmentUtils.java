@@ -6,7 +6,11 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class MemorySegmentHelper {
+public final class MemorySegmentUtils {
+
+    private MemorySegmentUtils() {
+        
+    }
 
     public static MemorySegment getSlice(MemorySegment segment, long start, long end) {
         return segment.asSlice(start, end - start);

@@ -1,7 +1,6 @@
 package ru.vk.itmo.bazhenovkirill;
 
 import ru.vk.itmo.Entry;
-import static ru.vk.itmo.bazhenovkirill.MemorySegmentHelper.*;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -138,7 +137,7 @@ public class Storage {
 
         MemorySegment value = entry.value();
         if (value == null) {
-            segment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset.index, tombstone(offset.data));
+            segment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset.index, MemorySegmentUtils.tombstone(offset.data));
         } else {
             segment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset.index, offset.data);
             MemorySegment.copy(value, 0, segment, offset.data, value.byteSize());
@@ -167,7 +166,7 @@ public class Storage {
         for (int i = segments.size() - 1; i >= 0; --i) {
             long index = indexOf(segments.get(i), key);
             if (index >= 0) {
-                Entry<MemorySegment> entry = getEntry(segments.get(i), index);
+                Entry<MemorySegment> entry = MemorySegmentUtils.getEntry(segments.get(i), index);
                 return entry.value() == null ? null : entry;
             }
         }
@@ -194,9 +193,9 @@ public class Storage {
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment segment,
                                                            MemorySegment from,
                                                            MemorySegment to) {
-        long size = recordsCount(segment);
-        long start = (from == null) ? 0 : normalize(indexOf(segment, from));
-        long end = (to == null) ? size : normalize(indexOf(segment, to));
+        long size = MemorySegmentUtils.recordsCount(segment);
+        long start = (from == null) ? 0 : MemorySegmentUtils.normalize(indexOf(segment, from));
+        long end = (to == null) ? size : MemorySegmentUtils.normalize(indexOf(segment, to));
 
         return new Iterator<>() {
             long inx = start;
@@ -211,17 +210,17 @@ public class Storage {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                return getEntry(segment, inx++);
+                return MemorySegmentUtils.getEntry(segment, inx++);
             }
         };
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long l = 0;
-        long r = recordsCount(segment) - 1;
+        long r = MemorySegmentUtils.recordsCount(segment) - 1;
         while (l <= r) {
             long mid = (l + r) >>> 1;
-            int resultOfComparing = comparator.compare(key, getKey(segment, mid));
+            int resultOfComparing = comparator.compare(key, MemorySegmentUtils.getKey(segment, mid));
             if (resultOfComparing == 0) {
                 return mid;
             } else if (resultOfComparing < 0) {
@@ -230,7 +229,7 @@ public class Storage {
                 l = mid + 1;
             }
         }
-        return tombstone(l);
+        return MemorySegmentUtils.tombstone(l);
     }
 
     private static Path createOrMapIndexFile(Path dataPath) throws IOException {
