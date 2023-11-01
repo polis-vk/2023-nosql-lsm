@@ -25,6 +25,7 @@ public class Storage {
             StandardOpenOption.READ
     );
     private final List<MemorySegment> segments;
+
     private static class Offset {
         long data;
         long index;
@@ -91,7 +92,7 @@ public class Storage {
             Entry<MemorySegment> entry = mergeIterator.next();
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
-            dataSize += (value != null) ? value.byteSize() : 0;
+            dataSize += (value == null) ? 0 : value.byteSize();
             entriesCount++;
         }
         long indexSize = 2 * Long.BYTES * entriesCount;
@@ -118,7 +119,7 @@ public class Storage {
         for (Entry<MemorySegment> entry : values) {
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
-            dataSize += (value != null) ? value.byteSize() : 0;
+            dataSize += (value == null) ? 0 : value.byteSize();
             entriesCount++;
         }
         long indexSize = 2 * Long.BYTES * entriesCount;
@@ -199,7 +200,9 @@ public class Storage {
         };
     }
 
-    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment segment, MemorySegment from, MemorySegment to) {
+    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment segment,
+                                                           MemorySegment from,
+                                                           MemorySegment to) {
         long size = recordsCount(segment);
         long start = (from == null) ? 0 : normalize(indexOf(segment, from));
         long end = (to == null) ? size : normalize(indexOf(segment, to));
@@ -275,7 +278,6 @@ public class Storage {
         }
         return segment.byteSize();
     }
-
 
     private static Entry<MemorySegment> getEntry(MemorySegment segment, long inx) {
         MemorySegment key = getKey(segment, inx);

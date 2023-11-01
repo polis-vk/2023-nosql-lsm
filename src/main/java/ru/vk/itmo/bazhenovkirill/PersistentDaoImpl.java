@@ -19,8 +19,7 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
     private final Arena arena;
 
     private final Path dataPath;
-    private Storage storage;
-
+    private final Storage storage;
 
     public PersistentDaoImpl(Config config) throws IOException {
         dataPath = config.basePath().resolve("data");
@@ -60,7 +59,7 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
 
     @Override
     public void compact() throws IOException {
-        if(storage.compact(dataPath, memTable.values())) {
+        if (storage.compact(dataPath, memTable.values())) {
             memTable.clear();
         }
     }
