@@ -34,7 +34,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.path = config.basePath().resolve(DATA);
         this.tmpPath = config.basePath().resolve(DATA + "tmp");
         Files.createDirectories(path);
-        Files.createDirectories(tmpPath);
         this.arena = Arena.ofShared();
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
@@ -53,12 +52,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 list.add(allValuesIterator.next());
             }
         }
+        Files.createDirectories(tmpPath);
         if (!list.isEmpty()) {
             DiskStorage.save(tmpPath, list);
         }
         DiskStorage.deleteAll(path);
         Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        Files.delete(tmpPath);
     }
 
     /**
