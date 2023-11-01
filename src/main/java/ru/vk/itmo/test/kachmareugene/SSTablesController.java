@@ -101,7 +101,7 @@ public class SSTablesController {
         return r == (mappedIndex.byteSize() / ONE_LINE_SIZE) ? -1 : r;
     }
 
-    //return - List ordered form the latest created sstable to the first.
+    //return - List ordered form the latest created  sstable to the first.
     public List<SSTableRowInfo> firstGreaterKeys(MemorySegment key) {
         List<SSTableRowInfo> ans = new ArrayList<>();
 
