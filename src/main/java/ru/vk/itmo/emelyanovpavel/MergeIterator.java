@@ -36,9 +36,9 @@ public abstract class MergeIterator<T> implements Iterator<T> {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
-            T peek = peek();
+            T next = peek();
             this.peek = null;
-            return peek;
+            return next;
         }
 
         private T peek() {
@@ -52,7 +52,7 @@ public abstract class MergeIterator<T> implements Iterator<T> {
         }
     }
 
-    public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
+    protected MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
         priorityQueue = new PriorityQueue<>(
@@ -75,25 +75,7 @@ public abstract class MergeIterator<T> implements Iterator<T> {
                 return null;
             }
 
-            while (true) {
-                PeekIterator<T> next = priorityQueue.peek();
-                if (next == null) {
-                    break;
-                }
-
-                int compare = comparator.compare(peek.peek(), next.peek());
-                if (compare == 0) {
-                    PeekIterator<T> poll = priorityQueue.poll();
-                    if (poll != null) {
-                        poll.next();
-                        if (poll.hasNext()) {
-                            priorityQueue.add(poll);
-                        }
-                    }
-                } else {
-                    break;
-                }
-            }
+            filterIterators();
 
             if (peek.peek() == null) {
                 peek = null;
@@ -110,6 +92,28 @@ public abstract class MergeIterator<T> implements Iterator<T> {
         }
 
         return peek;
+    }
+
+    private void filterIterators() {
+        while (true) {
+            PeekIterator<T> next = priorityQueue.peek();
+            if (next == null) {
+                break;
+            }
+
+            int compare = comparator.compare(peek.peek(), next.peek());
+            if (compare == 0) {
+                PeekIterator<T> poll = priorityQueue.poll();
+                if (poll != null) {
+                    poll.next();
+                    if (poll.hasNext()) {
+                        priorityQueue.add(poll);
+                    }
+                }
+            } else {
+                break;
+            }
+        }
     }
 
     protected abstract boolean skip(T t);
