@@ -90,9 +90,6 @@ public class DiskStorage {
                     writeArena
             );
 
-            // index:
-            // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
-            // key0_Start = data start = end of index
             long dataOffset = indexSize;
             int indexOffset = 0;
             for (Entry<MemorySegment> entry : iterable) {
@@ -110,8 +107,6 @@ public class DiskStorage {
                 indexOffset += Long.BYTES;
             }
 
-            // data:
-            // |key0|value0|key1|value1|...
             dataOffset = indexSize;
             for (Entry<MemorySegment> entry : iterable) {
                 MemorySegment key = entry.key();
@@ -172,6 +167,11 @@ public class DiskStorage {
         }
 
         return result;
+    }
+
+    public void compact(Path basePath, Iterable<Entry<MemorySegment>> iterableStorage) throws IOException {
+        clearFiles(basePath);
+        save(basePath, iterableStorage);
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
@@ -248,11 +248,6 @@ public class DiskStorage {
                 return new BaseEntry<>(key, value);
             }
         };
-    }
-
-    public void compact(Path basePath, Iterable<Entry<MemorySegment>> iterableStorage) throws IOException {
-        clearFiles(basePath);
-        save(basePath, iterableStorage);
     }
 
     private void clearFiles(Path path) throws IOException {
