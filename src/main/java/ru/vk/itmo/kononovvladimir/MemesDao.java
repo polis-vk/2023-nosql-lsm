@@ -85,8 +85,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         final Iterator<Entry<MemorySegment>> iterator = get(null, null);
 
         if (Files.exists(indexFile)) {
-            //Вдруг неожиданно пропадет из-за внешних обстоятельств
             List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+            //Вдруг неожиданно пропадет из-за внешних обстоятельств
             Files.deleteIfExists(indexFile);
 
             for (String fileName : existedFiles) {
@@ -130,6 +130,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         if (!storage.isEmpty()) {
             DiskStorage.save(path, storage.values(), indexTmp, indexFile);
+            //Вдруг вызовется потом повторно метод, а арена жива
+            storage.clear();
         }
     }
 }
