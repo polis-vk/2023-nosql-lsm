@@ -20,7 +20,6 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String DATA = "data";
-    private final Path tmpPath;
 
     private final Path path;
 
@@ -32,9 +31,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao(final Config config) throws IOException {
         this.path = config.basePath().resolve(DATA);
-        this.tmpPath = config.basePath().resolve(DATA + "tmp");
         Files.createDirectories(path);
-        Files.createDirectories(tmpPath);
         this.arena = Arena.ofShared();
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
@@ -45,26 +42,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void compact() throws IOException {
         flush();
-        final List<Entry<MemorySegment>> list = new ArrayList<>();
-        final Iterator<Entry<MemorySegment>> allValuesIterator = get(null, null);
-        while (allValuesIterator.hasNext()) {
-            final Entry<MemorySegment> entry = allValuesIterator.next();
-            if (entry.value() != null) {
-                list.add(allValuesIterator.next());
-            }
+        final Iterable<Entry<MemorySegment>> iterable = () -> get(null, null);
+        if (iterable.iterator().hasNext()) {
+            DiskStorage.deleteAll(path);
+            DiskStorage.save(path, iterable);
         }
-        if (!list.isEmpty()) {
-            DiskStorage.save(tmpPath, list);
-        }
-        DiskStorage.deleteAll(path);
-        Files.move(DiskStorage.getIndexPath(tmpPath),
-                DiskStorage.getIndexPath(path), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        Files.move(DiskStorage.getIndexTmpPath(tmpPath),
-                DiskStorage.getIndexTmpPath(path), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        Files.move(tmpPath.resolve("0"),
-                path.resolve("0"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
-        DiskStorage.deleteAll(tmpPath);
     }
 
     /**
