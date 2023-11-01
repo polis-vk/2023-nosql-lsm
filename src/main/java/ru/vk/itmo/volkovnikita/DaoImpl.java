@@ -18,8 +18,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
     private final Store store;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private final Config config;
 
     public DaoImpl(Config config) throws IOException {
+        this.config = config;
         this.store = new Store(config);
     }
 
@@ -65,16 +67,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> all() {
-        return memorySegmentEntries.values().iterator();
-    }
-
-    @Override
     public void close() throws IOException {
         store.close();
         lock.writeLock().lock();
         try {
-            store.saveMemoryData(memorySegmentEntries);
+            store.save(config, memorySegmentEntries.values(), store);
         } finally {
             lock.writeLock().unlock();
         }
