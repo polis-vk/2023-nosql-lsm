@@ -170,6 +170,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         if (!arena.scope().isAlive()) {
             return;
         }
+
         ssTables.clear();
         arena.close();
     }
