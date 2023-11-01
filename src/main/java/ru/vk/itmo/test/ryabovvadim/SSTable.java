@@ -5,6 +5,7 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.ryabovvadim.iterators.FutureIterator;
 import ru.vk.itmo.test.ryabovvadim.iterators.LazyIterator;
 import ru.vk.itmo.test.ryabovvadim.utils.FileUtils;
+import ru.vk.itmo.test.ryabovvadim.utils.MemorySegmentUtils;
 import ru.vk.itmo.test.ryabovvadim.utils.NumberUtils;
 
 import java.io.IOException;
@@ -102,7 +103,7 @@ public class SSTable {
         while (l + 1 < r) {
             int mid = (l + r) / 2;
             RecordInfo recordInfo = getRecordInfo(offsets.get(mid));
-            int compareResult = FileUtils.compareMemorySegments(
+            int compareResult = MemorySegmentUtils.compareMemorySegments(
                     data, recordInfo.getKeyOffset(), recordInfo.getValueOffset(),
                     key, 0, key.byteSize()
             );

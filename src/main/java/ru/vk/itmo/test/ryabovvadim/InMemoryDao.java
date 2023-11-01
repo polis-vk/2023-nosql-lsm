@@ -8,6 +8,7 @@ import ru.vk.itmo.test.ryabovvadim.iterators.GatheringIterator;
 import ru.vk.itmo.test.ryabovvadim.iterators.LazyIterator;
 import ru.vk.itmo.test.ryabovvadim.iterators.PriorityIterator;
 import ru.vk.itmo.test.ryabovvadim.utils.FileUtils;
+import ru.vk.itmo.test.ryabovvadim.utils.MemorySegmentUtils;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -33,7 +34,7 @@ import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DATA_FILE_EXT;
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena = Arena.ofShared();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable =
-            new ConcurrentSkipListMap<>(FileUtils::compareMemorySegments);
+            new ConcurrentSkipListMap<>(MemorySegmentUtils::compareMemorySegments);
     private final Config config;
     private final List<SSTable> ssTables = new ArrayList<>();
 
@@ -179,9 +180,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 priorityIterators,
                 Comparator.comparing(
                         it -> ((PriorityIterator<Entry<MemorySegment>>) it).showNext().key(),
-                        FileUtils::compareMemorySegments
+                        MemorySegmentUtils::compareMemorySegments
                 ).thenComparingInt(it -> ((PriorityIterator<Entry<MemorySegment>>) it).getPriority()),
-                Comparator.comparing(Entry::key, FileUtils::compareMemorySegments)
+                Comparator.comparing(Entry::key, MemorySegmentUtils::compareMemorySegments)
         );
 
         return new FutureIterator<>() {
