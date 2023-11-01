@@ -2,7 +2,7 @@ package ru.vk.itmo.solonetsarseniy;
 
 import java.util.List;
 
-public class CompactionHelper {
+public final class CompactionHelper {
     private CompactionHelper() {
 
     }

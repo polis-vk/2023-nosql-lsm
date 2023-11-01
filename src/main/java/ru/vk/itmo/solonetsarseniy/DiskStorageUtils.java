@@ -9,7 +9,12 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 //just to satisfy code climate
-public class DiskStorageUtils {
+public final class DiskStorageUtils {
+
+    private DiskStorageUtils () {
+
+    }
+
     public static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);
 
