@@ -90,4 +90,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             ssManager.close();
         }
     }
+
+    @Override
+    public void compact() throws IOException {
+        ssManager.compact(storage);
+        storage.clear();
+    }
 }
