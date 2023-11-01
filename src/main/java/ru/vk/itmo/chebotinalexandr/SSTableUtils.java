@@ -7,6 +7,10 @@ import static ru.vk.itmo.chebotinalexandr.SSTablesStorage.OFFSET_FOR_SIZE;
 
 public class SSTableUtils {
 
+    private SSTableUtils() {
+
+    }
+
     public static long binarySearch(MemorySegment readSegment, MemorySegment key) {
         long low = -1;
         long high = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE);
