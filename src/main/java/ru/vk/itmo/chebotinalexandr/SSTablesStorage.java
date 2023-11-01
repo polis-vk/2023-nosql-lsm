@@ -31,7 +31,7 @@ public class SSTablesStorage {
     private static final long TOMBSTONE = -1;
     private static final long COMPACTION_NOT_FINISHED_TAG = -1;
     private final Path basePath;
-    private static final long OFFSET_FOR_SIZE = 0;
+    public static final long OFFSET_FOR_SIZE = 0;
     private static final long OLDEST_SS_TABLE_INDEX = 0;
     private final List<MemorySegment> sstables;
     private final Arena arena;
@@ -86,12 +86,12 @@ public class SSTablesStorage {
                     FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
 
             long tag = tmpSstable.get(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE);
-            if (tag != COMPACTION_NOT_FINISHED_TAG) {
+            if (tag == COMPACTION_NOT_FINISHED_TAG) {
+                Files.delete(pathTmp);
+            } else {
                 deleteOldSSTables(basePath);
                 Files.move(pathTmp, pathTmp.resolveSibling(SSTABLE_NAME + OLDEST_SS_TABLE_INDEX + SSTABLE_EXTENSION),
                         StandardCopyOption.ATOMIC_MOVE);
-            } else {
-                Files.delete(pathTmp);
             }
 
         } catch (FileNotFoundException | NoSuchFileException e) {
@@ -110,44 +110,9 @@ public class SSTablesStorage {
         return Comparator.comparingInt(Map.Entry::getValue);
     }
 
-    public long binarySearch(MemorySegment readSegment, MemorySegment key) {
-        long low = -1;
-        long high = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE);
+    public long find(MemorySegment readSegment, MemorySegment key) {
+        return SSTableUtils.binarySearch(readSegment, key);
 
-        while (low < high - 1) {
-            long mid = (high - low) / 2 + low;
-
-            long offset = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + mid * Byte.SIZE);
-            long keySize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
-
-            long mismatch = MemorySegment.mismatch(readSegment, offset, offset + keySize,
-                    key, 0, key.byteSize());
-
-            if (mismatch == -1) {
-                return mid;
-            }
-
-            if (mismatch == keySize) {
-                low = mid;
-                continue;
-            }
-            if (mismatch == key.byteSize()) {
-                high = mid;
-                continue;
-            }
-
-            int compare = Byte.compare(readSegment.get(ValueLayout.JAVA_BYTE, offset + mismatch),
-                    key.get(ValueLayout.JAVA_BYTE, mismatch));
-
-            if (compare > 0) {
-                high = mid;
-            } else {
-                low = mid;
-            }
-        }
-
-        return low + 1;
     }
 
     //Merge iterator from all sstables in sstable storage
@@ -171,13 +136,13 @@ public class SSTablesStorage {
             keyIndexTo = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE);
         } else if (from == null) {
             keyIndexFrom = 0;
-            keyIndexTo = binarySearch(sstable, to);
+            keyIndexTo = find(sstable, to);
         } else if (to == null) {
-            keyIndexFrom = binarySearch(sstable, from);
+            keyIndexFrom = find(sstable, from);
             keyIndexTo = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE);
         } else {
-            keyIndexFrom = binarySearch(sstable, from);
-            keyIndexTo = binarySearch(sstable, to);
+            keyIndexFrom = find(sstable, from);
+            keyIndexTo = find(sstable, to);
         }
 
         return new SSTableIterator(sstable, keyIndexFrom, keyIndexTo);
