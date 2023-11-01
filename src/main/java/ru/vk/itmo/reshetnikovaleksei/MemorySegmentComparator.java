@@ -4,13 +4,13 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
-public class MemorySegmentComparator implements Comparator<MemorySegment> {
+public final class MemorySegmentComparator implements Comparator<MemorySegment> {
     private static MemorySegmentComparator instance;
 
     private MemorySegmentComparator() {
     }
 
-    public synchronized static MemorySegmentComparator getInstance() {
+    public static synchronized MemorySegmentComparator getInstance() {
         if (instance == null) {
             instance = new MemorySegmentComparator();
         }
