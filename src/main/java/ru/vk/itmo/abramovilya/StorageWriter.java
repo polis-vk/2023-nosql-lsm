@@ -11,7 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.NavigableMap;
 
-class StorageWriter {
+final class StorageWriter {
     private StorageWriter() {
     }
 
