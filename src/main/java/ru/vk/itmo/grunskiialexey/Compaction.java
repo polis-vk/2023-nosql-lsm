@@ -54,7 +54,6 @@ public class Compaction {
         );
     }
 
-
     public void compact(
             Path storagePath,
             NavigableMap<MemorySegment, Entry<MemorySegment>> iterable

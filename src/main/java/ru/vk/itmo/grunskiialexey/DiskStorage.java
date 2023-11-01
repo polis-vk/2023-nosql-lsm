@@ -1,6 +1,5 @@
 package ru.vk.itmo.grunskiialexey;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
@@ -15,15 +14,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
-import java.util.NavigableMap;
-import java.util.NoSuchElementException;
 
 public class DiskStorage {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
+
+    private DiskStorage() {
+    }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
@@ -189,8 +187,6 @@ public class DiskStorage {
     private static long indexSize(MemorySegment segment) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
-
-
 
     static MemorySegment slice(MemorySegment page, long start, long end) {
         return page.asSlice(start, end - start);
