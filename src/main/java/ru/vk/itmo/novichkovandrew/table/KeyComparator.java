@@ -4,9 +4,10 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
-public abstract class AbstractTable implements Table<MemorySegment> {
-    protected final Comparator<MemorySegment> comparator = (first, second) -> {
-        if (first == null || second == null) return -1; //TODO fix null. ?
+public class KeyComparator implements Comparator<MemorySegment> {
+    @Override
+    public int compare(MemorySegment first, MemorySegment second) {
+        if (first == null || second == null) return -1;
         long missIndex = first.mismatch(second);
         if (missIndex == first.byteSize()) {
             return -1;
@@ -18,11 +19,5 @@ public abstract class AbstractTable implements Table<MemorySegment> {
                 first.getAtIndex(ValueLayout.JAVA_BYTE, missIndex),
                 second.getAtIndex(ValueLayout.JAVA_BYTE, missIndex)
         );
-    };
-
-    public Comparator<MemorySegment> comparator() {
-        return comparator;
     }
-
-    public abstract void clear();
 }

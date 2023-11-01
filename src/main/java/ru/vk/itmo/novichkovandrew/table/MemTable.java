@@ -4,17 +4,18 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.iterator.TableIterator;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class MemTable extends AbstractTable implements Iterable<Entry<MemorySegment>> {
+public class MemTable implements Table<MemorySegment> {
 
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> entriesMap;
     private final AtomicLong byteSize;
 
-    public MemTable() {
+    public MemTable(Comparator<MemorySegment> comparator) {
         this.entriesMap = new ConcurrentSkipListMap<>(comparator);
         this.byteSize = new AtomicLong();
     }
@@ -87,16 +88,6 @@ public class MemTable extends AbstractTable implements Iterable<Entry<MemorySegm
     @Override
     public void close() {
         clear();
-    }
-
-//    @Override
-//    public boolean isTombstone(MemorySegment key) {
-//        return entriesMap.containsKey(key) && entriesMap.get(key).value() == null;
-//    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> iterator() {
-        return entriesMap.values().iterator();
     }
 
     @Override

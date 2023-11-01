@@ -2,17 +2,20 @@ package ru.vk.itmo.novichkovandrew.dao;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.novichkovandrew.table.KeyComparator;
 import ru.vk.itmo.novichkovandrew.table.MemTable;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.util.Comparator;
 import java.util.Iterator;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    protected final MemTable memTable;
+    private final MemTable memTable;
 
     public InMemoryDao() {
-        this.memTable = new MemTable();
+        this.memTable = new MemTable(new KeyComparator());
     }
 
     @Override

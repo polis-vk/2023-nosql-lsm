@@ -14,11 +14,9 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.Objects;
+import java.util.*;
 
-public class SSTable extends AbstractTable {
+public class SSTable implements Table<MemorySegment> {
     /**
      * Constable size of SSTable.
      */
@@ -27,14 +25,15 @@ public class SSTable extends AbstractTable {
     /**
      * Unique number of this SST.
      */
-    private final int sstNumber; //Change to System.currentTimeMillis()
+    private final int sstNumber; // System.currentTimeMillis() timestamp in metaHandleBLock
     private final Arena arena;
     private final Path path;
     private final MemorySegment index;
     private final MemorySegment data;
     private final long byteSize;
+    private final Comparator<MemorySegment> comparator;
 
-    public SSTable(Path path, int sstNumber) {
+    public SSTable(Path path, Comparator<MemorySegment> comparator, int sstNumber) {
         this.arena = Arena.ofShared();
         try (FileChannel sstChannel = FileChannel.open(path, StandardOpenOption.READ)) {
             FileChannel.MapMode mode = FileChannel.MapMode.READ_ONLY;
@@ -47,6 +46,7 @@ public class SSTable extends AbstractTable {
             this.byteSize = indexHandle.offset();
             this.rows = Math.toIntExact(indexHandle.size() / (2L * Long.BYTES) - 1); //todo: fix to long or rem
             this.sstNumber = sstNumber;
+            this.comparator = comparator;
             this.path = path;
         } catch (IOException ex) {
             throw new FileChannelException("Couldn't create FileChannel by path" + path, ex);
@@ -90,6 +90,15 @@ public class SSTable extends AbstractTable {
     }
 
     @Override
+    public void clear() {
+        try {
+            Files.deleteIfExists(path); //todo: clear makes table invalid, but still opened.
+        } catch (IOException e) {
+            throw new FileChannelException("Couldn't remove file channel by path " + path, e);
+        }
+    }
+
+    @Override
     public long byteSize() {
         return byteSize;
     }
@@ -99,8 +108,7 @@ public class SSTable extends AbstractTable {
         long keyOffset = getKeyOffset(index);
         long valueOffset = Math.abs(getValueOffset(index));
         return data.asSlice(keyOffset, valueOffset - keyOffset);
-        //return copyToArena(keyOffset, valueOffset);
-    } // todo to list?
+    }
 
     private MemorySegment getValueByIndex(int index) {
         Objects.checkIndex(index, rows);
@@ -110,9 +118,18 @@ public class SSTable extends AbstractTable {
         }
         long nextKeyOffset = getKeyOffset(index + 1);
         return data.asSlice(valueOffset, nextKeyOffset - valueOffset);
-        // return copyToArena(valueOffset, nextKeyOffset);
     }
 
+
+    private long getKeyOffset(int i) {
+        long rawOffset = 2L * i * Long.BYTES;
+        return index.get(ValueLayout.JAVA_LONG_UNALIGNED, rawOffset);
+    }
+
+    private long getValueOffset(int i) {
+        long rawOffset = (2L * i + 1) * (long) Long.BYTES;
+        return index.get(ValueLayout.JAVA_LONG_UNALIGNED, rawOffset);
+    }
 
     private int binarySearch(MemorySegment key) {
         int l = 0;
@@ -127,29 +144,5 @@ public class SSTable extends AbstractTable {
             }
         }
         return l;
-    }
-
-    private long getKeyOffset(int i) {
-        long rawOffset = 2L * i * Long.BYTES;
-        return index.get(ValueLayout.JAVA_LONG_UNALIGNED, rawOffset);
-    }
-
-    private long getValueOffset(int i) {
-        long rawOffset = (2L * i + 1) * (long) Long.BYTES;
-        return index.get(ValueLayout.JAVA_LONG_UNALIGNED, rawOffset);
-    }
-
-    @Override
-    public void clear() {
-        try {
-            Files.deleteIfExists(path);
-        } catch (IOException e) {
-            throw new FileChannelException("Couldn't remove file channel by path " + path, e);
-        }
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> iterator() {
-        throw new UnsupportedOperationException("Not implemented yet");
     }
 }
