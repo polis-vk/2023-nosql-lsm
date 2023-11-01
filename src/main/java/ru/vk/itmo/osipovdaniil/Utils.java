@@ -3,7 +3,7 @@ package ru.vk.itmo.osipovdaniil;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class Utils {
+public abstract class Utils {
 
     public static int compareMemorySegments(final MemorySegment a, final MemorySegment b) {
         long mismatchOffset = a.mismatch(b);
