@@ -1,7 +1,11 @@
 package ru.vk.itmo.kononovvladimir;
 
 
-import java.util.*;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+import java.util.PriorityQueue;
+import java.util.Collection;
 
 public class MergeIterator<T> implements Iterator<T> {
 
@@ -12,7 +16,7 @@ public class MergeIterator<T> implements Iterator<T> {
 
         public final int id;
         private final Iterator<T> delegate;
-        private T peek;
+        private T iteratorPeek;
 
         private PeekIterator(int id, Iterator<T> delegate) {
             this.id = id;
@@ -21,7 +25,7 @@ public class MergeIterator<T> implements Iterator<T> {
 
         @Override
         public boolean hasNext() {
-            if (peek == null) {
+            if (iteratorPeek == null) {
                 return delegate.hasNext();
             }
             return true;
@@ -33,18 +37,18 @@ public class MergeIterator<T> implements Iterator<T> {
                 throw new NoSuchElementException();
             }
             T peek = peek();
-            this.peek = null;
+            this.iteratorPeek = null;
             return peek;
         }
 
         private T peek() {
-            if (peek == null) {
+            if (iteratorPeek == null) {
                 if (!delegate.hasNext()) {
                     return null;
                 }
-                peek = delegate.next();
+                iteratorPeek = delegate.next();
             }
-            return peek;
+            return iteratorPeek;
         }
     }
 

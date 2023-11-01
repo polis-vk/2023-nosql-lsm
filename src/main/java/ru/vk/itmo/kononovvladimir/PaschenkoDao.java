@@ -77,9 +77,9 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void compact() throws IOException {
         final Path indexFile = path.resolve("index.idx");
         final Path indexTmp = path.resolve("index.tmp");
+        final Iterator<Entry<MemorySegment>> iterator = get(null, null);
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        Iterator<Entry<MemorySegment>> iterator = get(null, null);
         for (String file : existedFiles) {
             File file1 = new File(path.resolve(file).toAbsolutePath().toString());
             file1.setWritable(true);
