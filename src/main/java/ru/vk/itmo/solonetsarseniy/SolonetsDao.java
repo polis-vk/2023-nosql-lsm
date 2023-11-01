@@ -108,8 +108,8 @@ public class SolonetsDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void compact() throws IOException{
-        boolean hasNext =  get(null, null).hasNext();
+    public void compact() throws IOException {
+        boolean hasNext = get(null, null).hasNext();
         if (hasNext) {
             diskStorage.doCompact(path, () -> get(null, null));
             storage.clear();

@@ -3,6 +3,9 @@ package ru.vk.itmo.solonetsarseniy;
 import java.util.List;
 
 public class CompactionHelper {
+    private CompactionHelper() {
+
+    }
 
     public static String nonCompactionFileName(List<String> existedFiles) {
         return existedFiles.isEmpty()
