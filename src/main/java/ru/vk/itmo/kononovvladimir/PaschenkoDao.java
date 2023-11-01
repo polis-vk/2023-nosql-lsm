@@ -94,6 +94,7 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         Files.deleteIfExists(indexFile);
         Files.createFile(indexTmp);
+
         DiskStorage.save(path, () -> finalIterator);
         storage.clear();
 
