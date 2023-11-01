@@ -3,7 +3,7 @@ package ru.vk.itmo.test.plyasovklimentii;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.plyasovklimentii.PlyasovDao;
+import ru.vk.itmo.plyasovklimentii.CompactDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -15,7 +15,7 @@ import java.nio.charset.StandardCharsets;
 public class MyFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new PlyasovDao(config);
+        return new CompactDao(config);
     }
 
     @Override

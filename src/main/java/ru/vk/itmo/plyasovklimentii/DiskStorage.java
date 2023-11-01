@@ -9,8 +9,16 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.stream.Stream;
 
 public class DiskStorage {
@@ -31,7 +39,7 @@ public class DiskStorage {
         }
         iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PlyasovDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, CompactDao::compare)) {
             @Override
             protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;
@@ -165,23 +173,19 @@ public class DiskStorage {
         return result;
     }
 
-
     public void deleteStorageFiles(Path basePath) throws IOException {
         try (Stream<Path> stream = Files.list(basePath)) {
             stream.forEach(this::deleteFile);
         }
     }
 
-    private void deleteFile(Path filePath) {
+    private void deleteFile(Path filePath)  {
         try {
             Files.delete(filePath);
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
-
-
-
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);

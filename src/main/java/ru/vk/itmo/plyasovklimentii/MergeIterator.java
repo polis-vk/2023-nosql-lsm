@@ -1,6 +1,10 @@
 package ru.vk.itmo.plyasovklimentii;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+import java.util.PriorityQueue;
 
 public class MergeIterator<T> implements Iterator<T> {
 
@@ -87,7 +91,11 @@ public class MergeIterator<T> implements Iterator<T> {
                             priorityQueue.add(poll);
                         }
                     }
-                } else {
+                    else {
+                        break;
+                    }
+                }
+                else {
                     break;
                 }
             }
@@ -108,6 +116,8 @@ public class MergeIterator<T> implements Iterator<T> {
 
         return peek;
     }
+
+
 
     protected boolean skip(T t) {
         return false;

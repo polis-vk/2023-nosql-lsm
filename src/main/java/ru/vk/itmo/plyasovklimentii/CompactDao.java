@@ -11,19 +11,22 @@ import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.*;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class PlyasovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class CompactDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final Comparator<MemorySegment> comparator = PlyasovDao::compare;
+    private final Comparator<MemorySegment> comparator = CompactDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
     private final Path tmpFilePath;
 
-    public PlyasovDao(Config config) throws IOException {
+    public CompactDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
         this.tmpFilePath = config.basePath().resolve("tmp_data");
         Files.createDirectories(path);
@@ -120,9 +123,6 @@ public class PlyasovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 path,
                 StandardCopyOption.ATOMIC_MOVE);
     }
-
-
-
 
     @Override
     public void close() throws IOException {
