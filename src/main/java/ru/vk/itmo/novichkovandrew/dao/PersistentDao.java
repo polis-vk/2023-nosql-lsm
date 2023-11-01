@@ -2,7 +2,6 @@ package ru.vk.itmo.novichkovandrew.dao;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.novichkovandrew.utils.Utils;
 import ru.vk.itmo.novichkovandrew.exceptions.FileChannelException;
 import ru.vk.itmo.novichkovandrew.iterator.MergeIterator;
 import ru.vk.itmo.novichkovandrew.table.Footer;
@@ -13,6 +12,7 @@ import ru.vk.itmo.novichkovandrew.table.MemTable;
 import ru.vk.itmo.novichkovandrew.table.SSTable;
 import ru.vk.itmo.novichkovandrew.table.Table;
 import ru.vk.itmo.novichkovandrew.table.TableWriter;
+import ru.vk.itmo.novichkovandrew.utils.Utils;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;

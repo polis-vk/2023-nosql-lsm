@@ -7,8 +7,6 @@ import ru.vk.itmo.novichkovandrew.table.MemTable;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.util.Comparator;
 import java.util.Iterator;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {

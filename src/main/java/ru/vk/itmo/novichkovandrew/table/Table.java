@@ -4,8 +4,6 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.novichkovandrew.iterator.TableIterator;
 
 import java.io.Closeable;
-import java.lang.foreign.MemorySegment;
-import java.util.Iterator;
 
 public interface Table<K> extends Iterable<Entry<K>>, Closeable {
 

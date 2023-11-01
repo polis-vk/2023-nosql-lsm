@@ -120,7 +120,6 @@ public class SSTable implements Table<MemorySegment> {
         return data.asSlice(valueOffset, nextKeyOffset - valueOffset);
     }
 
-
     private long getKeyOffset(int i) {
         long rawOffset = 2L * i * Long.BYTES;
         return index.get(ValueLayout.JAVA_LONG_UNALIGNED, rawOffset);

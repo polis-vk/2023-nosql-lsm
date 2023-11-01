@@ -70,7 +70,6 @@ public class MemTable implements Table<MemorySegment> {
         return this.byteSize.get();
     }
 
-
     private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, boolean fromInclusive,
                                                                         MemorySegment to, boolean toInclusive) {
         if (from != null && to != null) {
