@@ -27,17 +27,17 @@ public final class MemorySegmentUtils {
             return 1;
         }
 
-        long lSize = leftToOffset - leftFromOffset;
-        long rSize = rightToOffset - rightFromOffset;
+        long leftSize = leftToOffset - leftFromOffset;
+        long rightSize = rightToOffset - rightFromOffset;
         long mismatch = MemorySegment.mismatch(
                 left, leftFromOffset, leftToOffset,
                 right, rightFromOffset, rightToOffset
         );
 
-        if (mismatch == lSize) {
+        if (mismatch == leftSize) {
             return -1;
         }
-        if (mismatch == rSize) {
+        if (mismatch == rightSize) {
             return 1;
         }
         if (mismatch == -1) {

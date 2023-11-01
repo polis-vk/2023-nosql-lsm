@@ -39,16 +39,15 @@ public class SSTable {
         try (FileChannel dataFileChannel = FileChannel.open(dataFile, READ)) {
             try (FileChannel offsetsFileChannel = FileChannel.open(offsetsFile, READ)) {
                 this.data = dataFileChannel.map(MapMode.READ_ONLY, 0, dataFileChannel.size(), arena);
-
                 this.countRecords = (int) (offsetsFileChannel.size() / Long.BYTES);
                 this.offsets = new ArrayList<>();
+
                 MemorySegment offsetsSegment = offsetsFileChannel.map(
                         MapMode.READ_ONLY,
                         0,
                         offsetsFileChannel.size(),
                         arena
                 );
-
                 for (int i = 0; i < countRecords; ++i) {
                     offsets.add(offsetsSegment.get(ValueLayout.JAVA_LONG, i * Long.BYTES));
                 }
@@ -58,7 +57,6 @@ public class SSTable {
 
     public Entry<MemorySegment> findEntry(MemorySegment key) {
         int offsetIndex = binSearchIndex(key, true);
-
         if (offsetIndex < 0) {
             return null;
         }
@@ -68,7 +66,6 @@ public class SSTable {
     public FutureIterator<Entry<MemorySegment>> findEntries(MemorySegment from, MemorySegment to) {
         int fromIndex = 0;
         int toIndex = countRecords;
-
         if (from != null) {
             int fromOffsetIndex = binSearchIndex(from, true);
             fromIndex = fromOffsetIndex < 0 ? -(fromOffsetIndex + 1) : fromOffsetIndex;
@@ -151,7 +148,6 @@ public class SSTable {
         if (SSTableMeta.isRemovedValue(recordInfo.getMeta())) {
             return null;
         }
-
         return data.asSlice(recordInfo.getValueOffset(), recordInfo.getValueSize());
     }
 
@@ -247,7 +243,6 @@ public class SSTable {
         if (entry.value() == null) {
             meta |= SSTableMeta.REMOVE_VALUE;
         }
-
         return meta;
     }
 
