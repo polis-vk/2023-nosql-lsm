@@ -1,7 +1,15 @@
 package ru.vk.itmo.test.kachmareugene;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Stream;
+
 
 public final class Utils {
     private Utils() {
@@ -18,4 +26,27 @@ public final class Utils {
         return offset + data.byteSize();
     }
 
+    public static long getNumberFromFileName(Path pathToFile, String prefix) {
+        return Long.parseLong(pathToFile.getFileName().toString().substring(prefix.length()));
+    }
+
+    public static void sortByNames(List<Path> l, String prefix) {
+        l.sort(Comparator.comparingLong(s -> getNumberFromFileName(s, prefix)));
+    }
+
+    public static long getMaxNumberOfFile(Path dir, String prefix) {
+        try (Stream<Path> tabels = Files.find(dir, 1,
+                (path, ignore) -> path.getFileName().toString().startsWith(prefix))) {
+            final List<Path> list = tabels.toList();
+            long maxi = 0;
+            for (Path p : list) {
+                if (getNumberFromFileName(p, prefix) > maxi) {
+                    maxi = getNumberFromFileName(p, prefix);
+                }
+            }
+            return maxi;
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
 }

@@ -11,11 +11,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -28,7 +24,6 @@ import static java.nio.file.StandardOpenOption.WRITE;
 
 public class SSTablesController {
     private final Path ssTablesDir;
-    private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss.SSSSS");
     private final List<MemorySegment> ssTables = new ArrayList<>();
     private final List<MemorySegment> ssTablesIndexes = new ArrayList<>();
     private final List<Path> ssTablesPaths = new ArrayList<>();
@@ -63,7 +58,7 @@ public class SSTablesController {
         try (Stream<Path> tabels = Files.find(dir, 1,
                 (path, ignore) -> path.getFileName().toString().startsWith(fileNamePref))) {
             final List<Path> list = new ArrayList<>(tabels.toList());
-            Collections.sort(list);
+            Utils.sortByNames(list, fileNamePref);
             list.forEach(t -> {
                 try (FileChannel channel = FileChannel.open(t, READ)) {
                     storage.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arenaForReading));
@@ -174,12 +169,19 @@ public class SSTablesController {
             closeArena();
             return;
         }
-        LocalDateTime time = LocalDateTime.now(ZoneId.systemDefault());
         Set<OpenOption> options = Set.of(WRITE, READ, CREATE);
         try (FileChannel ssTableChannel =
-                     FileChannel.open(ssTablesDir.resolve(SS_TABLE_COMMON_PREF + formatter.format(time)), options);
+                     FileChannel.open(ssTablesDir
+                             .resolve(SS_TABLE_COMMON_PREF +
+                                     String.valueOf(
+                                             Utils.getMaxNumberOfFile(ssTablesDir, SS_TABLE_COMMON_PREF) + 1)),
+                             options);
              FileChannel indexChannel =
-                     FileChannel.open(ssTablesDir.resolve(INDEX_COMMON_PREF + formatter.format(time)), options);
+                     FileChannel.open(ssTablesDir
+                             .resolve(INDEX_COMMON_PREF +
+                                     String.valueOf(
+                                             Utils.getMaxNumberOfFile(ssTablesDir, INDEX_COMMON_PREF) + 1)),
+                             options);
              Arena saveArena = Arena.ofConfined()) {
 
             long ssTableLenght = 0L;
