@@ -114,7 +114,6 @@ public class MergeIterator<T> implements Iterator<T> {
         peek = null;
     }
 
-
     protected boolean skip(T t) {
         return t == null;
     }

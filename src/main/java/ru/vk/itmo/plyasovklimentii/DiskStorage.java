@@ -182,8 +182,8 @@ public class DiskStorage {
     private void deleteFile(Path filePath) {
         try {
             Files.delete(filePath);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+        } catch (IOException ignored) {
+            // it is ok, actually it is normal state
         }
     }
 
