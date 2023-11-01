@@ -9,7 +9,13 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -24,6 +30,8 @@ public class DiskStorage {
     // we should store no more than 1 * 1024 * 1024 / 8 / 2 = 2 ** 16 entries
     private static final int SSTABLE_MAX_ENTRIES = (1 << 16);
     private static final String INDEX_FILENAME = "index.idx";
+
+    private final List<MemorySegment> segmentList;
 
     private static class MemorySegmentEntryView implements Comparable<MemorySegmentEntryView> {
         private final MemorySegment keyPage;
@@ -102,8 +110,6 @@ public class DiskStorage {
             return Byte.compare(b1, b2);
         }
     }
-
-    private final List<MemorySegment> segmentList;
 
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
@@ -221,13 +227,14 @@ public class DiskStorage {
         Files.delete(indexTmp);
     }
 
-    private MergeIterator<MemorySegmentEntryView> getViewMergeIterator(final Iterator<Entry<MemorySegment>> firstIterator) {
+    private MergeIterator<MemorySegmentEntryView> getViewMergeIterator(
+            final Iterator<Entry<MemorySegment>> firstIterator) {
         final List<Iterator<MemorySegmentEntryView>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (final MemorySegment memorySegment : segmentList) {
             final long recordsCount = recordsCount(memorySegment);
 
             iterators.add(new Iterator<>() {
-                long index = 0;
+                long index;
 
                 @Override
                 public boolean hasNext() {
@@ -264,7 +271,8 @@ public class DiskStorage {
         };
     }
 
-    public void overwriteData(final Path storagePath, final Iterator<Entry<MemorySegment>> firstIterator) throws IOException {
+    public void overwriteData(final Path storagePath,
+                              final Iterator<Entry<MemorySegment>> firstIterator) throws IOException {
         final Path parentPath = storagePath.getParent();
         final Path storageName = storagePath.getFileName();
         if (parentPath == null || storageName == null) {
@@ -301,14 +309,14 @@ public class DiskStorage {
             final String newFileName = String.valueOf(newFiles.size());
             newFiles.add(newFileName);
             try (
-                    final FileChannel fileChannel = FileChannel.open(
+                    FileChannel fileChannel = FileChannel.open(
                             newStoragePath.resolve(newFileName),
                             StandardOpenOption.READ,
                             StandardOpenOption.WRITE,
                             StandardOpenOption.CREATE,
                             StandardOpenOption.TRUNCATE_EXISTING
                     );
-                    final Arena writeArena = Arena.ofConfined()
+                    Arena writeArena = Arena.ofConfined()
             ) {
                 final MemorySegment fileSegment = fileChannel.map(
                         FileChannel.MapMode.READ_WRITE,
