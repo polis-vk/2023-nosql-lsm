@@ -22,18 +22,13 @@ public class SolonetsDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
-    private final Path dataPath;
-    private final Path compactPath;
+    private final Path path;
 
     public SolonetsDao(Config config) throws IOException {
-        this.dataPath = config.basePath().resolve("data");
-        this.compactPath = config.basePath().resolve("compact");
-        Files.createDirectories(dataPath);
-        Files.deleteIfExists(compactPath);
-
+        this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
         arena = Arena.ofShared();
-
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(dataPath, arena));
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -108,24 +103,16 @@ public class SolonetsDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (!storage.isEmpty()) {
-            DiskStorage.save(dataPath, storage.values());
+            DiskStorage.save(path, storage.values());
         }
     }
 
     @Override
     public void compact() throws IOException{
-        Iterator<Entry<MemorySegment>> entries = diskStorage.range(
-            storage.values().iterator(),
-            null,
-            null
-        );
-        if (entries.hasNext()) {
-            DiskStorage.doCompact(
-                compactPath,
-                entries,
-                dataPath,
-                storage
-            );
+        boolean hasNext =  get(null, null).hasNext();
+        if (hasNext) {
+            diskStorage.doCompact(path, () -> get(null, null));
+            storage.clear();
         }
     }
 }

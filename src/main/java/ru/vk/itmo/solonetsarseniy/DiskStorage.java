@@ -3,6 +3,7 @@ package ru.vk.itmo.solonetsarseniy;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -19,22 +20,37 @@ import java.util.*;
 public class DiskStorage {
 
     private final List<MemorySegment> segmentList;
+    private static StandardOpenOption[] openOptions = new StandardOpenOption[] {
+        StandardOpenOption.WRITE,
+        StandardOpenOption.CREATE,
+        StandardOpenOption.TRUNCATE_EXISTING
+    };
+    private static StandardCopyOption[] copyOptions = new StandardCopyOption[] {
+        StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING
+    };
 
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
     }
 
-    public static void clearData(Path path) throws IOException {
-        try (var files = Files.walk(path)) {
-            files.forEach(file -> {
-                if (!Files.isRegularFile(file)) {
-                    try {
-                        Files.delete(file);
-                    } catch (IOException e) {
-                        System.out.println(e.getMessage());
-                    }
-                }
-            });
+    public void doCompact(
+        Path storagePath,
+        Iterable<Entry<MemorySegment>> iterable
+    ) throws IOException {
+        save(storagePath, iterable, true);
+        Path indexTmp = storagePath.resolve("index.tmp");
+        Path indexFile = storagePath.resolve("index.idx");
+        String newFileName = generateNewFileName(indexFile);
+        Files.move(indexFile, indexTmp, copyOptions);
+
+        List<String> presentFileNames = calcPresentFileNames(newFileName, indexFile);
+
+        File directory = new File(storagePath.toString());
+        for (File file : Objects.requireNonNull(directory.listFiles())) {
+            Set<String> fileNames = new HashSet<>(presentFileNames);
+            if (file.isFile() && !fileNames.contains(file.getName())) {
+                Files.delete(file.toPath());
+            }
         }
     }
 
@@ -57,22 +73,39 @@ public class DiskStorage {
         };
     }
 
-    public static void doCompact(
-        Path compactPath,
-        Iterator<Entry<MemorySegment>> iterator,
-        Path dataPath,
-        Map<MemorySegment, Entry<MemorySegment>> storage
+    public static void save(
+        Path storagePath,
+        Iterable<Entry<MemorySegment>> iterable
     ) throws IOException {
-        Files.createDirectories(compactPath);
-        save(compactPath, () -> iterator);
-        clearData(dataPath);
-        Files.move(compactPath, dataPath, StandardCopyOption.ATOMIC_MOVE);
-        Files.delete(compactPath);
-        storage.clear();
+        save(storagePath, iterable, false);
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
-            throws IOException {
+    private static List<String> calcPresentFileNames(
+        String newFileName,
+        Path indexPath
+    ) throws IOException {
+        List<String> files = new ArrayList<>();
+        files.add(newFileName);
+        Files.write(indexPath, files, openOptions);
+        files.add("index.idx");
+        return files;
+    }
+
+    private static String generateNewFileName(Path indexPath) throws IOException {
+        List<String> existedFiles = Files.readAllLines(indexPath, StandardCharsets.UTF_8);
+        int compactionFileName = Integer.parseInt(CompactionHelper.compactionFileName(existedFiles));
+        if (compactionFileName == 0) {
+            return "0";
+        } else {
+            return String.valueOf(compactionFileName - 1);
+        }
+    }
+
+    private static void save(
+        Path storagePath,
+        Iterable<Entry<MemorySegment>> iterable,
+        boolean shouldCompact
+    ) throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
 
@@ -83,7 +116,13 @@ public class DiskStorage {
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        String newFileName = String.valueOf(existedFiles.size());
+        String newFileName;
+
+        if (shouldCompact) {
+            newFileName = CompactionHelper.compactionFileName(existedFiles);
+        } else {
+            newFileName = CompactionHelper.nonCompactionFileName(existedFiles);
+        }
 
         long dataSize = 0;
         long count = 0;
@@ -99,10 +138,10 @@ public class DiskStorage {
 
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve(newFileName),
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.CREATE
+                    storagePath.resolve(newFileName),
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.READ,
+                    StandardOpenOption.CREATE
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
