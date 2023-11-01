@@ -179,7 +179,7 @@ public class DiskStorage {
         }
     }
 
-    private void deleteFile(Path filePath)  {
+    private void deleteFile(Path filePath) {
         try {
             Files.delete(filePath);
         } catch (IOException e) {
