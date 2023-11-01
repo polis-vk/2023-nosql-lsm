@@ -1,8 +1,12 @@
 package ru.vk.itmo.emelyanovpavel;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+import java.util.PriorityQueue;
 
-public class MergeIterator<T> implements Iterator<T> {
+public abstract class MergeIterator<T> implements Iterator<T> {
 
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
@@ -108,9 +112,7 @@ public class MergeIterator<T> implements Iterator<T> {
         return peek;
     }
 
-    protected boolean skip(T t) {
-        return t == null;
-    }
+    protected abstract boolean skip(T t);
 
     @Override
     public boolean hasNext() {
