@@ -122,9 +122,9 @@ public class Compaction {
 
     private Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : DiskStorage.normalize(DiskStorage.indexOf(page, from));
-        long recordIndexTo = to == null ?
-                DiskStorage.recordsCount(page) :
-                DiskStorage.normalize(DiskStorage.indexOf(page, to));
+        long recordIndexTo = to == null
+                ? DiskStorage.recordsCount(page)
+                : DiskStorage.normalize(DiskStorage.indexOf(page, to));
         long recordsCount = DiskStorage.recordsCount(page);
 
         return new Iterator<>() {
