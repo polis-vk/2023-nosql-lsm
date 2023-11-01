@@ -122,7 +122,9 @@ public class Compaction {
 
     private Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : DiskStorage.normalize(DiskStorage.indexOf(page, from));
-        long recordIndexTo = to == null ? DiskStorage.recordsCount(page) : DiskStorage.normalize(DiskStorage.indexOf(page, to));
+        long recordIndexTo = to == null ?
+                DiskStorage.recordsCount(page) :
+                DiskStorage.normalize(DiskStorage.indexOf(page, to));
         long recordsCount = DiskStorage.recordsCount(page);
 
         return new Iterator<>() {
@@ -138,12 +140,20 @@ public class Compaction {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                MemorySegment key = DiskStorage.slice(page, DiskStorage.startOfKey(page, index), DiskStorage.endOfKey(page, index));
+                MemorySegment key = DiskStorage.slice(
+                        page,
+                        DiskStorage.startOfKey(page, index),
+                        DiskStorage.endOfKey(page, index)
+                );
                 long startOfValue = DiskStorage.startOfValue(page, index);
                 MemorySegment value =
                         startOfValue < 0
                                 ? null
-                                : DiskStorage.slice(page, startOfValue, DiskStorage.endOfValue(page, index, recordsCount));
+                                : DiskStorage.slice(
+                                page,
+                                startOfValue,
+                                DiskStorage.endOfValue(page, index, recordsCount)
+                        );
                 index++;
                 return new BaseEntry<>(key, value);
             }
