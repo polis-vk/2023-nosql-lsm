@@ -227,7 +227,7 @@ public class DiskStorage {
         } catch (IOException e) {
             // If we fail during delete, db will recover with index.tmp that points to deleted files
             Files.delete(indexTmp);
-            throw new IOException("Failed when deleting old sstables");
+            throw e;
         }
 
         Files.delete(indexTmp);
