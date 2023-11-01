@@ -9,41 +9,59 @@ import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries;
-    private final SSTable ssTable;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries =
+            new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
+    private final Store store;
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     public DaoImpl(Config config) throws IOException {
-        this.memorySegmentEntries = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-        this.ssTable = new SSTable(config);
+        this.store = new Store(config);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        var entry = memorySegmentEntries.get(key);
-        return entry == null ? ssTable.readMemoryData(key) : entry;
+        lock.readLock().lock();
+        try {
+            Iterator<Entry<MemorySegment>> iterator = get(key, null);
+            if (!iterator.hasNext()) {
+                return null;
+            }
+            Entry<MemorySegment> next = iterator.next();
+            if (MemorySegmentComparator.compare(key, next.key()) == 0) {
+                return next;
+            }
+            return null;
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) {
-            return memorySegmentEntries.values().iterator();
+        lock.readLock().lock();
+        try {
+            if (from == null) {
+                return store.getIterator(MemorySegment.NULL, to, getMemoryIterator(MemorySegment.NULL, to));
+            }
+            return store.getIterator(from, to, getMemoryIterator(from, to));
+        } finally {
+            lock.readLock().unlock();
         }
-        if (from == null) {
-            return memorySegmentEntries.headMap(to).values().iterator();
-        }
-        if (to == null) {
-            return memorySegmentEntries.tailMap(from).values().iterator();
-        }
-
-        return memorySegmentEntries.subMap(from, true, to, false).values().iterator();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        memorySegmentEntries.put(entry.key(), entry);
+        lock.readLock().lock();
+        try {
+            memorySegmentEntries.put(entry.key(), entry);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     @Override
@@ -53,15 +71,33 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        if (memorySegmentEntries.isEmpty()) {
-            return;
+        store.close();
+        lock.writeLock().lock();
+        try {
+            store.saveMemoryData(memorySegmentEntries);
+        } finally {
+            lock.writeLock().unlock();
         }
-
-        ssTable.saveMemoryData(memorySegmentEntries);
     }
 
     @Override
     public void flush() throws IOException {
-        throw new UnsupportedOperationException("");
+        throw new UnsupportedOperationException("Not implement");
+    }
+
+    private Iterator<Entry<MemorySegment>> getMemoryIterator(MemorySegment from, MemorySegment to) {
+        lock.readLock().lock();
+        try {
+            if (from == null && to == null) {
+                return memorySegmentEntries.values().iterator();
+            } else if (to == null) {
+                return memorySegmentEntries.tailMap(from).values().iterator();
+            } else if (from == null) {
+                return memorySegmentEntries.headMap(to).values().iterator();
+            }
+            return memorySegmentEntries.subMap(from, to).values().iterator();
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 }
