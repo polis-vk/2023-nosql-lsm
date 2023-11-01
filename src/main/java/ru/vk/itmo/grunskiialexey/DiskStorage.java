@@ -30,8 +30,8 @@ public class DiskStorage {
 
     public Iterator<Entry<MemorySegment>> range(
             Iterator<Entry<MemorySegment>> firstIterator,
-            MemorySegment from,
-            MemorySegment to) {
+            MemorySegment from, MemorySegment to
+    ) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
@@ -75,17 +75,12 @@ public class DiskStorage {
         try (
                 FileChannel fileChannel = FileChannel.open(
                         storagePath.resolve(newFileName),
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.CREATE
+                        StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
             MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    indexSize + dataSize,
-                    writeArena
+                    FileChannel.MapMode.READ_WRITE, 0, indexSize + dataSize, writeArena
             );
 
             // index:
@@ -132,9 +127,7 @@ public class DiskStorage {
         Files.write(
                 indexFile,
                 list,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
         );
 
         Files.delete(indexTmp);
@@ -162,18 +155,13 @@ public class DiskStorage {
         try (
                 FileChannel fileChannel = FileChannel.open(
                         newTmpCompactedFileName,
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.TRUNCATE_EXISTING
+                        StandardOpenOption.WRITE, StandardOpenOption.READ,
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
             final MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    maxOffset,
-                    writeArena
+                    FileChannel.MapMode.READ_WRITE, 0, maxOffset, writeArena
             );
 
             long dataOffset = startValuesOffset;
@@ -203,13 +191,14 @@ public class DiskStorage {
         segmentList.clear();
         iterable.clear();
 
-        Files.move(newTmpCompactedFileName, newCompactedFileName, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.move(
+                newTmpCompactedFileName, newCompactedFileName,
+                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING
+        );
         Files.write(
                 indexFile,
                 List.of("0"),
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
         );
     }
 
@@ -291,7 +280,6 @@ public class DiskStorage {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
-    // :TODO may convert to MemorySegment.NULL I think
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
         long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
