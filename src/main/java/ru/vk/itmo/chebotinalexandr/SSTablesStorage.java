@@ -93,7 +93,6 @@ public class SSTablesStorage {
         return Comparator.comparingInt(Map.Entry::getValue);
     }
 
-    //Returns index
     public long binarySearch(MemorySegment readSegment, MemorySegment key) {
         long low = -1;
         long high = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE);
@@ -105,8 +104,7 @@ public class SSTablesStorage {
             long keySize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
             offset += Long.BYTES;
 
-            long mismatch = MemorySegment.mismatch(
-                    readSegment, offset, offset + keySize,
+            long mismatch = MemorySegment.mismatch(readSegment, offset, offset + keySize,
                     key, 0, key.byteSize());
 
             if (mismatch == -1) {
