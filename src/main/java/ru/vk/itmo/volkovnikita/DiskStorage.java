@@ -251,12 +251,18 @@ public class DiskStorage {
     }
 
     private void clearFiles(Path path) throws IOException {
-        final Path indexFile = path.resolve(INDEX_IDX);
-        final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        for (String fileName : existedFiles) {
-            Files.deleteIfExists(path.resolve(fileName));
+        Path indexFile = path.resolve(INDEX_IDX);
+
+        try {
+            List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+
+            for (String fileName : existedFiles) {
+                Files.deleteIfExists(path.resolve(fileName));
+            }
+        } finally {
+            Files.deleteIfExists(indexFile);
         }
-        Files.delete(indexFile);
+
         Files.deleteIfExists(path.resolve(INDEX_TMP));
     }
 
