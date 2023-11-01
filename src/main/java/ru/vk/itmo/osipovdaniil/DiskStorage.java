@@ -79,9 +79,9 @@ public class DiskStorage {
         } catch (FileAlreadyExistsException ignored) {
             // it is ok, actually it is normal state
         }
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        String newFileName = String.valueOf(existedFiles.size());
+        final String newFileName = String.valueOf(existedFiles.size());
 
         long dataSize = 0;
         long count = 0;

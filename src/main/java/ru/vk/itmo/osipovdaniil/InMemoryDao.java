@@ -34,6 +34,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.path = config.basePath().resolve(DATA);
         this.tmpPath = config.basePath().resolve(DATA + "tmp");
         Files.createDirectories(path);
+        Files.createDirectories(tmpPath);
         this.arena = Arena.ofShared();
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
