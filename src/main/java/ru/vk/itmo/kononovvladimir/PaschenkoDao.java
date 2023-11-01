@@ -75,12 +75,12 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        Iterator<Entry<MemorySegment>> iterator = get(null, null);
         final Path indexFile = path.resolve("index.idx");
         final Path indexTmp = path.resolve("index.tmp");
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        for (String file: existedFiles){
+        Iterator<Entry<MemorySegment>> iterator = get(null, null);
+        for (String file : existedFiles) {
             File file1 = new File(path.resolve(file).toAbsolutePath().toString());
             file1.setWritable(true);
             file1.deleteOnExit();
@@ -90,44 +90,6 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         DiskStorage.save(path, () -> iterator);
         storage.clear();
-
-
-/*        try (
-                FileChannel fileChannel = FileChannel.open(
-                        path.resolve("dataTmp"),
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.CREATE
-                );
-                Arena writeArena = Arena.ofConfined()
-        ) {
-            MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    size,
-                    writeArena
-            );
-
-            long offsetKeys = 0;
-            long offsetData = 2L * Long.BYTES * count;
-            while (iterator.hasNext()) {
-                Entry<MemorySegment> entry = iterator.next();
-                MemorySegment.copy(entry.key(), 0, fileSegment, offsetKeys, entry.key().byteSize());
-                MemorySegment.copy(entry.value(), 0, fileSegment, offsetData, entry.value().byteSize());
-                offsetKeys += entry.key().byteSize();
-                offsetData += entry.value().byteSize();
-            }
-
-            String newFileName = String.valueOf(0);
-
-            Files.write(
-                    path.resolve("index.idx"),
-                    List.of(newFileName),
-                    StandardOpenOption.WRITE,
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING
-            );
-        }*/
     }
 
     @Override

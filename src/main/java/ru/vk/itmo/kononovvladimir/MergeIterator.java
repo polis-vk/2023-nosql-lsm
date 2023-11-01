@@ -1,5 +1,6 @@
 package ru.vk.itmo.kononovvladimir;
 
+
 import java.util.*;
 
 public class MergeIterator<T> implements Iterator<T> {
