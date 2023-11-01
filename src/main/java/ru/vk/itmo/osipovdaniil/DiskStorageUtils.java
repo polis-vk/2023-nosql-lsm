@@ -9,7 +9,11 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -50,7 +54,6 @@ public final class DiskStorageUtils {
         Files.delete(indexFile);
         Files.deleteIfExists(indexTmp);
     }
-
 
     public static List<MemorySegment> loadOrRecover(final Path storagePath, final Arena arena) throws IOException {
         final Path indexTmp = getIndexTmpPath(storagePath);
