@@ -4,15 +4,14 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
@@ -77,25 +76,19 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void compact() throws IOException {
         Iterator<Entry<MemorySegment>> iterator = get(null, null);
-/*        long size = 0;
-        int count = 0;
-        while (iterator.hasNext()) {
-            Entry<MemorySegment> entry = iterator.next();
-            size += entry.key().byteSize() + entry.value().byteSize() + Long.BYTES * 2;
-            count++;
-        }*/
         final Path indexFile = path.resolve("index.idx");
         final Path indexTmp = path.resolve("index.tmp");
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        Iterator<Entry<MemorySegment>> finalIterator = iterator;
 
         for (String file: existedFiles){
-            Files.deleteIfExists(path.resolve(file));
+            File file1 = new File(path.resolve(file).toAbsolutePath().toString());
+            file1.setWritable(true);
+            file1.deleteOnExit();
         }
         Files.deleteIfExists(indexFile);
         Files.createFile(indexTmp);
 
-        DiskStorage.save(path, () -> finalIterator);
+        DiskStorage.save(path, () -> iterator);
         storage.clear();
 
 
