@@ -86,7 +86,7 @@ public class DiskStorageWithCompact {
                     );
                     currentIndex += currentEntry.key().byteSize();
 
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED,  offsetIndexes, currentIndex);
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndexes, currentIndex);
                     offsetIndexes += Long.BYTES;
 
                     MemorySegment.copy(
