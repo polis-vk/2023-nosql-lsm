@@ -20,7 +20,7 @@ import java.util.logging.Logger;
 public class PersistentStorage {
     private final Arena arena;
     private final Path basePath;
-    private final NavigableSet<BinarySearchSSTable> sstables = new ConcurrentSkipListSet<BinarySearchSSTable>(
+    private final NavigableSet<BinarySearchSSTable> sstables = new ConcurrentSkipListSet<>(
             Comparator.comparingInt(ss -> -ss.id)
     );
 
