@@ -2,7 +2,6 @@ package ru.vk.itmo.novichkovandrew.table;
 
 
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.novichkovandrew.Utils;
 import ru.vk.itmo.novichkovandrew.exceptions.FileChannelException;
 
 import java.io.IOException;
@@ -12,7 +11,6 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.Collections;
 
 
 /**
@@ -26,6 +24,7 @@ public class MMapTableWriter implements TableWriter {
     private long indexOffset;
     private long dataOffset;
     private final Arena arena;
+
 
     public MMapTableWriter(Path path, Footer footer) throws IOException {
         this.channel = FileChannel.open(
@@ -62,7 +61,7 @@ public class MMapTableWriter implements TableWriter {
     public void writeFooter(Footer footer) {
         finish(footer);
         try {
-            MemorySegment segment = channel.map(FileChannel.MapMode.READ_WRITE, indexOffset, Utils.FOOTER_SIZE, arena);
+            MemorySegment segment = channel.map(FileChannel.MapMode.READ_WRITE, indexOffset, Footer.FOOTER_SIZE, arena);
             segment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0L, footer.getIndexHandle().offset());
             segment.set(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES, footer.getIndexHandle().size());
         } catch (IOException e) {
@@ -108,7 +107,7 @@ public class MMapTableWriter implements TableWriter {
             arena.close();
         }
         if (channel.isOpen()) {
-            channel.truncate(indexOffset + Utils.FOOTER_SIZE);
+            channel.truncate(indexOffset + Footer.FOOTER_SIZE);
         }
         channel.close();
     }

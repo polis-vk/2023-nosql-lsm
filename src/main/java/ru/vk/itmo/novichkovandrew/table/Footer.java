@@ -1,12 +1,13 @@
 package ru.vk.itmo.novichkovandrew.table;
 
-import ru.vk.itmo.novichkovandrew.Utils;
+import ru.vk.itmo.novichkovandrew.utils.Utils;
 import ru.vk.itmo.novichkovandrew.exceptions.InvalidBlockException;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 public class Footer {
+    public static final long FOOTER_SIZE = 2 * Long.BYTES;
     private Handle indexHandle;
 
     public Footer(Handle indexHandle) {
@@ -23,10 +24,10 @@ public class Footer {
 
 
     public static Footer createFooter(MemorySegment segment) {
-        if (segment.byteSize() != Utils.FOOTER_SIZE) {
+        if (segment.byteSize() != FOOTER_SIZE) {
             throw new InvalidBlockException(
                     String.format("Invalid memory segment in footer place," +
-                            " expected: %s bytes, actual: %s", Utils.FOOTER_SIZE, segment.byteSize())
+                            " expected: %s bytes, actual: %s", FOOTER_SIZE, segment.byteSize())
             );
         }
         long offset = segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0L);

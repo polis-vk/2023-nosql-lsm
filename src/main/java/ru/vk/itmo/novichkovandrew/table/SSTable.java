@@ -2,7 +2,6 @@ package ru.vk.itmo.novichkovandrew.table;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.novichkovandrew.Utils;
 import ru.vk.itmo.novichkovandrew.exceptions.FileChannelException;
 import ru.vk.itmo.novichkovandrew.iterator.TableIterator;
 
@@ -14,7 +13,8 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.Comparator;
+import java.util.Objects;
 
 public class SSTable implements Table<MemorySegment> {
     /**
@@ -37,8 +37,8 @@ public class SSTable implements Table<MemorySegment> {
         this.arena = Arena.ofShared();
         try (FileChannel sstChannel = FileChannel.open(path, StandardOpenOption.READ)) {
             FileChannel.MapMode mode = FileChannel.MapMode.READ_ONLY;
-            long footerOffset = sstChannel.size() - Utils.FOOTER_SIZE;
-            MemorySegment footerSegment = sstChannel.map(mode, footerOffset, Utils.FOOTER_SIZE, arena);
+            long footerOffset = sstChannel.size() - Footer.FOOTER_SIZE;
+            MemorySegment footerSegment = sstChannel.map(mode, footerOffset, Footer.FOOTER_SIZE, arena);
             Footer footer = Footer.createFooter(footerSegment);
             Handle indexHandle = footer.getIndexHandle();
             this.index = sstChannel.map(mode, indexHandle.offset(), indexHandle.size(), arena);

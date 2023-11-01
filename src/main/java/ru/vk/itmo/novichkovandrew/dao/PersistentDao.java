@@ -2,7 +2,7 @@ package ru.vk.itmo.novichkovandrew.dao;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.novichkovandrew.Utils;
+import ru.vk.itmo.novichkovandrew.utils.Utils;
 import ru.vk.itmo.novichkovandrew.exceptions.FileChannelException;
 import ru.vk.itmo.novichkovandrew.iterator.MergeIterator;
 import ru.vk.itmo.novichkovandrew.table.Footer;
@@ -42,6 +42,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() {
+        //TableBuilder
         Handle handle = new Handle(memTable.byteSize(), Utils.indexByteSize(memTable.rows()));
         Footer footer = new Footer(handle);
         //todo: initialize filter, metablocks, etc.

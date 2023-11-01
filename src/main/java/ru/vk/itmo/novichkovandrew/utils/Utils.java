@@ -1,4 +1,4 @@
-package ru.vk.itmo.novichkovandrew;
+package ru.vk.itmo.novichkovandrew.utils;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
@@ -12,8 +12,6 @@ import java.util.stream.Stream;
 public final class Utils {
 
     public static final Entry<MemorySegment> EMPTY = new BaseEntry<>(MemorySegment.NULL, MemorySegment.NULL);
-    public static final long FOOTER_SIZE = 2 * Long.BYTES;
-
 
     /**
      * No instances.
@@ -49,10 +47,4 @@ public final class Utils {
         String fileName = String.format("data-%s.txt", suffix);
         return path.resolve(Path.of(fileName));
     }
-
-    public static Path generateTempPath(Path path) {
-        String fileName = String.format("temp-%s.tmp", System.currentTimeMillis());
-        return path.resolve(Path.of(fileName));
-    }
-
 }
