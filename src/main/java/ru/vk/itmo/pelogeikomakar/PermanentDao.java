@@ -45,15 +45,15 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         loadTables();
     }
+
     public PermanentDao() {
         daoConfig = null;
     }
 
-    protected void loadTables() {
+    protected final void loadTables() {
         if (arenaTableFiles == null) {
             arenaTableFiles = Arena.ofShared();
-        }
-        else {
+        } else {
             arenaTableFiles.close();
             arenaTableFiles = Arena.ofShared();
         }

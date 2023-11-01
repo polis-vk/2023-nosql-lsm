@@ -3,7 +3,12 @@ package ru.vk.itmo.pelogeikomakar;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 
-import java.io.*;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -50,8 +55,7 @@ public class PermanentCompactableDao extends PermanentDao {
 
             if (Files.exists(statFilePath)) {
                 loadTmpTable(tempTable);
-            }
-            else {
+            } else {
                 makeCompactDone(tempTable, tempIndexPath, statFilePath);
             }
         }
@@ -151,8 +155,8 @@ public class PermanentCompactableDao extends PermanentDao {
         }
     }
 
-    private void deleteOldFiles(boolean KnownSize, int size) throws IOException {
-        if (KnownSize) {
+    private void deleteOldFiles(boolean knownSize, int size) throws IOException {
+        if (knownSize) {
             arenaTableFiles.close();
             for (int ssTableNum = size; ssTableNum >= 0; --ssTableNum) {
                 Files.deleteIfExists(daoConfig.basePath()
@@ -161,8 +165,7 @@ public class PermanentCompactableDao extends PermanentDao {
                         .resolve(INDEX_NAME + Integer.toString(ssTableNum)));
             }
             maxSSTable = 0;
-        }
-        else {
+        } else {
             for (int ssTableNum = size; ssTableNum >= 0; --ssTableNum) {
                 Files.deleteIfExists(daoConfig.basePath()
                         .resolve(SSTABLE_NAME + Integer.toString(ssTableNum)));
