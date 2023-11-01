@@ -108,4 +108,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             DiskStorage.save(path, storage.values());
         }
     }
+
+    @Override
+    public void compact() throws IOException {
+        final Iterable<Entry<MemorySegment>> iterableStorage = () -> get(null, null);
+        if (iterableStorage.iterator().hasNext()) {
+            diskStorage.compact(path, iterableStorage);
+        }
+    }
 }

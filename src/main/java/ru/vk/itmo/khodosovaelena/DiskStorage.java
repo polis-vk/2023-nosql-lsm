@@ -13,6 +13,9 @@ import java.nio.file.*;
 import java.util.*;
 
 public class DiskStorage {
+    private static final String INDEX_IDX = "index.idx";
+    private static final String INDEX_TMP = "index.tmp";
+
 
     private final List<MemorySegment> segmentList;
 
@@ -40,8 +43,8 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(INDEX_TMP);
+        final Path indexFile = storagePath.resolve(INDEX_IDX);
 
         try {
             Files.createFile(indexFile);
@@ -133,8 +136,8 @@ public class DiskStorage {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(INDEX_TMP);
+        Path indexFile = storagePath.resolve(INDEX_IDX);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -238,6 +241,22 @@ public class DiskStorage {
                 return new BaseEntry<>(key, value);
             }
         };
+    }
+
+
+    public void compact(Path basePath, Iterable<Entry<MemorySegment>> iterableStorage) throws IOException {
+        clearFiles(basePath);
+        save(basePath, iterableStorage);
+    }
+
+    private void clearFiles(Path path) throws IOException {
+        final Path indexFile = path.resolve(INDEX_IDX);
+        final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        for (String fileName : existedFiles) {
+                Files.deleteIfExists(path.resolve(fileName));
+        }
+        Files.delete(indexFile);
+        Files.deleteIfExists(path.resolve(INDEX_TMP));
     }
 
     private static MemorySegment slice(MemorySegment page, long start, long end) {
