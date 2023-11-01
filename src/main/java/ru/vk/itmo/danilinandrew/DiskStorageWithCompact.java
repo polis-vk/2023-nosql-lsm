@@ -52,11 +52,10 @@ public class DiskStorageWithCompact {
         sizeIndexes *= 2 * Long.BYTES;
 
         final Path indexFile = storagePath.resolve(INDEX_FILE);
-        final String fileNameTmp = "tmpFile";
 
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve(fileNameTmp),
+                        storagePath.resolve("tmpfile"),
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE,
@@ -103,8 +102,6 @@ public class DiskStorageWithCompact {
 
             diskStorage.clearStorage(storagePath);
 
-            final String dataFileName = "0";
-
             Files.move(
                     indexFile,
                     storagePath.resolve(TMP_FILE),
@@ -113,14 +110,14 @@ public class DiskStorageWithCompact {
             );
             Files.writeString(
                     storagePath.resolve(INDEX_FILE),
-                    dataFileName,
+                    "0",
                     StandardOpenOption.WRITE,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING
             );
             Files.move(
-                    storagePath.resolve(fileNameTmp),
-                    storagePath.resolve(dataFileName),
+                    storagePath.resolve("tmpfile"),
+                    storagePath.resolve("0"),
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING
             );
