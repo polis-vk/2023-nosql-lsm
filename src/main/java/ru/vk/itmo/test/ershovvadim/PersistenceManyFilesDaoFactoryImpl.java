@@ -1,9 +1,10 @@
-package ru.vk.itmo.test.pologovnikita;
+package ru.vk.itmo.test.ershovvadim;
 
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.pologovnikita.MemoryTable;
+import ru.vk.itmo.ershovvadim.InMemoryDaoImpl;
+import ru.vk.itmo.ershovvadim.hw3.PersistenceManyFilesDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -11,16 +12,17 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 2)
-public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+@DaoFactory(stage = 3)
+public class PersistenceManyFilesDaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new MemoryTable();
+        return new InMemoryDaoImpl();
     }
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new MemoryTable(config);
+        return new PersistenceManyFilesDao(config);
     }
 
     @Override
