@@ -160,9 +160,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         GatheringIterator<Entry<MemorySegment>> gatheringIterator = new GatheringIterator<>(
                 priorityIterators,
                 Comparator.comparing(
-                        it -> ((PriorityIterator<Entry<MemorySegment>>) it).showNext().key(),
+                        (PriorityIterator<Entry<MemorySegment>> it) -> it.showNext().key(),
                         MemorySegmentUtils::compareMemorySegments
-                ).thenComparingInt(it -> ((PriorityIterator<Entry<MemorySegment>>) it).getPriority()),
+                ).thenComparingInt(PriorityIterator::getPriority),
                 Comparator.comparing(Entry::key, MemorySegmentUtils::compareMemorySegments)
         );
 
