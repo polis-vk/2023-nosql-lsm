@@ -186,11 +186,7 @@ public class DiskStorage {
         }
 
         // Delete old data
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        for (String fileName : existedFiles) {
-            Files.delete(storagePath.resolve(fileName));
-        }
-        segmentList.clear();
+        deleteFilesAndInMemory(Files.readAllLines(indexFile, StandardCharsets.UTF_8), storagePath);
         iterable.clear();
 
         Files.move(
@@ -202,6 +198,13 @@ public class DiskStorage {
                 List.of("0"),
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
         );
+    }
+
+    private void deleteFilesAndInMemory(List<String> existedFiles, Path storagePath) throws IOException {
+        for (String fileName : existedFiles) {
+            Files.delete(storagePath.resolve(fileName));
+        }
+        segmentList.clear();
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
