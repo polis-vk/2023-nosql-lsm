@@ -88,9 +88,7 @@ public class DiskStorage {
             // it is ok, actually it is normal state
         }
         final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-
         final String newFileName = String.valueOf(existedFiles.size());
-
         long dataSize = 0;
         long count = 0;
         for (Entry<MemorySegment> entry : iterable) {
@@ -102,23 +100,18 @@ public class DiskStorage {
             count++;
         }
         long indexSize = count * 2 * Long.BYTES;
-
-        try (
-                FileChannel fileChannel = FileChannel.open(
+        try (FileChannel fileChannel = FileChannel.open(
                         storagePath.resolve(newFileName),
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
-                        StandardOpenOption.CREATE
-                );
-                Arena writeArena = Arena.ofConfined()
-        ) {
+                        StandardOpenOption.CREATE);
+                Arena writeArena = Arena.ofConfined()) {
             MemorySegment fileSegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
                     indexSize + dataSize,
                     writeArena
             );
-
             // index:
             // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
             // key0_Start = data start = end of index
@@ -138,7 +131,6 @@ public class DiskStorage {
                 }
                 indexOffset += Long.BYTES;
             }
-
             // data:
             // |key0|value0|key1|value1|...
             dataOffset = indexSize;
@@ -154,27 +146,21 @@ public class DiskStorage {
                 }
             }
         }
-
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-
         final List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
         list.add(newFileName);
-        Files.write(
-                indexFile,
+        Files.write(indexFile,
                 list,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
+                StandardOpenOption.TRUNCATE_EXISTING);
         Files.delete(indexTmp);
     }
 
     public static List<MemorySegment> loadOrRecover(final Path storagePath, final Arena arena) throws IOException {
         final Path indexTmp = getIndexTmpPath(storagePath);
         final Path indexFile = getIndexPath(storagePath);
-
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } else {
@@ -184,7 +170,6 @@ public class DiskStorage {
                 // it is ok, actually it is normal state
             }
         }
-
         final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         final List<MemorySegment> result = new ArrayList<>(existedFiles.size());
         for (String fileName : existedFiles) {
@@ -194,12 +179,10 @@ public class DiskStorage {
                         FileChannel.MapMode.READ_WRITE,
                         0,
                         Files.size(file),
-                        arena
-                );
+                        arena);
                 result.add(fileSegment);
             }
         }
-
         return result;
     }
 
@@ -210,24 +193,20 @@ public class DiskStorage {
         long right = recordsCount - 1;
         while (left <= right) {
             long mid = (left + right) >>> 1;
-
             long startOfKey = startOfKey(segment, mid);
             long endOfKey = endOfKey(segment, mid);
             long mismatch = MemorySegment.mismatch(segment, startOfKey, endOfKey, key, 0, key.byteSize());
             if (mismatch == -1) {
                 return mid;
             }
-
             if (mismatch == key.byteSize()) {
                 right = mid - 1;
                 continue;
             }
-
             if (mismatch == endOfKey - startOfKey) {
                 left = mid + 1;
                 continue;
             }
-
             int b1 = Byte.toUnsignedInt(segment.get(ValueLayout.JAVA_BYTE, startOfKey + mismatch));
             int b2 = Byte.toUnsignedInt(key.get(ValueLayout.JAVA_BYTE, mismatch));
             if (b1 > b2) {
@@ -255,7 +234,6 @@ public class DiskStorage {
         long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
         long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
         final long recordsCount = recordsCount(page);
-
         return new Iterator<>() {
             long index = recordIndexFrom;
 
