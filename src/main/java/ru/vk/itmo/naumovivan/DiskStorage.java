@@ -228,7 +228,9 @@ public class DiskStorage {
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : DiskStorageUtils.normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? DiskStorageUtils.recordsCount(page) : DiskStorageUtils.normalize(indexOf(page, to));
+        long recordIndexTo = to == null
+                ? DiskStorageUtils.recordsCount(page)
+                : DiskStorageUtils.normalize(indexOf(page, to));
         long recordsCount = DiskStorageUtils.recordsCount(page);
 
         return new Iterator<>() {

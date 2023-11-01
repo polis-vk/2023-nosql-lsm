@@ -15,6 +15,8 @@ import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 
 public class DiskStorageUtils {
+    private DiskStorageUtils() {
+    }
 
     public static void saveMemoryTable(Path filepath,
                                        Iterable<Entry<MemorySegment>> iterable) throws IOException {

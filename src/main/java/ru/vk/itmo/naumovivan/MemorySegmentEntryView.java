@@ -7,12 +7,6 @@ import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-import static ru.vk.itmo.naumovivan.DiskStorageUtils.endOfValue;
-import static ru.vk.itmo.naumovivan.DiskStorageUtils.normalize;
-import static ru.vk.itmo.naumovivan.DiskStorageUtils.recordsCount;
-import static ru.vk.itmo.naumovivan.DiskStorageUtils.startOfKey;
-import static ru.vk.itmo.naumovivan.DiskStorageUtils.startOfValue;
-
 public class MemorySegmentEntryView implements Comparable<MemorySegmentEntryView> {
     private final MemorySegment keyPage;
     private final long keyOffsetStart;
@@ -83,7 +77,7 @@ public class MemorySegmentEntryView implements Comparable<MemorySegmentEntryView
     }
 
     public static Iterator<MemorySegmentEntryView> makeIterator(final MemorySegment memorySegment) {
-        final long recordsCount = recordsCount(memorySegment);
+        final long recordsCount = DiskStorageUtils.recordsCount(memorySegment);
 
         return new Iterator<>() {
             long index;
@@ -98,10 +92,10 @@ public class MemorySegmentEntryView implements Comparable<MemorySegmentEntryView
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                final long startOfKey = startOfKey(memorySegment, index);
-                final long startOfValue = startOfValue(memorySegment, index);
-                final long endOfKey = normalize(startOfValue);
-                final long endOfValue = endOfValue(memorySegment, index, recordsCount);
+                final long startOfKey = DiskStorageUtils.startOfKey(memorySegment, index);
+                final long startOfValue = DiskStorageUtils.startOfValue(memorySegment, index);
+                final long endOfKey = DiskStorageUtils.normalize(startOfValue);
+                final long endOfValue = DiskStorageUtils.endOfValue(memorySegment, index, recordsCount);
                 index++;
                 return new MemorySegmentEntryView(memorySegment, startOfKey, endOfKey,
                         memorySegment, startOfValue, endOfValue);
