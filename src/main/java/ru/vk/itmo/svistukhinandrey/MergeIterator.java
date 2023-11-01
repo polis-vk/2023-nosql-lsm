@@ -1,4 +1,4 @@
-package ru.vk.itmo.pashchenkoalexandr;
+package ru.vk.itmo.svistukhinandrey;
 
 import java.util.Collection;
 import java.util.Comparator;

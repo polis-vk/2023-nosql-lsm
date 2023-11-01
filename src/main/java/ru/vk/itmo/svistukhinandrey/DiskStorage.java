@@ -1,4 +1,4 @@
-package ru.vk.itmo.pashchenkoalexandr;
+package ru.vk.itmo.svistukhinandrey;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -28,17 +29,22 @@ public class DiskStorage {
         this.segmentList = segmentList;
     }
 
+    public Iterator<Entry<MemorySegment>> all(Collection<Entry<MemorySegment>> storage) {
+        return range(storage.iterator(), null, null);
+    }
+
     public Iterator<Entry<MemorySegment>> range(
             Iterator<Entry<MemorySegment>> firstIterator,
             MemorySegment from,
-            MemorySegment to) {
+            MemorySegment to
+    ) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
         iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PaschenkoDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
             @Override
             protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;
@@ -46,8 +52,10 @@ public class DiskStorage {
         };
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
-            throws IOException {
+    public static void save(
+            Path storagePath,
+            Iterable<Entry<MemorySegment>> iterable
+    ) throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
 
@@ -246,6 +254,26 @@ public class DiskStorage {
                 return new BaseEntry<>(key, value);
             }
         };
+    }
+
+    public static void deleteObsoleteData(Path directory) throws IOException {
+        try (var files = Files.walk(directory)) {
+            files.forEach(file -> {
+                if (Files.isRegularFile(file)) {
+                    try {
+                        Files.delete(file);
+                    } catch (IOException ignore) {
+                        // Мы должны удалить все файлы, но как можно уменьшить шанс того, что удалить не получилось?
+                        // Пришло только две идеи, либо записывать список файлов, которые не получилось удалить, и при
+                        // запуске нового compaction подчищать их, либо делать ретрай на удаление (что кажется, совсем
+                        // бесполезно). Начал копать в эту сторону, увидел, что в кассандре мы tombstones храним на такой
+                        // случай в файле который сделали через compaction. Т.е., если у нас какие-то файлы не удалятся, через
+                        // tombstone в новом файле мы сможем уберечься от старых фантомных записей. Но по ТЗ мы не должны хранить
+                        // tombstones в SSTable.
+                    }
+                }
+            });
+        }
     }
 
     private static MemorySegment slice(MemorySegment page, long start, long end) {
