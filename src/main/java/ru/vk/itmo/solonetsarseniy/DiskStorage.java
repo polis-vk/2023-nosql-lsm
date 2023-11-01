@@ -30,6 +30,16 @@ public class DiskStorage {
         StandardOpenOption.CREATE,
         StandardOpenOption.TRUNCATE_EXISTING
     };
+    private static StandardOpenOption[] writeReadCreate = new StandardOpenOption[] {
+        StandardOpenOption.WRITE,
+        StandardOpenOption.READ,
+        StandardOpenOption.CREATE
+    };
+    private static StandardOpenOption[] writeCreateTruncate = new StandardOpenOption[] {
+        StandardOpenOption.WRITE,
+        StandardOpenOption.CREATE,
+        StandardOpenOption.TRUNCATE_EXISTING
+    };
     private static StandardCopyOption[] copyOptions = new StandardCopyOption[] {
         StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING
     };
@@ -144,13 +154,8 @@ public class DiskStorage {
         long indexSize = count * 2 * Long.BYTES;
 
         try (
-                FileChannel fileChannel = FileChannel.open(
-                    storagePath.resolve(newFileName),
-                    StandardOpenOption.WRITE,
-                    StandardOpenOption.READ,
-                    StandardOpenOption.CREATE
-                );
-                Arena writeArena = Arena.ofConfined()
+            FileChannel fileChannel = FileChannel.open(storagePath.resolve(newFileName), writeReadCreate);
+            Arena writeArena = Arena.ofConfined()
         ) {
             MemorySegment fileSegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE,
@@ -204,14 +209,7 @@ public class DiskStorage {
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
         list.add(newFileName);
-        Files.write(
-                indexFile,
-                list,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
+        Files.write(indexFile, list, writeCreateTruncate);
         Files.delete(indexTmp);
     }
 

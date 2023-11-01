@@ -11,7 +11,7 @@ import java.util.NoSuchElementException;
 //just to satisfy code climate
 public final class DiskStorageUtils {
 
-    private DiskStorageUtils () {
+    private DiskStorageUtils() {
 
     }
 
