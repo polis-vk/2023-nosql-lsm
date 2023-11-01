@@ -93,7 +93,6 @@ public class SSTablesController {
 
         while (r - l > 1) {
             long mid = (l + r) / 2;
-
             if (greaterThen(mappedIndex, mid * ONE_LINE_SIZE, mappedData, key)) {
                 l = mid;
             } else {
@@ -112,7 +111,6 @@ public class SSTablesController {
             if (key != null) {
                 entryIndexesLine = searchKeyInFile(ssTablesIndexes.get(i), ssTables.get(i), key);
              }
-
             if (entryIndexesLine < 0) {
                 continue;
             }
