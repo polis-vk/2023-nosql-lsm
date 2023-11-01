@@ -21,16 +21,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-import static ru.vk.itmo.svistukhinandrey.MemorySegmentUtils.endOfKey;
-import static ru.vk.itmo.svistukhinandrey.MemorySegmentUtils.endOfValue;
-import static ru.vk.itmo.svistukhinandrey.MemorySegmentUtils.indexOf;
-import static ru.vk.itmo.svistukhinandrey.MemorySegmentUtils.normalize;
-import static ru.vk.itmo.svistukhinandrey.MemorySegmentUtils.recordsCount;
-import static ru.vk.itmo.svistukhinandrey.MemorySegmentUtils.slice;
-import static ru.vk.itmo.svistukhinandrey.MemorySegmentUtils.startOfKey;
-import static ru.vk.itmo.svistukhinandrey.MemorySegmentUtils.startOfValue;
-import static ru.vk.itmo.svistukhinandrey.MemorySegmentUtils.tombstone;
-
 public class DiskStorage {
 
     private final List<MemorySegment> segmentList;
@@ -118,7 +108,7 @@ public class DiskStorage {
 
                 MemorySegment value = entry.value();
                 if (value == null) {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, MemorySegmentUtils.tombstone(dataOffset));
                 } else {
                     fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                     dataOffset += value.byteSize();
@@ -205,9 +195,9 @@ public class DiskStorage {
     }
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
-        long recordsCount = recordsCount(page);
+        long recordIndexFrom = from == null ? 0 : MemorySegmentUtils.normalize(MemorySegmentUtils.indexOf(page, from));
+        long recordIndexTo = to == null ? MemorySegmentUtils.recordsCount(page) : MemorySegmentUtils.normalize(MemorySegmentUtils.indexOf(page, to));
+        long recordsCount = MemorySegmentUtils.recordsCount(page);
 
         return new Iterator<>() {
             long index = recordIndexFrom;
@@ -222,12 +212,17 @@ public class DiskStorage {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
-                long startOfValue = startOfValue(page, index);
-                MemorySegment value =
-                        startOfValue < 0
-                                ? null
-                                : slice(page, startOfValue, endOfValue(page, index, recordsCount));
+                MemorySegment key = MemorySegmentUtils.slice(
+                        page,
+                        MemorySegmentUtils.startOfKey(page, index),
+                        MemorySegmentUtils.endOfKey(page, index)
+                );
+                long startOfValue = MemorySegmentUtils.startOfValue(page, index);
+                MemorySegment value = startOfValue < 0 ? null : MemorySegmentUtils.slice(
+                        page,
+                        startOfValue,
+                        MemorySegmentUtils.endOfValue(page, index, recordsCount)
+                );
                 index++;
                 return new BaseEntry<>(key, value);
             }
