@@ -5,75 +5,83 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries =
-            new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
-    private final Store store;
-    private final ReadWriteLock lock = new ReentrantReadWriteLock();
-    private final Config config;
+    private final Comparator<MemorySegment> comparator = DaoImpl::compare;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage =
+            new ConcurrentSkipListMap<>(comparator);
+    private final Arena arena;
+    private final DiskStorage diskStorage;
+    private final Path path;
 
     public DaoImpl(Config config) throws IOException {
-        this.config = config;
-        this.store = new Store(config);
-    }
+        this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
 
-    @Override
-    public Entry<MemorySegment> get(MemorySegment key) {
-        lock.readLock().lock();
-        try {
-            Iterator<Entry<MemorySegment>> iterator = get(key, null);
-            if (!iterator.hasNext()) {
-                return null;
-            }
-            Entry<MemorySegment> next = iterator.next();
-            if (MemorySegmentComparator.compare(key, next.key()) == 0) {
-                return next;
-            }
-            return null;
-        } finally {
-            lock.readLock().unlock();
-        }
+        arena = Arena.ofShared();
+
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        lock.readLock().lock();
-        try {
-            if (from == null) {
-                return store.getIterator(MemorySegment.NULL, to, getMemoryIterator(MemorySegment.NULL, to));
+        return diskStorage.range(getInMemory(from, to), from, to);
+    }
+
+    @Override
+    public Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> entry = storage.get(key);
+        if (entry != null) {
+            if (entry.value() == null) {
+                return null;
             }
-            return store.getIterator(from, to, getMemoryIterator(from, to));
-        } finally {
-            lock.readLock().unlock();
+            return entry;
         }
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+        if (!iterator.hasNext()) {
+            return null;
+        }
+        Entry<MemorySegment> next = iterator.next();
+        if (compare(next.key(), key) == 0) {
+            return next;
+        }
+        return null;
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        lock.readLock().lock();
-        try {
-            memorySegmentEntries.put(entry.key(), entry);
-        } finally {
-            lock.readLock().unlock();
-        }
+        storage.put(entry.key(), entry);
     }
 
     @Override
     public void close() throws IOException {
-        store.close();
-        lock.writeLock().lock();
-        try {
-            store.save(config, memorySegmentEntries.values(), store);
-        } finally {
-            lock.writeLock().unlock();
+        if (!arena.scope().isAlive()) {
+            return;
+        }
+
+        arena.close();
+
+        if (!storage.isEmpty()) {
+            DiskStorage.save(path, storage.values());
+        }
+    }
+
+    @Override
+    public void compact() throws IOException {
+        final Iterable<Entry<MemorySegment>> iterableStorage = () -> get(null, null);
+        if (iterableStorage.iterator().hasNext()) {
+            diskStorage.compact(path, iterableStorage);
         }
     }
 
@@ -82,19 +90,34 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         throw new UnsupportedOperationException("Not implement");
     }
 
-    private Iterator<Entry<MemorySegment>> getMemoryIterator(MemorySegment from, MemorySegment to) {
-        lock.readLock().lock();
-        try {
-            if (from == null && to == null) {
-                return memorySegmentEntries.values().iterator();
-            } else if (to == null) {
-                return memorySegmentEntries.tailMap(from).values().iterator();
-            } else if (from == null) {
-                return memorySegmentEntries.headMap(to).values().iterator();
-            }
-            return memorySegmentEntries.subMap(from, to).values().iterator();
-        } finally {
-            lock.readLock().unlock();
+    static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
+        long mismatch = memorySegment1.mismatch(memorySegment2);
+        if (mismatch == -1) {
+            return 0;
         }
+
+        if (mismatch == memorySegment1.byteSize()) {
+            return -1;
+        }
+
+        if (mismatch == memorySegment2.byteSize()) {
+            return 1;
+        }
+        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
+        return Byte.compare(b1, b2);
+    }
+
+    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return storage.values().iterator();
+        }
+        if (from == null) {
+            return storage.headMap(to).values().iterator();
+        }
+        if (to == null) {
+            return storage.tailMap(from).values().iterator();
+        }
+        return storage.subMap(from, to).values().iterator();
     }
 }
