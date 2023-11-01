@@ -87,11 +87,11 @@ public class TablesManager {
         tableIndex = 0;
         store(storage, true);
 
-        var allFiles = config.basePath().toFile().listFiles();
+        File[] allFiles = config.basePath().toFile().listFiles();
+
         if (allFiles != null) {
-            for (var file : allFiles) {
-                if (file.toPath().compareTo(config.basePath().resolve(tableIndex + DB_PATH_SUFFIX)) == 0 ||
-                        file.toPath().compareTo(config.basePath().resolve(tableIndex + INDEX_PATH_SUFFIX)) == 0) {
+            for (File file : allFiles) {
+                if (file.toPath().compareTo(getIndexPath()) == 0 || file.toPath().compareTo(getDataBasePath()) == 0) {
                     continue;
                 }
                 Files.deleteIfExists(file.toPath());
@@ -138,13 +138,13 @@ public class TablesManager {
         }
 
 
-        Path tempIndexPath = tempDir.resolve(tableIndex + DB_PATH_SUFFIX);
-        Path tempDataBasePath = tempDir.resolve(tableIndex + INDEX_PATH_SUFFIX);
+        Path tempIndexPath = tempDir.resolve(tableIndex + INDEX_PATH_SUFFIX);
+        Path tempDataBasePath = tempDir.resolve(tableIndex + DB_PATH_SUFFIX);
 
-        tryToWrite(storage, withSStables, size, indexSize, tempIndexPath, tempDataBasePath);
+        tryToWrite(storage, withSStables, size, indexSize, tempDataBasePath, tempIndexPath);
 
-        Path indexPath = config.basePath().resolve(tableIndex + DB_PATH_SUFFIX);
-        Path dataBasePath = config.basePath().resolve(tableIndex + INDEX_PATH_SUFFIX);
+        Path indexPath = getDataBasePath();
+        Path dataBasePath = getIndexPath();
 
         Files.move(tempDataBasePath, dataBasePath, StandardCopyOption.ATOMIC_MOVE);
         Files.move(tempIndexPath, indexPath, StandardCopyOption.ATOMIC_MOVE);
@@ -163,8 +163,8 @@ public class TablesManager {
             boolean withSStables,
             long size,
             long indexSize,
-            Path tempIndexPath,
-            Path tempDataBasePath
+            Path tempDataBasePath,
+            Path tempIndexPath
     ) throws IOException {
         Iterator<Entry<MemorySegment>> iterator;
         try (Arena writeArena = Arena.ofConfined()) {
@@ -238,5 +238,13 @@ public class TablesManager {
                 }
             }
         }
+    }
+
+    private Path getIndexPath() {
+        return config.basePath().resolve(tableIndex + INDEX_PATH_SUFFIX);
+    }
+
+    private Path getDataBasePath() {
+        return config.basePath().resolve(tableIndex + DB_PATH_SUFFIX);
     }
 }
