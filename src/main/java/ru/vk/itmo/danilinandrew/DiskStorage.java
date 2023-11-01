@@ -25,7 +25,6 @@ public class DiskStorage {
     private final List<MemorySegment> segmentList;
     private static final String INDEX_FILE = "index.idx";
     private static final String TMP_FILE = "index.tmp";
-
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
     }
