@@ -55,10 +55,12 @@ public class DiskStorage {
             throws IOException {
         final Path indexFile = storagePath.resolve("index.idx");
         final Path indexTmp = storagePath.resolve("index.tmp");
-        final String compactedFileName = "compacted";
+
         // compacted - название файла, который остается после вызова compact()
         // compacting - файл, который должен быть переименован в compacted (в конце обработки)
         // и остаться единственным (в однопоточном вызове) после вызова compact()
+        final String compactedFileName = "compacted";
+
         if (segmentList.isEmpty() && !inMemoryIterator.hasNext()) return;
 
         int maybeExistingFileName = 0;
