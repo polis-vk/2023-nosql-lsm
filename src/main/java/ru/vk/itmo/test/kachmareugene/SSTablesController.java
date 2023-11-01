@@ -192,10 +192,8 @@ public class SSTablesController {
 
             long ssTableLenght = 0L;
             long indexLength = 0L;
-            int n = 0;
             while (iter1.hasNext()) {
                 var seg = iter1.next();
-                n++;
                 ssTableLenght += seg.key().byteSize() + seg.value().byteSize();
                 indexLength += ONE_LINE_SIZE;
             }
