@@ -3,14 +3,17 @@ package ru.vk.itmo.danilinandrew;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
-import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.FileAlreadyExistsException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -20,7 +23,8 @@ import java.util.NoSuchElementException;
 public class DiskStorage {
 
     private final List<MemorySegment> segmentList;
-
+    private static final String INDEX_FILE = "index.idx";
+    private static final String TMP_FILE = "index.tmp";
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
     }
@@ -62,10 +66,9 @@ public class DiskStorage {
         if (sizeIndexes == 0) {
             return;
         }
-
         sizeIndexes *= 2 * Long.BYTES;
 
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexFile = storagePath.resolve(INDEX_FILE);
         final String fileNameTmp = "tmpFile";
 
         try (
@@ -84,9 +87,7 @@ public class DiskStorage {
                     sizeIndexes + sizeData,
                     writeArena
             );
-
             long offsetIndexes = 0;
-
             long currentIndex = sizeIndexes;
             while (it2.hasNext()) {
                 Entry<MemorySegment> currentEntry = it2.next();
@@ -123,43 +124,40 @@ public class DiskStorage {
 
             Files.move(
                     indexFile,
-                    storagePath.resolve("index.tmp"),
+                    storagePath.resolve(TMP_FILE),
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING
             );
-
             Files.writeString(
-                    storagePath.resolve("index.idx"),
+                    storagePath.resolve(INDEX_FILE),
                     dataFileName,
                     StandardOpenOption.WRITE,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING
             );
-
             Files.move(
                     storagePath.resolve(fileNameTmp),
                     storagePath.resolve(dataFileName),
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING
             );
-
-            Files.delete(storagePath.resolve("index.tmp"));
+            Files.delete(storagePath.resolve(TMP_FILE));
         }
     }
 
     public void clearStorage(Path storagePath) throws IOException {
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexFile = storagePath.resolve(INDEX_FILE);
         final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         for (String fileName : existedFiles) {
             Files.deleteIfExists(storagePath.resolve(fileName));
         }
-        Files.deleteIfExists(storagePath.resolve("index.tmp"));
+        Files.deleteIfExists(storagePath.resolve(TMP_FILE));
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(TMP_FILE);
+        final Path indexFile = storagePath.resolve(INDEX_FILE);
 
         try {
             Files.createFile(indexFile);
@@ -251,8 +249,8 @@ public class DiskStorage {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(TMP_FILE);
+        Path indexFile = storagePath.resolve(INDEX_FILE);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
