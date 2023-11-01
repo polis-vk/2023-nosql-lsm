@@ -1,7 +1,7 @@
 package ru.vk.itmo.bazhenovkirill;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import static ru.vk.itmo.bazhenovkirill.MemorySegmentHelper.*;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -14,6 +14,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+
 public class Storage {
 
     private static final AtomicInteger SSTABLE_ID = new AtomicInteger();
@@ -25,16 +26,6 @@ public class Storage {
             StandardOpenOption.READ
     );
     private final List<MemorySegment> segments;
-
-    private static class Offset {
-        long data;
-        long index;
-
-        Offset(long data, long index) {
-            this.data = data;
-            this.index = index;
-        }
-    }
 
     public Storage(List<MemorySegment> segments) {
         this.segments = segments;
@@ -250,62 +241,5 @@ public class Storage {
         }
 
         return indexFile;
-    }
-
-    private static MemorySegment getSlice(MemorySegment segment, long start, long end) {
-        return segment.asSlice(start, end - start);
-    }
-
-    private static long startOfKey(MemorySegment segment, long inx) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, inx * 2 * Long.BYTES);
-    }
-
-    private static long endOfKey(MemorySegment segment, long inx) {
-        return normalize(startOfValue(segment, inx));
-    }
-
-    private static MemorySegment getKey(MemorySegment segment, long inx) {
-        return getSlice(segment, startOfKey(segment, inx), endOfKey(segment, inx));
-    }
-
-    private static long startOfValue(MemorySegment segment, long inx) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, Long.BYTES + inx * 2 * Long.BYTES);
-    }
-
-    private static long endOfValue(MemorySegment segment, long inx) {
-        if (inx < recordsCount(segment) - 1) {
-            return startOfKey(segment, inx + 1);
-        }
-        return segment.byteSize();
-    }
-
-    private static Entry<MemorySegment> getEntry(MemorySegment segment, long inx) {
-        MemorySegment key = getKey(segment, inx);
-        MemorySegment value = getValue(segment, inx);
-        return new BaseEntry<>(key, value);
-    }
-
-    private static MemorySegment getValue(MemorySegment segment, long inx) {
-        long start = startOfValue(segment, inx);
-        if (start < 0) {
-            return null;
-        }
-        return getSlice(segment, start, endOfValue(segment, inx));
-    }
-
-    private static long tombstone(long offset) {
-        return 1L << 63 | offset;
-    }
-
-    private static long normalize(long offset) {
-        return offset & ~(1L << 63);
-    }
-
-    private static long recordsCount(MemorySegment segment) {
-        return indexSize(segment) / (2 * Long.BYTES);
-    }
-
-    private static long indexSize(MemorySegment segment) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 }

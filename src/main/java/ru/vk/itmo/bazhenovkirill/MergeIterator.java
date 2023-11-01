@@ -1,11 +1,10 @@
 package ru.vk.itmo.bazhenovkirill;
 
-
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.PriorityQueue;
 import java.util.NoSuchElementException;
+import java.util.PriorityQueue;
 
 public class MergeIterator<T> implements Iterator<T> {
 
@@ -66,8 +65,7 @@ public class MergeIterator<T> implements Iterator<T> {
         return false;
     }
 
-
-    private PeekIterator<T> peek() {
+    private PeekIterator<T> peekIterator() {
         while (peek == null) {
             peek = priorityQueue.poll();
             if (peek == null) {
@@ -113,12 +111,12 @@ public class MergeIterator<T> implements Iterator<T> {
 
     @Override
     public boolean hasNext() {
-        return peek() != null;
+        return peekIterator() != null;
     }
 
     @Override
     public T next() {
-        PeekIterator<T> peek = peek();
+        PeekIterator<T> peek = peekIterator();
         if (peek == null) {
             throw new NoSuchElementException();
         }
