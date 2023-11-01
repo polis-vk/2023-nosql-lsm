@@ -26,7 +26,7 @@ public class TablesManager {
     private final Arena arena = Arena.ofShared();
     private final List<SSTable> ssTables = new ArrayList<>();
     private long tableIndex;
-    private boolean isClosed = false;
+    private boolean isClosed;
 
     private static final String INDEX_PATH_SUFFIX = ".index.db";
     private static final String DB_PATH_SUFFIX = ".db";
@@ -83,7 +83,6 @@ public class TablesManager {
     }
 
     void compact(NavigableMap<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
-
         tableIndex = 0;
         store(storage, true);
 
@@ -117,7 +116,6 @@ public class TablesManager {
             return;
         }
 
-
         long size = 0;
         long indexSize = 0;
         while (iterator.hasNext()) {
@@ -136,7 +134,6 @@ public class TablesManager {
         } catch (FileAlreadyExistsException ignored) {
             // log if you need this? =)
         }
-
 
         Path tempIndexPath = tempDir.resolve(tableIndex + INDEX_PATH_SUFFIX);
         Path tempDataBasePath = tempDir.resolve(tableIndex + DB_PATH_SUFFIX);
