@@ -76,6 +76,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     protected void closeMemTable() {
         mp.clear();
     }
+
     protected SortedMap<MemorySegment, Entry<MemorySegment>> getMemTable() {
         return mp;
     }

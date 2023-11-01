@@ -5,7 +5,6 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.util.Collection;
 import java.util.Iterator;
-import java.util.SortedMap;
 
 public class SSTableIterable implements Iterable<Entry<MemorySegment>> {
     private final Collection<Entry<MemorySegment>> memTable;

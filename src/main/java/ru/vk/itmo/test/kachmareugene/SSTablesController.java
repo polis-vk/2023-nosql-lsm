@@ -14,7 +14,13 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Set;
+import java.util.Iterator;
+import java.util.SortedMap;
 import java.util.stream.Stream;
 
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -29,7 +35,6 @@ public class SSTablesController {
     private final List<Path> ssTablesPaths = new ArrayList<>();
     private final List<Path> ssTablesIndexesPaths = new ArrayList<>();
     private static final String SS_TABLE_COMMON_PREF = "ssTable";
-
     // index format: (long) keyOffset, (long) keyLen, (long) valueOffset, (long) valueLen
     private static final long ONE_LINE_SIZE = 4 * Long.BYTES;
     private static final String INDEX_COMMON_PREF = "index";
@@ -158,7 +163,6 @@ public class SSTablesController {
                 return inf;
             }
         }
-
         return null;
     }
 
@@ -195,7 +199,6 @@ public class SSTablesController {
                 ssTableLenght += seg.key().byteSize() + seg.value().byteSize();
                 indexLength += ONE_LINE_SIZE;
             }
-            System.err.println(n);
             long currOffsetSSTable = 0L;
             long currOffsetIndex = 0L;
 
@@ -288,10 +291,6 @@ public class SSTablesController {
     public void deleteAllOldFiles() throws IOException {
         closeArena();
         deleteFiles(ssTablesPaths);
-        if (!ssTables.isEmpty()) {
-            System.out.println(ssTables.get(0).byteSize());
-            System.out.println(ssTablesIndexes.get(0).byteSize());
-        }
         deleteFiles(ssTablesIndexesPaths);
     }
     private void deleteFiles(List<Path> files) throws IOException {
