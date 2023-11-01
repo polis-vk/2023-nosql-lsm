@@ -3,8 +3,7 @@ package ru.vk.itmo.pelogeikomakar;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -12,14 +11,120 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.List;
 
 public class PermanentCompactableDao extends PermanentDao {
 
     private boolean compactedOrClosed;
     private static final String ZERO_TMP = "0.tmp";
+    private static final String COMPACT_STAT = "compact.stat";
 
-    public PermanentCompactableDao(Config config) {
-        super(config);
+    public PermanentCompactableDao(Config config) throws IOException {
+        if (config == null) {
+            daoConfig = null;
+            return;
+        }
+        daoConfig = config;
+
+        checkAndRecover();
+        loadTables();
+
+    }
+
+    private void checkAndRecover() throws IOException {
+        var tempTablePath = daoConfig.basePath()
+                .resolve(SSTABLE_NAME + ZERO_TMP);
+        var statFilePath = daoConfig.basePath()
+                .resolve(COMPACT_STAT);
+        MemorySegment tempTable;
+        var tempIndexPath = daoConfig.basePath()
+                .resolve(INDEX_NAME + ZERO_TMP);
+        Files.deleteIfExists(tempIndexPath);
+
+        if (Files.exists(tempTablePath)) {
+            try (FileChannel tableFile = FileChannel.open(tempTablePath, StandardOpenOption.READ)) {
+                tempTable = tableFile.map(FileChannel.MapMode.READ_ONLY, 0,
+                        Files.size(tempTablePath), arenaTableFiles);
+            }
+
+            if (Files.exists(statFilePath)) {
+                loadTmpTable(tempTable);
+            }
+            else {
+                makeCompactDone(tempTable, tempIndexPath, statFilePath);
+            }
+        }
+
+        Files.deleteIfExists(statFilePath);
+        Files.deleteIfExists(tempTablePath);
+        Files.deleteIfExists(tempIndexPath);
+
+    }
+
+    private void makeCompactDone(MemorySegment tempTable, Path tempIndexPath, Path statFilePath) throws IOException {
+        List<Long> dataOffsets = new ArrayList<>();
+        long offset = 0;
+        while (offset < tempTable.byteSize()) {
+            dataOffsets.add(offset);
+            long sizeOfKey = tempTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            long valueOffset = offset + Long.BYTES + sizeOfKey;
+            long valueSize = tempTable.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
+
+            offset = valueOffset + Long.BYTES + valueSize;
+        }
+        long indexTableSize = (long) dataOffsets.size() * Long.BYTES;
+
+        try (var arenaWriter = Arena.ofShared(); var fileIndexOut = FileChannel.open(tempIndexPath,
+                StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
+
+            MemorySegment memSegmentIndexOut = fileIndexOut.map(FileChannel.MapMode.READ_WRITE,
+                    0, indexTableSize, arenaWriter);
+
+            long offsetIndex = 0;
+            for (var dataPtr : dataOffsets) {
+                memSegmentIndexOut.set(ValueLayout.JAVA_LONG_UNALIGNED, offsetIndex, dataPtr);
+                offsetIndex += Long.BYTES;
+            }
+
+        }
+
+        int oldTablesNumber;
+        try (var dis = new DataInputStream(new FileInputStream(statFilePath.toString()))) {
+            oldTablesNumber = dis.readInt();
+        }
+
+        deleteOldFiles(false, oldTablesNumber);
+
+        Path sourceTable = daoConfig.basePath()
+                .resolve(SSTABLE_NAME + ZERO_TMP);
+        Path targetTable = daoConfig.basePath()
+                .resolve(SSTABLE_NAME + Integer.toString(0));
+
+        Path sourceIndex = daoConfig.basePath()
+                .resolve(INDEX_NAME + ZERO_TMP);
+        Path targetIndex = daoConfig.basePath()
+                .resolve(INDEX_NAME + Integer.toString(0));
+
+        renameFile(sourceTable, targetTable);
+        renameFile(sourceIndex, targetIndex);
+    }
+
+    private void loadTmpTable(MemorySegment tempTable) {
+        long offset = 0;
+        while (offset < tempTable.byteSize()) {
+            long sizeOfKey = tempTable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+            MemorySegment currKey = tempTable.asSlice(offset + Long.BYTES, sizeOfKey);
+
+            long valueOffset = offset + Long.BYTES + sizeOfKey;
+            long valueSize = tempTable.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
+
+            MemorySegment currValue = tempTable.asSlice(valueOffset + Long.BYTES, valueSize);
+            var entry = new BaseEntry<MemorySegment>(currKey, currValue);
+            mapCurrent.put(currKey, entry);
+
+            offset = valueOffset + Long.BYTES + valueSize;
+        }
     }
 
     private void loadActualData() {
@@ -46,15 +151,25 @@ public class PermanentCompactableDao extends PermanentDao {
         }
     }
 
-    private void deleteAllOldFiles() throws IOException {
-        arenaTableFiles.close();
-        for (int ssTableNum = maxSSTable; ssTableNum >= 0; --ssTableNum) {
-            Files.deleteIfExists(daoConfig.basePath()
-                    .resolve(SSTABLE_NAME + Integer.toString(ssTableNum)));
-            Files.deleteIfExists(daoConfig.basePath()
-                    .resolve(INDEX_NAME + Integer.toString(ssTableNum)));
+    private void deleteOldFiles(boolean KnownSize, int size) throws IOException {
+        if (KnownSize) {
+            arenaTableFiles.close();
+            for (int ssTableNum = size; ssTableNum >= 0; --ssTableNum) {
+                Files.deleteIfExists(daoConfig.basePath()
+                        .resolve(SSTABLE_NAME + Integer.toString(ssTableNum)));
+                Files.deleteIfExists(daoConfig.basePath()
+                        .resolve(INDEX_NAME + Integer.toString(ssTableNum)));
+            }
+            maxSSTable = 0;
         }
-        maxSSTable = 0;
+        else {
+            for (int ssTableNum = size; ssTableNum >= 0; --ssTableNum) {
+                Files.deleteIfExists(daoConfig.basePath()
+                        .resolve(SSTABLE_NAME + Integer.toString(ssTableNum)));
+                Files.deleteIfExists(daoConfig.basePath()
+                        .resolve(INDEX_NAME + Integer.toString(ssTableNum)));
+            }
+        }
     }
 
     private long[] countOutFilesSize() {
@@ -143,9 +258,17 @@ public class PermanentCompactableDao extends PermanentDao {
 
         loadActualData();
 
+        var statFilePath = daoConfig.basePath()
+                .resolve(COMPACT_STAT);
+        try (var dos = new DataOutputStream(new FileOutputStream(statFilePath.toString()))) {
+            dos.writeInt(maxSSTable);
+        }
+
         writeTmpTable();
 
-        deleteAllOldFiles();
+        Files.deleteIfExists(statFilePath);
+
+        deleteOldFiles(true, maxSSTable);
 
         if (!mapCurrent.isEmpty()) {
             Path sourceTable = daoConfig.basePath()

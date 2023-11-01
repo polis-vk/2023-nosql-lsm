@@ -28,12 +28,12 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>>(memorySegmentComparator);
 
     protected final ConcurrentMap<Integer, MemorySegment> ssTableMap = new ConcurrentHashMap<>();
-    protected final Arena arenaTableFiles = Arena.ofShared();
+    protected Arena arenaTableFiles;
     protected final ConcurrentMap<Integer, MemorySegment> indexMap = new ConcurrentHashMap<>();
     protected int maxSSTable = -1;
     protected static final String SSTABLE_NAME = "SS_TABLE_PELOGEIKO-";
     protected static final String INDEX_NAME = "INDEX_PELOGEIKO-";
-    protected final Config daoConfig;
+    protected Config daoConfig;
 
     public PermanentDao(Config config) {
         if (config == null) {
@@ -42,19 +42,34 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         daoConfig = config;
+
+        loadTables();
+    }
+    public PermanentDao() {
+        daoConfig = null;
+    }
+
+    protected void loadTables() {
+        if (arenaTableFiles == null) {
+            arenaTableFiles = Arena.ofShared();
+        }
+        else {
+            arenaTableFiles.close();
+            arenaTableFiles = Arena.ofShared();
+        }
         MemorySegment ssTableCurr;
         MemorySegment indexCurr;
 
         long filesQuantity;
-        try (Stream<Path> files = Files.list(config.basePath())) {
+        try (Stream<Path> files = Files.list(daoConfig.basePath())) {
             filesQuantity = files.count();
         } catch (IOException e) {
             filesQuantity = 0;
         }
 
         for (int ssTableNumber = 0; ssTableNumber < filesQuantity; ++ssTableNumber) {
-            Path ssTablePath = config.basePath().resolve(SSTABLE_NAME + Integer.toString(ssTableNumber));
-            Path indexPath = config.basePath().resolve(INDEX_NAME + Integer.toString(ssTableNumber));
+            Path ssTablePath = daoConfig.basePath().resolve(SSTABLE_NAME + Integer.toString(ssTableNumber));
+            Path indexPath = daoConfig.basePath().resolve(INDEX_NAME + Integer.toString(ssTableNumber));
 
             try {
                 try (FileChannel tableFile = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
@@ -76,7 +91,6 @@ public class PermanentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 break;
             }
         }
-
     }
 
     @Override
