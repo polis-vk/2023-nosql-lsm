@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -220,25 +221,45 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         if (existsPath() && !memoryTable.isEmpty()) {
-            String nameSavedTable = saveMemoryTable(config.basePath());
+            String nameSavedTable = saveEntries(memoryTable.values());
             memoryTable.clear();
             ssTables.add(new SSTable(config.basePath(), nameSavedTable, arena));
         }
     }
 
-    private String saveMemoryTable(Path path) throws IOException {
+    @Override
+    public void compact() throws IOException {
+        if (existsPath()) {
+            List<Entry<MemorySegment>> entries = new ArrayList<>();
+            all().forEachRemaining(entries::add);
+            String ssTableName = saveEntries(entries);
+
+            deleteSSTables();
+            memoryTable.clear();
+            ssTables.add(new SSTable(config.basePath(), ssTableName, arena));
+        }
+    }
+
+    private String saveEntries(Collection<Entry<MemorySegment>> entries) throws IOException {
         FileUtils.createParentDirectories(config.basePath());
 
         long maxTableNumber = 0;
         for (SSTable ssTable : ssTables) {
             maxTableNumber = Math.max(maxTableNumber, Long.parseLong(ssTable.getName()));
         }
-        SSTable.save(path, Long.toString(maxTableNumber + 1), memoryTable.values(), arena);
+        SSTable.save(config.basePath(), Long.toString(maxTableNumber + 1), entries, arena);
 
         return Long.toString(maxTableNumber + 1);
     }
 
     private boolean existsPath() {
         return config != null && config.basePath() != null;
+    }
+
+    private void deleteSSTables() throws IOException {
+        for (SSTable ssTable : ssTables) {
+            ssTable.delete();
+        }
+        ssTables.clear();
     }
 }

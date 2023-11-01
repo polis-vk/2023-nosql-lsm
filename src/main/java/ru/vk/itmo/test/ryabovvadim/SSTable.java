@@ -14,6 +14,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -25,16 +26,18 @@ import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 public class SSTable {
+    private final Path parentPath;
     private final String name;
     private final MemorySegment data;
     private final int countRecords;
     private final List<Long> offsets;
 
-    public SSTable(Path prefix, String name, Arena arena) throws IOException {
+    public SSTable(Path parentPath, String name, Arena arena) throws IOException {
+        this.parentPath = parentPath;
         this.name = name;
 
-        Path dataFile = FileUtils.makePath(prefix, name, FileUtils.DATA_FILE_EXT);
-        Path offsetsFile = FileUtils.makePath(prefix, name, FileUtils.OFFSETS_FILE_EXT);
+        Path dataFile = FileUtils.makePath(parentPath, name, FileUtils.DATA_FILE_EXT);
+        Path offsetsFile = FileUtils.makePath(parentPath, name, FileUtils.OFFSETS_FILE_EXT);
 
         try (FileChannel dataFileChannel = FileChannel.open(dataFile, READ)) {
             try (FileChannel offsetsFileChannel = FileChannel.open(offsetsFile, READ)) {
@@ -237,6 +240,11 @@ public class SSTable {
             meta |= SSTableMeta.REMOVE_VALUE;
         }
         return meta;
+    }
+
+    public void delete() throws IOException {
+        Files.deleteIfExists(FileUtils.makePath(parentPath, name, FileUtils.DATA_FILE_EXT));
+        Files.deleteIfExists(FileUtils.makePath(parentPath, name, FileUtils.OFFSETS_FILE_EXT));
     }
 
     private static class SSTableMeta {
