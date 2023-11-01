@@ -20,7 +20,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     private final Comparator<MemorySegment> comparator = MemorySegmentDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
-    private final DiskStorage diskStorage;
+    private final Compaction diskStorage;
     private final Path path;
 
     public MemorySegmentDao(Config config) throws IOException {
@@ -29,7 +29,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        this.diskStorage = new Compaction(DiskStorage.loadOrRecover(path, arena));
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {

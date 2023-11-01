@@ -22,30 +22,8 @@ import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 
 public class DiskStorage {
-    private final List<MemorySegment> segmentList;
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
-
-    public DiskStorage(List<MemorySegment> segmentList) {
-        this.segmentList = segmentList;
-    }
-
-    public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
-            MemorySegment from, MemorySegment to
-    ) {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
-        for (MemorySegment memorySegment : segmentList) {
-            iterators.add(iterator(memorySegment, from, to));
-        }
-        iterators.add(firstIterator);
-
-        return new MergeIterator<>(
-                iterators,
-                Comparator.comparing(Entry::key, MemorySegmentDao::compare),
-                entry -> entry.value() == null
-        );
-    }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
@@ -134,81 +112,6 @@ public class DiskStorage {
         Files.delete(indexTmp);
     }
 
-    public void compact(
-            Path storagePath,
-            NavigableMap<MemorySegment, Entry<MemorySegment>> iterable
-    ) throws IOException {
-        if (segmentList.isEmpty() || (segmentList.size() == 1 && iterable.isEmpty())) {
-            return;
-        }
-
-        final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
-        final Path newTmpCompactedFileName = storagePath.resolve("-1");
-        final Path newCompactedFileName = storagePath.resolve("0");
-
-        long startValuesOffset = 0;
-        long maxOffset = 0;
-        for (Iterator<Entry<MemorySegment>> it = range(iterable.values().iterator(), null, null); it.hasNext(); ) {
-            Entry<MemorySegment> entry = it.next();
-            startValuesOffset++;
-            maxOffset += entry.key().byteSize() + entry.value().byteSize();
-        }
-        startValuesOffset *= 2 * Long.BYTES;
-        maxOffset += startValuesOffset;
-
-        try (
-                FileChannel fileChannel = FileChannel.open(
-                        newTmpCompactedFileName,
-                        StandardOpenOption.WRITE, StandardOpenOption.READ,
-                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
-                );
-                Arena writeArena = Arena.ofConfined()
-        ) {
-            final MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE, 0, maxOffset, writeArena
-            );
-
-            long dataOffset = startValuesOffset;
-            int indexOffset = 0;
-            for (Iterator<Entry<MemorySegment>> it = range(iterable.values().iterator(), null, null); it.hasNext(); ) {
-                Entry<MemorySegment> entry = it.next();
-
-                MemorySegment key = entry.key();
-                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
-                dataOffset += key.byteSize();
-                indexOffset += Long.BYTES;
-
-                MemorySegment value = entry.value();
-                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
-                dataOffset += value.byteSize();
-                indexOffset += Long.BYTES;
-            }
-        }
-
-        // Delete old data
-        deleteFilesAndInMemory(Files.readAllLines(indexFile, StandardCharsets.UTF_8), storagePath);
-        iterable.clear();
-
-        Files.move(
-                newTmpCompactedFileName, newCompactedFileName,
-                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING
-        );
-        Files.write(
-                indexFile,
-                List.of("0"),
-                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
-        );
-    }
-
-    private void deleteFilesAndInMemory(List<String> existedFiles, Path storagePath) throws IOException {
-        for (String fileName : existedFiles) {
-            Files.delete(storagePath.resolve(fileName));
-        }
-        segmentList.clear();
-    }
-
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         Path indexTmp = storagePath.resolve(NAME_TMP_INDEX_FILE);
         Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
@@ -241,7 +144,7 @@ public class DiskStorage {
         return result;
     }
 
-    private static long indexOf(MemorySegment segment, MemorySegment key) {
+    public static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);
 
         long left = 0;
@@ -278,7 +181,7 @@ public class DiskStorage {
         return tombstone(left);
     }
 
-    private static long recordsCount(MemorySegment segment) {
+    static long recordsCount(MemorySegment segment) {
         long indexSize = indexSize(segment);
         return indexSize / Long.BYTES / 2;
     }
@@ -287,45 +190,17 @@ public class DiskStorage {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
-    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
-        long recordsCount = recordsCount(page);
 
-        return new Iterator<>() {
-            long index = recordIndexFrom;
 
-            @Override
-            public boolean hasNext() {
-                return index < recordIndexTo;
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                if (!hasNext()) {
-                    throw new NoSuchElementException();
-                }
-                MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
-                long startOfValue = startOfValue(page, index);
-                MemorySegment value =
-                        startOfValue < 0
-                                ? null
-                                : slice(page, startOfValue, endOfValue(page, index, recordsCount));
-                index++;
-                return new BaseEntry<>(key, value);
-            }
-        };
-    }
-
-    private static MemorySegment slice(MemorySegment page, long start, long end) {
+    static MemorySegment slice(MemorySegment page, long start, long end) {
         return page.asSlice(start, end - start);
     }
 
-    private static long startOfKey(MemorySegment segment, long recordIndex) {
+    static long startOfKey(MemorySegment segment, long recordIndex) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
     }
 
-    private static long endOfKey(MemorySegment segment, long recordIndex) {
+    static long endOfKey(MemorySegment segment, long recordIndex) {
         return normalizedStartOfValue(segment, recordIndex);
     }
 
@@ -333,11 +208,11 @@ public class DiskStorage {
         return normalize(startOfValue(segment, recordIndex));
     }
 
-    private static long startOfValue(MemorySegment segment, long recordIndex) {
+    static long startOfValue(MemorySegment segment, long recordIndex) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
     }
 
-    private static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
+    static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
         if (recordIndex < recordsCount - 1) {
             return startOfKey(segment, recordIndex + 1);
         }
@@ -348,8 +223,7 @@ public class DiskStorage {
         return 1L << 63 | offset;
     }
 
-    private static long normalize(long value) {
+    static long normalize(long value) {
         return value & ~(1L << 63);
     }
-
 }
