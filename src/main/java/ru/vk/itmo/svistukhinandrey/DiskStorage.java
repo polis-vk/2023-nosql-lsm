@@ -263,17 +263,24 @@ public class DiskStorage {
                     try {
                         Files.delete(file);
                     } catch (IOException ignore) {
-                        // Мы должны удалить все файлы, но как можно уменьшить шанс того, что удалить не получилось?
-                        // Пришло только две идеи, либо записывать список файлов, которые не получилось удалить, и при
-                        // запуске нового compaction подчищать их, либо делать ретрай на удаление (что кажется, совсем
-                        // бесполезно). Начал копать в эту сторону, увидел, что в кассандре мы tombstones храним на такой
-                        // случай в файле который сделали через compaction. Т.е., если у нас какие-то файлы не удалятся, через
-                        // tombstone в новом файле мы сможем уберечься от старых фантомных записей. Но по ТЗ мы не должны хранить
-                        // tombstones в SSTable.
+                        // ignore
                     }
                 }
             });
         }
+    }
+
+    public static void moveCompactTempFilesToData(Path compactTempPath, Path dataPath) throws IOException {
+        try (var path = Files.list(compactTempPath)) {
+            path.forEach(x -> {
+                try {
+                    Files.move(x, dataPath.resolve(x.getFileName()), StandardCopyOption.ATOMIC_MOVE);
+                } catch (IOException ignore) {
+                    // ignore
+                }
+            });
+        }
+        Files.delete(compactTempPath);
     }
 
     private static MemorySegment slice(MemorySegment page, long start, long end) {

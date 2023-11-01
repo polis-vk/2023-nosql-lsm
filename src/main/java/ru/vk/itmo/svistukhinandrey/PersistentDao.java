@@ -108,9 +108,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             DiskStorage.save(compactTempPath, compactValues);
             DiskStorage.deleteObsoleteData(dataPath);
+            DiskStorage.moveCompactTempFilesToData(compactTempPath, dataPath);
 
-            Files.move(compactTempPath, dataPath, StandardCopyOption.ATOMIC_MOVE);
-            Files.delete(compactTempPath);
             storage.clear();
         }
     }
