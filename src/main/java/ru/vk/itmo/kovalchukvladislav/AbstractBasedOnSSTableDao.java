@@ -42,14 +42,16 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     //  Storages
     //  ===================================
 
-    private int storagesCount = 0;
-    private volatile boolean closed = false;
+    private int storagesCount;
+    private volatile boolean closed;
     private final List<MemorySegment> dbMappedSegments;
     private final List<MemorySegment> offsetMappedSegments;
     private final Logger logger = Logger.getLogger(getClass().getSimpleName());
 
     protected AbstractBasedOnSSTableDao(Config config, EntryExtractor<D, E> extractor) throws IOException {
         super(extractor);
+        this.closed = false;
+        this.storagesCount = 0;
         this.extractor = extractor;
         this.basePath = Objects.requireNonNull(config.basePath());
 
@@ -251,7 +253,7 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
         deleteFilesExceptWithTimeStamp(String.valueOf(createdFileTimestamp));
     }
 
-    private void deleteFilesExceptWithTimeStamp(String excludedTimeStamp) {
+    private void deleteFilesExceptWithTimeStamp(String excludedTimeStamp) throws IOException {
         File dir = new File(basePath.toString());
 
         File[] files = dir.listFiles(it -> shouldDelete(it.getName(), excludedTimeStamp));
@@ -261,8 +263,8 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
         }
         Arrays.sort(files);
         for (File file : files) {
-            boolean deleted = file.delete();
-            logger.info(() -> String.format("Delete %s file: %s", file.getName(), deleted));
+            Files.delete(file.toPath());
+            logger.info(() -> String.format("Delete %s file", file.getName()));
         }
     }
 
