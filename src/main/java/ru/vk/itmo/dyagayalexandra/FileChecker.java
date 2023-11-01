@@ -4,12 +4,15 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class FileChecker {
 
@@ -25,13 +28,15 @@ public class FileChecker {
         this.compactManager = compactManager;
     }
 
-    public Map<MemorySegment, MemorySegment> checkFiles(Path basePath, Map<Path, Path> allDataPaths,
-                                                        List<Path> files, Arena arena) throws IOException {
+    public Map<MemorySegment, MemorySegment> checkFiles(Path basePath, Arena arena) throws IOException {
         Map<MemorySegment, MemorySegment> allFiles = new LinkedHashMap<>();
         List<Path> ssTablesPaths = new ArrayList<>();
         List<Path> ssIndexesPaths = new ArrayList<>();
 
+        List<Path> files = getAllFiles(basePath);
         checkFile(basePath, files);
+
+        Map<Path, Path> allDataPaths = getAllDataPaths(basePath);
 
         for (Map.Entry<Path, Path> entry : allDataPaths.entrySet()) {
             ssTablesPaths.add(entry.getKey());
@@ -66,6 +71,33 @@ public class FileChecker {
         return allFiles;
     }
 
+    public Map<Path, Path> getAllDataPaths(Path basePath) throws IOException {
+        List<Path> files = getAllFiles(basePath);
+
+        List<Path> ssTablesPaths = new ArrayList<>();
+        List<Path> ssIndexesPaths = new ArrayList<>();
+        Map<Path, Path> filePathsMap = new ConcurrentHashMap<>();
+        for (Path file : files) {
+            if (String.valueOf(file.getFileName()).startsWith(fileName)) {
+                ssTablesPaths.add(file);
+            }
+
+            if (String.valueOf(file.getFileName()).startsWith(fileIndexName)) {
+                ssIndexesPaths.add(file);
+            }
+        }
+
+        ssTablesPaths.sort(new PathsComparator(fileName, fileExtension));
+        ssIndexesPaths.sort(new PathsComparator(fileIndexName, fileExtension));
+
+        int size = ssTablesPaths.size();
+        for (int i = 0; i < size; i++) {
+            filePathsMap.put(ssTablesPaths.get(i), ssIndexesPaths.get(i));
+        }
+
+        return filePathsMap;
+    }
+
     private void checkFile(Path basePath, List<Path> files) throws IOException {
         for (Path file : files) {
             if (compactManager.deleteTempFile(basePath, file, files)) {
@@ -91,5 +123,20 @@ public class FileChecker {
         ) {
             throw new NoSuchFileException("The files don't match.");
         }
+    }
+
+    private List<Path> getAllFiles(Path basePath) throws IOException {
+        List<Path> files = new ArrayList<>();
+        if (!Files.exists(basePath)) {
+            Files.createDirectory(basePath);
+        }
+
+        try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(basePath)) {
+            for (Path path : directoryStream) {
+                files.add(path);
+            }
+        }
+
+        return files;
     }
 }

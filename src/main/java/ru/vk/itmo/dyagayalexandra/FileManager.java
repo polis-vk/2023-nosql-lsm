@@ -11,7 +11,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -35,7 +34,6 @@ public class FileManager {
     private final List<Path> ssIndexesPaths;
     private final Map<MemorySegment, Long> ssTableIndexStorage;
     private final CompactManager compactManager;
-    private final FileChecker fileChecker;
     private final List<FileIterator> fileIterators = new ArrayList<>();
     private final Arena arena;
 
@@ -47,13 +45,11 @@ public class FileManager {
         ssIndexesPaths = new ArrayList<>();
         ssTableIndexStorage = new ConcurrentHashMap<>();
         compactManager = new CompactManager(FILE_NAME, FILE_INDEX_NAME, FILE_EXTENSION);
-        fileChecker = new FileChecker(FILE_NAME, FILE_INDEX_NAME, FILE_EXTENSION, compactManager);
+        FileChecker fileChecker = new FileChecker(FILE_NAME, FILE_INDEX_NAME, FILE_EXTENSION, compactManager);
         arena = Arena.ofShared();
         try {
-            Map<Path, Path> allDataPaths = getAllDataPaths(basePath);
-            Map<MemorySegment, MemorySegment> allDataSegments = fileChecker.checkFiles(basePath, allDataPaths,
-                    getAllFiles(basePath), arena);
-            getData(allDataSegments, allDataPaths);
+            Map<MemorySegment, MemorySegment> allDataSegments = fileChecker.checkFiles(basePath, arena);
+            getData(allDataSegments, fileChecker.getAllDataPaths(basePath));
         } catch (IOException e) {
             throw new UncheckedIOException("Error checking files.", e);
         }
@@ -82,48 +78,6 @@ public class FileManager {
                 offset = writeIndexes(writer.getIndexChannel(), offset, entry);
             }
         }
-    }
-
-    private List<Path> getAllFiles(Path basePath) throws IOException {
-        List<Path> files = new ArrayList<>();
-        if (!Files.exists(basePath)) {
-            Files.createDirectory(basePath);
-        }
-
-        try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(basePath)) {
-            for (Path path : directoryStream) {
-                files.add(path);
-            }
-        }
-
-        return files;
-    }
-
-    private Map<Path, Path> getAllDataPaths(Path basePath) throws IOException {
-        List<Path> files = getAllFiles(basePath);
-
-        List<Path> ssTablesPaths = new ArrayList<>();
-        List<Path> ssIndexesPaths = new ArrayList<>();
-        Map<Path, Path> filePathsMap = new ConcurrentHashMap<>();
-        for (Path file : files) {
-            if (String.valueOf(file.getFileName()).startsWith(FILE_NAME)) {
-                ssTablesPaths.add(file);
-            }
-
-            if (String.valueOf(file.getFileName()).startsWith(FILE_INDEX_NAME)) {
-                ssIndexesPaths.add(file);
-            }
-        }
-
-        ssTablesPaths.sort(new PathsComparator(FILE_NAME, FILE_EXTENSION));
-        ssIndexesPaths.sort(new PathsComparator(FILE_INDEX_NAME, FILE_EXTENSION));
-
-        int size = ssTablesPaths.size();
-        for (int i = 0; i < size; i++) {
-            filePathsMap.put(ssTablesPaths.get(i), ssIndexesPaths.get(i));
-        }
-
-        return filePathsMap;
     }
 
     public void performCompact(Iterator<Entry<MemorySegment>> iterator, boolean hasDataStorage) throws IOException {
@@ -191,8 +145,8 @@ public class FileManager {
         }
     }
 
-    public static void writeEntry(FileChannel fileChannel,
-                                  Map.Entry<MemorySegment, Entry<MemorySegment>> entry) throws IOException {
+    static void writeEntry(FileChannel fileChannel,
+                          Map.Entry<MemorySegment, Entry<MemorySegment>> entry) throws IOException {
         Entry<MemorySegment> entryValue = entry.getValue();
         int keyLength = (int) entryValue.key().byteSize();
         int valueLength;
@@ -283,30 +237,23 @@ public class FileManager {
 
     public static Entry<MemorySegment> getCurrentEntry(long position, MemorySegment originalSsTable,
                                                 MemorySegment originalSsIndex) throws IOException {
-        MemorySegment ssIndex = originalSsIndex.asSlice((position + 1) * Long.BYTES, Long.BYTES);
-        ByteBuffer bufferLong = ByteBuffer.allocate(Long.BYTES);
-        bufferLong.put(ssIndex.asByteBuffer());
-        bufferLong.flip();
-        long offset = bufferLong.getLong();
+        long offset = originalSsIndex.asSlice((position + 1) * Long.BYTES, Long.BYTES).asByteBuffer().getLong();
 
-        MemorySegment ssTable = originalSsTable.asSlice(offset);
-        ByteBuffer bufferInt = ByteBuffer.allocate(Integer.BYTES);
-        bufferInt.put(ssTable.asSlice(0, Integer.BYTES).asByteBuffer());
-        bufferInt.flip();
-        int keyLength = bufferInt.getInt();
-        bufferInt.clear();
-        ByteBuffer key = ByteBuffer.allocate(keyLength);
-        key.put(ssTable.asSlice(Integer.BYTES, keyLength).asByteBuffer());
+        ByteBuffer ssTable = originalSsTable.asSlice(offset).asByteBuffer();
+        int keyLength = ssTable.getInt();
 
-        bufferInt.put(ssTable.asSlice(Integer.BYTES + keyLength, Integer.BYTES).asByteBuffer());
-        bufferInt.flip();
-        int valueLength = bufferInt.getInt();
+        byte[] keyBytes = new byte[keyLength];
+        ssTable.get(keyBytes);
+
+        int valueLength = ssTable.getInt();
         if (valueLength == -1) {
-            return new BaseEntry<>(MemorySegment.ofArray(key.array()), null);
+            return new BaseEntry<>(MemorySegment.ofArray(keyBytes), null);
         }
-        ByteBuffer value = ByteBuffer.allocate(valueLength);
-        value.put(ssTable.asSlice(Integer.BYTES + keyLength + Integer.BYTES, valueLength).asByteBuffer());
-        return new BaseEntry<>(MemorySegment.ofArray(key.array()), MemorySegment.ofArray(value.array()));
+
+        byte[] valueBytes = new byte[valueLength];
+        ssTable.get(valueBytes);
+
+        return new BaseEntry<>(MemorySegment.ofArray(keyBytes), MemorySegment.ofArray(valueBytes));
     }
 
     public void closeArena() {
