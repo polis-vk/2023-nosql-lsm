@@ -212,7 +212,7 @@ public class DiskStorage {
     }
 
     private static long recordsCount(MemorySegment segment) {
-        return  indexSize(segment) / Long.BYTES / 2;
+        return indexSize(segment) / Long.BYTES / 2;
     }
 
     private static long indexSize(MemorySegment segment) {
