@@ -18,15 +18,22 @@ public class Storage {
 
     private static final AtomicInteger SSTABLE_ID = new AtomicInteger();
     private static final MemorySegmentComparator comparator = new MemorySegmentComparator();
-
     private static final String INDEX_FILE_NAME = "index.db";
-
     private static final Set<StandardOpenOption> WRITE_OPTIONS = Set.of(
             StandardOpenOption.CREATE,
             StandardOpenOption.WRITE,
             StandardOpenOption.READ
     );
     private final List<MemorySegment> segments;
+    private static class Offset {
+        long data;
+        long index;
+
+        Offset(long data, long index) {
+            this.data = data;
+            this.index = index;
+        }
+    }
 
     public Storage(List<MemorySegment> segments) {
         this.segments = segments;
@@ -63,7 +70,7 @@ public class Storage {
 
         String fileName = String.valueOf(SSTABLE_ID.incrementAndGet());
 
-        writeDataWithIterator(dataPath.resolve(fileName), values);
+        compactData(dataPath.resolve(fileName), values);
         for (String name : existedFiles) {
             Files.deleteIfExists(dataPath.resolve(name));
         }
@@ -76,7 +83,7 @@ public class Storage {
         return true;
     }
 
-    private void writeDataWithIterator(Path ssTablePath, Collection<Entry<MemorySegment>> values) throws IOException {
+    private void compactData(Path ssTablePath, Collection<Entry<MemorySegment>> values) throws IOException {
         long dataSize = 0;
         long entriesCount = 0;
         Iterator<Entry<MemorySegment>> mergeIterator = range(values.iterator(), null, null);
@@ -96,26 +103,11 @@ public class Storage {
                     dataSize + indexSize,
                     arena);
 
-            long indexOffset = 0;
-            long dataOffset = indexSize;
             mergeIterator = range(values.iterator(), null, null);
+            Offset offset = new Offset(indexSize, 0);
             while (mergeIterator.hasNext()) {
                 Entry<MemorySegment> entry = mergeIterator.next();
-                MemorySegment key = entry.key();
-                segment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                MemorySegment.copy(key, 0, segment, dataOffset, key.byteSize());
-                dataOffset += key.byteSize();
-                indexOffset += Long.BYTES;
-
-                MemorySegment value = entry.value();
-                if (value == null) {
-                    segment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
-                } else {
-                    segment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                    MemorySegment.copy(value, 0, segment, dataOffset, value.byteSize());
-                    dataOffset += value.byteSize();
-                }
-                indexOffset += Long.BYTES;
+                writeEntry(entry, segment, offset);
             }
         }
     }
@@ -138,26 +130,29 @@ public class Storage {
                     dataSize + indexSize,
                     arena);
 
-            long indexOffset = 0;
-            long dataOffset = indexSize;
+            Offset offset = new Offset(indexSize, 0);
             for (Entry<MemorySegment> entry : values) {
-                MemorySegment key = entry.key();
-                segment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                MemorySegment.copy(key, 0, segment, dataOffset, key.byteSize());
-                dataOffset += key.byteSize();
-                indexOffset += Long.BYTES;
-
-                MemorySegment value = entry.value();
-                if (value == null) {
-                    segment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
-                } else {
-                    segment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                    MemorySegment.copy(value, 0, segment, dataOffset, value.byteSize());
-                    dataOffset += value.byteSize();
-                }
-                indexOffset += Long.BYTES;
+                writeEntry(entry, segment, offset);
             }
         }
+    }
+
+    private static void writeEntry(Entry<MemorySegment> entry, MemorySegment segment, Offset offset) {
+        MemorySegment key = entry.key();
+        segment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset.index, offset.data);
+        MemorySegment.copy(key, 0, segment, offset.data, key.byteSize());
+        offset.data += key.byteSize();
+        offset.index += Long.BYTES;
+
+        MemorySegment value = entry.value();
+        if (value == null) {
+            segment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset.index, tombstone(offset.data));
+        } else {
+            segment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset.index, offset.data);
+            MemorySegment.copy(value, 0, segment, offset.data, value.byteSize());
+            offset.data += value.byteSize();
+        }
+        offset.index += Long.BYTES;
     }
 
     public static List<MemorySegment> loadData(Path dataPath, Arena arena) throws IOException {

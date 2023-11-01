@@ -4,12 +4,11 @@ import java.util.*;
 
 public class MergeIterator<T> implements Iterator<T> {
 
-    private PriorityQueue<PeekIterator<T>> priorityQueue;
+    private final PriorityQueue<PeekIterator<T>> priorityQueue;
 
     private final Comparator<T> comparator;
 
     private PeekIterator<T> peek;
-
     private static class PeekIterator<T> implements Iterator<T> {
 
         private final Iterator<T> iterator;
@@ -57,6 +56,12 @@ public class MergeIterator<T> implements Iterator<T> {
         }
     }
 
+
+    protected boolean skip(T t) {
+        return false;
+    }
+
+
     private PeekIterator<T> peek() {
         while (peek == null) {
             peek = priorityQueue.poll();
@@ -101,9 +106,6 @@ public class MergeIterator<T> implements Iterator<T> {
         return peek;
     }
 
-    protected boolean skip(T t) {
-        return false;
-    }
 
     @Override
     public boolean hasNext() {
