@@ -23,6 +23,9 @@ public class PersistentStorage {
             Comparator.comparingInt(ss -> -ss.id)
     );
 
+    private static final class CompactionError extends RuntimeException {
+    }
+
     PersistentStorage(Path basePath) {
         this.basePath = basePath;
         try (var sstablesFiles = Files.list(basePath)) {
@@ -36,7 +39,7 @@ public class PersistentStorage {
     }
 
     public void close() {
-        for (var sstable: sstables) {
+        for (var sstable : sstables) {
             sstable.close();
         }
     }
@@ -62,7 +65,7 @@ public class PersistentStorage {
 
     public List<Iterator<Entry<MemorySegment>>> get(MemorySegment from, MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
-        for (var sstable: sstables) {
+        for (var sstable : sstables) {
             if (sstable.closed) continue;
             iterators.add(sstable.scan(from, to));
         }
@@ -92,7 +95,7 @@ public class PersistentStorage {
             Files.delete(sstable.indexPath);
             Files.delete(sstable.tablePath);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new CompactionError();
         }
         sstables.remove(sstable);
     }

@@ -31,8 +31,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         if (keysCompared == 0) return Integer.compare(o1.priority, o2.priority);
         return keysCompared;
     });
-
-
+    
     private static class PeekIteratorWrapper implements Iterator<Entry<MemorySegment>> {
         private Entry<MemorySegment> prefetched;
         private final Iterator<Entry<MemorySegment>> iterator;

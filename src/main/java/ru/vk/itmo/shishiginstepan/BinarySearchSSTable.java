@@ -21,7 +21,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     private final MemorySegment tableSegment;
     private final MemorySegment indexSegment;
     public int id;
-    public boolean closed = false;
+    public boolean closed;
     public final Path tablePath;
     public final Path indexPath;
     private final Arena arena;
@@ -45,6 +45,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     }
 
     BinarySearchSSTable(Path path, Arena arena) {
+        this.closed = false;
         this.arena = arena;
         this.id = Integer.parseInt(path.getFileName().toString().substring(8));
         tablePath = path;
@@ -121,7 +122,6 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
             MemorySegment tableSegment,
             MemorySegment indexSegment
     ) {
-
         long tableOffset = 0;
         long indexOffset = 0;
         for (var entry : entries) {
@@ -216,7 +216,6 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
         return value & ~(1L << 63);
     }
 
-
     private long getKeyOffset(long recordIndex) {
         return indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * Long.BYTES * 2);
     }
@@ -233,7 +232,6 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
             return indexSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, (recordIndex + 1) * Long.BYTES * 2);
         }
     }
-
 
     private Iterator<Entry<MemorySegment>> iterator(long startEntryIndex, long endEntryIndex) {
         return new Iterator<>() {
@@ -252,7 +250,12 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
                 this.currentEntryIndex++;
                 return new BaseEntry<>(
                         tableSegment.asSlice(keyOffset, normalize(valOffset) - keyOffset),
-                        valOffset < 0 ? null : tableSegment.asSlice(normalize(valOffset), nextOffset - normalize(valOffset))
+                        valOffset < 0 ?
+                                null :
+                                tableSegment.asSlice(
+                                        normalize(valOffset),
+                                        nextOffset - normalize(valOffset)
+                                )
                 );
             }
         };
@@ -262,6 +265,5 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
         if (closed) throw new ClosedSSTableAccess();
         arena.close();
         closed = true;
-
     }
 }
