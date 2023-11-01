@@ -3,10 +3,11 @@ package ru.vk.itmo.test.kachmareugene;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class Utils {
+public final class Utils {
     private Utils() {
 
     }
+
     public static long dumpLong(MemorySegment mapped, long value, long offset) {
         mapped.set(ValueLayout.JAVA_LONG, offset, value);
         return offset + Long.BYTES;
