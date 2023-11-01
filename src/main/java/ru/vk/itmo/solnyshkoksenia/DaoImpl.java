@@ -23,6 +23,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private Path path;
 
     public DaoImpl() {
+        // Empty constructor
     }
 
     public DaoImpl(Config config) throws IOException {
