@@ -5,11 +5,13 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
+import java.util.function.Function;
 
 public class MergeIterator<T> implements Iterator<T> {
 
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
+    private final Function<T, Boolean> isSkipT;
     private PeekIterator<T> peek;
 
     private static class PeekIterator<T> implements Iterator<T> {
@@ -52,8 +54,9 @@ public class MergeIterator<T> implements Iterator<T> {
         }
     }
 
-    public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
+    public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator, Function<T, Boolean> isSkipT) {
         this.comparator = comparator;
+        this.isSkipT = isSkipT;
         Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
         priorityQueue = new PriorityQueue<>(
                 iterators.size(),
@@ -114,7 +117,7 @@ public class MergeIterator<T> implements Iterator<T> {
     }
 
     private PeekIterator<T> skipRemovedEntry(PeekIterator<T> peek) {
-        if (skip(peek.peek())) {
+        if (isSkipT.apply(peek.peek())) {
             peek.next();
             if (peek.hasNext()) {
                 priorityQueue.add(peek);
@@ -122,10 +125,6 @@ public class MergeIterator<T> implements Iterator<T> {
             return null;
         }
         return peek;
-    }
-
-    protected boolean skip(T t) {
-        return false;
     }
 
     @Override

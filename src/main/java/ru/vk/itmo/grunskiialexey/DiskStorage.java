@@ -20,6 +20,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.NoSuchElementException;
+import java.util.function.Function;
 
 public class DiskStorage {
     private final List<MemorySegment> segmentList;
@@ -40,12 +41,11 @@ public class DiskStorage {
         }
         iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, MemorySegmentDao::compare)) {
-            @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
-                return memorySegmentEntry.value() == null;
-            }
-        };
+        return new MergeIterator<>(
+                iterators,
+                Comparator.comparing(Entry::key, MemorySegmentDao::compare),
+                entry -> entry.value() == null
+        );
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
