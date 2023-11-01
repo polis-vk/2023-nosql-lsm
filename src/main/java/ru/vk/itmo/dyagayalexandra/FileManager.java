@@ -13,12 +13,10 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -37,6 +35,7 @@ public class FileManager {
     private final List<Path> ssIndexesPaths;
     private final Map<MemorySegment, Long> ssTableIndexStorage;
     private final CompactManager compactManager;
+    private final FileChecker fileChecker;
     private final List<FileIterator> fileIterators = new ArrayList<>();
     private final Arena arena;
 
@@ -48,10 +47,11 @@ public class FileManager {
         ssIndexesPaths = new ArrayList<>();
         ssTableIndexStorage = new ConcurrentHashMap<>();
         compactManager = new CompactManager(FILE_NAME, FILE_INDEX_NAME, FILE_EXTENSION);
+        fileChecker = new FileChecker(FILE_NAME, FILE_INDEX_NAME, FILE_EXTENSION, compactManager);
         arena = Arena.ofShared();
         try {
             Map<Path, Path> allDataPaths = getAllDataPaths(basePath);
-            Map<MemorySegment, MemorySegment> allDataSegments = checkFiles(basePath, allDataPaths,
+            Map<MemorySegment, MemorySegment> allDataSegments = fileChecker.checkFiles(basePath, allDataPaths,
                     getAllFiles(basePath), arena);
             getData(allDataSegments, allDataPaths);
         } catch (IOException e) {
@@ -102,25 +102,25 @@ public class FileManager {
     private Map<Path, Path> getAllDataPaths(Path basePath) throws IOException {
         List<Path> files = getAllFiles(basePath);
 
-        List<Path> ssTables = new ArrayList<>();
-        List<Path> ssIndexes = new ArrayList<>();
+        List<Path> ssTablesPaths = new ArrayList<>();
+        List<Path> ssIndexesPaths = new ArrayList<>();
         Map<Path, Path> filePathsMap = new ConcurrentHashMap<>();
         for (Path file : files) {
             if (String.valueOf(file.getFileName()).startsWith(FILE_NAME)) {
-                ssTables.add(file);
+                ssTablesPaths.add(file);
             }
 
             if (String.valueOf(file.getFileName()).startsWith(FILE_INDEX_NAME)) {
-                ssIndexes.add(file);
+                ssIndexesPaths.add(file);
             }
         }
 
-        ssTables.sort(new PathsComparator(FILE_NAME, FILE_EXTENSION));
-        ssIndexes.sort(new PathsComparator(FILE_INDEX_NAME, FILE_EXTENSION));
+        ssTablesPaths.sort(new PathsComparator(FILE_NAME, FILE_EXTENSION));
+        ssIndexesPaths.sort(new PathsComparator(FILE_INDEX_NAME, FILE_EXTENSION));
 
-        int size = ssTables.size();
+        int size = ssTablesPaths.size();
         for (int i = 0; i < size; i++) {
-            filePathsMap.put(ssTables.get(i), ssIndexes.get(i));
+            filePathsMap.put(ssTablesPaths.get(i), ssIndexesPaths.get(i));
         }
 
         return filePathsMap;
@@ -239,7 +239,6 @@ public class FileManager {
         return offset + Integer.BYTES + keyLength + Integer.BYTES + valueLength;
     }
 
-
     private void writeInitialPosition(FileChannel fileChannel, long storageSize) throws IOException {
         ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
         buffer.putLong(storageSize);
@@ -282,15 +281,15 @@ public class FileManager {
         return low;
     }
 
-    public static Entry<MemorySegment> getCurrentEntry(long position, MemorySegment ssTable,
-                                                MemorySegment ssIndex) throws IOException {
-        ssIndex = ssIndex.asSlice((position + 1) * Long.BYTES, Long.BYTES);
+    public static Entry<MemorySegment> getCurrentEntry(long position, MemorySegment originalSsTable,
+                                                MemorySegment originalSsIndex) throws IOException {
+        MemorySegment ssIndex = originalSsIndex.asSlice((position + 1) * Long.BYTES, Long.BYTES);
         ByteBuffer bufferLong = ByteBuffer.allocate(Long.BYTES);
         bufferLong.put(ssIndex.asByteBuffer());
         bufferLong.flip();
         long offset = bufferLong.getLong();
 
-        ssTable = ssTable.asSlice(offset);
+        MemorySegment ssTable = originalSsTable.asSlice(offset);
         ByteBuffer bufferInt = ByteBuffer.allocate(Integer.BYTES);
         bufferInt.put(ssTable.asSlice(0, Integer.BYTES).asByteBuffer());
         bufferInt.flip();
@@ -312,73 +311,5 @@ public class FileManager {
 
     public void closeArena() {
         arena.close();
-    }
-
-    public Map<MemorySegment, MemorySegment> checkFiles(Path basePath, Map<Path, Path> allDataPaths,
-                                                        List<Path> files, Arena arena) throws IOException {
-        Map<MemorySegment, MemorySegment> allFiles = new LinkedHashMap<>();
-        List<Path> ssTables = new ArrayList<>();
-        List<Path> ssIndexes = new ArrayList<>();
-
-        checkFile(basePath, files);
-
-        for (Map.Entry<Path, Path> entry : allDataPaths.entrySet()) {
-            ssTables.add(entry.getKey());
-            ssIndexes.add(entry.getValue());
-        }
-
-        ssTables.sort(new PathsComparator(FILE_NAME, FILE_EXTENSION));
-        ssIndexes.sort(new PathsComparator(FILE_INDEX_NAME, FILE_EXTENSION));
-
-        if (ssTables.size() != ssIndexes.size()) {
-            throw new NoSuchFileException("Not all files found.");
-        }
-
-        for (int i = 0; i < ssTables.size(); i++) {
-            MemorySegment data;
-            MemorySegment index;
-            Path dataPath = ssTables.get(i);
-            Path indexPath = ssIndexes.get(i);
-
-            try (FileChannel fileChannel = FileChannel.open(dataPath)) {
-                data = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, fileChannel.size(), arena);
-            }
-
-            try (FileChannel fileChannel = FileChannel.open(indexPath)) {
-                index = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, fileChannel.size(), arena);
-            }
-
-            checkFileMatch(dataPath, indexPath);
-            allFiles.put(data, index);
-        }
-
-        return allFiles;
-    }
-
-    private void checkFile(Path basePath, List<Path> files) throws IOException {
-        for (Path file : files) {
-            if (compactManager.deleteTempFile(basePath, file, files)) {
-                break;
-            }
-
-            if (compactManager.clearIfCompactFileExists(basePath, file, files)) {
-                break;
-            }
-        }
-    }
-
-    private void checkFileMatch(Path data, Path index) throws IOException {
-        String dataString = data.toString();
-        String indexString = index.toString();
-        if (Integer.parseInt(dataString.substring(
-                dataString.indexOf(FILE_NAME) + FILE_NAME.length(),
-                dataString.indexOf(FILE_EXTENSION)))
-                != Integer.parseInt(indexString.substring(
-                    indexString.indexOf(FILE_INDEX_NAME) + FILE_INDEX_NAME.length(),
-                    indexString.indexOf(FILE_EXTENSION))
-                )
-        ) {
-            throw new NoSuchFileException("The files don't match.");
-        }
     }
 }

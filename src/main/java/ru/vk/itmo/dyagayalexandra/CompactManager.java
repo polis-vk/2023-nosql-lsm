@@ -43,7 +43,6 @@ public class CompactManager {
         Files.createFile(compactedFile);
         Files.createFile(compactedIndex);
 
-
         try (FileChannelsHandler writer = new FileChannelsHandler(compactedFile, compactedIndex)) {
             getStartPosition(writer.getIndexChannel());
             while (iterator.hasNext()) {
