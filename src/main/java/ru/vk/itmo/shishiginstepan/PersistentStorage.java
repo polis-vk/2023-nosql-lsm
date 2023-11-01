@@ -41,11 +41,12 @@ public class PersistentStorage {
         this.arena.close();
     }
 
-    public void store(Collection<Entry<MemorySegment>> data) {
+    public BinarySearchSSTable store(Collection<Entry<MemorySegment>> data) {
         int nextSStableID = this.sstables.isEmpty() ? 0 : this.sstables.first().id + 1;
         Path newSSTPath = BinarySearchSSTable.writeSSTable(data, basePath, nextSStableID);
-        var sstable = new BinarySearchSSTable(newSSTPath, this.arena);
+        BinarySearchSSTable sstable = new BinarySearchSSTable(newSSTPath, this.arena);
         this.sstables.add(sstable);
+        return sstable;
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -59,8 +60,30 @@ public class PersistentStorage {
     }
 
     public List<Iterator<Entry<MemorySegment>>> get(MemorySegment from, MemorySegment to) {
-        var iterators = new ArrayList<Iterator<Entry<MemorySegment>>>();
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
         this.sstables.forEach((var sstable) -> iterators.add(sstable.scan(from, to)));
         return iterators;
+    }
+
+    public void compact(Iterator<Entry<MemorySegment>> data) {
+        List<Entry<MemorySegment>> entries = new ArrayList<>();
+
+        while (data.hasNext()) {
+            Entry<MemorySegment> entry = data.next();
+            entries.add(entry);
+        }
+        BinarySearchSSTable compactedTable = store(entries);
+
+        for (var table : sstables) {
+            if (table.id == compactedTable.id) {
+                continue;
+            }
+            try {
+                Files.delete(table.indexPath);
+                Files.delete(table.tablePath);
+            } catch (IOException e) {
+                throw new RuntimeException();
+            }
+        }
     }
 }

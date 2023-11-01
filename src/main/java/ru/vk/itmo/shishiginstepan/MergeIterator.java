@@ -11,7 +11,7 @@ import java.util.PriorityQueue;
 
 public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private final Comparator<MemorySegment> keyComparator = (o1, o2) -> {
-        var mismatch = o1.mismatch(o2);
+        long mismatch = o1.mismatch(o2);
         if (mismatch == -1) {
             return 0;
         }
@@ -54,7 +54,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
             if (this.prefetched == null) {
                 return this.iterator.next();
             } else {
-                var toReturn = this.prefetched;
+                Entry<MemorySegment> toReturn = this.prefetched;
                 this.prefetched = null;
                 return toReturn;
             }
@@ -78,9 +78,9 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     public MergeIterator(List<Iterator<Entry<MemorySegment>>> iterators) {
         // приоритет мержа будет определен порядком итераторов
-        for (int i=0; i < iterators.size(); i++){
-            var iterator = iterators.get(i);
-            if (iterator.hasNext()){
+        for (int i = 0; i < iterators.size(); i++) {
+            Iterator<Entry<MemorySegment>> iterator = iterators.get(i);
+            if (iterator.hasNext()) {
                 this.iterators.add(new PeekIteratorWrapper(iterator, i));
             }
         }
@@ -96,7 +96,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     public Entry<MemorySegment> next() {
         PeekIteratorWrapper nextIterator = iterators.remove();
         Entry<MemorySegment> nextEntry = nextIterator.next();
-        if (nextIterator.hasNext()){
+        if (nextIterator.hasNext()) {
             this.iterators.add(nextIterator);
         }
         skipOverrides(nextEntry);
@@ -105,9 +105,9 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     private void skipOverrides(Entry<MemorySegment> entry) {
         while (hasNext()) {
-            var nextIterator = this.iterators.peek();
+            PeekIteratorWrapper nextIterator = this.iterators.peek();
             if (nextIterator == null) break;
-            var nextEntry = nextIterator.peek();
+            Entry<MemorySegment> nextEntry = nextIterator.peek();
             if (keyComparator.compare(entry.key(), nextEntry.key()) == 0) {
                 nextIterator.skip();
                 this.iterators.remove();

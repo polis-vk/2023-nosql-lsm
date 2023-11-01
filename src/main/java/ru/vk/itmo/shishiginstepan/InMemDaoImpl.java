@@ -3,19 +3,19 @@ package ru.vk.itmo.shishiginstepan;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final Comparator<MemorySegment> keyComparator = (o1, o2) -> {
-        var mismatch = o1.mismatch(o2);
+        long mismatch = o1.mismatch(o2);
         if (mismatch == -1) {
             return 0;
         }
@@ -38,7 +38,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final PersistentStorage persistentStorage;
     private final Path basePath;
 
-    public InMemDaoImpl(Path basePath){
+    public InMemDaoImpl(Path basePath) {
         this.basePath = basePath;
         this.persistentStorage = new PersistentStorage(this.basePath);
     }
@@ -60,7 +60,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         } else {
             memIterator = this.memStorage.subMap(from, to).sequencedValues().iterator();
         }
-        var persistentIterators = this.persistentStorage.get(from, to);
+        List<Iterator<Entry<MemorySegment>>> persistentIterators = this.persistentStorage.get(from, to);
         persistentIterators.add(0, memIterator);
         return new SkipDeletedIterator(
                 new MergeIterator(persistentIterators)
@@ -69,7 +69,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        var entry = this.memStorage.get(key);
+        Entry<MemorySegment> entry = this.memStorage.get(key);
         if (entry == null) {
             entry = persistentStorage.get(key);
         }
@@ -96,5 +96,10 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             this.persistentStorage.store(this.memStorage.values());
         }
         this.memStorage.clear();
+    }
+
+    @Override
+    public void compact() {
+        persistentStorage.compact(this.get(null, null));
     }
 }

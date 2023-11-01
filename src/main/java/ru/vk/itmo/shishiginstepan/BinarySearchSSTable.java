@@ -15,12 +15,15 @@ import java.nio.file.StandardOpenOption;
 import java.util.Collection;
 import java.util.Iterator;
 
-public class BinarySearchSSTable {
+public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemorySegment>> {
     private long tableSize;
     private long indexSize;
     private final MemorySegment tableSegment;
     private final MemorySegment indexSegment;
     public int id;
+
+    public final Path tablePath;
+    public final Path indexPath;
 
     private static class SSTableCreationException extends RuntimeException {
         public SSTableCreationException(Throwable cause) {
@@ -36,11 +39,12 @@ public class BinarySearchSSTable {
 
     BinarySearchSSTable(Path path, Arena arena) {
         this.id = Integer.parseInt(path.getFileName().toString().substring(8));
-        Path indexPath = Paths.get(path.toAbsolutePath() + "_index");
+        tablePath = path;
+        indexPath = Paths.get(path.toAbsolutePath() + "_index");
 
         try {
-            if (Files.exists(path)) {
-                this.tableSize = Files.size(path);
+            if (Files.exists(tablePath)) {
+                this.tableSize = Files.size(tablePath);
             }
             if (Files.exists(indexPath)) {
                 this.indexSize = Files.size(indexPath);
@@ -48,7 +52,7 @@ public class BinarySearchSSTable {
         } catch (IOException e) {
             throw new SSTableCreationException(e);
         }
-        try (FileChannel fileChannel = FileChannel.open(path, StandardOpenOption.READ)) {
+        try (FileChannel fileChannel = FileChannel.open(tablePath, StandardOpenOption.READ)) {
             this.tableSegment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, tableSize, arena);
         } catch (IOException e) {
             throw new SSTableRWException(e);
@@ -138,9 +142,9 @@ public class BinarySearchSSTable {
         while (l <= r) {
             m = l + (r - l) / 2;
 
-            var keyOffset = getKeyOffset(m);
-            var valOffset = normalize(getValOffset(m));
-            var mismatch = MemorySegment.mismatch(key, 0, key.byteSize(), tableSegment, keyOffset, valOffset);
+            long keyOffset = getKeyOffset(m);
+            long valOffset = normalize(getValOffset(m));
+            long mismatch = MemorySegment.mismatch(key, 0, key.byteSize(), tableSegment, keyOffset, valOffset);
             if (mismatch == -1) {
                 return m;
             } else {
@@ -154,7 +158,7 @@ public class BinarySearchSSTable {
                 }
                 byte b1 = key.get(ValueLayout.JAVA_BYTE, mismatch);
                 byte b2 = tableSegment.get(ValueLayout.JAVA_BYTE, keyOffset + mismatch);
-                var keysBytesCompared = Byte.compare(b1, b2);
+                int keysBytesCompared = Byte.compare(b1, b2);
                 if (keysBytesCompared < 0) {
                     r = m - 1;
                 } else {
@@ -165,16 +169,18 @@ public class BinarySearchSSTable {
         return exact ? -1 : l;
     }
 
+    @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         MemorySegment val;
-        var m = this.searchEntryPosition(key, true);
+        long m = this.searchEntryPosition(key, true);
         if (m == -1) return null;
-        var valOffset = getValOffset(m);
-        var recordEnd = getRecordEnd(m);
-        val = valOffset < 0? null: tableSegment.asSlice(valOffset, recordEnd - valOffset);
+        long valOffset = getValOffset(m);
+        long recordEnd = getRecordEnd(m);
+        val = valOffset < 0 ? null : tableSegment.asSlice(valOffset, recordEnd - valOffset);
         return new BaseEntry<>(key, val);
     }
 
+    @Override
     public Iterator<Entry<MemorySegment>> scan(MemorySegment keyFrom, MemorySegment keyTo) {
         long startIndex;
         long endIndex;
@@ -238,7 +244,7 @@ public class BinarySearchSSTable {
                 this.currentEntryIndex++;
                 return new BaseEntry<>(
                         tableSegment.asSlice(keyOffset, normalize(valOffset) - keyOffset),
-                        valOffset < 0 ? null :tableSegment.asSlice(normalize(valOffset), nextOffset - normalize(valOffset))
+                        valOffset < 0 ? null : tableSegment.asSlice(normalize(valOffset), nextOffset - normalize(valOffset))
                 );
             }
         };

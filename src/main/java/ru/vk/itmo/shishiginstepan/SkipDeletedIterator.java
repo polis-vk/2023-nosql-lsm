@@ -27,7 +27,7 @@ public class SkipDeletedIterator implements Iterator<Entry<MemorySegment>> {
         if (this.prefetched == null) {
             return this.iterator.next();
         } else {
-            var toReturn = this.prefetched;
+            Entry<MemorySegment> toReturn = this.prefetched;
             this.prefetched = null;
             return toReturn;
         }
@@ -42,7 +42,7 @@ public class SkipDeletedIterator implements Iterator<Entry<MemorySegment>> {
 
     public void skipDeleted() {
         if (this.iterator.hasNext()) {
-            var next = this.peekNext();
+            Entry<MemorySegment> next = this.peekNext();
             if (next.value() == null) {
                 this.prefetched = null;
                 this.skipDeleted();
