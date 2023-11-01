@@ -7,6 +7,9 @@ import java.util.List;
 import java.util.PriorityQueue;
 import java.util.Queue;
 
+/**
+ * See also <a href="https://github.com/google/guava/blob/9b8035d654cd4e36e79e1b8329f4457e0f3087f8/guava/src/com/google/common/collect/Iterators.java#L1315">Merging iterator from guava</a>
+ */
 public class MergeIterator<E> implements Iterator<E> {
     private final Queue<PeekingIterator<E>> queue;
     private final Comparator<? super E> comparator;
@@ -21,15 +24,22 @@ public class MergeIterator<E> implements Iterator<E> {
             return Collections.emptyIterator();
         }
 
+        if (iterators.size() == 1) { //if there is only one existing sstable in storage
+            return iterators.getFirst();
+        }
+
         Queue<PeekingIterator<E>> queue = getPeekingIterators(iterators.size(), comparator);
 
-        iterators.removeIf(i -> !i.hasNext());
-        iterators.forEach(queue::offer);
+        for (PeekingIterator<E> it : iterators) {
+            if (it.hasNext()) {
+                queue.add(it);
+            }
+        }
 
         return new MergeIterator<>(queue, comparator);
     }
 
-    private static <E> Queue<PeekingIterator<E>> getPeekingIterators(int size, Comparator<? super E> comparator) {
+    private static <E> Queue<PeekingIterator<E>> getPeekingIterators(final int size, Comparator<? super E> comparator) {
         Comparator<PeekingIterator<E>> heapComparator =
                 (PeekingIterator<E> o1, PeekingIterator<E> o2) -> {
                     int compare = comparator.compare(o1.peek(), o2.peek());

@@ -14,6 +14,7 @@ import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    private final static int SS_TABLE_PRIORITY = 1;
     private final SSTablesStorage ssTablesStorage;
     private final SortedMap<MemorySegment, Entry<MemorySegment>> entries =
             new ConcurrentSkipListMap<>(NotOnlyInMemoryDao::comparator);
@@ -66,17 +67,19 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
     }
 
     private PeekingIterator<Entry<MemorySegment>> rangeIterator(MemorySegment from, MemorySegment to) {
-        Iterator<Entry<MemorySegment>> memoryIterator = memoryIterator(from, to);
-
         List<PeekingIterator<Entry<MemorySegment>>> allIterators = new ArrayList<>();
 
-        allIterators.add(new PeekingIteratorImpl<>(memoryIterator, 0));
-        allIterators.add(new PeekingIteratorImpl<>(ssTablesStorage.iteratorsAll(from, to), 1));
+        if (!entries.isEmpty()) {
+            Iterator<Entry<MemorySegment>> memoryIterator = memoryIterator(from, to);
+            allIterators.add(new PeekingIteratorImpl<>(memoryIterator));
+        }
+
+        allIterators.add(new PeekingIteratorImpl<>(ssTablesStorage.iteratorsAll(from, to), SS_TABLE_PRIORITY));
 
         return new PeekingIteratorImpl<>(MergeIterator.merge(allIterators, NotOnlyInMemoryDao::entryComparator));
     }
 
-    //Supposed that memory was flushed before compaction
+    //Retrieves iterator for memory table and sstables
     private PeekingIterator<Entry<MemorySegment>> iteratorForCompaction() {
         return rangeIterator(null, null);
     }
