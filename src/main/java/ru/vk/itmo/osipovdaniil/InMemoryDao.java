@@ -57,7 +57,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             DiskStorage.save(tmpPath, list);
         }
         DiskStorage.deleteAll(path);
-        Files.move(tmpPath, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.move(DiskStorage.getIndexPath(tmpPath),
+                DiskStorage.getIndexPath(path), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.move(DiskStorage.getIndexTmpPath(tmpPath),
+                DiskStorage.getIndexTmpPath(path), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        Files.move(tmpPath.resolve("0"),
+                path.resolve("0"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
         DiskStorage.deleteAll(tmpPath);
     }

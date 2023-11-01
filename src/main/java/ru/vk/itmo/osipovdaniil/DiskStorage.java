@@ -41,11 +41,11 @@ public class DiskStorage {
         };
     }
 
-    private static Path getIndexTmpPath(final Path storagePath) {
+    public static Path getIndexTmpPath(final Path storagePath) {
         return storagePath.resolve(INDEX_TMP);
     }
 
-    private static Path getIndexPath(final Path storagePath) {
+    public static Path getIndexPath(final Path storagePath) {
         return storagePath.resolve(INDEX);
     }
 
