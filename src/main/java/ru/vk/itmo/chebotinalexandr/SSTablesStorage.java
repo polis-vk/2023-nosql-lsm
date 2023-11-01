@@ -285,11 +285,7 @@ public class SSTablesStorage {
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE)) {
 
-            return channel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    size,
-                    arena);
+            return channel.map(FileChannel.MapMode.READ_WRITE, 0, size, arena);
         }
     }
 
