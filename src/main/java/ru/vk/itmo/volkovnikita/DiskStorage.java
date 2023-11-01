@@ -212,8 +212,7 @@ public class DiskStorage {
     }
 
     private static long recordsCount(MemorySegment segment) {
-        long indexSize = indexSize(segment);
-        return indexSize / Long.BYTES / 2;
+        return  indexSize(segment) / Long.BYTES / 2;
     }
 
     private static long indexSize(MemorySegment segment) {
@@ -251,18 +250,15 @@ public class DiskStorage {
     }
 
     private void clearFiles(Path path) throws IOException {
-        Path indexFile = path.resolve(INDEX_IDX);
-
         try {
-            List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+            List<String> existedFiles = Files.readAllLines(path.resolve(INDEX_IDX), StandardCharsets.UTF_8);
 
             for (String fileName : existedFiles) {
                 Files.deleteIfExists(path.resolve(fileName));
             }
         } finally {
-            Files.deleteIfExists(indexFile);
+            Files.deleteIfExists(path.resolve(INDEX_IDX));
         }
-
         Files.deleteIfExists(path.resolve(INDEX_TMP));
     }
 
