@@ -9,7 +9,7 @@ import java.lang.foreign.ValueLayout;
 
 public final class MemorySegmentEntryExtractor implements EntryExtractor<MemorySegment, Entry<MemorySegment>> {
     public static final MemorySegmentEntryExtractor INSTANCE = new MemorySegmentEntryExtractor();
-    private static final long SIZE_LENGTH = ValueLayout.JAVA_BYTE.byteSize();
+    private static final long SIZE_LENGTH = ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
     private static final long VALUE_IS_NULL_SIZE = -1;
 
     private MemorySegmentEntryExtractor() {
