@@ -45,7 +45,8 @@ public class SSTablesStorage {
             try {
                 deleteOldSSTables(basePath);
                 Path pathTmp = basePath.resolve(SSTABLE_NAME + ".tmp");
-                Files.move(pathTmp, pathTmp.resolveSibling(SSTABLE_NAME + OLDEST_SS_TABLE_INDEX + SSTABLE_EXTENSION), StandardCopyOption.ATOMIC_MOVE);
+                Files.move(pathTmp, pathTmp.resolveSibling(SSTABLE_NAME + OLDEST_SS_TABLE_INDEX + SSTABLE_EXTENSION),
+                        StandardCopyOption.ATOMIC_MOVE);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -143,11 +144,9 @@ public class SSTablesStorage {
             result.add(new PeekingIteratorImpl<>(iteratorOf(sstable, from, to), priority));
             priority++;
         }
-
         return MergeIterator.merge(result, NotOnlyInMemoryDao::entryComparator);
     }
 
-    //Iterator from sstable
     public Iterator<Entry<MemorySegment>> iteratorOf(MemorySegment sstable, MemorySegment from, MemorySegment to) {
         long keyIndexFrom;
         long keyIndexTo;
@@ -193,7 +192,6 @@ public class SSTablesStorage {
                 i++;
             }
         }
-
         arena.close();
     }
 

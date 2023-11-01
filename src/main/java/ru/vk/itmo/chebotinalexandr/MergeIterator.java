@@ -8,7 +8,7 @@ import java.util.PriorityQueue;
 import java.util.Queue;
 
 /**
- * See also <a href="https://github.com/google/guava/blob/9b8035d654cd4e36e79e1b8329f4457e0f3087f8/guava/src/com/google/common/collect/Iterators.java#L1315">Merging iterator from guava</a>
+ * See also <a href="https://github.com/google/guava/blob/9b8035d654cd4e36e79e1b8329f4457e0f3087f8/guava/src/com/google/common/collect/Iterators.java#L1315">Merging iterator from guava</a>.
  */
 public class MergeIterator<E> implements Iterator<E> {
     private final Queue<PeekingIterator<E>> queue;

@@ -14,7 +14,7 @@ import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final static int SS_TABLE_PRIORITY = 1;
+    private static final int SS_TABLE_PRIORITY = 1;
     private final SSTablesStorage ssTablesStorage;
     private final SortedMap<MemorySegment, Entry<MemorySegment>> entries =
             new ConcurrentSkipListMap<>(NotOnlyInMemoryDao::comparator);
