@@ -94,6 +94,9 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
+        if (storage.isEmpty() && SSTable.isCompacted(ssTables)) {
+            return;
+        }
         Path compacted = SSTable.compact(() -> this.mergeIterator(null, null), storagePath);
         ssTables = SSTable.replaceSSTablesWithCompacted(ssTablesArena, compacted, storagePath, ssTables);
     }
