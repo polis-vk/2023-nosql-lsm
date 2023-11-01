@@ -96,7 +96,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         if (ssTables.size() <= 1) {
             if (map.isEmpty()) {
                 return;
-            } else if (ssTables.size() == 0) {
+            } else if (ssTables.isEmpty()) {
                 write(map);
                 return;
             }
@@ -140,11 +140,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
             }
 
             for (SSTable ssTable : ssTables) {
-                try {
-                    ssTable.delete();
-                } catch (IOException e) {
-                    System.err.println("Can't delete ssTable files");
-                }
+                ssTable.delete();
             }
             ssTables.clear();
 

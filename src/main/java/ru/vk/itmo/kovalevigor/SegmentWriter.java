@@ -18,11 +18,9 @@ public class SegmentWriter {
         this.offset = 0;
     }
 
-
-    protected static long writeLong(final MemorySegment memorySegment, long offset, final long value) {
+    protected static long writeLong(final MemorySegment memorySegment, final long offset, final long value) {
         memorySegment.set(ValueLayout.JAVA_LONG, offset, value);
-        offset += ValueLayout.JAVA_LONG.byteSize();
-        return offset;
+        return offset + ValueLayout.JAVA_LONG.byteSize();
     }
 
     protected void writeLong(final long value) {
