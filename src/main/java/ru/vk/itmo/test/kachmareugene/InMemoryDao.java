@@ -17,7 +17,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final SortedMap<MemorySegment, Entry<MemorySegment>> mp =
             new ConcurrentSkipListMap<>(memorySegmentComparatorImpl);
 
-    private final SSTablesController controller;
+    protected final SSTablesController controller;
 
     public InMemoryDao() {
         this.controller = new SSTablesController(new MemSegComparatorNull());
@@ -66,7 +66,18 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        controller.dumpMemTableToSStable(mp);
+        try {
+            controller.dumpMemTableToSStable(mp);
+        } finally {
+            mp.clear();
+        }
+    }
+
+    protected void closeMemTable() {
         mp.clear();
     }
+    protected SortedMap<MemorySegment, Entry<MemorySegment>> getMemTable() {
+        return mp;
+    }
+
 }

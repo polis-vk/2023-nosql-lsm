@@ -14,12 +14,7 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Set;
-import java.util.SortedMap;
+import java.util.*;
 import java.util.stream.Stream;
 
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -31,20 +26,23 @@ public class SSTablesController {
     private static final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss.SSSSS");
     private final List<MemorySegment> ssTables = new ArrayList<>();
     private final List<MemorySegment> ssTablesIndexes = new ArrayList<>();
+    private final List<Path> ssTablesPaths = new ArrayList<>();
+    private final List<Path> ssTablesIndexesPaths = new ArrayList<>();
     private static final String SS_TABLE_COMMON_PREF = "ssTable";
 
     // index format: (long) keyOffset, (long) keyLen, (long) valueOffset, (long) valueLen
     private static final long ONE_LINE_SIZE = 4 * Long.BYTES;
     private static final String INDEX_COMMON_PREF = "index";
     private final Arena arenaForReading = Arena.ofShared();
+    private boolean isClosedArena = false;
     private final Comparator<MemorySegment> segComp;
 
     public SSTablesController(Path dir, Comparator<MemorySegment> com) {
         this.ssTablesDir = dir;
         this.segComp = com;
 
-        openFiles(dir, SS_TABLE_COMMON_PREF, ssTables);
-        openFiles(dir, INDEX_COMMON_PREF, ssTablesIndexes);
+        ssTablesPaths.addAll(openFiles(dir, SS_TABLE_COMMON_PREF, ssTables));
+        ssTablesIndexesPaths.addAll(openFiles(dir, INDEX_COMMON_PREF, ssTablesIndexes));
     }
 
     public SSTablesController(Comparator<MemorySegment> com) {
@@ -52,7 +50,7 @@ public class SSTablesController {
         this.segComp = com;
     }
 
-    private void openFiles(Path dir, String fileNamePref, List<MemorySegment> storage) {
+    private List<Path> openFiles(Path dir, String fileNamePref, List<MemorySegment> storage) {
         try {
             Files.createDirectories(dir);
         } catch (IOException e) {
@@ -69,6 +67,7 @@ public class SSTablesController {
                     throw new UncheckedIOException(e);
                 }
             });
+            return list;
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -173,10 +172,56 @@ public class SSTablesController {
         return offset + data.byteSize();
     }
 
+    public void dumpIterator(Iterable<Entry<MemorySegment>> iter) throws IOException {
+        Iterator<Entry<MemorySegment>> iter1 = iter.iterator();
+
+        if (ssTablesDir == null || !iter1.hasNext()) {
+            return;
+        }
+        LocalDateTime time = LocalDateTime.now(ZoneId.systemDefault());
+        Set<OpenOption> options = Set.of(WRITE, READ, CREATE);
+        try (FileChannel ssTableChannel =
+                     FileChannel.open(ssTablesDir.resolve(SS_TABLE_COMMON_PREF + formatter.format(time)), options);
+             FileChannel indexChannel =
+                     FileChannel.open(ssTablesDir.resolve(INDEX_COMMON_PREF + formatter.format(time)), options);
+             Arena saveArena = Arena.ofConfined()) {
+
+            long ssTableLenght = 0L;
+            long indexLength = 0L;
+            int n = 0;
+            while (iter1.hasNext()) {
+                var seg = iter1.next();
+                n++;
+                ssTableLenght += seg.key().byteSize() + seg.value().byteSize();
+                indexLength += ONE_LINE_SIZE;
+            }
+            System.err.println(n);
+            long currOffsetSSTable = 0L;
+            long currOffsetIndex = 0L;
+
+            MemorySegment mappedSSTable = ssTableChannel.map(
+                    FileChannel.MapMode.READ_WRITE, currOffsetSSTable, ssTableLenght, saveArena);
+
+            MemorySegment mappedIndex = indexChannel.map(
+                    FileChannel.MapMode.READ_WRITE, currOffsetIndex, indexLength, saveArena);
+
+
+            for (Entry<MemorySegment> kv : iter) {
+                currOffsetIndex = dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
+                currOffsetSSTable = dumpSegment(mappedSSTable, kv.key(), currOffsetSSTable);
+                currOffsetIndex = dumpLong(mappedIndex, kv.key().byteSize(), currOffsetIndex);
+
+                currOffsetIndex = dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
+                currOffsetSSTable = dumpSegment(mappedSSTable, getValueOrNull(kv), currOffsetSSTable);
+                currOffsetIndex = dumpLong(mappedIndex, rightByteSize(kv), currOffsetIndex);
+            }
+        }
+    }
+
     public void dumpMemTableToSStable(SortedMap<MemorySegment, Entry<MemorySegment>> mp) throws IOException {
 
         if (ssTablesDir == null || mp.isEmpty()) {
-            arenaForReading.close();
+            closeArena();
             return;
         }
         LocalDateTime time = LocalDateTime.now(ZoneId.systemDefault());
@@ -214,7 +259,7 @@ public class SSTablesController {
                 currOffsetIndex = dumpLong(mappedIndex, rightByteSize(kv), currOffsetIndex);
             }
         } finally {
-            arenaForReading.close();
+            closeArena();
         }
     }
 
@@ -231,5 +276,28 @@ public class SSTablesController {
             value = MemorySegment.NULL;
         }
         return value;
+    }
+
+    private void closeArena() {
+        if (!isClosedArena) {
+            arenaForReading.close();
+        }
+        isClosedArena = true;
+    }
+
+    public void deleteAllOldFiles() throws IOException {
+        closeArena();
+        deleteFiles(ssTablesPaths);
+        if (!ssTables.isEmpty()) {
+            System.out.println(ssTables.get(0).byteSize());
+            System.out.println(ssTablesIndexes.get(0).byteSize());
+        }
+        deleteFiles(ssTablesIndexesPaths);
+    }
+    private void deleteFiles(List<Path> files) throws IOException {
+        for (Path file : files) {
+            Files.deleteIfExists(file);
+        }
+        files.clear();
     }
 }
