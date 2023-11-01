@@ -70,7 +70,7 @@ public class PersistentStorage {
             MemorySegment to,
             Iterator<Entry<MemorySegment>> memIterator
     ) {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(sstables.size());
         iterators.add(memIterator);
         for (var sstable : sstables.reversed()) {
             if (sstable.closed) continue;
