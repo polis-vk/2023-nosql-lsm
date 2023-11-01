@@ -139,7 +139,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
                 indexChannel.truncate(SStorageDumper.getIndexSize(realSize.size));
             }
 
-            for (SSTable ssTable : ssTables.reversed()) {
+            for (SSTable ssTable : ssTables) {
                 ssTable.delete();
             }
             ssTables.clear();
