@@ -56,7 +56,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
                     new EntryKeyComparator()
             );
 
-            return new SkipNullIterator(new PeekingIterator(0, mergeIterator), fileManager);
+            return new SkipNullIterator(new PeekingIterator(0, mergeIterator));
         }
     }
 
@@ -67,16 +67,14 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
         } else {
             Iterator<Entry<MemorySegment>> iterator = get(key, null);
             if (!iterator.hasNext()) {
-                fileManager.clearFileIterators();
                 return null;
             }
 
             Entry<MemorySegment> next = iterator.next();
             if (COMPARATOR.compare(key, next.key()) == 0) {
-                fileManager.clearFileIterators();
                 return next;
             }
-            fileManager.clearFileIterators();
+
             return null;
         }
     }
@@ -95,6 +93,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void close() throws IOException {
         if (fileManager != null) {
             fileManager.save(dataStorage);
+            fileManager.closeArena();
         }
 
         dataStorage.clear();
