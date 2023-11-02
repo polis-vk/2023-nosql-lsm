@@ -15,6 +15,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> dataStorage;
     private final FileManager fileManager;
+    private final static MemorySegmentComparator COMPARATOR = new MemorySegmentComparator();
 
     public Storage() {
         dataStorage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
@@ -71,7 +72,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
 
             Entry<MemorySegment> next = iterator.next();
-            if (new MemorySegmentComparator().compare(key, next.key()) == 0) {
+            if (COMPARATOR.compare(key, next.key()) == 0) {
                 fileManager.clearFileIterators();
                 return next;
             }

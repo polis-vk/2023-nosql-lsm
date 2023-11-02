@@ -5,6 +5,7 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
@@ -215,31 +216,27 @@ public class FileManager {
         return low;
     }
 
-    static Entry<MemorySegment> getCurrentEntry(long position, FileChannel table,
-                                                FileChannel index) throws IOException {
-        index.position((position + 1) * Long.BYTES);
-        ByteBuffer bufferLong = ByteBuffer.allocate(Long.BYTES);
-        index.read(bufferLong);
-        bufferLong.flip();
-        long offset = bufferLong.getLong();
+    static Entry<MemorySegment> getCurrentEntry(long position, FileChannel ssTable,
+                                                FileChannel ssIndex) throws IOException {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment ssTableMemorySegment = ssTable.map(FileChannel.MapMode.READ_ONLY,
+                    0, ssTable.size(), arena);
+            MemorySegment ssIndexMemorySegment = ssIndex.map(FileChannel.MapMode.READ_ONLY,
+                    0, ssIndex.size(), arena);
 
-        table.position(offset);
-        ByteBuffer bufferInt = ByteBuffer.allocate(Integer.BYTES);
-        table.read(bufferInt);
-        bufferInt.flip();
-        int keyLength = bufferInt.getInt();
-        bufferInt.clear();
-        ByteBuffer key = ByteBuffer.allocate(keyLength);
-        table.read(key);
-
-        table.read(bufferInt);
-        bufferInt.flip();
-        int valueLength = bufferInt.getInt();
-        if (valueLength == -1) {
-            return new BaseEntry<>(MemorySegment.ofArray(key.array()), null);
+            long offset = ssIndexMemorySegment.asSlice((position + 1) * Long.BYTES,
+                    Long.BYTES).asByteBuffer().getLong();
+            int keyLength = ssTableMemorySegment.asSlice(offset, Integer.BYTES).asByteBuffer().getInt();
+            offset += Integer.BYTES;
+            byte[] keyByteArray = ssTableMemorySegment.asSlice(offset, keyLength).toArray(ValueLayout.JAVA_BYTE);
+            offset += keyLength;
+            int valueLength = ssTableMemorySegment.asSlice(offset, Integer.BYTES).asByteBuffer().getInt();
+            if (valueLength == -1) {
+                return new BaseEntry<>(MemorySegment.ofArray(keyByteArray), null);
+            }
+            offset += Integer.BYTES;
+            byte[] valueByteArray = ssTableMemorySegment.asSlice(offset, valueLength).toArray(ValueLayout.JAVA_BYTE);
+            return new BaseEntry<>(MemorySegment.ofArray(keyByteArray), MemorySegment.ofArray(valueByteArray));
         }
-        ByteBuffer value = ByteBuffer.allocate(valueLength);
-        table.read(value);
-        return new BaseEntry<>(MemorySegment.ofArray(key.array()), MemorySegment.ofArray(value.array()));
     }
 }
