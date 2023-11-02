@@ -150,7 +150,7 @@ class CompactionTest extends BaseTest {
         assertSame(dao.all(), entries);
     }
 
-    @DaoTest(stage = 4)
+    @DaoTest(stage = 5)
     void removeAllAndCompact(Dao<String, Entry<String>> dao) throws IOException {
         List<Entry<String>> entries = entries(100);
         for (Entry<String> entry : entries) {
@@ -182,7 +182,7 @@ class CompactionTest extends BaseTest {
         assertSame(dao.all(), new int[0]);
     }
 
-    @DaoTest(stage = 4)
+    @DaoTest(stage = 5)
     void mixedCompact(Dao<String, Entry<String>> dao) throws IOException {
         NavigableSet<Entry<String>> values = new TreeSet<>(Comparator.comparing(Entry::key));
         // insert some entries
@@ -216,7 +216,7 @@ class CompactionTest extends BaseTest {
         assertSame(dao.all(), List.copyOf(values));
     }
 
-    @DaoTest(stage = 4)
+    @DaoTest(stage = 5)
     void addRemoveAddAndCompact(Dao<String, Entry<String>> dao) throws IOException {
         NavigableSet<Entry<String>> values = new TreeSet<>(Comparator.comparing(Entry::key));
         // insert some entries
