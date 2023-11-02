@@ -5,15 +5,15 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -40,7 +40,7 @@ public class FileManager {
         ssTableIndexStorage = new ConcurrentHashMap<>();
         if (Files.exists(basePath)) {
             try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(basePath)) {
-                for (var path : directoryStream) {
+                for (Path path : directoryStream) {
                     String fileName = String.valueOf(path.getFileName());
                     if (fileName.contains(FILE_NAME)) {
                         ssTables.add(path);
@@ -62,7 +62,7 @@ public class FileManager {
     }
 
     public void save(NavigableMap<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
-        for (var iterator : fileIterators) {
+        for (FileIterator iterator : fileIterators) {
             if (iterator != null) {
                 iterator.close();
             }
@@ -88,11 +88,11 @@ public class FileManager {
     }
 
     public void clearFileIterators() {
-        for (var iterator : fileIterators) {
+        for (FileIterator iterator : fileIterators) {
             try {
                 iterator.close();
             } catch (IOException e) {
-                throw new IllegalStateException("An error occurred while trying to close the iterator.", e);
+                throw new UncheckedIOException("An error occurred while trying to close the iterator.", e);
             }
         }
     }
@@ -106,7 +106,7 @@ public class FileManager {
             fileIterators.add(fileIterator);
             return fileIterator;
         } catch (IOException e) {
-            throw new IllegalStateException("An error occurred while reading files.", e);
+            throw new UncheckedIOException("An error occurred while reading files.", e);
         }
     }
 
@@ -116,31 +116,18 @@ public class FileManager {
             Files.createFile(filePath);
         }
 
-        try (FileChannel fileChannel = FileChannel.open(filePath, StandardOpenOption.WRITE)) {
-            for (var entry : storage.entrySet()) {
+        try (RandomAccessFile randomAccessFile = new RandomAccessFile(String.valueOf(filePath), "rw"))
+        {
+            for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : storage.entrySet()) {
                 Entry<MemorySegment> entryValue = entry.getValue();
-                int keyLength = (int) entryValue.key().byteSize();
-                int valueLength;
-                if (entryValue.value() == null) {
-                    valueLength = 0;
-                } else {
-                    valueLength = (int) entryValue.value().byteSize();
-                }
-
-                ByteBuffer buffer = ByteBuffer.allocate(Integer.BYTES + keyLength + Integer.BYTES + valueLength);
-                buffer.putInt(keyLength);
-                buffer.put(entryValue.key().toArray(ValueLayout.JAVA_BYTE));
+                randomAccessFile.writeInt((int) entryValue.key().byteSize());
+                randomAccessFile.write(entryValue.key().toArray(ValueLayout.JAVA_BYTE));
 
                 if (entryValue.value() == null) {
-                    buffer.putInt(-1);
+                    randomAccessFile.writeInt(-1);
                 } else {
-                    buffer.putInt(valueLength);
-                    buffer.put(entryValue.value().toArray(ValueLayout.JAVA_BYTE));
-                }
-
-                buffer.flip();
-                while (buffer.hasRemaining()) {
-                    fileChannel.write(buffer);
+                    randomAccessFile.writeInt((int) entryValue.value().byteSize());
+                    randomAccessFile.write(entryValue.value().toArray(ValueLayout.JAVA_BYTE));
                 }
             }
         }
@@ -152,46 +139,30 @@ public class FileManager {
             Files.createFile(indexPath);
         }
 
-        try (FileChannel fileChannel = FileChannel.open(indexPath, StandardOpenOption.WRITE)) {
-            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-            buffer.putLong(storage.size());
-            buffer.flip();
-            while (buffer.hasRemaining()) {
-                fileChannel.write(buffer);
-            }
-
-            buffer.clear();
+        try (RandomAccessFile randomAccessFile = new RandomAccessFile(String.valueOf(indexPath), "rw"))
+        {
+            randomAccessFile.writeLong(storage.size());
             long offset = 0;
-            for (var entry : storage.entrySet()) {
+            for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : storage.entrySet()) {
+                randomAccessFile.writeLong(offset);
                 Entry<MemorySegment> entryValue = entry.getValue();
-                int valueLength = 0;
+                offset += Integer.BYTES + entryValue.key().byteSize();
+                offset += Integer.BYTES;
                 if (entryValue.value() != null) {
-                    valueLength = (int) entryValue.value().byteSize();
+                    offset += entryValue.value().byteSize();
                 }
-
-                buffer.putLong(offset);
-                buffer.flip();
-                while (buffer.hasRemaining()) {
-                    fileChannel.write(buffer);
-                }
-
-                buffer.clear();
-                int keyLength = (int) entryValue.key().byteSize();
-                offset += Integer.BYTES + keyLength + Integer.BYTES + valueLength;
             }
         }
     }
 
     private long getIndexSize(Path indexPath) {
         long size;
-        try (FileChannel fileChannel = FileChannel.open(indexPath, StandardOpenOption.READ)) {
-            ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-            fileChannel.read(buffer);
-            buffer.flip();
-            size = buffer.getLong();
+        try (RandomAccessFile raf = new RandomAccessFile(indexPath.toString(), "r")) {
+            size = raf.readLong();
         } catch (IOException e) {
-            throw new IllegalStateException("An error occurred while reading the file.", e);
+            throw new UncheckedIOException("Unable to read file.", e);
         }
+
         return size;
     }
 
@@ -234,6 +205,7 @@ public class FileManager {
             if (valueLength == -1) {
                 return new BaseEntry<>(MemorySegment.ofArray(keyByteArray), null);
             }
+
             offset += Integer.BYTES;
             byte[] valueByteArray = ssTableMemorySegment.asSlice(offset, valueLength).toArray(ValueLayout.JAVA_BYTE);
             return new BaseEntry<>(MemorySegment.ofArray(keyByteArray), MemorySegment.ofArray(valueByteArray));
