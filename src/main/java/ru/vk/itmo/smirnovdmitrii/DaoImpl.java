@@ -34,9 +34,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         int id = 0;
         final PeekingIterator<Entry<MemorySegment>> inMemoryIterator
                 = new WrappedIterator<>(id++, inMemoryDao.get(from, to));
-        final DaoIterator.Builder<MemorySegment, Entry<MemorySegment>> builder
-                = new DaoIterator.Builder<MemorySegment, Entry<MemorySegment>>()
-                .addComparator(comparator)
+        final DaoIterator.Builder<MemorySegment, Entry<MemorySegment>> builder = new DaoIterator.Builder<>(comparator)
                 .addIterator(inMemoryIterator);
         for (final Iterator<Entry<MemorySegment>> outMemoryIterator: outMemoryDao.get(from, to)) {
             builder.addIterator(new WrappedIterator<>(id++, outMemoryIterator));

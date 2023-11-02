@@ -6,8 +6,8 @@ import java.util.Comparator;
 import java.util.List;
 
 public class BinaryMinHeap<T> implements MinHeap<T> {
-    final List<T> list = new ArrayList<>();
-    final Comparator<T> comparator;
+    private final List<T> list = new ArrayList<>();
+    private final Comparator<T> comparator;
 
     public BinaryMinHeap(final Comparator<T> comparator) {
         this.comparator = comparator;
@@ -33,7 +33,7 @@ public class BinaryMinHeap<T> implements MinHeap<T> {
             return null;
         }
         final T result = list.get(0);
-        list.set(0, list.get(list.size() - 1));
+        list.set(0, list.getLast());
         list.removeLast();
         siftDown(0);
         return result;

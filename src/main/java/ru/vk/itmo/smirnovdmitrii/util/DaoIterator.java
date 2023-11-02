@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 
 public class DaoIterator<T, E extends Entry<T>> implements Iterator<E> {
     private final EqualsComparator<T> comparator;
@@ -16,7 +17,7 @@ public class DaoIterator<T, E extends Entry<T>> implements Iterator<E> {
             final EqualsComparator<T> comparator
     ) {
         this.comparator = comparator;
-        heap = new BinaryMinHeap<>(iterators, this::compare);
+        this.heap = new BinaryMinHeap<>(iterators, this::compare);
     }
 
     private int compare(
@@ -79,12 +80,11 @@ public class DaoIterator<T, E extends Entry<T>> implements Iterator<E> {
 
     public static class Builder<T, E extends Entry<T>> {
         private final List<PeekingIterator<E>> list = new ArrayList<>();
+        private final EqualsComparator<T> comparator;
 
-        private EqualsComparator<T> comparator;
-
-        public Builder<T, E> addComparator(final EqualsComparator<T> comparator) {
+        public Builder(final EqualsComparator<T> comparator) {
+            Objects.requireNonNull(comparator);
             this.comparator = comparator;
-            return this;
         }
 
         public Builder<T, E> addIterator(final PeekingIterator<E> iterator) {
@@ -95,9 +95,6 @@ public class DaoIterator<T, E extends Entry<T>> implements Iterator<E> {
         }
 
         public DaoIterator<T, E> build() {
-            if (comparator == null) {
-                throw new IllegalStateException("comparator is null");
-            }
             return new DaoIterator<>(list, comparator);
         }
     }
