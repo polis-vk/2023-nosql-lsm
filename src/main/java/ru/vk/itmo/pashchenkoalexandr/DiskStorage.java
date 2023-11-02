@@ -40,7 +40,7 @@ public class DiskStorage {
 
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PaschenkoDao::compare)) {
             @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+            protected boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;
             }
         };
