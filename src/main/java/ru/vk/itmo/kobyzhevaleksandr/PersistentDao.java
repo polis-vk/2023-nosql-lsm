@@ -29,10 +29,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Config config;
     private final MemorySegment mappedSsTable;
 
-    public PersistentDao() {
-        this(new Config(Path.of("")));
-    }
-
     /*
     Filling ssTable with bytes from the memory segment with a structure:
     [key_size][key][value_size][value]...
