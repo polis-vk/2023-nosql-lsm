@@ -19,10 +19,12 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         new ConcurrentSkipListMap<>(memorySegmentComparator);
     private final Storage storage;
 
-    public PersistentDao() {
-        this(new Config(Path.of("")));
-    }
+    /*
+    Filling ssTable with bytes from the memory segment with a structure:
+    [key_size][key][value_size][value]...
 
+    If value is null then value_size = -1
+     */
     public PersistentDao(Config config) {
         this.storage = new Storage(config);
     }
