@@ -10,7 +10,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 2)
+@DaoFactory(stage = 3)
 public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public String toString(MemorySegment memorySegment) {
@@ -19,12 +19,12 @@ public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Ent
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new AlreadyNotSoInMemoryDao(config.basePath());
+        return new InMemoryDao(config.basePath());
     }
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new AlreadyNotSoInMemoryDao();
+        return new InMemoryDao();
     }
 
     @Override
