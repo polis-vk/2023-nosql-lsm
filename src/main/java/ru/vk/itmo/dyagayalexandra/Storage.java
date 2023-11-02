@@ -15,7 +15,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> dataStorage;
     private final FileManager fileManager;
-    private final static MemorySegmentComparator COMPARATOR = new MemorySegmentComparator();
+    private static final MemorySegmentComparator COMPARATOR = new MemorySegmentComparator();
 
     public Storage() {
         dataStorage = new ConcurrentSkipListMap<>(new MemorySegmentComparator());

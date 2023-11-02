@@ -110,8 +110,7 @@ public class FileManager {
             Files.createFile(filePath);
         }
 
-        try (RandomAccessFile randomAccessFile = new RandomAccessFile(String.valueOf(filePath), "rw"))
-        {
+        try (RandomAccessFile randomAccessFile = new RandomAccessFile(String.valueOf(filePath), "rw")) {
             for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : storage.entrySet()) {
                 Entry<MemorySegment> entryValue = entry.getValue();
                 randomAccessFile.writeInt((int) entryValue.key().byteSize());
@@ -133,8 +132,7 @@ public class FileManager {
             Files.createFile(indexPath);
         }
 
-        try (RandomAccessFile randomAccessFile = new RandomAccessFile(String.valueOf(indexPath), "rw"))
-        {
+        try (RandomAccessFile randomAccessFile = new RandomAccessFile(String.valueOf(indexPath), "rw")) {
             randomAccessFile.writeLong(storage.size());
             long offset = 0;
             for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : storage.entrySet()) {
