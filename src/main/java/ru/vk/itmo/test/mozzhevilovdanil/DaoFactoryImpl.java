@@ -1,26 +1,30 @@
-package ru.vk.itmo.test.dyagayalexandra;
+package ru.vk.itmo.test.mozzhevilovdanil;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.dyagayalexandra.InMemoryDao;
+import ru.vk.itmo.mozzhevilovdanil.MozzhevilovDao;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory
-public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
+@DaoFactory(stage = 3)
+public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new MozzhevilovDao(config);
     }
 
     @Override
     public String toString(MemorySegment memorySegment) {
-        return memorySegment == null ? null : new String(memorySegment.toArray(ValueLayout.JAVA_BYTE),
-                StandardCharsets.UTF_8);
+        if (memorySegment == null) {
+            return null;
+        }
+        return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override
