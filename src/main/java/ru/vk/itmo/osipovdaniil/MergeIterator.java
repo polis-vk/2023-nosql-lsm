@@ -97,6 +97,7 @@ public class MergeIterator<T> implements Iterator<T> {
             if (next == null) {
                 break;
             }
+
             int compare = comparator.compare(peek.peek(), next.peek());
             if (compare != 0) {
                 break;
