@@ -49,7 +49,7 @@ plugins:
   sonar-java:
     enabled: true
     config:
-      sonar.java.source: "11"
+      sonar.java.source: "21"
     checks:
       squid:S00112:
         enabled: false
