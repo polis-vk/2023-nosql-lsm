@@ -6,7 +6,6 @@ import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
@@ -19,10 +18,12 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         new ConcurrentSkipListMap<>(memorySegmentComparator);
     private final Storage storage;
 
-    public PersistentDao() {
-        this(new Config(Path.of("")));
-    }
+    /*
+    Filling ssTable with bytes from the memory segment with a structure:
+    [key_size][key][value_size][value]...
 
+    If value is null then value_size = -1
+     */
     public PersistentDao(Config config) {
         this.storage = new Storage(config);
     }
@@ -36,6 +37,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> entry = map.get(key);
+        if (entry != null && entry.value() != null) {
+            return entry;
+        }
+
         Iterator<Entry<MemorySegment>> iterator = get(key, null);
         if (!iterator.hasNext()) {
             return null;
