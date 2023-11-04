@@ -8,11 +8,10 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.AbstractMap;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class FileChecker {
 
@@ -28,17 +27,17 @@ public class FileChecker {
         this.compactManager = compactManager;
     }
 
-    public Map<MemorySegment, MemorySegment> checkFiles(Path basePath, Arena arena) throws IOException {
-        Map<MemorySegment, MemorySegment> allFiles = new LinkedHashMap<>();
+    public List<Map.Entry<MemorySegment, MemorySegment>> checkFiles(Path basePath, Arena arena) throws IOException {
+        List<Map.Entry<MemorySegment, MemorySegment>> allFiles = new ArrayList<>();
         List<Path> ssTablesPaths = new ArrayList<>();
         List<Path> ssIndexesPaths = new ArrayList<>();
 
         List<Path> files = getAllFiles(basePath);
         checkFile(basePath, files);
 
-        Map<Path, Path> allDataPaths = getAllDataPaths(basePath);
+        List<Map.Entry<Path, Path>> allDataPaths = getAllDataPaths(basePath);
 
-        for (Map.Entry<Path, Path> entry : allDataPaths.entrySet()) {
+        for (Map.Entry<Path, Path> entry : allDataPaths) {
             ssTablesPaths.add(entry.getKey());
             ssIndexesPaths.add(entry.getValue());
         }
@@ -65,18 +64,17 @@ public class FileChecker {
             }
 
             checkFileMatch(dataPath, indexPath);
-            allFiles.put(data, index);
+            allFiles.add(new AbstractMap.SimpleEntry<>(data, index));
         }
 
         return allFiles;
     }
 
-    public Map<Path, Path> getAllDataPaths(Path basePath) throws IOException {
+    public List<Map.Entry<Path, Path>> getAllDataPaths(Path basePath) throws IOException {
         List<Path> files = getAllFiles(basePath);
-
         List<Path> ssTablesPaths = new ArrayList<>();
         List<Path> ssIndexesPaths = new ArrayList<>();
-        Map<Path, Path> filePathsMap = new ConcurrentHashMap<>();
+        List<Map.Entry<Path, Path>> filePathsMap = new ArrayList<>();
         for (Path file : files) {
             if (String.valueOf(file.getFileName()).startsWith(fileName)) {
                 ssTablesPaths.add(file);
@@ -92,7 +90,7 @@ public class FileChecker {
 
         int size = ssTablesPaths.size();
         for (int i = 0; i < size; i++) {
-            filePathsMap.put(ssTablesPaths.get(i), ssIndexesPaths.get(i));
+            filePathsMap.add(new AbstractMap.SimpleEntry<>(ssTablesPaths.get(i), ssIndexesPaths.get(i)));
         }
 
         return filePathsMap;

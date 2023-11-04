@@ -4,10 +4,9 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -43,18 +42,21 @@ public class CompactManager {
         Files.createFile(compactedFile);
         Files.createFile(compactedIndex);
 
-        try (FileChannelsHandler writer = new FileChannelsHandler(compactedFile, compactedIndex)) {
-            getStartPosition(writer.getIndexChannel());
+        try (RandomAccessFile randomAccessDataFile =
+                     new RandomAccessFile(String.valueOf(compactedFile), "rw");
+             RandomAccessFile randomAccessIndexFile =
+                     new RandomAccessFile(String.valueOf(compactedIndex), "rw")) {
+            getStartPosition(randomAccessIndexFile);
             while (iterator.hasNext()) {
                 Entry<MemorySegment> currentItem = iterator.next();
                 Map.Entry<MemorySegment, Entry<MemorySegment>> currentEntry =
                         Map.entry(currentItem.key(), new BaseEntry<>(currentItem.key(), currentItem.value()));
-                FileManager.writeEntry(writer.getFileChannel(), currentEntry);
-                offset = FileManager.writeIndexes(writer.getIndexChannel(), offset, currentEntry);
+                FileManager.writeEntry(randomAccessDataFile, currentEntry);
+                offset = FileManager.writeIndexes(randomAccessIndexFile, offset, currentEntry);
                 count++;
             }
 
-            setIndexSize(writer.getIndexChannel(), count);
+            setIndexSize(randomAccessIndexFile, count);
         }
 
         Files.move(compactedFile, basePath.resolve(MAIN_FILE_NAME), ATOMIC_MOVE);
@@ -133,20 +135,13 @@ public class CompactManager {
         return false;
     }
 
-    private static void getStartPosition(FileChannel fileChannel) throws IOException {
-        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-        fileChannel.position(Long.BYTES);
-        buffer.putLong(0);
-        buffer.flip();
-        fileChannel.write(buffer);
+    private static void getStartPosition(RandomAccessFile randomAccessIndexFile) throws IOException {
+        randomAccessIndexFile.seek(Long.BYTES);
     }
 
-    private static void setIndexSize(FileChannel fileChannel, long count) throws IOException {
-        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-        fileChannel.position(0);
-        buffer.putLong(count);
-        buffer.flip();
-        fileChannel.write(buffer);
+    private static void setIndexSize(RandomAccessFile randomAccessIndexFile, long count) throws IOException {
+        randomAccessIndexFile.seek(0);
+        randomAccessIndexFile.writeLong(count);
     }
 
     private void deleteFiles(List<Path> filePaths) throws IOException {

@@ -21,7 +21,6 @@ public final class MergedIterator implements Iterator<Entry<MemorySegment>> {
 
     public static Iterator<Entry<MemorySegment>> createMergedIterator(List<PeekingIterator> iterators,
                                                                       Comparator<Entry<MemorySegment>> comparator) {
-
         if (iterators.isEmpty()) {
             return Collections.emptyIterator();
         }
