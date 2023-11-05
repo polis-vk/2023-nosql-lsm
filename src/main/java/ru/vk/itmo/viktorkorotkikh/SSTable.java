@@ -74,7 +74,7 @@ public final class SSTable {
             deleteOldSSTables(ssTablePaths);
             return replaceSSTablesWithCompactedInternal(
                     arena,
-                    basePath.resolve(FILE_NAME + 0 + FILE_EXTENSION + TMP_FILE_EXTENSION),
+                    getCompactedFilePath(basePath),
                     basePath
             );
         }
@@ -229,11 +229,16 @@ public final class SSTable {
             Supplier<MergeIterator.MergeIteratorWithTombstoneFilter> data,
             Path basePath
     ) throws IOException {
-        Path tmpSSTable = basePath.resolve(FILE_NAME + 0 + FILE_EXTENSION + TMP_FILE_EXTENSION);
+        Path tmpSSTable = basePath.resolve(FILE_NAME + "_compacted_" + FILE_EXTENSION + TMP_FILE_EXTENSION);
         Files.deleteIfExists(tmpSSTable);
         Files.createFile(tmpSSTable);
         EntriesMetadata entriesMetadata = data.get().countEntities();
-        return save(data, entriesMetadata.count(), entriesMetadata.entriesDataSize(), tmpSSTable);
+        Path compacted = save(data, entriesMetadata.count(), entriesMetadata.entriesDataSize(), tmpSSTable);
+        return Files.move(compacted, getCompactedFilePath(basePath), StandardCopyOption.ATOMIC_MOVE);
+    }
+
+    private static Path getCompactedFilePath(Path basePath) {
+        return basePath.resolve(FILE_NAME + "_compacted_" + FILE_EXTENSION);
     }
 
     public static List<SSTable> replaceSSTablesWithCompacted(
@@ -281,7 +286,7 @@ public final class SSTable {
     }
 
     private static boolean checkIfCompactedExists(Path basePath) {
-        Path compacted = basePath.resolve(FILE_NAME + 0 + FILE_EXTENSION + TMP_FILE_EXTENSION);
+        Path compacted = getCompactedFilePath(basePath);
         if (!Files.exists(compacted)) {
             return false;
         }
