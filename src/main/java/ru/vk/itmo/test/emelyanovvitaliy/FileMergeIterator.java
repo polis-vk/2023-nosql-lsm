@@ -8,14 +8,13 @@ import java.util.Iterator;
 import java.util.Queue;
 
 public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
-    private static final Comparator<FileIterator> fileIteratorComparator = new FileIteratorComparator();
+    private static final Comparator<FileIterator> FILE_ITERATOR_COMPARATOR = new FileIteratorComparator();
     private final Comparator<MemorySegment> memorySegmentComparator;
     private final Queue<FileIterator> fileIteratorQueue;
     private final Iterator<Entry<MemorySegment>> memoryIterator;
-
+    private final MemorySegment keyTo;
     private Entry<MemorySegment> nowMemorySegment;
     private Entry<MemorySegment> storedEntry;
-    private final MemorySegment keyTo;
 
     public FileMergeIterator(
             Comparator<MemorySegment> memorySegmentComparator,
@@ -88,10 +87,9 @@ public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
             Entry<MemorySegment> ans = nowMemorySegment;
             moveInMemorySegment();
             return ans;
-        } else {
-            bestFileIterator.next();
-            return bestEntry;
         }
+        bestFileIterator.next();
+        return bestEntry;
     }
 
     private void moveInMemorySegment() {
@@ -123,7 +121,7 @@ public class FileMergeIterator implements Iterator<Entry<MemorySegment>> {
                 bestEntry = entry;
                 bestFileIterator = fileIterator;
             } else if (compared == 0) {
-                if (fileIteratorComparator.compare(bestFileIterator, fileIterator) < 0) {
+                if (FILE_ITERATOR_COMPARATOR.compare(bestFileIterator, fileIterator) < 0) {
                     bestEntry = entry;
                     bestFileIterator.next();
                     bestFileIterator = fileIterator;
