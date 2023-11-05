@@ -16,11 +16,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final SSTable ssTable;
 
-    public DaoImpl() {
-        segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-        ssTable = createSSTableOrNull(new Config(null));
-    }
-
     public DaoImpl(Config config) {
         segments = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
         ssTable = createSSTableOrNull(config);
