@@ -156,19 +156,20 @@ public class FileManager {
         }
     }
 
-    public static long writeIndexes(RandomAccessFile randomAccessIndexFile, long offset,
+    public static long writeIndexes(RandomAccessFile randomAccessIndexFile,
+                                    long offset,
                                     Map.Entry<MemorySegment, Entry<MemorySegment>> entry) throws IOException {
-        long indexFileOffset = offset;
         randomAccessIndexFile.writeLong(offset);
         Entry<MemorySegment> entryValue = entry.getValue();
-        indexFileOffset += Integer.BYTES + entryValue.key().byteSize();
-        indexFileOffset += Integer.BYTES;
+        offset += Integer.BYTES + entryValue.key().byteSize();
+        offset += Integer.BYTES;
         if (entryValue.value() != null) {
-            indexFileOffset += entryValue.value().byteSize();
+            offset += entryValue.value().byteSize();
         }
 
-        return indexFileOffset;
+        return offset;
     }
+
 
     private void writeStorageSize(RandomAccessFile randomAccessIndexFile, long storageSize) throws IOException {
         randomAccessIndexFile.seek(0);
