@@ -109,22 +109,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void flush() throws IOException {
         long currentTimeMillis = System.currentTimeMillis();
         long nanoTime = System.nanoTime();
-        Path filePath = sstablesPath.resolve(
-                Path.of(
-                    Long.toString(currentTimeMillis, Character.MAX_RADIX)
-                        + Long.toString(nanoTime, Character.MAX_RADIX)
-                        + SSTABLE_SUFFIX
-                )
-        );
+        Path filePath = getFilePath(currentTimeMillis, nanoTime);
         dumpToFile(filePath, currentTimeMillis, nanoTime);
     }
 
-    private Path getFilePath() {
+    private Path getFilePath(long curTime, long nanoTime) {
         return sstablesPath.resolve(
                 Path.of(
-                        Long.toString(System.currentTimeMillis(), Character.MAX_RADIX)
-                                + Long.toString(System.nanoTime(), Character.MAX_RADIX)
-                                + ".sstable"
+                        Long.toString(curTime, Character.MAX_RADIX)
+                                + Long.toString(nanoTime, Character.MAX_RADIX)
+                                + SSTABLE_SUFFIX
                 )
         );
     }
@@ -139,8 +133,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             fileSize += entry.key().byteSize() + entry.value().byteSize();
             countOfKeys++;
         }
+        long curTimeMillis = System.currentTimeMillis();
+        long nanoTime = System.nanoTime();
+
         fileSize += 2L * countOfKeys * Long.BYTES;
-        Path filePath = getFilePath();
+        Path filePath = getFilePath(curTimeMillis, nanoTime);
         Set<StandardOpenOption> openOptions =
                 Set.of(
                         StandardOpenOption.CREATE,
@@ -149,7 +146,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 );
         try (FileChannel fc = FileChannel.open(filePath, openOptions); Arena writeArena = Arena.ofConfined()) {
             MemorySegment mapped = fc.map(READ_WRITE, 0, fileSize, writeArena);
-            dumpToMemSegment(mapped, all(), countOfKeys);
+            dumpToMemSegment(mapped, all(), countOfKeys, curTimeMillis, nanoTime);
         }
         for (Path file: filesSet) {
             Files.delete(file);
@@ -207,10 +204,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             MemorySegment mapped = fc.map(READ_WRITE, 0, size, writeArena);
             dumpToMemSegment(mapped, getFromMemory(null, null), mappings.size(), currentTimeMillis, nanoTime);
         }
-    }
-
-    private void dumpToMemSegment(MemorySegment mapped, Iterator<Entry<MemorySegment>> iterator, int numOfKeys) {
-        dumpToMemSegment(mapped, iterator, numOfKeys, System.currentTimeMillis(), System.nanoTime());
     }
 
     private void dumpToMemSegment(MemorySegment mapped, Iterator<Entry<MemorySegment>> iterator,
