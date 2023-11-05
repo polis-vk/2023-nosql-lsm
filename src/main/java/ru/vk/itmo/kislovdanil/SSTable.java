@@ -2,6 +2,7 @@ package ru.vk.itmo.kislovdanil;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -15,7 +16,7 @@ import java.util.Comparator;
 import java.util.NavigableMap;
 
 public class SSTable implements Comparable<SSTable> {
-    // Contains offset and size for every key in index file and every value in data file
+    // Contains offset and size for every key and every value in index file
     private MemorySegment summaryFile;
     // Contains keys
     private MemorySegment indexFile;
@@ -164,6 +165,52 @@ public class SSTable implements Comparable<SSTable> {
         long entryId = findByKeyExact(key);
         if (entryId == -1) return null;
         return readEntry(entryId);
+    }
+
+    public DatabaseIterator getRange(MemorySegment from, MemorySegment to) {
+        return new SSTableIterator(from, to);
+    }
+
+    private class SSTableIterator implements DatabaseIterator {
+        private long curItemIndex;
+        private final MemorySegment maxKey;
+
+        private Entry<MemorySegment> curEntry;
+
+        public SSTableIterator(MemorySegment minKey, MemorySegment maxKey) {
+            this.maxKey = maxKey;
+            if (minKey == null) {
+                this.curItemIndex = 0;
+            } else {
+                this.curItemIndex = findByKey(minKey);
+            }
+            if (curItemIndex == -1) {
+                curItemIndex = Long.MAX_VALUE;
+            } else {
+                this.curEntry = readEntry(curItemIndex);
+            }
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (curItemIndex >= size) return false;
+            return maxKey == null || memSegComp.compare(curEntry.key(), maxKey) < 0;
+        }
+
+        @Override
+        public Entry<MemorySegment> next() {
+            Entry<MemorySegment> result = curEntry;
+            curItemIndex++;
+            if (curItemIndex < size) {
+                curEntry = readEntry(curItemIndex);
+            }
+            return result;
+        }
+
+        @Override
+        public long getPriority() {
+            return tableId;
+        }
     }
 
     @Override
