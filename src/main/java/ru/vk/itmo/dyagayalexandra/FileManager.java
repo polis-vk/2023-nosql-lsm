@@ -159,17 +159,17 @@ public class FileManager {
     public static long writeIndexes(RandomAccessFile randomAccessIndexFile,
                                     long offset,
                                     Map.Entry<MemorySegment, Entry<MemorySegment>> entry) throws IOException {
-        randomAccessIndexFile.writeLong(offset);
+        long newOffset = offset;
+        randomAccessIndexFile.writeLong(newOffset);
         Entry<MemorySegment> entryValue = entry.getValue();
-        offset += Integer.BYTES + entryValue.key().byteSize();
-        offset += Integer.BYTES;
+        newOffset += Integer.BYTES + entryValue.key().byteSize();
+        newOffset += Integer.BYTES;
         if (entryValue.value() != null) {
-            offset += entryValue.value().byteSize();
+            newOffset += entryValue.value().byteSize();
         }
 
-        return offset;
+        return newOffset;
     }
-
 
     private void writeStorageSize(RandomAccessFile randomAccessIndexFile, long storageSize) throws IOException {
         randomAccessIndexFile.seek(0);
