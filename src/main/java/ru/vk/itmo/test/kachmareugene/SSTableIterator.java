@@ -23,7 +23,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     public SSTableIterator(Iterator<Entry<MemorySegment>> it, SSTablesController controller,
                            MemorySegment from, MemorySegment to) {
-        memTableIterator = it;
+        this.memTableIterator = it;
         this.controller = controller;
 
         this.from = from;
@@ -35,23 +35,20 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private void insertNew(SSTableRowInfo info) {
         Entry<MemorySegment> kv = controller.getRow(info);
 
-        if (kv == null) {
-            return;
+        while (kv != null) {
+            SSTableRowInfo old = mp.putIfAbsent(kv.key(), info);
+            if (old == null) {
+                return;
+            }
+
+            SSTableRowInfo oldInfo = old.ssTableInd > info.ssTableInd ? info : old;
+            SSTableRowInfo newInfo = old.ssTableInd < info.ssTableInd ? info : old;
+
+            mp.put(controller.getRow(newInfo).key(), newInfo);
+
+            info = controller.getNextInfo(oldInfo, to);
+            kv = controller.getRow(info);
         }
-
-        if (!mp.containsKey(kv.key())) {
-            mp.put(kv.key(), info);
-            return;
-        }
-        SSTableRowInfo old = mp.get(kv.key());
-
-        SSTableRowInfo oldInfo = old.ssTableInd > info.ssTableInd ? info : old;
-        SSTableRowInfo newInfo = old.ssTableInd < info.ssTableInd ? info : old;
-
-        mp.put(controller.getRow(newInfo).key(), newInfo);
-
-        // tail recursion
-        insertNew(controller.getNextInfo(oldInfo, to));
     }
 
     private void positioningIterator() {

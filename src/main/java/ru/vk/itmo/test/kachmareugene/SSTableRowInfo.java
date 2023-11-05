@@ -1,12 +1,12 @@
 package ru.vk.itmo.test.kachmareugene;
 
 public class SSTableRowInfo {
-    long keyOffset;
-    long valueOffset;
-    long keySize;
-    long rowShift;
+    final long keyOffset;
+    final long valueOffset;
+    final long keySize;
+    final long rowShift;
     private final long valueSize;
-    int ssTableInd;
+    final int ssTableInd;
 
     public SSTableRowInfo(long keyOffset, long keySize, long valueOffset,
                           long valueSize, int ssTableInd, long rowShift) {
@@ -24,9 +24,5 @@ public class SSTableRowInfo {
 
     public long getValueSize() {
         return valueSize;
-    }
-
-    public long totalShift() {
-        return keyOffset + keySize + valueSize;
     }
 }

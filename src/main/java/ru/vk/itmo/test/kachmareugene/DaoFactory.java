@@ -9,7 +9,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@ru.vk.itmo.test.DaoFactory(stage = 3)
+@ru.vk.itmo.test.DaoFactory(stage = 3, week = 100)
 public class DaoFactory implements ru.vk.itmo.test.DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public String toString(MemorySegment memorySegment) {
