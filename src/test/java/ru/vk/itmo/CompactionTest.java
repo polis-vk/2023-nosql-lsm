@@ -90,7 +90,7 @@ class CompactionTest extends BaseTest {
         assertTrue(smallSize * (overwrites + 1) > bigSize);
     }
 
-    @DaoTest(stage = 4)
+    @DaoTest(stage = 4, maxStage = 4)
     void multiple(Dao<String, Entry<String>> dao) throws IOException {
         // Reference value
         int valueSize = 1024 * 1024;
