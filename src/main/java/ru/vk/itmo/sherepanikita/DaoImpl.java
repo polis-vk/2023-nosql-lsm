@@ -46,6 +46,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>>, Iterab
             Files.createDirectories(path);
         }
 
+
         arena = Arena.ofShared();
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
