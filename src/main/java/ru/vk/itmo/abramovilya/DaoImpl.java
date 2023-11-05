@@ -50,7 +50,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!iterator.hasNext()) {
             return;
         }
-
         storage.compact(iterator, get(null, null));
         map.clear();
     }
