@@ -32,22 +32,23 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         positioningIterator();
     }
 
-    private void insertNew(SSTableRowInfo info) {
-        Entry<MemorySegment> kv = controller.getRow(info);
+    private void insertNew(final SSTableRowInfo info) {
+        var curInfo = info;
+        Entry<MemorySegment> kv = controller.getRow(curInfo);
 
         while (kv != null) {
-            SSTableRowInfo old = mp.putIfAbsent(kv.key(), info);
+            SSTableRowInfo old = mp.putIfAbsent(kv.key(), curInfo);
             if (old == null) {
                 return;
             }
 
-            SSTableRowInfo oldInfo = old.ssTableInd > info.ssTableInd ? info : old;
-            SSTableRowInfo newInfo = old.ssTableInd < info.ssTableInd ? info : old;
+            SSTableRowInfo oldInfo = old.ssTableInd > curInfo.ssTableInd ? curInfo : old;
+            SSTableRowInfo newInfo = old.ssTableInd < curInfo.ssTableInd ? curInfo : old;
 
             mp.put(controller.getRow(newInfo).key(), newInfo);
 
-            info = controller.getNextInfo(oldInfo, to);
-            kv = controller.getRow(info);
+            curInfo = controller.getNextInfo(oldInfo, to);
+            kv = controller.getRow(curInfo);
         }
     }
 
