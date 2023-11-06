@@ -99,7 +99,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         flush();
     }
 
-
     @Override
     public void compact() throws IOException {
         flush();
