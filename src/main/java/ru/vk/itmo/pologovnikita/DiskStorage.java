@@ -3,15 +3,33 @@ package ru.vk.itmo.pologovnikita;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfKey;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfValue;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.normalize;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.slice;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.startOfKey;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.startOfValue;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.tombstone;
+
+@SuppressWarnings("PMD.TooManyStaticImports")
 public class DiskStorage {
 
     private final List<MemorySegment> segmentList;
@@ -164,6 +182,24 @@ public class DiskStorage {
         return result;
     }
 
+    public static void deleteFiles(Path path) throws IOException {
+        try (var dirStream = Files.walk(path)) {
+            dirStream
+                    .map(Path::toFile)
+                    .sorted(Comparator.reverseOrder())
+                    .forEach(File::delete);
+        }
+    }
+
+    public static void compact(Iterable<Entry<MemorySegment>> entries, Path compactionalPath, Path path)
+            throws IOException {
+        if (entries.iterator().hasNext()) {
+            DiskStorage.save(compactionalPath, entries); //save all in compact file
+        }
+        DiskStorage.deleteFiles(path); //remove all files
+        Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE); //move from compact to new main file
+    }
+
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);
 
@@ -238,41 +274,6 @@ public class DiskStorage {
                 return new BaseEntry<>(key, value);
             }
         };
-    }
-
-    private static MemorySegment slice(MemorySegment page, long start, long end) {
-        return page.asSlice(start, end - start);
-    }
-
-    private static long startOfKey(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
-    }
-
-    private static long endOfKey(MemorySegment segment, long recordIndex) {
-        return normalizedStartOfValue(segment, recordIndex);
-    }
-
-    private static long normalizedStartOfValue(MemorySegment segment, long recordIndex) {
-        return normalize(startOfValue(segment, recordIndex));
-    }
-
-    private static long startOfValue(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
-    }
-
-    private static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
-        if (recordIndex < recordsCount - 1) {
-            return startOfKey(segment, recordIndex + 1);
-        }
-        return segment.byteSize();
-    }
-
-    private static long tombstone(long offset) {
-        return 1L << 63 | offset;
-    }
-
-    private static long normalize(long value) {
-        return value & ~(1L << 63);
     }
 
 }

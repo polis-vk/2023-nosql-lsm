@@ -22,10 +22,14 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
+    private final Path compactionalPath;
 
     public DaoImpl(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
+        this.compactionalPath = config.basePath().resolve("compactional_data");
+
         Files.createDirectories(path);
+        Files.createDirectories(compactionalPath);
 
         arena = Arena.ofShared();
 
@@ -79,7 +83,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        Dao.super.compact();
+        Iterable<Entry<MemorySegment>> allEntities = this::all;
+        DiskStorage.compact(allEntities, compactionalPath, path);
     }
 
     @Override
