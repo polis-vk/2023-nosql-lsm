@@ -15,29 +15,37 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
     public static final MemorySegment DELETED_VALUE = null;
     private final Config config;
-    private final List<SSTable> tables = new ArrayList<>();
+    private final List<SSTable> tables = new CopyOnWriteArrayList<>();
     private final Comparator<MemorySegment> comparator = new MemSegComparator();
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(comparator);
 
-    private long lastTimestamp = System.currentTimeMillis();
+    private final AtomicLong nextId = new AtomicLong();
+    private final AtomicBoolean isCompacting = new AtomicBoolean(false);
+    private final Executor flushExecutor = Executors.newSingleThreadExecutor();
+    private final Executor compactionExecutor = Executors.newSingleThreadExecutor();
 
     public PersistentDao(Config config) throws IOException {
         this.config = config;
         File basePathDirectory = new File(config.basePath().toString());
         String[] ssTablesIds = basePathDirectory.list();
         if (ssTablesIds == null) return;
+        long maxId = 0;
         for (String tableID : ssTablesIds) {
             // SSTable constructor with rewrite=false reads table data from disk if it exists
+            long tableId = Long.parseLong(tableID);
+            maxId = Math.max(maxId, tableId);
             tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID),
                     storage.values(), false));
         }
+        nextId.set(maxId + 1);
         tables.sort(SSTable::compareTo);
     }
 
@@ -56,8 +64,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         return entry;
     }
 
-    private void updateId() {
-        lastTimestamp = Math.max(lastTimestamp + 1, System.currentTimeMillis());
+    private long getNextId() {
+        return nextId.getAndIncrement();
     }
 
     @Override
@@ -85,10 +93,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     @Override
     public void flush() throws IOException {
         if (!storage.isEmpty()) {
-            updateId();
             // SSTable constructor with rewrite=true writes MemTable data on disk deleting old data if it exists
             tables.add(new SSTable(config.basePath(), comparator,
-                    lastTimestamp, storage.values(), true));
+                    getNextId(), storage.values(), true));
             storage.clear();
         }
     }
@@ -98,17 +105,29 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         flush();
     }
 
-    @Override
-    public void compact() throws IOException {
-        flush();
+    private void makeCompaction() throws IOException {
         if (!tables.isEmpty()) {
-            updateId();
-            SSTable compactedTable = new SSTable(config.basePath(), comparator, lastTimestamp,
+            SSTable compactedTable = new SSTable(config.basePath(), comparator, getNextId(),
                     this, true);
             for (SSTable table : tables) {
-                table.deleteFromDisk();
+                tables.remove(table);
+                table.deleteFromDisk(compactedTable);
             }
             tables.add(compactedTable);
+        }
+    }
+
+    @Override
+    public void compact() {
+        if (isCompacting.compareAndSet(false, true)) {
+            compactionExecutor.execute(() -> {
+                try {
+                    makeCompaction();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            isCompacting.set(false);
         }
     }
 

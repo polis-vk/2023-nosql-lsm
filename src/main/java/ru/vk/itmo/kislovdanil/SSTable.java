@@ -12,7 +12,10 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
 
 public class SSTable implements Comparable<SSTable> {
     // Contains offset and size for every key and every value in index file
@@ -28,6 +31,10 @@ public class SSTable implements Comparable<SSTable> {
 
     private final long size;
 
+    /* In case deletion while compaction of this table field would link to table with compacted data.
+    Necessary for iterators created before compaction. */
+    private SSTable compactedTo = null;
+
     public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
                    Iterable<Entry<MemorySegment>> entriesContainer,
                    boolean rewrite) throws IOException {
@@ -38,7 +45,7 @@ public class SSTable implements Comparable<SSTable> {
         Path indexFilePath = ssTablePath.resolve("index");
         Path dataFilePath = ssTablePath.resolve("data");
         if (rewrite) {
-            write(entriesContainer, summaryFilePath, indexFilePath, dataFilePath);
+            write(entriesContainer.iterator(), summaryFilePath, indexFilePath, dataFilePath);
         } else {
             readOld(summaryFilePath, indexFilePath, dataFilePath);
         }
@@ -103,13 +110,18 @@ public class SSTable implements Comparable<SSTable> {
     }
 
     // Sequentially writes every entity data in SStable keeping files data consistent
-    private void write(Iterable<Entry<MemorySegment>> entriesContainer,
+    private void write(Iterator<Entry<MemorySegment>> entryIterator,
                        Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
         prepareForWriting(summaryFilePath);
         prepareForWriting(indexFilePath);
         prepareForWriting(dataFilePath);
 
-        long[] filesSize = getFilesSize(entriesContainer);
+        List<Entry<MemorySegment>> entries = new ArrayList<>();
+        while (entryIterator.hasNext()) {
+            entries.add(entryIterator.next());
+        }
+
+        long[] filesSize = getFilesSize(entries);
 
         summaryFile = mapFile(filesSize[0], summaryFilePath);
         indexFile = mapFile(filesSize[1], indexFilePath);
@@ -118,7 +130,7 @@ public class SSTable implements Comparable<SSTable> {
         long currentSummaryOffset = 0;
         long currentIndexOffset = 0;
         long currentDataOffset = 0;
-        for (Entry<MemorySegment> entry : entriesContainer) {
+        for (Entry<MemorySegment> entry : entries) {
             MemorySegment value = entry.value();
             value = value == null ? filesArena.allocate(0) : value;
             MemorySegment key = entry.key();
@@ -130,7 +142,8 @@ public class SSTable implements Comparable<SSTable> {
     }
 
     // Deletes all SSTable files from disk. Don't use object after invocation of this method!
-    public void deleteFromDisk() throws IOException {
+    public void deleteFromDisk(SSTable compactedTo) throws IOException {
+        this.compactedTo = compactedTo;
         Files.delete(ssTablePath.resolve("summary"));
         Files.delete(ssTablePath.resolve("index"));
         Files.delete(ssTablePath.resolve("data"));
@@ -175,6 +188,9 @@ public class SSTable implements Comparable<SSTable> {
     }
 
     public Entry<MemorySegment> find(MemorySegment key) throws IOException {
+        if (compactedTo != null) {
+            return compactedTo.find(key);
+        }
         long entryId = findByKeyExact(key);
         if (entryId == -1) return null;
         return readEntry(entryId);
