@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
+
     public static final MemorySegment DELETED_VALUE = null;
     private final Config config;
     private final List<SSTable> tables = new ArrayList<>();
@@ -97,6 +98,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     public void close() throws IOException {
         flush();
     }
+
 
     @Override
     public void compact() throws IOException {
