@@ -5,20 +5,35 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(DaoImpl::compareMemorySegments);
+
+    private long mapByteSize = 0;
     private final Arena arena = Arena.ofShared();
     private final Storage storage;
 
+    private final ReentrantLock lock = new ReentrantLock();
+
+    // TODO: Поменять на значение из Config
+    private final long flushThresholdBytes = 1000000000000000000L;
+
+    private final AtomicBoolean flushing = new AtomicBoolean(false);
+
+    private final ExecutorService flushQueue = Executors.newSingleThreadExecutor();
+
+
     public DaoImpl(Config config) throws IOException {
+//        flushThresholdBytes = config.flushThresholdBytes();
         storage = new Storage(config, arena);
     }
 
@@ -41,7 +56,42 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        map.put(entry.key(), entry);
+        lock.lock();
+        try {
+            Entry<MemorySegment> prevEntry = map.put(entry.key(), entry);
+            if (prevEntry != null) {
+                if (prevEntry.value() != null) {
+                    mapByteSize -= prevEntry.value().byteSize();
+                }
+            } else {
+                mapByteSize += entry.key().byteSize();
+                mapByteSize += 2 * Long.BYTES;
+            }
+            if (entry.value() != null) {
+                mapByteSize += entry.value().byteSize();
+            }
+        } finally {
+            lock.unlock();
+        }
+
+        if (mapByteSize > flushThresholdBytes) {
+            if (flushing.compareAndSet(false, true)) {
+                flushQueue.execute(
+                        () -> {
+                            try {
+                                flush();
+                            } catch (IOException e) {
+                                throw new UncheckedIOException(e);
+                            } finally {
+                                flushing.set(false);
+                            }
+                        }
+                );
+            } else {
+                // TODO: Заменить на DAOMemoryException
+                throw new OutOfMemoryError("Upsert happened with no free space and flushing already executing");
+            }
+        }
     }
 
     @Override
@@ -54,11 +104,28 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         map.clear();
     }
 
+    // Одновременно может работать только один flush
+    // Если какой-то flush в процессе исполнение и приходит запрос на еще один flush,
+    // мы добавляем эту задачу в очередь и ждем завершения
+    //
+    // Вызов flush блокирует вызывающий его поток
     @Override
     public void flush() throws IOException {
-        if (!map.isEmpty()) {
-            writeMapIntoFile();
-            storage.incTotalSStablesAmount();
+        Future<?> submit = flushQueue.submit(() ->
+        {
+            if (!map.isEmpty()) {
+                try {
+                    writeMapIntoFile();
+                    storage.incTotalSStablesAmount();
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
+        });
+        try {
+            submit.get();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException(e);
         }
     }
 
@@ -91,10 +158,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
+        if (!map.isEmpty()) {
+            flush();
+        }
         if (arena.scope().isAlive()) {
             arena.close();
         }
-        flush();
         storage.close();
     }
 

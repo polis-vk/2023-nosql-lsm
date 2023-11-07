@@ -30,9 +30,11 @@ class Storage implements Closeable {
     private final List<MemorySegment> sstableMappedList = new ArrayList<>();
     private final List<FileChannel> indexFileChannels = new ArrayList<>();
     private final List<MemorySegment> indexMappedList = new ArrayList<>();
+    private final Arena arena;
 
     Storage(Config config, Arena arena) throws IOException {
         storagePath = config.basePath();
+        this.arena = arena;
 
         Files.createDirectories(storagePath);
         metaFilePath = storagePath.resolve("meta");
@@ -59,13 +61,13 @@ class Storage implements Closeable {
             FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
             sstableFileChannels.add(sstableFileChannel);
             MemorySegment sstableMapped =
-                    sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
+                    sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), this.arena);
             sstableMappedList.add(sstableMapped);
 
             FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ);
             indexFileChannels.add(indexFileChannel);
             MemorySegment indexMapped =
-                    indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
+                    indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), this.arena);
             indexMappedList.add(indexMapped);
         }
     }
@@ -146,6 +148,7 @@ class Storage implements Closeable {
     void writeMapIntoFile(long sstableSize, long indexSize, NavigableMap<MemorySegment, Entry<MemorySegment>> map)
             throws IOException {
 
+        // FIXME: тут возможны неверные данные
         int totalSStables = getTotalSStables();
         Path sstablePath = storagePath.resolve(Storage.SSTABLE_BASE_NAME + totalSStables);
         Path indexPath = storagePath.resolve(Storage.INDEX_BASE_NAME + totalSStables);
@@ -166,6 +169,21 @@ class Storage implements Closeable {
     void incTotalSStablesAmount() throws IOException {
         int totalSStables = getTotalSStables();
         Files.writeString(metaFilePath, String.valueOf(totalSStables + 1));
+
+        Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + totalSStables);
+        Path indexPath = storagePath.resolve(INDEX_BASE_NAME + totalSStables);
+
+        FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
+        sstableFileChannels.add(sstableFileChannel);
+        MemorySegment sstableMapped =
+                sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
+        sstableMappedList.add(sstableMapped);
+
+        FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ);
+        indexFileChannels.add(indexFileChannel);
+        MemorySegment indexMapped =
+                indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
+        indexMappedList.add(indexMapped);
     }
 
     @Override
