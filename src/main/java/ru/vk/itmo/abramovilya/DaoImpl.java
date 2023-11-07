@@ -22,10 +22,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena = Arena.ofShared();
     private final Storage storage;
 
-    private final ReentrantLock lock = new ReentrantLock();
+    private final ReentrantLock upsertLock  = new ReentrantLock();
+    private final ReentrantLock flushLock  = new ReentrantLock();
 
     // TODO: Поменять на значение из Config
-    private final long flushThresholdBytes = 1000000000000000000L;
+    private final long flushThresholdBytes;
 
     private final AtomicBoolean flushing = new AtomicBoolean(false);
 
@@ -33,7 +34,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
 
     public DaoImpl(Config config) throws IOException {
-//        flushThresholdBytes = config.flushThresholdBytes();
+        flushThresholdBytes = config.flushThresholdBytes();
         storage = new Storage(config, arena);
     }
 
@@ -56,7 +57,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        lock.lock();
+        upsertLock.lock();
         try {
             Entry<MemorySegment> prevEntry = map.put(entry.key(), entry);
             if (prevEntry != null) {
@@ -71,7 +72,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 mapByteSize += entry.value().byteSize();
             }
         } finally {
-            lock.unlock();
+            upsertLock.unlock();
         }
 
         if (mapByteSize > flushThresholdBytes) {
@@ -111,21 +112,14 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     // Вызов flush блокирует вызывающий его поток
     @Override
     public void flush() throws IOException {
-        Future<?> submit = flushQueue.submit(() ->
-        {
-            if (!map.isEmpty()) {
-                try {
-                    writeMapIntoFile();
-                    storage.incTotalSStablesAmount();
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            }
-        });
+        flushLock.lock();
+        flushing.set(true);
         try {
-            submit.get();
-        } catch (InterruptedException | ExecutionException e) {
-            throw new RuntimeException(e);
+            writeMapIntoFile();
+            storage.incTotalSStablesAmount();
+        } finally {
+            flushing.set(false);
+            flushLock.unlock();
         }
     }
 
