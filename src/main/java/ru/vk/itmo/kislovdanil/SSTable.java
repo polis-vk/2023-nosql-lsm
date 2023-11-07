@@ -16,8 +16,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class SSTable implements Comparable<SSTable> {
+public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegment>> {
     // Contains offset and size for every key and every value in index file
     private MemorySegment summaryFile;
     // Contains keys
@@ -34,9 +36,11 @@ public class SSTable implements Comparable<SSTable> {
     /* In case deletion while compaction of this table field would link to table with compacted data.
     Necessary for iterators created before compaction. */
     private SSTable compactedTo = null;
+    // Gives a guarantee that SSTable files wouldn't be deleted while reading
+    private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
     public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
-                   Iterable<Entry<MemorySegment>> entriesContainer,
+                   Iterator<Entry<MemorySegment>> entriesContainer,
                    boolean rewrite) throws IOException {
         this.tableId = tableId;
         ssTablePath = basePath.resolve(Long.toString(tableId));
@@ -45,7 +49,7 @@ public class SSTable implements Comparable<SSTable> {
         Path indexFilePath = ssTablePath.resolve("index");
         Path dataFilePath = ssTablePath.resolve("data");
         if (rewrite) {
-            write(entriesContainer.iterator(), summaryFilePath, indexFilePath, dataFilePath);
+            write(entriesContainer, summaryFilePath, indexFilePath, dataFilePath);
         } else {
             readOld(summaryFilePath, indexFilePath, dataFilePath);
         }
@@ -143,11 +147,16 @@ public class SSTable implements Comparable<SSTable> {
 
     // Deletes all SSTable files from disk. Don't use object after invocation of this method!
     public void deleteFromDisk(SSTable compactedTo) throws IOException {
-        this.compactedTo = compactedTo;
-        Files.delete(ssTablePath.resolve("summary"));
-        Files.delete(ssTablePath.resolve("index"));
-        Files.delete(ssTablePath.resolve("data"));
-        Files.delete(ssTablePath);
+        readWriteLock.writeLock().lock();
+        try {
+            this.compactedTo = compactedTo;
+            Files.delete(ssTablePath.resolve("summary"));
+            Files.delete(ssTablePath.resolve("index"));
+            Files.delete(ssTablePath.resolve("data"));
+            Files.delete(ssTablePath);
+        } finally {
+            readWriteLock.writeLock().unlock();
+        }
     }
 
     private Range readRange(MemorySegment segment, long offset) {
@@ -191,13 +200,27 @@ public class SSTable implements Comparable<SSTable> {
         if (compactedTo != null) {
             return compactedTo.find(key);
         }
-        long entryId = findByKeyExact(key);
-        if (entryId == -1) return null;
-        return readEntry(entryId);
+        readWriteLock.readLock().lock();
+        try {
+            long entryId = findByKeyExact(key);
+            if (entryId == -1) return null;
+            return readEntry(entryId);
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     public DatabaseIterator getRange(MemorySegment from, MemorySegment to) {
-        return new SSTableIterator(from, to);
+        return new SSTableIterator(from, to, this);
+    }
+
+    public DatabaseIterator getRange() {
+        return getRange(null, null);
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> iterator() {
+        return getRange();
     }
 
     private class SSTableIterator implements DatabaseIterator {
@@ -205,35 +228,62 @@ public class SSTable implements Comparable<SSTable> {
         private final MemorySegment maxKey;
 
         private Entry<MemorySegment> curEntry;
+        private SSTable table;
 
-        public SSTableIterator(MemorySegment minKey, MemorySegment maxKey) {
-            this.maxKey = maxKey;
-            if (minKey == null) {
-                this.curItemIndex = 0;
-            } else {
-                this.curItemIndex = findByKey(minKey);
+        public SSTableIterator(MemorySegment minKey, MemorySegment maxKey, SSTable table) {
+            this.table = table;
+            this.table.readWriteLock.readLock().lock();
+            try {
+                this.maxKey = maxKey;
+                if (minKey == null) {
+                    this.curItemIndex = 0;
+                } else {
+                    this.curItemIndex = this.table.findByKey(minKey);
+                }
+                if (curItemIndex == -1) {
+                    curItemIndex = Long.MAX_VALUE;
+                } else {
+                    this.curEntry = this.table.readEntry(curItemIndex);
+                }
+            } finally {
+                this.table.readWriteLock.readLock().unlock();
             }
-            if (curItemIndex == -1) {
-                curItemIndex = Long.MAX_VALUE;
-            } else {
-                this.curEntry = readEntry(curItemIndex);
+        }
+
+        private void updateTable() {
+            if (this.table.compactedTo == null) return;
+            while (this.table.compactedTo != null) {
+                this.table = this.table.compactedTo;
+            }
+            this.table.readWriteLock.readLock().lock();
+            try {
+                this.curItemIndex = this.table.findByKey(curEntry.key());
+            } finally {
+                this.table.readWriteLock.readLock().unlock();
             }
         }
 
         @Override
         public boolean hasNext() {
-            if (curItemIndex >= size) return false;
+            updateTable();
+            if (curItemIndex >= this.table.size) return false;
             return maxKey == null || memSegComp.compare(curEntry.key(), maxKey) < 0;
         }
 
         @Override
         public Entry<MemorySegment> next() {
             Entry<MemorySegment> result = curEntry;
-            curItemIndex++;
-            if (curItemIndex < size) {
-                curEntry = readEntry(curItemIndex);
+            updateTable();
+            this.table.readWriteLock.readLock().lock();
+            try {
+                curItemIndex++;
+                if (curItemIndex < size) {
+                    curEntry = readEntry(curItemIndex);
+                }
+                return result;
+            } finally {
+                this.table.readWriteLock.readLock().unlock();
             }
-            return result;
         }
 
         @Override
@@ -242,9 +292,10 @@ public class SSTable implements Comparable<SSTable> {
         }
     }
 
+    // The less the ID, the less the table
     @Override
     public int compareTo(SSTable o) {
-        return Long.compare(o.tableId, this.tableId);
+        return Long.compare(this.tableId, o.tableId);
     }
 
     // Describes offset and size of any data segment
@@ -257,6 +308,7 @@ public class SSTable implements Comparable<SSTable> {
             this.length = length;
         }
     }
+
 
     private class Metadata {
         private final Range keyRange;

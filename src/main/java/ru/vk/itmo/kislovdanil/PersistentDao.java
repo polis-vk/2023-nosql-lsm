@@ -11,10 +11,7 @@ import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -29,8 +26,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     private final AtomicLong nextId = new AtomicLong();
     private final AtomicBoolean isCompacting = new AtomicBoolean(false);
-    private final Executor flushExecutor = Executors.newSingleThreadExecutor();
-    private final Executor compactionExecutor = Executors.newSingleThreadExecutor();
+    // private final Executor flushExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService compactionExecutor = Executors.newSingleThreadExecutor();
 
     public PersistentDao(Config config) throws IOException {
         this.config = config;
@@ -43,7 +40,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
             long tableId = Long.parseLong(tableID);
             maxId = Math.max(maxId, tableId);
             tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID),
-                    storage.values(), false));
+                    storage.values().iterator(), false));
         }
         nextId.set(maxId + 1);
         tables.sort(SSTable::compareTo);
@@ -73,7 +70,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         Entry<MemorySegment> ans = storage.get(key);
         if (ans != null) return wrapEntryIfDeleted(ans);
         try {
-            for (SSTable table : tables) {
+            for (SSTable table : tables.reversed()) {
                 Entry<MemorySegment> data = table.find(key);
                 if (data != null) {
                     return wrapEntryIfDeleted(data);
@@ -95,7 +92,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         if (!storage.isEmpty()) {
             // SSTable constructor with rewrite=true writes MemTable data on disk deleting old data if it exists
             tables.add(new SSTable(config.basePath(), comparator,
-                    getNextId(), storage.values(), true));
+                    getNextId(), storage.values().iterator(), true));
             storage.clear();
         }
     }
@@ -103,17 +100,27 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     @Override
     public void close() throws IOException {
         flush();
+        compactionExecutor.shutdown();
+        try {
+            if (!compactionExecutor.awaitTermination(60, TimeUnit.SECONDS)) {
+                compactionExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private void makeCompaction() throws IOException {
         if (!tables.isEmpty()) {
+            SSTable[] curTables = new SSTable[tables.size()];
+            tables.toArray(curTables);
             SSTable compactedTable = new SSTable(config.basePath(), comparator, getNextId(),
-                    this, true);
-            for (SSTable table : tables) {
+                    new MergeIterator(Arrays.asList(curTables), comparator), true);
+            tables.add(compactedTable);
+            for (SSTable table : curTables) {
                 tables.remove(table);
                 table.deleteFromDisk(compactedTable);
             }
-            tables.add(compactedTable);
         }
     }
 
