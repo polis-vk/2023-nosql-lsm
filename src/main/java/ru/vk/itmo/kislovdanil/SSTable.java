@@ -39,6 +39,10 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
     // Gives a guarantee that SSTable files wouldn't be deleted while reading
     private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
+    public long getTableId() {
+        return tableId;
+    }
+
     public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
                    Iterator<Entry<MemorySegment>> entriesContainer,
                    boolean rewrite) throws IOException {
@@ -232,9 +236,10 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
 
         public SSTableIterator(MemorySegment minKey, MemorySegment maxKey, SSTable table) {
             this.table = table;
+            this.maxKey = maxKey;
+            if (table.size == 0) return;
             this.table.readWriteLock.readLock().lock();
             try {
-                this.maxKey = maxKey;
                 if (minKey == null) {
                     this.curItemIndex = 0;
                 } else {
