@@ -108,9 +108,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     }
 
     private long getEntryByteSize(Entry<MemorySegment> entry) {
-        if (entry == null) {
-            return 0;
-        }
         long entryByteSize = entry.key().byteSize();
         if (entry.value() != null) {
             entryByteSize += entry.value().byteSize();
@@ -133,8 +130,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
                 tableSize = memTableByteSize.get();
             }
         }
-        long previousEntryByteSize = getEntryByteSize(storage.put(entry.key(), entry));
-        memTableByteSize.addAndGet(-previousEntryByteSize);
+        Entry<MemorySegment> previousEntry = storage.put(entry.key(), entry);
+        if (previousEntry != null) {
+            memTableByteSize.addAndGet(-getEntryByteSize(previousEntry));
+        }
     }
 
     private void makeFlush() throws IOException {
