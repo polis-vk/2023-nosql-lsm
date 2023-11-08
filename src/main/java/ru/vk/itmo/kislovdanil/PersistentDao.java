@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
+
     public static final MemorySegment DELETED_VALUE = null;
     private final Config config;
     private final List<SSTable> tables = new CopyOnWriteArrayList<>();
