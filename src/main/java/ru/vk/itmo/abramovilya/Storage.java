@@ -149,6 +149,8 @@ class Storage implements Closeable {
             throws IOException {
 
         // FIXME: тут возможны неверные данные
+        // Возможна проблема когда один поток выполняет writeMapIntoFile, но еще не успел заинкрементить totalSStables
+        // Можно инкременить сразу, но тогда непонятно что произойдет в случае если первый поток умрет не дописав в файл
         int totalSStables = getTotalSStables();
         Path sstablePath = storagePath.resolve(Storage.SSTABLE_BASE_NAME + totalSStables);
         Path indexPath = storagePath.resolve(Storage.INDEX_BASE_NAME + totalSStables);

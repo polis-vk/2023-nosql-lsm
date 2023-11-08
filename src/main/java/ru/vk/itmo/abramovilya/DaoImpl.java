@@ -15,17 +15,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
-            new ConcurrentSkipListMap<>(DaoImpl::compareMemorySegments);
-
-    private long mapByteSize = 0;
+    private final ConcurrentMapWithSize map =
+            new ConcurrentMapWithSize(DaoImpl::compareMemorySegments);
     private final Arena arena = Arena.ofShared();
     private final Storage storage;
-
-    private final ReentrantLock upsertLock  = new ReentrantLock();
     private final ReentrantLock flushLock  = new ReentrantLock();
-
-    // TODO: Поменять на значение из Config
     private final long flushThresholdBytes;
 
     private final AtomicBoolean flushing = new AtomicBoolean(false);
@@ -57,25 +51,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        upsertLock.lock();
-        try {
-            Entry<MemorySegment> prevEntry = map.put(entry.key(), entry);
-            if (prevEntry != null) {
-                if (prevEntry.value() != null) {
-                    mapByteSize -= prevEntry.value().byteSize();
-                }
-            } else {
-                mapByteSize += entry.key().byteSize();
-                mapByteSize += 2 * Long.BYTES;
-            }
-            if (entry.value() != null) {
-                mapByteSize += entry.value().byteSize();
-            }
-        } finally {
-            upsertLock.unlock();
-        }
+        map.put(entry.key(), entry);
 
-        if (mapByteSize > flushThresholdBytes) {
+        if (map.memorySize() > flushThresholdBytes) {
             if (flushing.compareAndSet(false, true)) {
                 flushQueue.execute(
                         () -> {
@@ -112,6 +90,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     // Вызов flush блокирует вызывающий его поток
     @Override
     public void flush() throws IOException {
+        System.out.println("flush start");
         flushLock.lock();
         flushing.set(true);
         try {
@@ -120,6 +99,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         } finally {
             flushing.set(false);
             flushLock.unlock();
+            System.out.println("flush end");
+            System.out.println(map.memorySize());
         }
     }
 
