@@ -2,15 +2,15 @@ package ru.vk.itmo.kislovdanil.iterators;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.kislovdanil.ssTable.SSTable;
+import ru.vk.itmo.kislovdanil.sstable.SSTable;
 
 import java.lang.foreign.MemorySegment;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.TreeMap;
 
 // Iterates through SSTables and MemTable using N pointers algorithm. Conflicts being solved by iterator priority.

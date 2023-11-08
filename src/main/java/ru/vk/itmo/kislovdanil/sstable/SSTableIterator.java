@@ -1,4 +1,4 @@
-package ru.vk.itmo.kislovdanil.ssTable;
+package ru.vk.itmo.kislovdanil.sstable;
 
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;

@@ -7,7 +7,7 @@ import ru.vk.itmo.kislovdanil.exceptions.DBException;
 import ru.vk.itmo.kislovdanil.exceptions.OverloadException;
 import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;
 import ru.vk.itmo.kislovdanil.iterators.MergeIterator;
-import ru.vk.itmo.kislovdanil.ssTable.SSTable;
+import ru.vk.itmo.kislovdanil.sstable.SSTable;
 
 import java.io.File;
 import java.io.IOException;
@@ -15,17 +15,18 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.TimeUnit;
-import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLong;
+
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
 
@@ -164,7 +165,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
                 executorService.shutdownNow();
             }
         } catch (InterruptedException e) {
-            throw new DBException(e);
+            Thread.currentThread().interrupt();
         }
     }
 
