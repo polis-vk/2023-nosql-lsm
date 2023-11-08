@@ -1,4 +1,4 @@
-package ru.vk.itmo.kislovdanil;
+package ru.vk.itmo.kislovdanil.ssTable;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
@@ -21,23 +21,23 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegment>> {
     // Contains offset and size for every key and every value in index file
-    private MemorySegment summaryFile;
+    MemorySegment summaryFile;
     // Contains keys
-    private MemorySegment indexFile;
+    MemorySegment indexFile;
     // Contains values
-    private MemorySegment dataFile;
-    private final Comparator<MemorySegment> memSegComp;
+    MemorySegment dataFile;
+    final Comparator<MemorySegment> memSegComp;
     private final Arena filesArena = Arena.ofAuto();
     private final long tableId;
     private final Path ssTablePath;
 
-    private final long size;
+    final long size;
 
     /* In case deletion while compaction of this table field would link to table with compacted data.
     Necessary for iterators created before compaction. */
-    private SSTable compactedTo = null;
+    SSTable compactedTo;
     // Gives a guarantee that SSTable files wouldn't be deleted while reading
-    private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
+    final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
     public long getTableId() {
         return tableId;
@@ -163,19 +163,19 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
         }
     }
 
-    private Range readRange(MemorySegment segment, long offset) {
+    Range readRange(MemorySegment segment, long offset) {
         return new Range(segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset),
                 segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + Long.BYTES));
     }
 
     /* Binary search in summary and index files. Returns index of least record greater than key or equal.
     Returns -1 if no such key */
-    private long findByKey(MemorySegment key) {
+    long findByKey(MemorySegment key) {
         long left = -1; // Always less than key
         long right = size; // Always greater or equal than key
         while (right - left > 1) {
             long middle = (right + left) / 2;
-            Metadata currentEntryMetadata = new Metadata(middle);
+            Metadata currentEntryMetadata = new Metadata(middle, this);
             MemorySegment curKey = currentEntryMetadata.readKey();
             int compRes = memSegComp.compare(key, curKey);
             if (compRes <= 0) {
@@ -193,8 +193,8 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
         return goe;
     }
 
-    private Entry<MemorySegment> readEntry(long index) {
-        Metadata metadata = new Metadata(index);
+    Entry<MemorySegment> readEntry(long index) {
+        Metadata metadata = new Metadata(index, this);
         MemorySegment key = metadata.readKey();
         MemorySegment value = metadata.readValue();
         return new BaseEntry<>(key, value);
@@ -227,76 +227,6 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
         return getRange();
     }
 
-    private class SSTableIterator implements DatabaseIterator {
-        private long curItemIndex;
-        private final MemorySegment maxKey;
-
-        private Entry<MemorySegment> curEntry;
-        private SSTable table;
-
-        public SSTableIterator(MemorySegment minKey, MemorySegment maxKey, SSTable table) {
-            this.table = table;
-            this.maxKey = maxKey;
-            if (table.size == 0) return;
-            this.table.readWriteLock.readLock().lock();
-            try {
-                if (minKey == null) {
-                    this.curItemIndex = 0;
-                } else {
-                    this.curItemIndex = this.table.findByKey(minKey);
-                }
-                if (curItemIndex == -1) {
-                    curItemIndex = Long.MAX_VALUE;
-                } else {
-                    this.curEntry = this.table.readEntry(curItemIndex);
-                }
-            } finally {
-                this.table.readWriteLock.readLock().unlock();
-            }
-        }
-
-        private void updateTable() {
-            if (this.table.compactedTo == null) return;
-            while (this.table.compactedTo != null) {
-                this.table = this.table.compactedTo;
-            }
-            this.table.readWriteLock.readLock().lock();
-            try {
-                this.curItemIndex = this.table.findByKey(curEntry.key());
-            } finally {
-                this.table.readWriteLock.readLock().unlock();
-            }
-        }
-
-        @Override
-        public boolean hasNext() {
-            updateTable();
-            if (curItemIndex >= this.table.size) return false;
-            return maxKey == null || memSegComp.compare(curEntry.key(), maxKey) < 0;
-        }
-
-        @Override
-        public Entry<MemorySegment> next() {
-            Entry<MemorySegment> result = curEntry;
-            updateTable();
-            this.table.readWriteLock.readLock().lock();
-            try {
-                curItemIndex++;
-                if (curItemIndex < size) {
-                    curEntry = readEntry(curItemIndex);
-                }
-                return result;
-            } finally {
-                this.table.readWriteLock.readLock().unlock();
-            }
-        }
-
-        @Override
-        public long getPriority() {
-            return tableId;
-        }
-    }
-
     // The less the ID, the less the table
     @Override
     public int compareTo(SSTable o) {
@@ -304,7 +234,7 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
     }
 
     // Describes offset and size of any data segment
-    private static class Range {
+    static class Range {
         public long offset;
         public long length;
 
@@ -313,43 +243,4 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
             this.length = length;
         }
     }
-
-
-    private class Metadata {
-        private final Range keyRange;
-        private final Range valueRange;
-        private final Boolean isDeletion;
-        public static final long SIZE = Long.BYTES * 4 + 1;
-
-        public Metadata(long index) {
-            long base = index * Metadata.SIZE;
-            keyRange = readRange(summaryFile, base);
-            valueRange = readRange(summaryFile, base + 2 * Long.BYTES);
-            isDeletion = summaryFile.get(ValueLayout.JAVA_BOOLEAN, base + 4 * Long.BYTES);
-        }
-
-        public MemorySegment readKey() {
-            return indexFile.asSlice(keyRange.offset, keyRange.length);
-        }
-
-        public MemorySegment readValue() {
-            return isDeletion ? null : dataFile.asSlice(valueRange.offset, valueRange.length);
-        }
-
-        public static void writeEntryMetadata(Entry<MemorySegment> entry, MemorySegment summaryFile,
-                                              long sumOffset, long indexOffset, long dataOffset) {
-            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                    sumOffset, indexOffset);
-            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                    sumOffset + Long.BYTES, entry.key().byteSize());
-            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                    sumOffset + 2 * Long.BYTES, dataOffset);
-            summaryFile.set(ValueLayout.JAVA_BOOLEAN,
-                    sumOffset + 4 * Long.BYTES, entry.value() == null);
-            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                    sumOffset + 3 * Long.BYTES, entry.value() == null ? 0 : entry.value().byteSize());
-        }
-
-    }
-
 }

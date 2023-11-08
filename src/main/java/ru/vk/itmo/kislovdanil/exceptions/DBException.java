@@ -4,6 +4,7 @@ public class DBException extends RuntimeException {
     public DBException(Exception e) {
         super(e);
     }
+
     public DBException() {
         super();
     }

@@ -7,14 +7,25 @@ import ru.vk.itmo.kislovdanil.exceptions.DBException;
 import ru.vk.itmo.kislovdanil.exceptions.OverloadException;
 import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;
 import ru.vk.itmo.kislovdanil.iterators.MergeIterator;
+import ru.vk.itmo.kislovdanil.ssTable.SSTable;
 
 import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.*;
-import java.util.concurrent.*;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.TimeUnit;
+import java.util.Arrays;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
 
@@ -22,19 +33,19 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     private final Config config;
     private final List<SSTable> tables = new CopyOnWriteArrayList<>();
     private final Comparator<MemorySegment> comparator = new MemSegComparator();
-    volatile private ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> storage =
+    private volatile ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(comparator);
 
     // Temporary storage in case of main storage overload (Read only)
-    volatile private ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> additionalStorage =
+    private volatile ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> additionalStorage =
             new ConcurrentSkipListMap<>(comparator);
 
     // In case of additional table overload while main table is flushing
-    volatile private boolean isFlushing = false;
+    private volatile boolean isFlushing;
 
     private final AtomicLong nextId = new AtomicLong();
     private final ExecutorService commonExecutorService = Executors.newSingleThreadExecutor();
-    volatile private long memTableByteSize = 0;
+    private volatile long memTableByteSize;
 
     private long getMaxTablesId(Iterable<SSTable> tableIterable) {
         long curMaxId = -1;
@@ -106,7 +117,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     }
 
     @Override
-    synchronized public void upsert(Entry<MemorySegment> entry) {
+    public synchronized void upsert(Entry<MemorySegment> entry) {
         long entryByteSize = getEntryByteSize(entry);
         if (storage.containsKey(entry.key())) {
             entryByteSize -= getEntryByteSize(storage.get(entry.key()));
@@ -139,7 +150,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
                         isFlushing = true;
                         makeFlush();
                     } catch (IOException e) {
-                        throw new RuntimeException(e);
+                        throw new DBException(e);
                     } finally {
                         isFlushing = false;
                     }
@@ -153,7 +164,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
                 executorService.shutdownNow();
             }
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            throw new DBException(e);
         }
     }
 
@@ -184,7 +195,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
                     try {
                         makeCompaction();
                     } catch (IOException e) {
-                        throw new RuntimeException(e);
+                        throw new DBException(e);
                     }
                 });
     }
