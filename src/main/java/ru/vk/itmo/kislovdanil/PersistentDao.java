@@ -118,7 +118,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         long entryByteSize = getEntryByteSize(entry);
-        long tableSize = memTableByteSize.addAndGet(entryByteSize);
+        long tableSize = memTableByteSize.get();
         while (tableSize > config.flushThresholdBytes()) {
             if (memTableByteSize.compareAndSet(tableSize, 0)) {
                 if (isFlushing) {
@@ -130,6 +130,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
                 tableSize = memTableByteSize.get();
             }
         }
+        memTableByteSize.addAndGet(entryByteSize);
         Entry<MemorySegment> previousEntry = storage.put(entry.key(), entry);
         if (previousEntry != null) {
             memTableByteSize.addAndGet(-getEntryByteSize(previousEntry));
