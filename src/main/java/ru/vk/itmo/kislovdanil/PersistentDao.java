@@ -44,7 +44,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     private final AtomicLong nextId = new AtomicLong();
     private final ExecutorService commonExecutorService = Executors.newSingleThreadExecutor();
-    private volatile long memTableByteSize;
+    private final AtomicLong memTableByteSize = new AtomicLong(0);
 
     private long getMaxTablesId(Iterable<SSTable> tableIterable) {
         long curMaxId = -1;
@@ -108,6 +108,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     }
 
     private long getEntryByteSize(Entry<MemorySegment> entry) {
+        if (entry == null) {
+            return 0;
+        }
         long entryByteSize = entry.key().byteSize();
         if (entry.value() != null) {
             entryByteSize += entry.value().byteSize();
@@ -116,19 +119,23 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     }
 
     @Override
-    public synchronized void upsert(Entry<MemorySegment> entry) {
+    public void upsert(Entry<MemorySegment> entry) {
         long entryByteSize = getEntryByteSize(entry);
-        if (storage.containsKey(entry.key())) {
-            entryByteSize -= getEntryByteSize(storage.get(entry.key()));
-        }
-        if (entryByteSize + memTableByteSize > config.flushThresholdBytes()) {
-            if (isFlushing) {
-                throw new OverloadException();
+        long tableSize = memTableByteSize.addAndGet(entryByteSize);
+        if (tableSize > config.flushThresholdBytes()) {
+            while (true) {
+                if (memTableByteSize.compareAndSet(tableSize, 0)) {
+                    if (isFlushing) {
+                        throw new OverloadException();
+                    }
+                    flush();
+                    break;
+                } else {
+                    tableSize = memTableByteSize.get();
+                }
             }
-            flush();
-            memTableByteSize = 0;
         }
-        storage.put(entry.key(), entry);
+        memTableByteSize.addAndGet(-getEntryByteSize(storage.put(entry.key(), entry)));
     }
 
     private void makeFlush() throws IOException {
