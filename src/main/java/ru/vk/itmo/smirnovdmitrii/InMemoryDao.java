@@ -1,63 +1,42 @@
 package ru.vk.itmo.smirnovdmitrii;
 
-import ru.vk.itmo.Config;
-import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.OutMemoryDao;
-import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
 
-import java.lang.foreign.MemorySegment;
-import java.nio.file.Path;
 import java.util.Iterator;
-import java.util.Map;
 import java.util.SortedMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public interface InMemoryDao<D, E extends Entry<D>> extends AutoCloseable {
 
-    private static final Config DEFAULT_CONFIG = new Config(Path.of(""));
-    private final SortedMap<MemorySegment, Entry<MemorySegment>> storage =
-            new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-    private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
+    /**
+     * Committing state of elements in memory represented as map.
+     * Returns {@link java.util.SortedMap} representing elements in memory.
+     * After that in memory dao will be empty.
+     * Changing this map can produce bad work of {@link InMemoryDao}.
+     * @return sorted map of elements in memory.
+     */
+    SortedMap<D, E> commit();
 
-    public InMemoryDao() {
-        this(DEFAULT_CONFIG);
-    }
+    /**
+     * Return iterator for data in memory from key {@code from} to key {@code to}.
+     * @param from from key.
+     * @param to to key.
+     * @return returned iterator.
+     */
+    Iterator<Entry<D>> get(D from, D to);
 
-    public InMemoryDao(final Config config) {
-        final Path basePath = config.basePath();
-        outMemoryDao = new FileDao(basePath);
-    }
+    /**
+     * Return entry that associated with key {@code key}. Null if there is no entry with such key.
+     * @param key key to search.
+     * @return entry associated with key.
+     */
+    Entry<D> get(D key);
 
-    @Override
-    public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
-        final Map<MemorySegment, Entry<MemorySegment>> map;
-        if (from == null && to == null) {
-            map = storage;
-        } else if (from == null) {
-            map = storage.headMap(to);
-        } else if (to == null) {
-            map = storage.tailMap(from);
-        } else {
-            map = storage.subMap(from, to);
-        }
-        return map.values().iterator();
-    }
-
-    @Override
-    public Entry<MemorySegment> get(final MemorySegment key) {
-        final Entry<MemorySegment> result = storage.get(key);
-        return result == null ? outMemoryDao.get(key) : result;
-    }
+    /**
+     * Adding entry to in memory dao. If there was entry with same key, then replace it.
+     * @param entry entry to add.
+     */
+    void upsert(Entry<D> entry);
 
     @Override
-    public void upsert(final Entry<MemorySegment> entry) {
-        storage.put(entry.key(), entry);
-    }
-
-    @Override
-    public synchronized void close() {
-        outMemoryDao.save(storage);
-    }
-
+    void close();
 }
