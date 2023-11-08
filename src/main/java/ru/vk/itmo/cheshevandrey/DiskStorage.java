@@ -32,20 +32,40 @@ public class DiskStorage {
 
     public Iterator<Entry<MemorySegment>> range(
             Iterator<Entry<MemorySegment>> firstIterator,
+            Iterator<Entry<MemorySegment>> secondIterator,
             MemorySegment from,
             MemorySegment to) {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
-        for (MemorySegment memorySegment : segmentList) {
-            iterators.add(iterator(memorySegment, from, to));
-        }
+        List<Iterator<Entry<MemorySegment>>> iterators = getDiskIterators(from, to);
+        iterators.add(secondIterator);
         iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, InMemoryDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, Tools::compare)) {
             @Override
             protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;
             }
         };
+    }
+
+    public Iterator<Entry<MemorySegment>> diskRange(
+            MemorySegment from,
+            MemorySegment to) {
+        List<Iterator<Entry<MemorySegment>>> iterators = getDiskIterators(from, to);
+
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, Tools::compare)) {
+            @Override
+            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+                return memorySegmentEntry.value() == null;
+            }
+        };
+    }
+
+    private List<Iterator<Entry<MemorySegment>>> getDiskIterators(MemorySegment from, MemorySegment to) {
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        for (MemorySegment memorySegment : segmentList) {
+            iterators.add(iterator(memorySegment, from, to));
+        }
+        return iterators;
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
@@ -175,8 +195,8 @@ public class DiskStorage {
         }
     }
 
-    public void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterableMemTable) throws IOException {
-        IterableStorage storage = new IterableStorage(iterableMemTable, this);
+    public void compact(Path storagePath) throws IOException {
+        IterableStorage storage = new IterableStorage( this);
         if (!storage.iterator().hasNext()) {
             return;
         }
@@ -208,22 +228,6 @@ public class DiskStorage {
     private static void updateIndex(MemorySegment indexSegment, int compactNumber, int ssTablesCount) {
         indexSegment.set(ValueLayout.JAVA_INT_UNALIGNED, 0, compactNumber);
         indexSegment.set(ValueLayout.JAVA_INT_UNALIGNED, Integer.BYTES, ssTablesCount);
-    }
-
-    private static final class IterableStorage implements Iterable<Entry<MemorySegment>> {
-
-        Iterable<Entry<MemorySegment>> iterableMemTable;
-        DiskStorage diskStorage;
-
-        private IterableStorage(Iterable<Entry<MemorySegment>> iterableMemTable, DiskStorage diskStorage) {
-            this.iterableMemTable = iterableMemTable;
-            this.diskStorage = diskStorage;
-        }
-
-        @Override
-        public Iterator<Entry<MemorySegment>> iterator() {
-            return diskStorage.range(iterableMemTable.iterator(), null, null);
-        }
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
@@ -291,5 +295,16 @@ public class DiskStorage {
                 return new BaseEntry<>(key, value);
             }
         };
+    }
+
+    private static final class IterableStorage implements Iterable<Entry<MemorySegment>> {
+        DiskStorage diskStorage;
+        private IterableStorage(DiskStorage diskStorage) {
+            this.diskStorage = diskStorage;
+        }
+        @Override
+        public Iterator<Entry<MemorySegment>> iterator() {
+            return diskStorage.diskRange(null, null);
+        }
     }
 }
