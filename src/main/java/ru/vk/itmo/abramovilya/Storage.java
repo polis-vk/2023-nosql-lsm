@@ -90,7 +90,12 @@ class Storage implements Closeable {
     }
 
     final int getTotalSStables() {
-        return sstableFileChannels.size();
+        readWriteLock.readLock().lock();
+        try {
+            return sstableFileChannels.size();
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     private Entry<MemorySegment> seekForValueInFile(MemorySegment key, int sstableNum) {

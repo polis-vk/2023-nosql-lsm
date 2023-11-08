@@ -12,22 +12,25 @@ import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private ConcurrentMapWithSize map =
-            new ConcurrentMapWithSize(DaoImpl::compareMemorySegments);
-    private ConcurrentMapWithSize flushingMap = null;
+    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
+            new ConcurrentSkipListMap<>(DaoImpl::compareMemorySegments);
+    private final AtomicLong memoryMapSize = new AtomicLong();
+    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushingMap = null;
     private final Arena arena = Arena.ofShared();
     private final Storage storage;
-    private final ReentrantLock flushLock  = new ReentrantLock();
+
+    // Я использую семафор вместо Lock потому что я хочу делать lock() в одном потоке, а unlock() - в другом
+    // В случае с Lock я получал бы IllegalMonitorStateException
+    // https://stackoverflow.com/questions/36652352/java-lock-and-unlock-on-different-thread
+    private final Semaphore flushSemaphore = new Semaphore(1);
     private final long flushThresholdBytes;
     private final ReadWriteLock mapUpsertExchangeLock = new ReentrantReadWriteLock();
-    private final AtomicBoolean flushing = new AtomicBoolean(false);
-    private final ExecutorService flushQueue = Executors.newSingleThreadExecutor();
+    private final ExecutorService backgroundFlushQueue = Executors.newSingleThreadExecutor();
 
 
     public DaoImpl(Config config) throws IOException {
@@ -49,7 +52,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
             return null;
         }
-        if (flushingMap  != null) {
+        if (flushingMap != null) {
             var flushingValue = flushingMap.get(key);
             if (flushingValue != null) {
                 if (flushingValue.value() != null) {
@@ -66,35 +69,28 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         mapUpsertExchangeLock.readLock().lock();
         try {
             map.put(entry.key(), entry);
+            long sizeToAdd = entry.key().byteSize();
+            if (entry.value() != null) {
+                sizeToAdd += entry.value().byteSize();
+            }
+            memoryMapSize.addAndGet(sizeToAdd);
         } finally {
             mapUpsertExchangeLock.readLock().unlock();
         }
 
-        if (map.memorySize() <= flushThresholdBytes) {
+        if (memoryMapSize.get() <= flushThresholdBytes) {
             return;
         }
         mapUpsertExchangeLock.writeLock().lock();
         try {
-            if (map.memorySize() <= flushThresholdBytes) {
+            if (memoryMapSize.get() <= flushThresholdBytes) {
                 return;
             }
-            if (flushing.compareAndSet(false, true)) {
-            flushingMap = map;
-            map = new ConcurrentMapWithSize(DaoImpl::compareMemorySegments);
-                flushQueue.execute(
-                        () -> {
-                            try {
-                                flush(flushingMap);
-                                flushingMap = null;
-                            } catch (IOException e) {
-                                throw new UncheckedIOException(e);
-                            } finally {
-                                flushing.set(false);
-                            }
-                        }
-                );
+            if (flushSemaphore.tryAcquire()) {
+                flushingMap = map;
+                renewMap();
+                backgroundFlushQueue.execute(this::backgroundFlush);
             } else {
-                // TODO: Заменить на DAOMemoryException
                 throw new OutOfMemoryError("Upsert happened with no free space and flushing already executing");
             }
         } finally {
@@ -119,18 +115,51 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     // Вызов flush блокирует вызывающий его поток
     @Override
     public void flush() throws IOException {
-        flush(map);
+//        flushLock.lock();
+        try {
+            flushSemaphore.acquire();
+            System.out.println("flush start");
+            try {
+                mapUpsertExchangeLock.writeLock().lock();
+                try {
+                    if (map.isEmpty()) {
+                        return;
+                    }
+                    flushingMap = map;
+                    renewMap();
+                } finally {
+                    mapUpsertExchangeLock.writeLock().unlock();
+                }
+                writeMapIntoFile(flushingMap);
+                storage.incTotalSStablesAmount();
+            } finally {
+                flushingMap = null;
+                System.out.println("flush end");
+                flushSemaphore.release();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
     }
 
-    private void flush(NavigableMap<MemorySegment, Entry<MemorySegment>> navigableMap) throws IOException {
-        flushLock.lock();
-        flushing.set(true);
+    private void renewMap() {
+        memoryMapSize.set(0);
+        map = new ConcurrentSkipListMap<>(DaoImpl::compareMemorySegments);
+    }
+
+    private void backgroundFlush() {
         try {
-            writeMapIntoFile(navigableMap);
+            System.out.println("bflush start");
+            writeMapIntoFile(flushingMap);
             storage.incTotalSStablesAmount();
+            flushingMap = null;
+        } catch (IOException e) {
+            System.out.println("err");
+            throw new UncheckedIOException(e);
         } finally {
-            flushing.set(false);
-            flushLock.unlock();
+            System.out.println("bflush end");
+            flushSemaphore.release();
         }
     }
 
