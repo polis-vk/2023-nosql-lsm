@@ -9,18 +9,10 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.List;
 import java.util.NavigableMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 
 final class StorageFileWriter {
-    private static final int N_THREADS = 8;
-
     private StorageFileWriter() {
     }
 
@@ -87,8 +79,7 @@ final class StorageFileWriter {
                      StandardOpenOption.WRITE,
                      StandardOpenOption.CREATE);
 
-             var writeArena = Arena.ofConfined();
-             ExecutorService mapClearerQueue = Executors.newFixedThreadPool(N_THREADS)) {
+             var writeArena = Arena.ofConfined()) {
             MemorySegment mappedIndex =
                     indexChannel.map(FileChannel.MapMode.READ_WRITE, 0, indexSize, writeArena);
 
@@ -114,23 +105,11 @@ final class StorageFileWriter {
                     storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, sstableSize, writeArena);
             storageWriteOffset = 0;
 
-            List<Runnable> tasksList = new ArrayList<>();
             for (var entry : map.values()) {
                 storageWriteOffset = writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
                 storageWriteOffset = writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
-
-                // После записи entry в файл я добавляю таску на ее удаление из map
-                // Удаление entry из map начинается только после записи всей map в файл
-                // для того чтобы в процессе flush можно было читать из memTable
-                tasksList.add(() -> map.remove(entry.key(), entry));
             }
             mappedStorage.force();
-            tasksList.forEach(mapClearerQueue::execute);
-            mapClearerQueue.shutdown();
-            //noinspection ResultOfMethodCallIgnored
-            mapClearerQueue.awaitTermination(10, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
 

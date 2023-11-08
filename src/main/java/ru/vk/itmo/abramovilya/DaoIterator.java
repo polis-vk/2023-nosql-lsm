@@ -22,7 +22,9 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
                 MemorySegment from,
                 MemorySegment to,
                 Storage storage,
-                NavigableMap<MemorySegment, Entry<MemorySegment>> memTable) {
+                NavigableMap<MemorySegment, Entry<MemorySegment>> memTable,
+                NavigableMap<MemorySegment, Entry<MemorySegment>> flushingTable
+                ) {
 
         this.from = from;
         this.to = to;
@@ -41,7 +43,14 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
             }
         }
         if (!subMap.isEmpty()) {
-            priorityQueue.add(new MemTable(subMap).currentEntry());
+            priorityQueue.add(new MemTable(subMap, Integer.MAX_VALUE).currentEntry());
+        }
+
+        if (flushingTable != null) {
+            NavigableMap<MemorySegment, Entry<MemorySegment>> flushingSubMap = getSubMap(flushingTable);
+            if (!flushingSubMap.isEmpty()) {
+                priorityQueue.add(new MemTable(flushingSubMap, Integer.MAX_VALUE - 1).currentEntry());
+            }
         }
         cleanUpSStableQueue();
     }

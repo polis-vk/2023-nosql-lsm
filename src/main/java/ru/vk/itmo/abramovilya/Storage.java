@@ -18,6 +18,8 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 class Storage implements Closeable {
     private static final String COMPACTED_SUFFIX = "_compacted";
@@ -31,6 +33,7 @@ class Storage implements Closeable {
     private final List<FileChannel> indexFileChannels = new ArrayList<>();
     private final List<MemorySegment> indexMappedList = new ArrayList<>();
     private final Arena arena;
+    private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
     Storage(Config config, Arena arena) throws IOException {
         storagePath = config.basePath();
@@ -91,27 +94,33 @@ class Storage implements Closeable {
     }
 
     private Entry<MemorySegment> seekForValueInFile(MemorySegment key, int sstableNum) {
-        if (sstableNum >= sstableFileChannels.size()) {
+        readWriteLock.readLock().lock();
+        try {
+            if (sstableNum >= sstableFileChannels.size()) {
+                return null;
+            }
+
+            MemorySegment storageMapped = sstableMappedList.get(sstableNum);
+            MemorySegment indexMapped = indexMappedList.get(sstableNum);
+
+            int foundIndex = upperBound(key, storageMapped, indexMapped, indexMapped.byteSize());
+            long keyStorageOffset = getKeyStorageOffset(indexMapped, foundIndex);
+            long foundKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
+            keyStorageOffset += Long.BYTES;
+
+            if (MemorySegment.mismatch(key,
+                    0,
+                    key.byteSize(),
+                    storageMapped,
+                    keyStorageOffset,
+                    keyStorageOffset + foundKeySize) == -1) {
+
+                return getEntryFromIndexFile(storageMapped, indexMapped, foundIndex);
+            }
             return null;
+        } finally {
+            readWriteLock.readLock().unlock();
         }
-
-        MemorySegment storageMapped = sstableMappedList.get(sstableNum);
-        MemorySegment indexMapped = indexMappedList.get(sstableNum);
-
-        int foundIndex = upperBound(key, storageMapped, indexMapped, indexMapped.byteSize());
-        long keyStorageOffset = getKeyStorageOffset(indexMapped, foundIndex);
-        long foundKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
-        keyStorageOffset += Long.BYTES;
-
-        if (MemorySegment.mismatch(key,
-                0,
-                key.byteSize(),
-                storageMapped,
-                keyStorageOffset,
-                keyStorageOffset + foundKeySize) == -1) {
-            return getEntryFromIndexFile(storageMapped, indexMapped, foundIndex);
-        }
-        return null;
     }
 
     static long getKeyStorageOffset(MemorySegment indexMapped, int entryNum) {
@@ -170,22 +179,27 @@ class Storage implements Closeable {
 
     void incTotalSStablesAmount() throws IOException {
         int totalSStables = getTotalSStables();
-        Files.writeString(metaFilePath, String.valueOf(totalSStables + 1));
+        readWriteLock.writeLock().lock();
+        try {
+            Files.writeString(metaFilePath, String.valueOf(totalSStables + 1));
 
-        Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + totalSStables);
-        Path indexPath = storagePath.resolve(INDEX_BASE_NAME + totalSStables);
+            Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + totalSStables);
+            Path indexPath = storagePath.resolve(INDEX_BASE_NAME + totalSStables);
 
-        FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
-        sstableFileChannels.add(sstableFileChannel);
-        MemorySegment sstableMapped =
-                sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
-        sstableMappedList.add(sstableMapped);
+            FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
+            sstableFileChannels.add(sstableFileChannel);
+            MemorySegment sstableMapped =
+                    sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
+            sstableMappedList.add(sstableMapped);
 
-        FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ);
-        indexFileChannels.add(indexFileChannel);
-        MemorySegment indexMapped =
-                indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
-        indexMappedList.add(indexMapped);
+            FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ);
+            indexFileChannels.add(indexFileChannel);
+            MemorySegment indexMapped =
+                    indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
+            indexMappedList.add(indexMapped);
+        } finally {
+            readWriteLock.writeLock().unlock();
+        }
     }
 
     @Override

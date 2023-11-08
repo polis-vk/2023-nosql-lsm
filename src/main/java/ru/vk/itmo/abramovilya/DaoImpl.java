@@ -10,20 +10,23 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
+import java.util.NavigableMap;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentMapWithSize map =
+    private ConcurrentMapWithSize map =
             new ConcurrentMapWithSize(DaoImpl::compareMemorySegments);
+    private ConcurrentMapWithSize flushingMap = null;
     private final Arena arena = Arena.ofShared();
     private final Storage storage;
     private final ReentrantLock flushLock  = new ReentrantLock();
     private final long flushThresholdBytes;
-
+    private final ReadWriteLock mapUpsertExchangeLock = new ReentrantReadWriteLock();
     private final AtomicBoolean flushing = new AtomicBoolean(false);
-
     private final ExecutorService flushQueue = Executors.newSingleThreadExecutor();
 
 
@@ -34,7 +37,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return new DaoIterator(storage.getTotalSStables(), from, to, storage, map);
+        return new DaoIterator(storage.getTotalSStables(), from, to, storage, map, flushingMap);
     }
 
     @Override
@@ -46,19 +49,43 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
             return null;
         }
+        if (flushingMap  != null) {
+            var flushingValue = flushingMap.get(key);
+            if (flushingValue != null) {
+                if (flushingValue.value() != null) {
+                    return flushingValue;
+                }
+                return null;
+            }
+        }
         return storage.get(key);
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        map.put(entry.key(), entry);
+        mapUpsertExchangeLock.readLock().lock();
+        try {
+            map.put(entry.key(), entry);
+        } finally {
+            mapUpsertExchangeLock.readLock().unlock();
+        }
 
-        if (map.memorySize() > flushThresholdBytes) {
+        if (map.memorySize() <= flushThresholdBytes) {
+            return;
+        }
+        mapUpsertExchangeLock.writeLock().lock();
+        try {
+            if (map.memorySize() <= flushThresholdBytes) {
+                return;
+            }
             if (flushing.compareAndSet(false, true)) {
+            flushingMap = map;
+            map = new ConcurrentMapWithSize(DaoImpl::compareMemorySegments);
                 flushQueue.execute(
                         () -> {
                             try {
-                                flush();
+                                flush(flushingMap);
+                                flushingMap = null;
                             } catch (IOException e) {
                                 throw new UncheckedIOException(e);
                             } finally {
@@ -70,6 +97,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 // TODO: Заменить на DAOMemoryException
                 throw new OutOfMemoryError("Upsert happened with no free space and flushing already executing");
             }
+        } finally {
+            mapUpsertExchangeLock.writeLock().unlock();
         }
     }
 
@@ -90,34 +119,35 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     // Вызов flush блокирует вызывающий его поток
     @Override
     public void flush() throws IOException {
-        System.out.println("flush start");
+        flush(map);
+    }
+
+    private void flush(NavigableMap<MemorySegment, Entry<MemorySegment>> navigableMap) throws IOException {
         flushLock.lock();
         flushing.set(true);
         try {
-            writeMapIntoFile();
+            writeMapIntoFile(navigableMap);
             storage.incTotalSStablesAmount();
         } finally {
             flushing.set(false);
             flushLock.unlock();
-            System.out.println("flush end");
-            System.out.println(map.memorySize());
         }
     }
 
-    private void writeMapIntoFile() throws IOException {
-        if (map.isEmpty()) {
+    private void writeMapIntoFile(NavigableMap<MemorySegment, Entry<MemorySegment>> mapToWrite) throws IOException {
+        if (mapToWrite.isEmpty()) {
             return;
         }
         storage.writeMapIntoFile(
-                mapByteSizeInFile(),
-                indexByteSizeInFile(),
-                map
+                mapByteSizeInFile(mapToWrite),
+                indexByteSizeInFile(mapToWrite),
+                mapToWrite
         );
     }
 
-    private long mapByteSizeInFile() {
+    private long mapByteSizeInFile(NavigableMap<MemorySegment, Entry<MemorySegment>> mapToWrite) {
         long size = 0;
-        for (var entry : map.values()) {
+        for (var entry : mapToWrite.values()) {
             size += 2 * Long.BYTES;
             size += entry.key().byteSize();
             if (entry.value() != null) {
@@ -127,8 +157,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         return size;
     }
 
-    private long indexByteSizeInFile() {
-        return (long) map.size() * (Integer.BYTES + Long.BYTES);
+    private long indexByteSizeInFile(NavigableMap<MemorySegment, Entry<MemorySegment>> mapToWrite) {
+        return (long) mapToWrite.size() * (Integer.BYTES + Long.BYTES);
     }
 
     @Override
