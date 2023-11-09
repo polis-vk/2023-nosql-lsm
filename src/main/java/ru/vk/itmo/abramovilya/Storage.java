@@ -10,10 +10,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -28,10 +25,13 @@ class Storage implements Closeable {
     private static final String INDEX_BASE_NAME = "index";
     private final Path storagePath;
     private final Path metaFilePath;
-    private final List<FileChannel> sstableFileChannels = new ArrayList<>();
-    private final List<MemorySegment> sstableMappedList = new ArrayList<>();
-    private final List<FileChannel> indexFileChannels = new ArrayList<>();
-    private final List<MemorySegment> indexMappedList = new ArrayList<>();
+
+    // TODO: Писать это в meta файл
+    private final Path compactedTablesAmountPath;
+    private List<FileChannel> sstableFileChannels = new ArrayList<>();
+    private List<MemorySegment> sstableMappedList = new ArrayList<>();
+    private List<FileChannel> indexFileChannels = new ArrayList<>();
+    private List<MemorySegment> indexMappedList = new ArrayList<>();
     private final Arena arena;
     private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
@@ -40,6 +40,7 @@ class Storage implements Closeable {
         this.arena = arena;
 
         Files.createDirectories(storagePath);
+        compactedTablesAmountPath = storagePath.resolve("cmpctd");
         metaFilePath = storagePath.resolve("meta");
         if (!Files.exists(metaFilePath)) {
             Files.createFile(metaFilePath);
@@ -47,32 +48,16 @@ class Storage implements Closeable {
         }
 
         // Restore consistent state if db was dropped during compaction
-        if (Files.exists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX))
-                || Files.exists(storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX))) {
-            finishCompact();
+        if (Files.exists(compactedTablesAmountPath)) {
+            finishCompact(Integer.parseInt(Files.readString(compactedTablesAmountPath)));
+        } else {
+            int totalSSTables = Integer.parseInt(Files.readString(metaFilePath));
+            fillFileRepresentationLists(totalSSTables);
         }
 
         // Delete artifacts from unsuccessful compaction
         Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
         Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
-
-        int totalSSTables = Integer.parseInt(Files.readString(metaFilePath));
-        for (int sstableNum = 0; sstableNum < totalSSTables; sstableNum++) {
-            Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + sstableNum);
-            Path indexPath = storagePath.resolve(INDEX_BASE_NAME + sstableNum);
-
-            FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
-            sstableFileChannels.add(sstableFileChannel);
-            MemorySegment sstableMapped =
-                    sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), this.arena);
-            sstableMappedList.add(sstableMapped);
-
-            FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ);
-            indexFileChannels.add(indexFileChannel);
-            MemorySegment indexMapped =
-                    indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), this.arena);
-            indexMappedList.add(indexMapped);
-        }
     }
 
     Entry<MemorySegment> get(MemorySegment key) {
@@ -209,12 +194,8 @@ class Storage implements Closeable {
 
     @Override
     public void close() throws IOException {
-        for (FileChannel fc : sstableFileChannels) {
-            if (fc.isOpen()) fc.close();
-        }
-        for (FileChannel fc : indexFileChannels) {
-            if (fc.isOpen()) fc.close();
-        }
+        closeFileChannels(sstableFileChannels);
+        closeFileChannels(indexFileChannels);
     }
 
     public MemorySegment mappedSStable(int i) {
@@ -225,7 +206,7 @@ class Storage implements Closeable {
         return indexMappedList.get(i);
     }
 
-    void compact(Iterator<Entry<MemorySegment>> iterator1, Iterator<Entry<MemorySegment>> iterator2)
+    void compact(Iterator<Entry<MemorySegment>> iterator1, Iterator<Entry<MemorySegment>> iterator2, int sstablesToCompact)
             throws IOException {
         Entry<Long> storageIndexSize = calcCompactedSStableIndexSize(iterator1);
         Path compactingSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX);
@@ -242,31 +223,97 @@ class Storage implements Closeable {
         Files.move(compactingSStablePath, compactedSStablePath, StandardCopyOption.ATOMIC_MOVE);
         Files.move(compactingIndexPath, compactedIndexPath, StandardCopyOption.ATOMIC_MOVE);
 
-        finishCompact();
+        if (!Files.exists(compactedTablesAmountPath)) {
+            Files.createFile(compactedTablesAmountPath);
+        }
+        Files.writeString(metaFilePath, String.valueOf(sstablesToCompact), StandardOpenOption.WRITE);
+
+        finishCompact(sstablesToCompact);
     }
 
-    private void finishCompact() throws IOException {
-        int totalSStables = getTotalSStables();
-        for (int i = 0; i < totalSStables; i++) {
-            Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + i));
-            Files.deleteIfExists(storagePath.resolve(INDEX_BASE_NAME + i));
-        }
+    private void finishCompact(int compactedSStablesAmount) throws IOException {
+        readWriteLock.writeLock().lock();
+        try {
+            for (int i = 0; i < compactedSStablesAmount; i++) {
+                Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + i));
+                Files.deleteIfExists(storagePath.resolve(INDEX_BASE_NAME + i));
+            }
 
-        Files.writeString(metaFilePath, String.valueOf(1));
-        Path compactedSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
-        if (Files.exists(compactedSStablePath)) {
-            Files.move(compactedSStablePath,
-                    storagePath.resolve(SSTABLE_BASE_NAME + 0),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING);
-        }
-        Path compactedIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX);
+            Path compactedSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
+            if (Files.exists(compactedSStablePath)) {
+                Files.move(compactedSStablePath,
+                        storagePath.resolve(SSTABLE_BASE_NAME + 0),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            }
+            Path compactedIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX);
 
-        if (Files.exists(compactedIndexPath)) {
-            Files.move(compactedIndexPath,
-                    storagePath.resolve(INDEX_BASE_NAME + 0),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING);
+            if (Files.exists(compactedIndexPath)) {
+                Files.move(compactedIndexPath,
+                        storagePath.resolve(INDEX_BASE_NAME + 0),
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            int totalSStables = Integer.parseInt(Files.readString(metaFilePath));
+            closeFileChannels(indexFileChannels);
+            closeFileChannels(sstableFileChannels);
+
+            sstableMappedList = new ArrayList<>();
+            indexMappedList = new ArrayList<>();
+            sstableFileChannels = new ArrayList<>();
+            indexFileChannels = new ArrayList<>();
+
+            for (int i = compactedSStablesAmount; i < totalSStables; i++) {
+                Path oldSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + i);
+                Path newSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + convertOldFileNumToNew(i, compactedSStablesAmount));
+                Path oldIndexPath = storagePath.resolve(INDEX_BASE_NAME + i);
+                Path newIndexPath = storagePath.resolve(INDEX_BASE_NAME + convertOldFileNumToNew(i, compactedSStablesAmount));
+
+                if (Files.exists(oldSStablePath)) {
+                    Files.move(oldSStablePath, newSStablePath);
+                }
+                if (Files.exists(oldIndexPath)) {
+                    Files.move(oldIndexPath, newIndexPath);
+                }
+            }
+
+            int newTotalSStables = convertOldFileNumToNew(totalSStables, compactedSStablesAmount);
+            fillFileRepresentationLists(newTotalSStables);
+
+            Files.writeString(metaFilePath, String.valueOf(newTotalSStables));
+            Files.deleteIfExists(compactedTablesAmountPath);
+        } finally {
+            readWriteLock.writeLock().unlock();
+        }
+    }
+
+    private void fillFileRepresentationLists(int newTotalSStables) throws IOException {
+        for (int sstableNum = 0; sstableNum < newTotalSStables; sstableNum++) {
+            Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + sstableNum);
+            Path indexPath = storagePath.resolve(INDEX_BASE_NAME + sstableNum);
+
+            FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
+            sstableFileChannels.add(sstableFileChannel);
+            MemorySegment sstableMapped =
+                    sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), this.arena);
+            sstableMappedList.add(sstableMapped);
+
+            FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ);
+            indexFileChannels.add(indexFileChannel);
+            MemorySegment indexMapped =
+                    indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), this.arena);
+            indexMappedList.add(indexMapped);
+        }
+    }
+
+    private static int convertOldFileNumToNew(int oldNum, int compactedSStablesNum) {
+        return oldNum - compactedSStablesNum + 1;
+    }
+
+    private void closeFileChannels(List<FileChannel> indexFileChannels) throws IOException {
+        for (FileChannel fc : indexFileChannels) {
+            if (fc.isOpen()) fc.close();
         }
     }
 

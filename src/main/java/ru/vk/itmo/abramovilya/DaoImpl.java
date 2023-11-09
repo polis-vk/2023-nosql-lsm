@@ -9,6 +9,7 @@ import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.*;
@@ -27,15 +28,25 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     // Я использую семафор вместо Lock потому что я хочу делать lock() в одном потоке, а unlock() - в другом
     // В случае с Lock я получал бы IllegalMonitorStateException
     // https://stackoverflow.com/questions/36652352/java-lock-and-unlock-on-different-thread
-    private final Semaphore flushSemaphore = new Semaphore(1);
+    private final Semaphore flushLock = new Semaphore(1);
     private final long flushThresholdBytes;
     private final ReadWriteLock mapUpsertExchangeLock = new ReentrantReadWriteLock();
     private final ExecutorService backgroundFlushQueue = Executors.newSingleThreadExecutor();
+    private final ExecutorService backgroundCompactQueue = Executors.newSingleThreadExecutor();
 
 
     public DaoImpl(Config config) throws IOException {
         flushThresholdBytes = config.flushThresholdBytes();
         storage = new Storage(config, arena);
+    }
+
+    Iterator<Entry<MemorySegment>> firstNsstablesIterator(int n) {
+        return new DaoIterator(n,
+                null,
+                null,
+                storage,
+                Collections.emptyNavigableMap(),
+                null);
     }
 
     @Override
@@ -86,7 +97,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (memoryMapSize.get() <= flushThresholdBytes) {
                 return;
             }
-            if (flushSemaphore.tryAcquire()) {
+            if (flushLock.tryAcquire()) {
                 flushingMap = map;
                 renewMap();
                 backgroundFlushQueue.execute(this::backgroundFlush);
@@ -99,13 +110,19 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void compact() throws IOException {
-        var iterator = get(null, null);
-        if (!iterator.hasNext()) {
-            return;
-        }
-        storage.compact(iterator, get(null, null));
-        map.clear();
+    public void compact() {
+        backgroundCompactQueue.execute(() -> {
+            int totalSStables = storage.getTotalSStables();
+            var iterator = firstNsstablesIterator(totalSStables);
+            if (!iterator.hasNext()) {
+                return;
+            }
+            try {
+                storage.compact(iterator, firstNsstablesIterator(totalSStables), totalSStables);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
     }
 
     // Одновременно может работать только один flush
@@ -117,7 +134,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void flush() throws IOException {
 //        flushLock.lock();
         try {
-            flushSemaphore.acquire();
+            flushLock.acquire();
             System.out.println("flush start");
             try {
                 mapUpsertExchangeLock.writeLock().lock();
@@ -135,7 +152,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             } finally {
                 flushingMap = null;
                 System.out.println("flush end");
-                flushSemaphore.release();
+                flushLock.release();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -159,7 +176,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new UncheckedIOException(e);
         } finally {
             System.out.println("bflush end");
-            flushSemaphore.release();
+            flushLock.release();
         }
     }
 
@@ -192,6 +209,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
+        backgroundFlushQueue.close();
+        backgroundCompactQueue.close();
         if (!map.isEmpty()) {
             flush();
         }
