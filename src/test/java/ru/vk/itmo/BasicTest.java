@@ -72,7 +72,7 @@ public class BasicTest extends BaseTest {
     }
 
     @DaoTest(stage = 1)
-    void testManyIterators(Dao<String, Entry<String>> dao) throws Exception {
+    void testManyIterators(Dao<String, Entry<String>> dao) {
         List<Entry<String>> entries = new ArrayList<>(entries(10_000));
         for (Entry<String> entry : entries) {
             dao.upsert(entry);
@@ -90,7 +90,7 @@ public class BasicTest extends BaseTest {
     }
 
     @DaoTest(stage = 1)
-    void testFindValueInTheMiddle(Dao<String, Entry<String>> dao) throws Exception {
+    void testFindValueInTheMiddle(Dao<String, Entry<String>> dao) {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
         dao.upsert(entry("a", "b"));
@@ -99,7 +99,7 @@ public class BasicTest extends BaseTest {
     }
 
     @DaoTest(stage = 1)
-    void testFindRangeInTheMiddle(Dao<String, Entry<String>> dao) throws Exception {
+    void testFindRangeInTheMiddle(Dao<String, Entry<String>> dao) {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
         dao.upsert(entry("a", "b"));
@@ -108,7 +108,7 @@ public class BasicTest extends BaseTest {
     }
 
     @DaoTest(stage = 1)
-    void testFindFullRange(Dao<String, Entry<String>> dao) throws Exception {
+    void testFindFullRange(Dao<String, Entry<String>> dao) {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
         dao.upsert(entry("a", "b"));
@@ -124,11 +124,10 @@ public class BasicTest extends BaseTest {
     }
 
     @DaoTest(stage = 1)
-    void testAllTo(Dao<String, Entry<String>> dao) throws Exception {
+    void testAllTo(Dao<String, Entry<String>> dao) {
         dao.upsert(entry("e", "f"));
         dao.upsert(entry("c", "d"));
         dao.upsert(entry("a", "b"));
-
 
         assertSame(
                 dao.allTo("e"),
@@ -140,13 +139,19 @@ public class BasicTest extends BaseTest {
 
     @DaoTest(stage = 1)
     void testHugeData(Dao<String, Entry<String>> dao) throws Exception {
-        int count = 100_000;
-        entries(count).forEach(dao::upsert);
+        final int entries = 100_000;
 
-        for (int i = 0; i < count; i++) {
-            assertSame(dao.get(keyAt(i)), entryAt(i));
+        for (int entry = 0; entry < entries; entry++) {
+            dao.upsert(entry(keyAt(entry), valueAt(entry)));
+
+            // Back off after 1K upserts to be able to flush
+            if (entry % 1000 == 0) {
+                Thread.sleep(1);
+            }
+        }
+
+        for (int entry = 0; entry < entries; entry++) {
+            assertSame(dao.get(keyAt(entry)), entryAt(entry));
         }
     }
-
-
 }
