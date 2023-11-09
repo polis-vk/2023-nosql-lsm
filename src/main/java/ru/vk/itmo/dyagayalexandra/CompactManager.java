@@ -110,7 +110,6 @@ public class CompactManager {
                     if (currentFile.getFileName().toString().startsWith(fileName)) {
                         ssTables.add(currentFile);
                     }
-
                     if (currentFile.getFileName().toString().startsWith(fileIndexName)) {
                         ssIndexes.add(currentFile);
                     }
