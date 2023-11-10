@@ -9,12 +9,16 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.Iterator;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.logging.Logger;
 
 /**
  * Принцип работы в многопоточном режиме:
@@ -42,8 +46,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  *     <li>Компакт не происходит -> создаем новое состояние.</li>
  *     <li>Компакт происходит -> помечаем, что выполнили флаш, не создаем новое состояние, ждем выполнения компакта.</li>
  * </ol>
- * <p>
- * Появляется проблема разрешения конфликта параллельного выполнения флаш и компакт.
  */
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -59,6 +61,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private AtomicBoolean shouldFlushAfterReloadEnv;
     private AtomicBoolean shouldCompactAfterReloadEnv;
+    private static final Logger logger = Logger.getLogger(InMemoryDao.class.getName());
 
     public InMemoryDao(Config config) throws IOException {
         this.config = config;
@@ -75,25 +78,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.executor = Executors.newCachedThreadPool();
 
         arena = Arena.ofShared();
-        this.environment = new Environment(this.environment.getTable(), config, arena, readLock, writeLock);
+        this.environment = new Environment(new ConcurrentSkipListMap<>(Tools::compare), config, arena, readLock, writeLock);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return environment.range(null, null);
-    }
-
-    private Iterable<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) {
-            return environment.getTable().values();
-        }
-        if (from == null) {
-            return environment.getTable().headMap(to).values();
-        }
-        if (to == null) {
-            return environment.getTable().tailMap(from).values();
-        }
-        return environment.getTable().subMap(from, to).values();
+        return environment.range(from, to);
     }
 
     @Override
@@ -113,7 +103,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
-        backgroundFlush();
+        try {
+            flush();
+        } catch (IOException e) {
+            logger.severe("fail to flush");
+        }
     }
 
     @Override
@@ -226,23 +220,25 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void close() throws IOException {
         // Ожидаем выполнения фоновых flush и сompact.
+        executor.shutdown();
+        try {
+            // Взято из метода ExecutorService.close().
+            executor.awaitTermination(1L, TimeUnit.DAYS);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        if (!environment.getTable().isEmpty()) {
+            backgroundFlush();
+        }
+        // Если только что был вызван flush, то ожидаем его выполнения и закрываем ExecutorService.
         executor.close();
 
         if (!arena.scope().isAlive()) {
             return;
         }
         arena.close();
-
-        boolean needsFlush;
-        readLock.lock();
-        try {
-            needsFlush = !environment.getTable().isEmpty();
-        } finally {
-            readLock.unlock();
-        }
-
-        if (needsFlush) {
-            backgroundFlush();
-        }
     }
 }

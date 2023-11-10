@@ -27,7 +27,7 @@ public class Environment {
     final AtomicBoolean isCompactingCompleted;
 
     private final Lock readLock;
-    private final Lock writeLock;
+//    private final Lock writeLock;
 
     public Environment(ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memtable,
                        Config config,
@@ -42,7 +42,7 @@ public class Environment {
         this.memTableBytes = new AtomicLong(0);
 
         this.readLock = readLock;
-        this.writeLock = writeLock;
+//        this.writeLock = writeLock;
 
         this.config = config;
 
@@ -53,7 +53,29 @@ public class Environment {
     }
 
     public Iterator<Entry<MemorySegment>> range(MemorySegment from, MemorySegment to) {
-        return diskStorage.range(table.values().iterator(), flushingTable.values().iterator(), from, to);
+        Iterator<Entry<MemorySegment>> memTableIterator;
+        Iterator<Entry<MemorySegment>> flushingIterator;
+        readLock.lock();
+        try {
+            memTableIterator = getInMemory(from, to, true).iterator();
+            flushingIterator = getInMemory(from, to, false).iterator();
+        } finally {
+            readLock.unlock();
+        }
+        return diskStorage.range(memTableIterator, flushingIterator, from, to);
+    }
+
+    private Iterable<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to, Boolean isMemTable) {
+        if (from == null && to == null) {
+            return (isMemTable ? table : flushingTable).values();
+        }
+        if (from == null) {
+            return (isMemTable ? table : flushingTable).headMap(to).values();
+        }
+        if (to == null) {
+            return (isMemTable ? table : flushingTable).tailMap(from).values();
+        }
+        return (isMemTable ? table : flushingTable).subMap(from, to).values();
     }
 
     public long put(Entry<MemorySegment> entry) {
