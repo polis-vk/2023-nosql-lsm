@@ -1,20 +1,20 @@
 package ru.vk.itmo.test.abramovilya;
 
 import ru.vk.itmo.Config;
-import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.abramovilya.InMemoryDao;
+import ru.vk.itmo.abramovilya.DaoImpl;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 2)
+@DaoFactory(stage = 3)
 public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new InMemoryDao(config);
+    public ru.vk.itmo.Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new DaoImpl(config);
     }
 
     @Override
