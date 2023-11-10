@@ -16,96 +16,118 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+/**
+ * Принцип работы в многопоточном режиме:
+ * <p>
+ * После очередного флаш происходит создание нового состояния (происходит компакт, ждем его выполнения).
+ * Ниже описано поведение для текущего состояния.
+ * <p>
+ * Запрос на компакт:
+ * <ol>
+ *     <li> Компакт может произойти в любой момент. </li>
+ *     <li> Компакт выполняется, была добавлена новая SSTable -> return (должны выполнить сразу после инициализации следующего состояния).</li>
+ * </ol>
+ * <p>
+ * Запрос на флаш:
+ * <ol>
+ *     <li>Происходит флаш -> return (должны выполнить сразу после инициализации следующего состояния).</li>
+ * </ol>
+ * <ol>
+ *     Проверяем до выполнения:
+ *     <li>Был выполнен флаш, компакт происходит -> return (не выполняем флаш, ждем выполнения компакта).</li>
+ *     <li>Был выполнен флаш, компакт не происходит -> создаем новое состояние (считаем, что дождались выполнения компакта).</li>
+ * </ol>
+ * <ol>
+ *     Проверяем после выполнения:
+ *     <li>Компакт не происходит -> создаем новое состояние.</li>
+ *     <li>Компакт происходит -> помечаем, что выполнили флаш, не создаем новое состояние, ждем выполнения компакта.</li>
+ * </ol>
+ * <p>
+ * Появляется проблема разрешения конфликта параллельного выполнения флаш и компакт.
+ */
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final Arena arena;
-    private final DiskStorage diskStorage;
+    private final Config config;
     private final Path path;
-    private final long flushThresholdBytes;
+
+    private final Arena arena;
+    private Environment environment;
     private final ExecutorService executor;
 
-    private final ReadWriteLock lock;
     private final Lock readLock;
     private final Lock writeLock;
 
-    private MemTable memTable;
-    private final AtomicBoolean shouldFlushAgain;
+    private AtomicBoolean shouldFlushAfterReloadEnv;
+    private AtomicBoolean shouldCompactAfterReloadEnv;
 
     public InMemoryDao(Config config) throws IOException {
-        this.flushThresholdBytes = config.flushThresholdBytes();
+        this.config = config;
         this.path = config.basePath().resolve("data");
         Files.createDirectories(path);
 
-        this.lock = new ReentrantReadWriteLock();
+        ReadWriteLock lock = new ReentrantReadWriteLock();
         this.readLock = lock.readLock();
         this.writeLock = lock.writeLock();
 
+        this.shouldFlushAfterReloadEnv = new AtomicBoolean(false);
+        this.shouldCompactAfterReloadEnv = new AtomicBoolean(false);
+
         this.executor = Executors.newCachedThreadPool();
 
-        this.memTable = new MemTable();
-        this.shouldFlushAgain = new AtomicBoolean(false);
-
         arena = Arena.ofShared();
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
-
+        this.environment = new Environment(this.environment.getTable(), config, arena, readLock, writeLock);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        Iterator<Entry<MemorySegment>> memTableIter = getInMemory(from, to).iterator();
-        return diskStorage.range(memTableIter, memTable.getFlushingTable().values().iterator(), from, to);
+        return environment.range(null, null);
     }
 
     private Iterable<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            return memTable.getTable().values();
+            return environment.getTable().values();
         }
         if (from == null) {
-            return memTable.getTable().headMap(to).values();
+            return environment.getTable().headMap(to).values();
         }
         if (to == null) {
-            return memTable.getTable().tailMap(from).values();
+            return environment.getTable().tailMap(from).values();
         }
-        return memTable.getTable().subMap(from, to).values();
+        return environment.getTable().subMap(from, to).values();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        MemTable currMemtable;
+        Environment currEnv;
         readLock.lock();
         try {
-            currMemtable = memTable;
-            if (currMemtable.getBytes().get() > flushThresholdBytes && memTable.isFlushing().get()) {
+            currEnv = environment;
+            if (currEnv.getMemTableBytes().get() > config.flushThresholdBytes() && currEnv.isFlushing.get()) {
                 throw new IllegalStateException("table is full, flushing in process");
             }
         } finally {
             readLock.unlock();
         }
 
-        if (currMemtable.put(entry) <= flushThresholdBytes) {
+        if (currEnv.put(entry) <= config.flushThresholdBytes()) {
             return;
         }
 
-        executor.execute(() -> {
-            try {
-                flush();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        backgroundFlush();
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> memTableEntry;
-        Entry<MemorySegment> flushingTableEntry;
+        Environment currEnv;
         readLock.lock();
         try {
-            memTableEntry = memTable.getMemTableEntry(key);
-            flushingTableEntry = memTable.getFlushingTableEntry(key);
+            currEnv = environment;
         } finally {
             readLock.unlock();
         }
+
+        Entry<MemorySegment> memTableEntry = currEnv.getMemTableEntry(key);
+        Entry<MemorySegment> flushingTableEntry = currEnv.getFlushingTableEntry(key);
 
         if (memTableEntry != null) {
             return Tools.entryToReturn(memTableEntry);
@@ -113,12 +135,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return Tools.entryToReturn(flushingTableEntry);
         }
 
-        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(
-                getInMemory(null, null).iterator(),
-                memTable.getFlushingTable().values().iterator(),
-                null,
-                null
-        );
+        Iterator<Entry<MemorySegment>> iterator = currEnv.range(null, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -130,63 +147,80 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    /**
-     * Если compact был вызван во время выполнения другого compact и во время выполнения другого
-     * произошел flush новой sstable, то текущий запрашиваемый compact будет выполнен после выполняющегося.
-     * Тем самым гарантируем, что sstabl'ы, которые были не в процессе compact'а во время вызова нового
-     * рано или поздно будут скомпакчены.
-     */
     @Override
     public void compact() throws IOException {
-        executor.execute(() -> {
-            try {
-                diskStorage.compact(path);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
-    }
-
-    /**
-     * Если flush был вызван во время выполнения другого flush и memtable на этот
-     * момент была не пустая, то текущий запрашиваемый будет выполнен после выполняющегося.
-     * Тем самым гарантируем, что данные, которые были в memtable на момент вызова
-     * flush рано или поздно окажутся на диске.
-     */
-    @Override
-    public void flush() throws IOException {
         readLock.lock();
         try {
-            if (memTable.getTable().isEmpty()) {
-                return;
-            } else if (memTable.isFlushing().get()) {
-                // Считаем, что после выполнения текущего должны сделать очередной flush.
-                shouldFlushAgain.set(true);
+            if (environment.isCompactingCompleted.get() || environment.isCompacting.get()) {
+                if (!environment.getTable().isEmpty()) {
+                    shouldCompactAfterReloadEnv.set(true);
+                }
                 return;
             }
         } finally {
             readLock.unlock();
         }
 
-        do {
-            Iterable<Entry<MemorySegment>> flushingTable;
-            writeLock.lock();
-            try {
-                shouldFlushAgain.set(false);
-                flushingTable = memTable.startFlush();
-            } finally {
-                writeLock.unlock();
-            }
+        backgroundCompact();
 
-            DiskStorage.save(path, flushingTable);
-
-            writeLock.lock();
-            try {
-                memTable.finishFlush();
-            } finally {
-                writeLock.unlock();
+        writeLock.lock();
+        try {
+            if (environment.isFlushingCompleted.get()) {
+                this.environment = new Environment(this.environment.getTable(), config, arena, readLock, writeLock);
+            } else {
+                // Если был выполнен компакт без flush в текущем состоянии,
+                // то считаем, что состояние актуальное.
+                environment.isCompactingCompleted.set(false);
             }
-        } while (shouldFlushAgain.get());
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    @Override
+    public void flush() throws IOException {
+        readLock.lock();
+        try {
+            if (environment.isFlushingCompleted.get() || environment.isFlushing.get()) {
+                if (!environment.getTable().isEmpty()) {
+                    shouldFlushAfterReloadEnv.set(true);
+                }
+                return;
+            }
+        } finally {
+            readLock.unlock();
+        }
+
+        backgroundFlush();
+
+        writeLock.lock();
+        try {
+            if (!environment.isCompacting.get()) {
+                this.environment = new Environment(this.environment.getTable(), config, arena, readLock, writeLock);
+            }
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    private void backgroundCompact() {
+        executor.execute(() -> {
+            try {
+                environment.compact();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private void backgroundFlush() {
+        executor.execute(() -> {
+            try {
+                environment.flush();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     @Override
@@ -202,13 +236,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         boolean needsFlush;
         readLock.lock();
         try {
-            needsFlush = !memTable.getTable().isEmpty();
+            needsFlush = !environment.getTable().isEmpty();
         } finally {
             readLock.unlock();
         }
 
         if (needsFlush) {
-            flush();
+            backgroundFlush();
         }
     }
 }
