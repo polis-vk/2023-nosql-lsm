@@ -76,7 +76,7 @@ public abstract class MergeIterator<T> implements Iterator<T> {
             }
 
             PeekIterator<T> next = priorityQueue.peek();
-            removeNulls(next);
+            skipIdentical(next);
 
             if (peek.peek() == null) {
                 peek = null;
@@ -95,7 +95,7 @@ public abstract class MergeIterator<T> implements Iterator<T> {
         return peek;
     }
 
-    private void removeNulls(PeekIterator<T> next) {
+    private void skipIdentical(PeekIterator<T> next) {
         PeekIterator<T> result = next;
         while (result != null) {
 

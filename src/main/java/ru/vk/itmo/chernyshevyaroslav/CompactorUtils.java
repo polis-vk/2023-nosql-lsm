@@ -11,14 +11,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+//import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public final class CompactorUtils {
+public class CompactorUtils {
 
-    private CompactorUtils() {
+    CompactorUtils() {
         throw new IllegalStateException("Utility class");
     }
 
@@ -36,12 +37,21 @@ public final class CompactorUtils {
 
         NavigableMap<MemorySegment, Entry<MemorySegment>> localStorage =
                 new ConcurrentSkipListMap<>(InMemoryDao::compare);
+
         List<Iterator<Entry<MemorySegment>>> iterators = DiskStorage.loadOrRecover(storagePath, arena).stream()
                 .map(it -> DiskStorage.iterator(it, null, null)).toList();
 
-        if (iterators.isEmpty()) {
+        List<MemorySegment> load = DiskStorage.loadOrRecover(storagePath, arena);
+
+        if (load.isEmpty()) {
             return;
         }
+
+        //List<Iterator<Entry<MemorySegment>>> iteratorsL =
+        //        load.stream().limit(2).map(it -> DiskStorage.iterator(it, null, null)).toList();
+
+        //Files.find()
+
 
         for (Iterator<Entry<MemorySegment>> iterator : iterators) {
             while (iterator.hasNext()) {
