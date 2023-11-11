@@ -52,7 +52,11 @@ public final class Storage implements Closeable {
             List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
             for (String fileName : existedFiles) {
                 Path file = path.resolve(fileName);
-                try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+                try (FileChannel fileChannel = FileChannel.open(
+                        file,
+                        StandardOpenOption.READ,
+                        StandardOpenOption.WRITE
+                )) {
                     MemorySegment fileSegment = fileChannel.map(
                             FileChannel.MapMode.READ_WRITE,
                             0,
@@ -68,7 +72,6 @@ public final class Storage implements Closeable {
         return new Storage(arena, ssTables, isCompacted);
     }
 
-
     public static void save(Config config, Collection<Entry<MemorySegment>> entries, Storage storage)
             throws IOException {
 
@@ -77,7 +80,6 @@ public final class Storage implements Closeable {
         }
 
         Path path = config.basePath();
-        Path indexTmp = path.resolve("index.tmp");
         Path indexFile = path.resolve("index.idx");
 
         if (!Files.exists(indexFile)) {
@@ -95,6 +97,8 @@ public final class Storage implements Closeable {
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
         list.add(nextSSTableName);
+
+        Path indexTmp = path.resolve("index.tmp");
         Files.write(
                 indexTmp,
                 list,

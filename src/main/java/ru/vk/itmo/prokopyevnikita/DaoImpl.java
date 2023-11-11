@@ -41,19 +41,18 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         return combinedIterator(Objects.requireNonNullElse(from, MemorySegment.NULL), to, false);
     }
 
-
     private Iterator<Entry<MemorySegment>> combinedIterator(
             MemorySegment from,
             MemorySegment to,
             boolean includeMemoryAndFlushing
     ) {
-        State state = accessStateAndCloseCheck();
+        State currenState = accessStateAndCloseCheck();
         if (includeMemoryAndFlushing) {
-            Iterator<Entry<MemorySegment>> memoryIterator = state.memory.get(from, to);
-            Iterator<Entry<MemorySegment>> flushingIterator = state.flushing.get(from, to);
-            return state.storage.getIterator(from, to, memoryIterator, flushingIterator);
+            Iterator<Entry<MemorySegment>> memoryIterator = currenState.memory.get(from, to);
+            Iterator<Entry<MemorySegment>> flushingIterator = currenState.flushing.get(from, to);
+            return currenState.storage.getIterator(from, to, memoryIterator, flushingIterator);
         }
-        return state.storage.getIterator(from, to, null, null);
+        return currenState.storage.getIterator(from, to, null, null);
     }
 
     @Override
@@ -72,11 +71,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     @SuppressWarnings("FutureReturnValueIgnored")
     public void upsert(Entry<MemorySegment> entry) {
-        State state = accessStateAndCloseCheck();
+        State currenState = accessStateAndCloseCheck();
         boolean flush = false;
         lock.readLock().lock();
         try {
-            flush = state.memory.put(entry.key(), entry);
+            flush = currenState.memory.put(entry.key(), entry);
         } finally {
             lock.readLock().unlock();
         }
@@ -88,29 +87,29 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private Future<?> flushInBg(boolean canBeParallel) {
         lock.writeLock().lock();
         try {
-            State state = accessStateAndCloseCheck();
-            if (state.isFlushing()) {
+            State currenState = accessStateAndCloseCheck();
+            if (currenState.isFlushing()) {
                 if (canBeParallel) {
                     return CompletableFuture.completedFuture(null);
                 }
                 throw new AlreadyFlushingInBg();
             }
-            state = state.prepareForFlush();
-            this.state = state;
+            currenState = currenState.prepareForFlush();
+            this.state = currenState;
         } finally {
             lock.writeLock().unlock();
         }
 
         return executorService.submit(() -> {
             try {
-                State state = accessStateAndCloseCheck();
+                State currenState = accessStateAndCloseCheck();
 
-                Storage.save(config, state.flushing.values(), state.storage);
+                Storage.save(config, currenState.flushing.values(), currenState.storage);
                 Storage newStorage = Storage.load(config);
 
                 lock.writeLock().lock();
                 try {
-                    this.state = state.afterFlush(newStorage);
+                    this.state = currenState.afterFlush(newStorage);
                 } finally {
                     lock.writeLock().unlock();
                 }
@@ -141,39 +140,43 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private void awaitFlushToFinish(Future<?> future) {
         try {
             future.get();
-        } catch (InterruptedException | ExecutionException e) {
-            throw new IllegalStateException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("flush failed", e);
         }
     }
 
     // only single thread can call this method
     @Override
     public synchronized void close() throws IOException {
-        State state = this.state;
-        if (state.closed) {
+        State currenState = this.state;
+        if (currenState.closed) {
             return;
         }
         executorService.shutdown();
         // await for all tasks to complete
         // it can take a lot of time depending on the size of the database
         try {
-            while (!executorService.awaitTermination(12, TimeUnit.HOURS)) ;
+            while (!executorService.awaitTermination(12, TimeUnit.HOURS)) {
+                // do nothing
+            }
         } catch (InterruptedException e) {
-            throw new IllegalStateException(e);
+            Thread.currentThread().interrupt();
         }
-        state.storage.close();
-        this.state = state.afterClose();
-        if (state.memory.isEmpty()) {
+        currenState.storage.close();
+        this.state = currenState.afterClose();
+        if (currenState.memory.isEmpty()) {
             return;
         }
-        Storage.save(config, state.memory.values(), state.storage);
+        Storage.save(config, currenState.memory.values(), currenState.storage);
     }
 
     @Override
     public void compact() {
-        State state = accessStateAndCloseCheck();
+        State currenState = accessStateAndCloseCheck();
 
-        if (state.memory.isEmpty() && state.storage.isCompacted()) {
+        if (currenState.memory.isEmpty() && currenState.storage.isCompacted()) {
             return;
         }
 
@@ -210,10 +213,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private State accessStateAndCloseCheck() {
-        State state = this.state;
-        if (state.closed) {
+        State currenState = this.state;
+        if (currenState.closed) {
             throw new IllegalStateException("DAO is Already closed");
         }
-        return state;
+        return currenState;
     }
 }
