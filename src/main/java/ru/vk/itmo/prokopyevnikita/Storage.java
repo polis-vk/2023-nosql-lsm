@@ -6,12 +6,15 @@ import ru.vk.itmo.Entry;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -19,6 +22,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.stream.Stream;
 
 public final class Storage implements Closeable {
 
@@ -42,45 +46,69 @@ public final class Storage implements Closeable {
         List<MemorySegment> ssTables = new ArrayList<>();
         Arena arena = Arena.ofShared();
 
-        for (int i = 0; ; i++) {
-            Path p = path.resolve(DB_PREFIX + i + DB_EXTENSION);
-            if (Files.exists(p)) {
-                try (FileChannel channel = FileChannel.open(p, StandardOpenOption.READ)) {
-                    MemorySegment segment = channel.map(
-                            FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena
-                    );
-                    ssTables.add(segment);
-                } catch (IOException e) {
-                    throw new IllegalStateException("Can't open SSTable", e);
-                }
-            } else {
-                break;
-            }
-        }
+        Path indexFile = path.resolve("index.idx");
 
-        Collections.reverse(ssTables);
+        if (Files.exists(indexFile)) {
+            List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+            for (String fileName : existedFiles) {
+                Path file = path.resolve(fileName);
+                try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+                    MemorySegment fileSegment = fileChannel.map(
+                            FileChannel.MapMode.READ_WRITE,
+                            0,
+                            Files.size(file),
+                            arena
+                    );
+                    ssTables.add(fileSegment);
+                }
+            }
+            Collections.reverse(ssTables);
+        }
         boolean isCompacted = ssTables.size() <= 1;
         return new Storage(arena, ssTables, isCompacted);
     }
 
+
     public static void save(Config config, Collection<Entry<MemorySegment>> entries, Storage storage)
             throws IOException {
-        if (storage.arena.scope().isAlive()) {
-            throw new IllegalStateException("Previous arena is alive");
-        }
 
         if (entries.isEmpty()) {
             return;
         }
 
-        int nextSSTable = storage.ssTables.size();
-        Path path = config.basePath().resolve(DB_PREFIX + nextSSTable + DB_EXTENSION);
-        saveByPath(path, entries::iterator);
+        Path path = config.basePath();
+        Path indexTmp = path.resolve("index.tmp");
+        Path indexFile = path.resolve("index.idx");
+
+        if (!Files.exists(indexFile)) {
+            Files.createFile(indexFile);
+        }
+
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+
+        int nextSSTable = existedFiles.size();
+        String nextSSTableName = DB_PREFIX + nextSSTable + DB_EXTENSION;
+        Path tmpPath = config.basePath().resolve(nextSSTableName);
+
+        saveByPath(tmpPath, entries::iterator);
+
+        List<String> list = new ArrayList<>(existedFiles.size() + 1);
+        list.addAll(existedFiles);
+        list.add(nextSSTableName);
+        Files.write(
+                indexTmp,
+                list,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        Files.deleteIfExists(indexFile);
+
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
     }
 
     private static void saveByPath(Path path, IterableData entries) throws IOException {
-        Files.deleteIfExists(path);
-
         long entriesCount = 0;
         long entriesSize = 0;
         for (Entry<MemorySegment> entry : entries) {
@@ -98,7 +126,8 @@ public final class Storage implements Closeable {
                      StandardOpenOption.READ,
                      StandardOpenOption.WRITE,
                      StandardOpenOption.CREATE,
-                     StandardOpenOption.TRUNCATE_EXISTING)
+                     StandardOpenOption.TRUNCATE_EXISTING
+             )
         ) {
 
             MemorySegment newSSTable = channel.map(FileChannel.MapMode.READ_WRITE, 0, sizeOfNewSSTable, arenaSave);
@@ -113,7 +142,6 @@ public final class Storage implements Closeable {
 
                 offsetData = saveEntrySegment(newSSTable, entry, offsetData);
             }
-
         }
     }
 
@@ -139,18 +167,54 @@ public final class Storage implements Closeable {
     }
 
     public static void compact(Config config, IterableData entries) throws IOException {
-        Path tmpCompactedPath = config.basePath().resolve(DB_PREFIX + ".compacted" + DB_EXTENSION);
+        Path path = config.basePath();
+        Path tmpCompactedPath = path.resolve("compacted" + DB_EXTENSION);
         saveByPath(tmpCompactedPath, entries);
 
-        Path path = config.basePath();
-        for (int i = 0; ; i++) {
-            Path p = path.resolve(DB_PREFIX + i + DB_EXTENSION);
-            if (!Files.deleteIfExists(p)) {
-                break;
-            }
+        try (Stream<Path> stream = Files.find(path, 1, (p, _) -> p.getFileName().toString().startsWith(DB_PREFIX))) {
+            stream.forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
         }
 
-        Files.move(tmpCompactedPath, path.resolve(DB_PREFIX + 0 + DB_EXTENSION));
+        Path indexTmp = path.resolve("index.tmp");
+        Path indexFile = path.resolve("index.idx");
+
+        Files.deleteIfExists(indexTmp);
+        Files.deleteIfExists(indexFile);
+
+        boolean noData = Files.size(tmpCompactedPath) == 0;
+
+        Files.write(
+                indexTmp,
+                noData ? Collections.emptyList() : Collections.singleton(DB_PREFIX + "0" + DB_EXTENSION),
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE
+        );
+
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
+
+        if (noData) {
+            Files.delete(tmpCompactedPath);
+        } else {
+            Files.move(tmpCompactedPath, path.resolve(DB_PREFIX + 0 + DB_EXTENSION), StandardCopyOption.ATOMIC_MOVE);
+        }
+    }
+
+    private static long getSize(Entry<MemorySegment> entry) {
+        if (entry.value() == null) {
+            return Long.BYTES + entry.key().byteSize() + Long.BYTES;
+        } else {
+            return Long.BYTES + entry.value().byteSize() + entry.key().byteSize() + Long.BYTES;
+        }
+    }
+
+    public static long getSizeOnDisk(Entry<MemorySegment> entry) {
+        return getSize(entry) + Long.BYTES;
     }
 
     private long binarySearchUpperBoundOrEquals(MemorySegment ssTable, MemorySegment key) {
@@ -228,28 +292,50 @@ public final class Storage implements Closeable {
     public Iterator<Entry<MemorySegment>> getIterator(
             MemorySegment from,
             MemorySegment to,
-            Iterator<Entry<MemorySegment>> memoryIterator
+            Iterator<Entry<MemorySegment>> memoryIterator,
+            Iterator<Entry<MemorySegment>> flushingIterator
     ) {
-        List<OrderedPeekIterator<Entry<MemorySegment>>> peekIterators = new ArrayList<>();
-        peekIterators.add(new OrderedPeekIteratorImpl(0, memoryIterator));
-        int order = 1;
-        for (MemorySegment sstable : ssTables) {
-            Iterator<Entry<MemorySegment>> iterator = iterateThroughSSTable(sstable, from, to);
-            peekIterators.add(new OrderedPeekIteratorImpl(order, iterator));
-            order++;
+        try {
+            List<OrderedPeekIterator<Entry<MemorySegment>>> peekIterators = new ArrayList<>();
+            if (memoryIterator != null) {
+                peekIterators.add(new OrderedPeekIteratorImpl(0, memoryIterator));
+            }
+            if (flushingIterator != null) {
+                peekIterators.add(new OrderedPeekIteratorImpl(1, flushingIterator));
+            }
+            int order = 2;
+            for (MemorySegment sstable : ssTables) {
+                Iterator<Entry<MemorySegment>> iterator = iterateThroughSSTable(sstable, from, to);
+                peekIterators.add(new OrderedPeekIteratorImpl(order, iterator));
+                order++;
+            }
+            return new MergeSkipNullValuesIterator(peekIterators);
+        } catch (IllegalStateException e) {
+            if (isClosed()) {
+                throw new StorageClosedException(e);
+            } else {
+                throw e;
+            }
         }
-        return new MergeSkipNullValuesIterator(peekIterators);
     }
 
     @Override
-    public void close() {
-        if (arena.scope().isAlive()) {
-            arena.close();
+    public void close() throws IOException {
+        while (!isClosed()) {
+            try {
+                arena.close();
+            } catch (IllegalStateException e) {
+                // we can't close arena because it is used by some other thread
+            }
         }
     }
 
     public boolean isCompacted() {
         return isCompacted;
+    }
+
+    public boolean isClosed() {
+        return !arena.scope().isAlive();
     }
 
     @FunctionalInterface

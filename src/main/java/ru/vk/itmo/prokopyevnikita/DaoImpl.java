@@ -7,8 +7,14 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
-import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -16,114 +22,198 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Config config;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
-
-    private Storage storage;
-
-    private NavigableMap<MemorySegment, Entry<MemorySegment>> map =
-            new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor(r -> {
+        return new Thread(r, "flusher");
+    });
+    private volatile State state;
 
     public DaoImpl(Config config) throws IOException {
         this.config = config;
-        storage = Storage.load(config);
+        this.state = State.initState(config, Storage.load(config));
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        lock.readLock().lock();
-        try {
-            if (from == null) {
-                return storage.getIterator(
-                        MemorySegment.NULL, to,
-                        getMemoryIterator(MemorySegment.NULL, to)
-                );
-            }
+        return combinedIterator(Objects.requireNonNullElse(from, MemorySegment.NULL), to, true);
+    }
 
-            return storage.getIterator(from, to, getMemoryIterator(from, to));
-        } finally {
-            lock.readLock().unlock();
+    public Iterator<Entry<MemorySegment>> getOnlyFromDisk(MemorySegment from, MemorySegment to) {
+        return combinedIterator(Objects.requireNonNullElse(from, MemorySegment.NULL), to, false);
+    }
+
+
+    private Iterator<Entry<MemorySegment>> combinedIterator(
+            MemorySegment from,
+            MemorySegment to,
+            boolean includeMemoryAndFlushing
+    ) {
+        State state = accessStateAndCloseCheck();
+        if (includeMemoryAndFlushing) {
+            Iterator<Entry<MemorySegment>> memoryIterator = state.memory.get(from, to);
+            Iterator<Entry<MemorySegment>> flushingIterator = state.flushing.get(from, to);
+            return state.storage.getIterator(from, to, memoryIterator, flushingIterator);
         }
+        return state.storage.getIterator(from, to, null, null);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        lock.readLock().lock();
-        try {
-            Iterator<Entry<MemorySegment>> iterator = get(key, null);
-            if (!iterator.hasNext()) {
-                return null;
-            }
-            Entry<MemorySegment> next = iterator.next();
-            if (MemorySegmentComparator.compare(key, next.key()) == 0) {
-                return next;
-            }
+        Iterator<Entry<MemorySegment>> iterator = get(key, null);
+        if (!iterator.hasNext()) {
             return null;
-        } finally {
-            lock.readLock().unlock();
         }
+        Entry<MemorySegment> next = iterator.next();
+        if (MemorySegmentComparator.compare(key, next.key()) == 0) {
+            return next;
+        }
+        return null;
     }
 
     @Override
+    @SuppressWarnings("FutureReturnValueIgnored")
     public void upsert(Entry<MemorySegment> entry) {
+        State state = accessStateAndCloseCheck();
+        boolean flush = false;
         lock.readLock().lock();
         try {
-            map.put(entry.key(), entry);
+            flush = state.memory.put(entry.key(), entry);
         } finally {
             lock.readLock().unlock();
+        }
+        if (flush) {
+            flushInBg(false);
         }
     }
 
-    private Iterator<Entry<MemorySegment>> getMemoryIterator(MemorySegment from, MemorySegment to) {
-        lock.readLock().lock();
+    private Future<?> flushInBg(boolean canBeParallel) {
+        lock.writeLock().lock();
         try {
-            if (from == null && to == null) {
-                return map.values().iterator();
-            } else if (to == null) {
-                return map.tailMap(from).values().iterator();
-            } else if (from == null) {
-                return map.headMap(to).values().iterator();
+            State state = accessStateAndCloseCheck();
+            if (state.isFlushing()) {
+                if (canBeParallel) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                throw new AlreadyFlushingInBg();
             }
-            return map.subMap(from, to).values().iterator();
+            state = state.prepareForFlush();
+            this.state = state;
         } finally {
-            lock.readLock().unlock();
+            lock.writeLock().unlock();
         }
+
+        return executorService.submit(() -> {
+            try {
+                State state = accessStateAndCloseCheck();
+
+                Storage.save(config, state.flushing.values(), state.storage);
+                Storage newStorage = Storage.load(config);
+
+                lock.writeLock().lock();
+                try {
+                    this.state = state.afterFlush(newStorage);
+                } finally {
+                    lock.writeLock().unlock();
+                }
+                return null;
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        });
     }
 
     @Override
     public void flush() throws IOException {
+        boolean flush = false;
         lock.writeLock().lock();
         try {
-            storage.close();
-            Storage.save(config, map.values(), storage);
-            map = new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
-            storage = Storage.load(config);
+            flush = state.memory.overflow();
         } finally {
             lock.writeLock().unlock();
         }
-    }
 
-    @Override
-    public void close() throws IOException {
-        lock.writeLock().lock();
-        try {
-            storage.close();
-            Storage.save(config, map.values(), storage);
-        } finally {
-            lock.writeLock().unlock();
+        // await flush to complete
+        if (flush) {
+            Future<?> future = flushInBg(true);
+            awaitFlush(future);
         }
     }
 
-    @Override
-    public void compact() throws IOException {
-        lock.writeLock().lock();
+    private void awaitFlush(Future<?> future) {
         try {
-            if (map.isEmpty() && storage.isCompacted()) {
-                return;
+            future.get();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    // only single thread can call this method
+    @Override
+    public synchronized void close() throws IOException {
+        State state = this.state;
+        if (state.closed) {
+            return;
+        }
+        executorService.shutdown();
+        // await for all tasks to complete
+        // it can take a lot of time depending on the size of the database
+        try {
+            while (!executorService.awaitTermination(12, TimeUnit.HOURS)) ;
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
+        }
+        state.storage.close();
+        this.state = state.afterClose();
+        if (state.memory.isEmpty()) {
+            return;
+        }
+        Storage.save(config, state.memory.values(), state.storage);
+    }
+
+    @Override
+    public void compact() {
+        State state = accessStateAndCloseCheck();
+
+        if (state.memory.isEmpty() && state.storage.isCompacted()) {
+            return;
+        }
+
+        Future<?> future = executorService.submit(() -> {
+            State stateCompaction = accessStateAndCloseCheck();
+
+            if (stateCompaction.memory.isEmpty() && stateCompaction.storage.isCompacted()) {
+                return null;
             }
-            Storage.compact(config, this::all);
-            storage.close();
-            map = new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
-        } finally {
-            lock.writeLock().unlock();
+
+            // compact only ssTables
+            Storage.compact(config,
+                    () -> new MergeSkipNullValuesIterator(
+                            List.of(
+                                    new OrderedPeekIteratorImpl(0,
+                                            getOnlyFromDisk(null, null)
+                                    )
+                            )
+                    )
+            );
+
+            Storage storage = Storage.load(config);
+
+            lock.writeLock().lock();
+            try {
+                this.state = stateCompaction.afterCompaction(storage);
+            } finally {
+                lock.writeLock().unlock();
+            }
+            return null;
+        });
+
+        awaitFlush(future);
+    }
+
+    private State accessStateAndCloseCheck() {
+        State state = this.state;
+        if (state.closed) {
+            throw new IllegalStateException("DAO is Already closed");
         }
+        return state;
     }
 }
