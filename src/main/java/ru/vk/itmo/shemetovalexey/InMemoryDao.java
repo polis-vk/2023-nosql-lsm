@@ -1,4 +1,4 @@
-package ru.vk.itmo.trofimovmaxim;
+package ru.vk.itmo.shemetovalexey;
 
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
@@ -30,7 +30,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        this.diskStorage = new DiskStorage(StorageUtils.loadOrRecover(path, arena));
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -98,8 +98,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        diskStorage.compact(path, storage.values());
-        storage.clear();
+        if (storage.isEmpty() && diskStorage.getTotalFiles() <= 1) {
+            return;
+        }
+        StorageUtils.compact(path, this::all);
     }
 
     @Override
@@ -111,7 +113,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
+            StorageUtils.save(path, storage.values());
         }
     }
 }
