@@ -134,11 +134,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         // await flush to complete
         if (flush) {
             Future<?> future = flushInBg(true);
-            awaitFlush(future);
+            awaitFlushToFinish(future);
         }
     }
 
-    private void awaitFlush(Future<?> future) {
+    private void awaitFlushToFinish(Future<?> future) {
         try {
             future.get();
         } catch (InterruptedException | ExecutionException e) {
@@ -206,7 +206,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         });
 
-        awaitFlush(future);
+        awaitFlushToFinish(future);
     }
 
     private State accessStateAndCloseCheck() {
