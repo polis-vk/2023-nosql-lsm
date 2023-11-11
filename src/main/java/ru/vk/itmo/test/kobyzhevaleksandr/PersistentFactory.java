@@ -11,7 +11,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 4, week = 5)
+@DaoFactory(stage = 5)
 public class PersistentFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
