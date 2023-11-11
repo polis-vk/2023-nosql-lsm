@@ -154,7 +154,6 @@ public class Storage implements Iterable<Entry<MemorySegment>> {
                     }
                 });
         } catch (IOException e) {
-            logger.log(Level.SEVERE, "Can''t access the directory {0}", config.basePath());
             throw new ApplicationException("Can't access the directory " + config.basePath(), e);
         }
 
@@ -171,7 +170,6 @@ public class Storage implements Iterable<Entry<MemorySegment>> {
             long size = Files.size(tablePath);
             mappedSsTables.add(mapFile(tablePath, size, FileChannel.MapMode.READ_ONLY, arena, StandardOpenOption.READ));
         } catch (IOException e) {
-            logger.log(Level.SEVERE, "Can''t access the file {0}", tablePath);
             throw new ApplicationException("Can't access the file " + tablePath, e);
         }
     }
@@ -221,7 +219,6 @@ public class Storage implements Iterable<Entry<MemorySegment>> {
                 dataOffset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.value(), dataOffset);
             }
         } catch (IOException e) {
-            logger.log(Level.SEVERE, "Can''t map file {0}", tablePath);
             throw new ApplicationException("Can't map file " + tablePath, e);
         }
     }

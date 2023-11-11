@@ -86,8 +86,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         }
 
         State currentState = state;
-        if (currentState.memoryTableByteSize.get() >= config.flushThresholdBytes() &&
-            currentState.flushingMemoryTable != null) {
+        if (currentState.memoryTableByteSize.get() >= config.flushThresholdBytes()
+            && currentState.flushingMemoryTable != null) {
             throw new ApplicationException("Memory table is full, overload possible");
         }
 
@@ -152,14 +152,12 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         }
 
         executor.shutdown();
-        boolean isTerminated;
         try {
-            isTerminated = executor.awaitTermination(1, TimeUnit.HOURS);
+            if (!executor.awaitTermination(1, TimeUnit.HOURS)) {
+                executor.shutdownNow();
+            }
         } catch (InterruptedException e) {
-            throw new ApplicationException("The thread executing the task was interrupted", e);
-        }
-        if (!isTerminated) {
-            executor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
 
         if (!state.memoryTable.isEmpty()) {
