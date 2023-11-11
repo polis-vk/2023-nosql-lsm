@@ -104,7 +104,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             try {
                 State currenState = accessStateAndCloseCheck();
 
-                Storage.save(config, currenState.flushing.values(), currenState.storage);
+                Storage.save(config, currenState.flushing.values());
                 Storage newStorage = Storage.load(config);
 
                 lock.writeLock().lock();
@@ -159,7 +159,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         // it can take a lot of time depending on the size of the database
         try {
             while (!executorService.awaitTermination(12, TimeUnit.HOURS)) {
-                // do nothing
+                Thread.sleep(10);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -169,7 +169,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (currenState.memory.isEmpty()) {
             return;
         }
-        Storage.save(config, currenState.memory.values(), currenState.storage);
+        Storage.save(config, currenState.memory.values());
     }
 
     @Override

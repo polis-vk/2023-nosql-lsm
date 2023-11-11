@@ -72,7 +72,7 @@ public final class Storage implements Closeable {
         return new Storage(arena, ssTables, isCompacted);
     }
 
-    public static void save(Config config, Collection<Entry<MemorySegment>> entries, Storage storage)
+    public static void save(Config config, Collection<Entry<MemorySegment>> entries)
             throws IOException {
 
         if (entries.isEmpty()) {
@@ -97,7 +97,6 @@ public final class Storage implements Closeable {
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
         list.add(nextSSTableName);
-
         Path indexTmp = path.resolve("index.tmp");
         Files.write(
                 indexTmp,
@@ -175,7 +174,7 @@ public final class Storage implements Closeable {
         Path tmpCompactedPath = path.resolve("compacted" + DB_EXTENSION);
         saveByPath(tmpCompactedPath, entries);
 
-        try (Stream<Path> stream = Files.find(path, 1, (p, _) -> p.getFileName().toString().startsWith(DB_PREFIX))) {
+        try (Stream<Path> stream = Files.find(path, 1, (p, a) -> p.getFileName().toString().startsWith(DB_PREFIX))) {
             stream.forEach(p -> {
                 try {
                     Files.delete(p);
