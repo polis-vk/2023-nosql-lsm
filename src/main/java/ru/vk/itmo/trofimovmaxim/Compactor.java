@@ -11,18 +11,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.stream.Stream;
 
-public class Compactor {
+public final class Compactor {
     public static void compact(DiskStorage diskStorage,
-                               Path storagePath, Iterator<Entry<MemorySegment>> firstIterator) throws IOException {
+                               Path storagePath, Collection<Entry<MemorySegment>> memTable) throws IOException {
         final Path indexTmp = storagePath.resolve(DiskStorage.INDEX_TMP);
         final Path indexFile = storagePath.resolve(DiskStorage.INDEX_IDX);
         final Path compactPath = storagePath.resolve("compact");
         final Path compactResPath = storagePath.resolve("0");
 
-        Iterator<Entry<MemorySegment>> iter = diskStorage.range(firstIterator, null, null);
+        Iterator<Entry<MemorySegment>> iter = diskStorage.range(memTable.iterator(), null, null);
         if (!iter.hasNext()) {
             return;
         }
@@ -59,7 +60,7 @@ public class Compactor {
 
             long dataOffset = indexSize;
             int indexOffset = 0;
-            iter = diskStorage.range(firstIterator, null, null);
+            iter = diskStorage.range(memTable.iterator(), null, null);
             while (iter.hasNext()) {
                 Entry<MemorySegment> current = iter.next();
 

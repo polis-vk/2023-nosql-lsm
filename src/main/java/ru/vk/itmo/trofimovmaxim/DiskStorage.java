@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -48,8 +49,8 @@ public class DiskStorage {
         };
     }
 
-    public void compact(Path storagePath, Iterator<Entry<MemorySegment>> firstIterator) throws IOException {
-        Compactor.compact(this, storagePath, firstIterator);
+    public void compact(Path storagePath, Collection<Entry<MemorySegment>> memTable) throws IOException {
+        Compactor.compact(this, storagePath, memTable);
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
