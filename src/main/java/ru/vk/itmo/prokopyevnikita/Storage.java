@@ -28,6 +28,8 @@ public final class Storage implements Closeable {
 
     private static final String DB_PREFIX = "data";
     private static final String DB_EXTENSION = ".db";
+    private static final String INDEX_FILE = "index.idx";
+    private static final String INDEX_TMP_FILE = "index.tmp";
     private static final long FILE_PREFIX = Long.BYTES;
     private final Arena arena;
     private final List<MemorySegment> ssTables;
@@ -46,7 +48,7 @@ public final class Storage implements Closeable {
         List<MemorySegment> ssTables = new ArrayList<>();
         Arena arena = Arena.ofShared();
 
-        Path indexFile = path.resolve("index.idx");
+        Path indexFile = path.resolve(INDEX_FILE);
 
         if (Files.exists(indexFile)) {
             List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
@@ -80,7 +82,7 @@ public final class Storage implements Closeable {
         }
 
         Path path = config.basePath();
-        Path indexFile = path.resolve("index.idx");
+        Path indexFile = path.resolve(INDEX_FILE);
 
         if (!Files.exists(indexFile)) {
             Files.createFile(indexFile);
@@ -97,7 +99,7 @@ public final class Storage implements Closeable {
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
         list.add(nextSSTableName);
-        Path indexTmp = path.resolve("index.tmp");
+        Path indexTmp = path.resolve(INDEX_TMP_FILE);
         Files.write(
                 indexTmp,
                 list,
@@ -184,8 +186,8 @@ public final class Storage implements Closeable {
             });
         }
 
-        Path indexTmp = path.resolve("index.tmp");
-        Path indexFile = path.resolve("index.idx");
+        Path indexTmp = path.resolve(INDEX_TMP_FILE);
+        Path indexFile = path.resolve(INDEX_FILE);
 
         Files.deleteIfExists(indexTmp);
         Files.deleteIfExists(indexFile);
@@ -328,7 +330,11 @@ public final class Storage implements Closeable {
             try {
                 arena.close();
             } catch (IllegalStateException e) {
-                // we can't close arena because it is used by some other thread
+                try {
+                    wait(100);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
             }
         }
     }

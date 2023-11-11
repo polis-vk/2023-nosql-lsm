@@ -159,7 +159,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         // it can take a lot of time depending on the size of the database
         try {
             while (!executorService.awaitTermination(12, TimeUnit.HOURS)) {
-                Thread.sleep(10);
+                wait(10);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
