@@ -3,7 +3,6 @@ package ru.vk.itmo.chernyshevyaroslav;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
@@ -11,18 +10,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.Iterator;
 import java.util.List;
-import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 
-public final class CompactorUtils {
+public class CompactorUtils {
 
-    private CompactorUtils() {
+    CompactorUtils() {
         throw new IllegalStateException("Utility class");
     }
 
-    public static void compact(Path storagePath) throws IOException {
+    public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
         final Path indexFile = storagePath.resolve(DiskStorage.INDEX_IDX);
 
         try {
@@ -32,33 +28,15 @@ public final class CompactorUtils {
         }
         List<String> existingFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        Arena arena = Arena.ofConfined();
-
-        NavigableMap<MemorySegment, Entry<MemorySegment>> localStorage =
-                new ConcurrentSkipListMap<>(InMemoryDao::compare);
-        List<Iterator<Entry<MemorySegment>>> iterators = DiskStorage.loadOrRecover(storagePath, arena).stream()
-                .map(it -> DiskStorage.iterator(it, null, null)).toList();
-
-        if (iterators.isEmpty()) {
+        if (existingFiles.isEmpty()) {
+            Files.delete(indexFile);
             return;
         }
-
-        for (Iterator<Entry<MemorySegment>> iterator : iterators) {
-            while (iterator.hasNext()) {
-                Entry<MemorySegment> entry = iterator.next();
-                if (entry.value() == null) {
-                    localStorage.remove(entry.key());
-                } else {
-                    localStorage.put(entry.key(), entry);
-                }
-            }
-        }
+        DiskStorage.save(storagePath, iterable);
 
         for (String file : existingFiles) {
             Files.delete(storagePath.resolve(file));
         }
-
-        DiskStorage.save(storagePath, localStorage.values());
 
         Files.writeString(
                 indexFile,

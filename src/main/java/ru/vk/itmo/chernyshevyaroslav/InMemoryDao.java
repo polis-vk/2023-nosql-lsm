@@ -113,8 +113,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void compact() throws IOException {
         flush();
-        storage.clear();
-        CompactorUtils.compact(path);
+        CompactorUtils.compact(path, this::all);
     }
 
     @Override
