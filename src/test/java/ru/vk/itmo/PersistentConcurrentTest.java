@@ -25,7 +25,7 @@ public class PersistentConcurrentTest extends BaseTest {
     }
 
     @DaoTest(stage = 5)
-    void testConcurrentRW_2_500_compact(Dao<String, Entry<String>> dao) throws Exception {
+    void testConcurrentRW_100_000_compact(Dao<String, Entry<String>> dao) throws Exception {
         int count = 100_000;
         List<Entry<String>> entries = entries("k", "v", count);
         runInParallel(100, count, value -> {
