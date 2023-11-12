@@ -159,7 +159,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         writeLock.lock();
         try {
-            currEnv.finishCompact();
+            currEnv.completeCompact();
             isCompacting.set(false);
             if (shouldCompactAfterReloadEnv.get()) {
                 // Вызываем новый compact() из другого потока, чтобы не блокироваться.
@@ -230,6 +230,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private void setNewEnvironment() throws IOException {
         this.environment = new Environment(environment.getTable(), config, arena);
+        // Вызываем новый flush() из другого потока, чтобы не блокироваться.
         executor.execute(() -> {
             try {
                 if (shouldFlushAfterReloadEnv.get()) {

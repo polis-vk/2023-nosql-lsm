@@ -39,8 +39,8 @@ public class Environment {
         return diskStorage.range(memTableIterator, flushingIterator, from, to);
     }
 
-    public void finishCompact() {
-
+    public void completeCompact() throws IOException {
+        diskStorage.completeCompact(config.basePath());
     }
 
     private Iterable<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to, Boolean isMemTable) {
