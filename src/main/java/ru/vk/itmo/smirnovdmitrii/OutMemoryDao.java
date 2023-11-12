@@ -1,6 +1,7 @@
 package ru.vk.itmo.smirnovdmitrii;
 
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.smirnovdmitrii.util.sstable.SSTable;
 
 import java.io.IOException;
 import java.util.Iterator;
@@ -19,7 +20,7 @@ public interface OutMemoryDao<D, E extends Entry<D>> extends AutoCloseable {
      * Within this method you can save your in memory storage ({@link Iterable}) on disk.
      * @param entries representing memtable.
      */
-    void save(Iterable<E> entries) throws IOException;
+    void flush(Iterable<E> entries) throws IOException;
 
     /**
      * Returs iterator for every sstable, that was flushed in order from more new to more old.

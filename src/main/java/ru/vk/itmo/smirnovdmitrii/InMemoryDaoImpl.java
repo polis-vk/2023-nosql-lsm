@@ -9,29 +9,42 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemorySegment>> {
     private final SortedMap<MemorySegment, Entry<MemorySegment>> storage =
             new ConcurrentSkipListMap<>(new MemorySegmentComparator());
+    private final ReadWriteLock getCommitLock = new ReentrantReadWriteLock();
 
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
-        final Map<MemorySegment, Entry<MemorySegment>> map;
-        if (from == null && to == null) {
-            map = storage;
-        } else if (from == null) {
-            map = storage.headMap(to);
-        } else if (to == null) {
-            map = storage.tailMap(from);
-        } else {
-            map = storage.subMap(from, to);
+        getCommitLock.readLock().lock();
+        try {
+            final Map<MemorySegment, Entry<MemorySegment>> map;
+            if (from == null && to == null) {
+                map = storage;
+            } else if (from == null) {
+                map = storage.headMap(to);
+            } else if (to == null) {
+                map = storage.tailMap(from);
+            } else {
+                map = storage.subMap(from, to);
+            }
+            return map.values().iterator();
+        } finally {
+            getCommitLock.readLock().unlock();
         }
-        return map.values().iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
-        return storage.get(key);
+        getCommitLock.readLock().lock();
+        try {
+            return storage.get(key);
+        } finally {
+            getCommitLock.readLock().unlock();
+        }
     }
 
     @Override
@@ -41,8 +54,14 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
 
     @Override
     public Iterable<Entry<MemorySegment>> commit() {
-        final Iterable<Entry<MemorySegment>> result = new ArrayList<>(storage.values());
-        storage.clear();
+        final Iterable<Entry<MemorySegment>> result;
+        getCommitLock.writeLock().lock();
+        try {
+            result = new ArrayList<>(storage.values());
+            storage.clear();
+        } finally {
+            getCommitLock.writeLock().unlock();
+        }
         return result;
     }
 

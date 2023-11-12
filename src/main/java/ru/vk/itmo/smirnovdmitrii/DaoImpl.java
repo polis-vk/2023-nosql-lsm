@@ -18,15 +18,18 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final InMemoryDao<MemorySegment, Entry<MemorySegment>> inMemoryDao;
     private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
     private final EqualsComparator<MemorySegment> comparator = new MemorySegmentComparator();
+    private final OutMemoryDaoController outMemoryDaoController;
 
     public DaoImpl() {
         inMemoryDao = new InMemoryDaoImpl();
-        outMemoryDao = new FileDao(this);
+        outMemoryDao = new FileDao();
+        outMemoryDaoController = new OutMemoryDaoControllerImpl(outMemoryDao);
     }
 
     public DaoImpl(final Config config) {
         inMemoryDao = new InMemoryDaoImpl();
-        outMemoryDao = new FileDao(this, config.basePath());
+        outMemoryDao = new FileDao(config.basePath());
+        outMemoryDaoController = new OutMemoryDaoControllerImpl(outMemoryDao);
     }
 
     @Override
@@ -35,8 +38,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         final PeekingIterator<Entry<MemorySegment>> inMemoryIterator
                 = new WrappedIterator<>(id++, inMemoryDao.get(from, to));
         final MergeIterator.Builder<MemorySegment, Entry<MemorySegment>> builder
-                = new MergeIterator.Builder<MemorySegment, Entry<MemorySegment>>()
-                .addComparator(comparator)
+                = new MergeIterator.Builder<>(comparator)
                 .addIterator(inMemoryIterator);
         for (final Iterator<Entry<MemorySegment>> outMemoryIterator : outMemoryDao.get(from, to)) {
             builder.addIterator(new WrappedIterator<>(id++, outMemoryIterator));
@@ -63,18 +65,19 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void flush() throws IOException {
-        outMemoryDao.save(inMemoryDao.commit());
+    public void flush() {
+        outMemoryDaoController.flush(inMemoryDao.commit());
     }
 
     @Override
-    public void compact() throws IOException {
-        outMemoryDao.compact();
+    public void compact() {
+        outMemoryDaoController.compact();
     }
 
     @Override
     public void close() throws IOException {
         flush();
+        outMemoryDaoController.close();
         outMemoryDao.close();
         inMemoryDao.close();
     }

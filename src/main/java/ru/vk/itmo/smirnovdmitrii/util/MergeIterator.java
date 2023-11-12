@@ -4,6 +4,7 @@ import ru.vk.itmo.Entry;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 
@@ -80,11 +81,10 @@ public class MergeIterator<T, E extends Entry<T>> implements Iterator<E> {
     public static class Builder<T, E extends Entry<T>> {
         private final List<PeekingIterator<E>> list = new ArrayList<>();
 
-        private EqualsComparator<T> comparator;
+        private final EqualsComparator<T> comparator;
 
-        public Builder<T, E> addComparator(final EqualsComparator<T> comparator) {
+        public Builder(final EqualsComparator<T> comparator) {
             this.comparator = comparator;
-            return this;
         }
 
         public Builder<T, E> addIterator(final PeekingIterator<E> iterator) {
@@ -95,9 +95,6 @@ public class MergeIterator<T, E extends Entry<T>> implements Iterator<E> {
         }
 
         public MergeIterator<T, E> build() {
-            if (comparator == null) {
-                throw new IllegalStateException("comparator is null");
-            }
             return new MergeIterator<>(list, comparator);
         }
     }
