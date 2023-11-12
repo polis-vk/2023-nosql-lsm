@@ -19,32 +19,6 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
-/**
- * Принцип работы в многопоточном режиме:
- * <p>
- * После очередного флаш происходит создание нового состояния (происходит компакт, ждем его выполнения).
- * Ниже описано поведение для текущего состояния.
- * <p>
- * Запрос на компакт:
- * <ol>
- *     <li> Компакт выполняется, была добавлена новая SSTable -> return (должны выполнить сразу после инициализации следующего состояния).</li>
- * </ol>
- * <p>
- * Запрос на флаш:
- * <ol>
- *     <li>Происходит флаш -> return (должны выполнить сразу после инициализации следующего состояния).</li>
- * </ol>
- * <ol>
- *     Проверяем до выполнения:
- *     <li>Был выполнен флаш, компакт происходит -> return (не выполняем флаш, ждем выполнения компакта).</li>
- *     <li>Был выполнен флаш, компакт не происходит -> создаем новое состояние (считаем, что дождались выполнения компакта).</li>
- * </ol>
- * <ol>
- *     Проверяем после выполнения:
- *     <li>Компакт не происходит -> создаем новое состояние.</li>
- *     <li>Компакт происходит -> помечаем, что выполнили флаш, не создаем новое состояние, ждем выполнения компакта.</li>
- * </ol>
- */
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Config config;
@@ -56,12 +30,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Lock readLock;
     private final Lock writeLock;
-    final AtomicBoolean isFlushing;
-    final AtomicBoolean isCompacting;
-    final AtomicBoolean isFlushCompleted;
 
+    private final AtomicBoolean isFlushing;
+    private final AtomicBoolean isCompacting;
+    private final AtomicBoolean isFlushCompleted;
     private final AtomicBoolean shouldFlushAfterReloadEnv;
     private final AtomicBoolean shouldCompactAfterReloadEnv;
+
     private static final Logger logger = Logger.getLogger(InMemoryDao.class.getName());
 
     public InMemoryDao(Config config) throws IOException {
@@ -80,9 +55,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.shouldCompactAfterReloadEnv = new AtomicBoolean(false);
 
         this.executor = Executors.newCachedThreadPool();
-
         arena = Arena.ofShared();
-        this.environment = new Environment(new ConcurrentSkipListMap<>(Tools::compare), config, arena, readLock, writeLock);
+        this.environment = new Environment(new ConcurrentSkipListMap<>(Tools::compare), config, arena);
     }
 
     @Override
@@ -145,6 +119,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
+    /**
+     * <pre>
+     * Компакт выполняется, была добавлена новая SSTable -> return (должны выполнить сразу после инициализации следующего состояния).</pre>
+     */
     @Override
     public void compact() throws IOException {
         Environment currEnv;
@@ -152,13 +130,21 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             if (isCompacting.get()) {
                 if (isFlushCompleted.get()) {
+                    // Запомнили, что должны будем опять запустить compact().
                     shouldCompactAfterReloadEnv.set(true);
+                    // Считаем, что уже учли выполненные флаши.
                     isFlushCompleted.set(false);
                 }
                 return;
             }
+
+            // Могут выполнять несколько потоков.
+            // Должны гарантировать, что один поток будет выполнять флаш.
+            boolean tryToCompact = isCompacting.compareAndSet(false, true);
+            if (!tryToCompact) {
+                return;
+            }
             currEnv = environment;
-            isCompacting.set(true);
         } finally {
             readLock.unlock();
         }
@@ -176,8 +162,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             currEnv.finishCompact();
             isCompacting.set(false);
             if (shouldCompactAfterReloadEnv.get()) {
-                shouldCompactAfterReloadEnv.set(false);
+                // Вызываем новый compact() из другого потока, чтобы не блокироваться.
                 callCompactFromAnotherThread();
+                shouldCompactAfterReloadEnv.set(false);
             }
         } finally {
             writeLock.unlock();
@@ -194,6 +181,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         });
     }
 
+    /**
+     * <pre>
+     * Происходит флаш и на текущий момент таблица непустая ->
+     * return (должны выполнить сразу после инициализации следующего состояния).
+     *
+     * После выполнения создаем новое окружение.</pre>
+     */
     @Override
     public void flush() throws IOException {
         readLock.lock();
@@ -204,10 +198,17 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
                 return;
             }
-            isFlushing.set(true);
+
+            // Могут выполнять несколько потоков.
+            // Должны гарантировать, что один поток будет выполнять флаш.
+            boolean tryToFlush = isFlushing.compareAndSet(false, true);
+            if (!tryToFlush) {
+                return;
+            }
         } finally {
             readLock.unlock();
         }
+
 
         executor.execute(() -> {
             try {
@@ -228,7 +229,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void setNewEnvironment() throws IOException {
-        this.environment = new Environment(environment.getTable(), config, arena, readLock, writeLock);
+        this.environment = new Environment(environment.getTable(), config, arena);
         executor.execute(() -> {
             try {
                 if (shouldFlushAfterReloadEnv.get()) {

@@ -8,9 +8,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.Lock;
 
 public class Environment {
 
@@ -21,14 +19,9 @@ public class Environment {
     private final DiskStorage diskStorage;
     private final Config config;
 
-    private final Lock readLock;
-//    private final Lock writeLock;
-
     public Environment(ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memtable,
                        Config config,
-                       Arena arena,
-                       Lock readLock,
-                       Lock writeLock)
+                       Arena arena)
             throws IOException {
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(config.basePath(), arena));
 
@@ -36,22 +29,13 @@ public class Environment {
         this.flushingTable = new ConcurrentSkipListMap<>(Tools::compare);
         this.memTableBytes = new AtomicLong(0);
 
-        this.readLock = readLock;
-//        this.writeLock = writeLock;
-
         this.config = config;
     }
 
     public Iterator<Entry<MemorySegment>> range(MemorySegment from, MemorySegment to) {
-        Iterator<Entry<MemorySegment>> memTableIterator;
-        Iterator<Entry<MemorySegment>> flushingIterator;
-        readLock.lock();
-        try {
-            memTableIterator = getInMemory(from, to, true).iterator();
-            flushingIterator = getInMemory(from, to, false).iterator();
-        } finally {
-            readLock.unlock();
-        }
+        Iterator<Entry<MemorySegment>> memTableIterator = getInMemory(from, to, true).iterator();
+        Iterator<Entry<MemorySegment>> flushingIterator = getInMemory(from, to, false).iterator();
+
         return diskStorage.range(memTableIterator, flushingIterator, from, to);
     }
 
