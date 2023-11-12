@@ -12,22 +12,42 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.*;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
+    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
     private final Arena arena;
     private final Path path;
     private final DiskStorage diskStorage;
+    private final long thresholdBytes;
+    private final ReentrantReadWriteLock rwLock;
+    private final ExecutorService compactionExecutor;
+    private final ExecutorService flushExecutor;
+    private final ExecutorService finalizer;
+    private Future<?> autoFlushing;
+    private Future<?> flushingTask;
+    private volatile boolean shuttingDown;
+    private long storageSize;
 
     public PersistentDao(Config config) throws IOException {
         path = config.basePath().resolve("data");
         Files.createDirectories(path);
 
+        thresholdBytes = config.flushThresholdBytes();
         arena = Arena.ofShared();
         storage = new ConcurrentSkipListMap<>(PersistentDao::compare);
+
+        rwLock = new ReentrantReadWriteLock();
+
+        compactionExecutor = Executors.newSingleThreadExecutor();
+        flushExecutor = Executors.newFixedThreadPool(2);
+        finalizer = Executors.newSingleThreadExecutor();
+
+        autoFlushing = flushExecutor.submit(new AutoFlusher());
+        shuttingDown = false;
+        storageSize = 0;
 
         this.diskStorage = new DiskStorage(Utils.loadOrRecover(path), arena);
     }
@@ -87,23 +107,36 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void upsert(Entry<MemorySegment> entry) {
-        storage.put(entry.key(), entry);
+    public void upsert(Entry<MemorySegment> entry) throws IllegalStateException {
+        // если флашится первый мем тейбл и заполнен второй, то кидаем исключение
+        rwLock.writeLock().lock();
+        try {
+            if (unableToUpsert(entry)) {
+                throw new IllegalStateException();
+            }
+            storage.put(entry.key(), entry);
+            storageSize += entry.key().byteSize() + entry.value().byteSize();
+        } finally {
+            rwLock.writeLock().unlock();
+        }
     }
 
     @Override
     public void flush() throws IOException {
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
+            flushingTask = flushExecutor.submit(new FlushingTask<>());
         }
     }
 
     @Override
-    public void compact() throws IOException {
-        if (!storage.isEmpty()) {
-            flush();
-        }
-        diskStorage.compact(path);
+    public void compact() {
+        autoFlushing = compactionExecutor.submit(() -> {
+            try {
+                diskStorage.compact(path);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     @Override
@@ -111,8 +144,55 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!arena.scope().isAlive()) {
             return;
         }
+        shuttingDown = true;
+        autoFlushing.cancel(true);
+        compactionExecutor.close();
+        flushExecutor.close();
         arena.close();
-        flush();
+        autoFlushing = finalizer.submit(new FlushingTask<>());
+        finalizer.close();
+    }
+
+    private boolean unableToUpsert(Entry<MemorySegment> entry) {
+        return storageSize + entry.key().byteSize() + entry.value().byteSize() > thresholdBytes
+                && !flushingTask.isDone();
+    }
+
+    private class FlushingTask<V> extends FutureTask<V> {
+        public FlushingTask() {
+            super(() -> {
+                try {
+                    DiskStorage.save(path, storage.values());
+                    storage = new ConcurrentSkipListMap<>(PersistentDao::compare);
+                    storageSize = 0;
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+                return null;
+            });
+        }
+
+//        @Override
+//        protected void done() {
+//            super.done();
+//        }
+
+    }
+
+    private class AutoFlusher implements Runnable {
+
+        @Override
+        public void run() {
+            while (!shuttingDown) {
+                if (storageSize > thresholdBytes) {
+                    try {
+                        flush();
+                    } catch (IOException e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+            }
+        }
     }
 
 }
