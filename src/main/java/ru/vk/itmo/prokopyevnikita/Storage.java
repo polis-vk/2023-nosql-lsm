@@ -23,7 +23,9 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.stream.Stream;
 
-import static ru.vk.itmo.prokopyevnikita.StorageAdditionalFunctionality.*;
+import static ru.vk.itmo.prokopyevnikita.StorageAdditionalFunctionality.binarySearchUpperBoundOrEquals;
+import static ru.vk.itmo.prokopyevnikita.StorageAdditionalFunctionality.getEntryByIndex;
+import static ru.vk.itmo.prokopyevnikita.StorageAdditionalFunctionality.saveEntrySegment;
 
 public final class Storage implements Closeable {
 
@@ -192,7 +194,6 @@ public final class Storage implements Closeable {
             Files.move(tmpCompactedPath, path.resolve(DB_PREFIX + 0 + DB_EXTENSION), StandardCopyOption.ATOMIC_MOVE);
         }
     }
-
 
     public Iterator<Entry<MemorySegment>> iterateThroughSSTable(
             MemorySegment ssTable,

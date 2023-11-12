@@ -8,8 +8,9 @@ import java.lang.foreign.ValueLayout;
 
 import static ru.vk.itmo.prokopyevnikita.Storage.FILE_PREFIX;
 
-
 public class StorageAdditionalFunctionality {
+    private StorageAdditionalFunctionality() {
+    }
 
     public static long saveEntrySegment(MemorySegment newSSTable, Entry<MemorySegment> entry, long offsetData) {
         long offset = offsetData;
@@ -31,7 +32,6 @@ public class StorageAdditionalFunctionality {
         }
         return offset;
     }
-
     public static long binarySearchUpperBoundOrEquals(MemorySegment ssTable, MemorySegment key) {
         long left = 0;
         long right = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
