@@ -28,10 +28,13 @@ public class CompactorUtils {
         }
         List<String> existingFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        DiskStorage.save(storagePath, iterable, true);
+        if (existingFiles.isEmpty()) {
+            Files.delete(indexFile);
+            return;
+        }
+        DiskStorage.save(storagePath, iterable);
 
-        for (int i = 0; i < existingFiles.size(); i++) {
-            String file = existingFiles.get(i);
+        for (String file : existingFiles) {
             Files.delete(storagePath.resolve(file));
         }
 
@@ -43,7 +46,7 @@ public class CompactorUtils {
                 StandardOpenOption.TRUNCATE_EXISTING
         );
 
-        Files.move(storagePath.resolve(String.valueOf(existingFiles.size() + 1)),
+        Files.move(storagePath.resolve(String.valueOf(existingFiles.size())),
                 storagePath.resolve("0"),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING);

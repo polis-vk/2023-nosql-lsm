@@ -106,14 +106,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values(), false);
+            DiskStorage.save(path, storage.values());
         }
     }
 
     @Override
     public void compact() throws IOException {
         flush();
-        storage.clear();
         CompactorUtils.compact(path, this::all);
     }
 

@@ -48,7 +48,7 @@ public class DiskStorage {
         };
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable, boolean shouldCompact)
+    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve(INDEX_TMP);
         final Path indexFile = storagePath.resolve(INDEX_IDX);
