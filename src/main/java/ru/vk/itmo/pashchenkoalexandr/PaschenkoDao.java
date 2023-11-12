@@ -97,6 +97,11 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
+    public void compact() throws IOException {
+        DiskStorage.compact(path, this::all);
+    }
+
+    @Override
     public void close() throws IOException {
         if (!arena.scope().isAlive()) {
             return;
@@ -105,7 +110,7 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
+            DiskStorage.saveNextSSTable(path, storage.values());
         }
     }
 }
