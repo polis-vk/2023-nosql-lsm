@@ -13,7 +13,6 @@ import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -28,7 +27,6 @@ import java.util.logging.Logger;
  * <p>
  * Запрос на компакт:
  * <ol>
- *     <li> Компакт может произойти в любой момент. </li>
  *     <li> Компакт выполняется, была добавлена новая SSTable -> return (должны выполнить сразу после инициализации следующего состояния).</li>
  * </ol>
  * <p>
@@ -58,9 +56,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Lock readLock;
     private final Lock writeLock;
+    final AtomicBoolean isFlushing;
+    final AtomicBoolean isCompacting;
+    final AtomicBoolean isFlushCompleted;
 
-    private AtomicBoolean shouldFlushAfterReloadEnv;
-    private AtomicBoolean shouldCompactAfterReloadEnv;
+    private final AtomicBoolean shouldFlushAfterReloadEnv;
+    private final AtomicBoolean shouldCompactAfterReloadEnv;
     private static final Logger logger = Logger.getLogger(InMemoryDao.class.getName());
 
     public InMemoryDao(Config config) throws IOException {
@@ -72,6 +73,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.readLock = lock.readLock();
         this.writeLock = lock.writeLock();
 
+        this.isFlushing = new AtomicBoolean(false);
+        this.isCompacting = new AtomicBoolean(false);
+        this.isFlushCompleted = new AtomicBoolean(false);
         this.shouldFlushAfterReloadEnv = new AtomicBoolean(false);
         this.shouldCompactAfterReloadEnv = new AtomicBoolean(false);
 
@@ -92,7 +96,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         readLock.lock();
         try {
             currEnv = environment;
-            if (currEnv.getMemTableBytes().get() > config.flushThresholdBytes() && currEnv.isFlushing.get()) {
+            if (currEnv.getMemTableBytes().get() > config.flushThresholdBytes() && isFlushing.get()) {
                 throw new IllegalStateException("table is full, flushing in process");
             }
         } finally {
@@ -106,7 +110,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             flush();
         } catch (IOException e) {
-            logger.severe("fail to flush");
+            logger.severe("flush error");
         }
     }
 
@@ -143,74 +147,94 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
+        Environment currEnv;
         readLock.lock();
         try {
-            if (environment.isCompactingCompleted.get() || environment.isCompacting.get()) {
-                if (!environment.getTable().isEmpty()) {
+            if (isCompacting.get()) {
+                if (isFlushCompleted.get()) {
                     shouldCompactAfterReloadEnv.set(true);
+                    isFlushCompleted.set(false);
                 }
                 return;
             }
+            currEnv = environment;
+            isCompacting.set(true);
         } finally {
             readLock.unlock();
         }
 
-        backgroundCompact();
-
-        writeLock.lock();
-        try {
-            if (environment.isFlushingCompleted.get()) {
-                this.environment = new Environment(this.environment.getTable(), config, arena, readLock, writeLock);
-            } else {
-                // Если был выполнен компакт без flush в текущем состоянии,
-                // то считаем, что состояние актуальное.
-                environment.isCompactingCompleted.set(false);
-            }
-        } finally {
-            writeLock.unlock();
-        }
-    }
-
-    @Override
-    public void flush() throws IOException {
-        readLock.lock();
-        try {
-            if (environment.isFlushingCompleted.get() || environment.isFlushing.get()) {
-                if (!environment.getTable().isEmpty()) {
-                    shouldFlushAfterReloadEnv.set(true);
-                }
-                return;
-            }
-        } finally {
-            readLock.unlock();
-        }
-
-        backgroundFlush();
-
-        writeLock.lock();
-        try {
-            if (!environment.isCompacting.get()) {
-                this.environment = new Environment(this.environment.getTable(), config, arena, readLock, writeLock);
-            }
-        } finally {
-            writeLock.unlock();
-        }
-    }
-
-    private void backgroundCompact() {
         executor.execute(() -> {
             try {
-                environment.compact();
+                currEnv.compact();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        writeLock.lock();
+        try {
+            currEnv.finishCompact();
+            isCompacting.set(false);
+            if (shouldCompactAfterReloadEnv.get()) {
+                shouldCompactAfterReloadEnv.set(false);
+                callCompactFromAnotherThread();
+            }
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    private void callCompactFromAnotherThread() {
+        executor.execute(() -> {
+            try {
+                compact();
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         });
     }
 
-    private void backgroundFlush() {
+    @Override
+    public void flush() throws IOException {
+        readLock.lock();
+        try {
+            if (isFlushing.get()) {
+                if (!environment.getTable().isEmpty()) {
+                    shouldFlushAfterReloadEnv.set(true);
+                }
+                return;
+            }
+            isFlushing.set(true);
+        } finally {
+            readLock.unlock();
+        }
+
         executor.execute(() -> {
             try {
                 environment.flush();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        writeLock.lock();
+        try {
+            isFlushing.set(false);
+            isFlushCompleted.set(true);
+            setNewEnvironment();
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
+    private void setNewEnvironment() throws IOException {
+        this.environment = new Environment(environment.getTable(), config, arena, readLock, writeLock);
+        executor.execute(() -> {
+            try {
+                if (shouldFlushAfterReloadEnv.get()) {
+                    shouldFlushAfterReloadEnv.set(false);
+                    flush();
+                }
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -220,21 +244,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void close() throws IOException {
         // Ожидаем выполнения фоновых flush и сompact.
-        executor.shutdown();
-        try {
-            // Взято из метода ExecutorService.close().
-            executor.awaitTermination(1L, TimeUnit.DAYS);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        } finally {
-            executor.shutdownNow();
-        }
+        executor.close();
 
         if (!environment.getTable().isEmpty()) {
-            backgroundFlush();
+            environment.flush();
         }
-        // Если только что был вызван flush, то ожидаем его выполнения и закрываем ExecutorService.
-        executor.close();
 
         if (!arena.scope().isAlive()) {
             return;

@@ -21,11 +21,6 @@ public class Environment {
     private final DiskStorage diskStorage;
     private final Config config;
 
-    final AtomicBoolean isFlushing;
-    final AtomicBoolean isCompacting;
-    final AtomicBoolean isFlushingCompleted;
-    final AtomicBoolean isCompactingCompleted;
-
     private final Lock readLock;
 //    private final Lock writeLock;
 
@@ -45,11 +40,6 @@ public class Environment {
 //        this.writeLock = writeLock;
 
         this.config = config;
-
-        this.isFlushing = new AtomicBoolean(false);
-        this.isCompacting = new AtomicBoolean(false);
-        this.isFlushingCompleted = new AtomicBoolean(false);
-        this.isCompactingCompleted = new AtomicBoolean(false);
     }
 
     public Iterator<Entry<MemorySegment>> range(MemorySegment from, MemorySegment to) {
@@ -65,6 +55,10 @@ public class Environment {
         return diskStorage.range(memTableIterator, flushingIterator, from, to);
     }
 
+    public void finishCompact() {
+
+    }
+
     private Iterable<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to, Boolean isMemTable) {
         if (from == null && to == null) {
             return (isMemTable ? table : flushingTable).values();
@@ -78,7 +72,7 @@ public class Environment {
         return (isMemTable ? table : flushingTable).subMap(from, to).values();
     }
 
-    public long put(Entry<MemorySegment> entry) {
+    public synchronized long put(Entry<MemorySegment> entry) {
         table.put(entry.key(), entry);
 
         long currSize = entry.key().byteSize();
@@ -95,29 +89,15 @@ public class Environment {
         table = new ConcurrentSkipListMap<>(Tools::compare);
         memTableBytes.set(0);
 
-        isFlushing.set(true);
-
         DiskStorage.save(config.basePath(), flushingTable.values());
-
-        isFlushing.set(false);
-        isFlushingCompleted.set(true);
     }
 
     public void compact() throws IOException {
-        isCompacting.set(true);
-
         diskStorage.compact(config.basePath());
-
-        isCompacting.set(false);
-        isCompactingCompleted.set(true);
     }
 
     public ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> getTable() {
         return table;
-    }
-
-    public ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> getFlushingTable() {
-        return flushingTable;
     }
 
     public AtomicLong getMemTableBytes() {
