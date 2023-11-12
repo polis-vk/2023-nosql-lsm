@@ -120,6 +120,10 @@ public final class Storage implements Closeable {
     }
 
     private static void saveByPath(Path path, IterableData entries) throws IOException {
+        if (Files.exists(path)) {
+            throw new IllegalStateException("File already exists: " + path);
+        }
+
         long entriesCount = 0;
         long entriesSize = 0;
         for (Entry<MemorySegment> entry : entries) {
@@ -136,8 +140,7 @@ public final class Storage implements Closeable {
                      path,
                      StandardOpenOption.READ,
                      StandardOpenOption.WRITE,
-                     StandardOpenOption.CREATE,
-                     StandardOpenOption.TRUNCATE_EXISTING)
+                     StandardOpenOption.CREATE)
         ) {
 
             MemorySegment newSSTable = channel.map(FileChannel.MapMode.READ_WRITE, 0, sizeOfNewSSTable, arenaSave);
