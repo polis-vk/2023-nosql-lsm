@@ -12,9 +12,9 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
 
-public class CompactorUtils {
+public final class CompactorUtils {
 
-    CompactorUtils() {
+    private CompactorUtils() {
         throw new IllegalStateException("Utility class");
     }
 
