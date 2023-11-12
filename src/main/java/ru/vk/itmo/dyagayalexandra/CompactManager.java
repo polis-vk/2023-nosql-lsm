@@ -4,11 +4,14 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.io.UncheckedIOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -27,36 +30,58 @@ public class CompactManager {
     private static final String TEMP_FILE_INDEX_NAME = "tempCompactIndex.txt";
     private static final String MAIN_FILE_NAME = "mainCompact.txt";
     private static final String MAIN_FILE_INDEX_NAME = "mainCompactIndex.txt";
+    private final FileManager fileManager;
 
-    public CompactManager(String fileName, String fileIndexName, String fileExtension) {
+    public CompactManager(String fileName, String fileIndexName, String fileExtension, FileManager fileManager) {
         this.fileName = fileName;
         this.fileIndexName = fileIndexName;
         this.fileExtension = fileExtension;
+        this.fileManager = fileManager;
     }
 
-    public void compact(Path basePath, Iterator<Entry<MemorySegment>> iterator) throws IOException {
+    public void compact(Path basePath, List<Iterator<Entry<MemorySegment>>> iterators, int size) throws IOException {
         long count = 0;
         long offset = 0;
         compactedFile = basePath.resolve(TEMP_FILE_NAME);
         compactedIndex = basePath.resolve(TEMP_FILE_INDEX_NAME);
-        Files.createFile(compactedFile);
-        Files.createFile(compactedIndex);
 
-        try (RandomAccessFile randomAccessDataFile =
-                     new RandomAccessFile(String.valueOf(compactedFile), "rw");
-             RandomAccessFile randomAccessIndexFile =
-                     new RandomAccessFile(String.valueOf(compactedIndex), "rw")) {
-            getStartPosition(randomAccessIndexFile);
+        Iterator<Entry<MemorySegment>> iterator =
+                MergedIterator.createMergedIterator(iterators, EntryKeyComparator.INSTANCE);
+
+        long tableSize = 0;
+        while (iterator.hasNext()) {
+            Entry<MemorySegment> currentItem = iterator.next();
+            tableSize += Integer.BYTES + currentItem.key().toArray(ValueLayout.JAVA_BYTE).length;
+            if (currentItem.value() != null) {
+                tableSize += Integer.BYTES + currentItem.value().toArray(ValueLayout.JAVA_BYTE).length;
+            } else {
+                tableSize += Integer.BYTES;
+            }
+        }
+
+        iterator = MergedIterator.createMergedIterator(iterators, EntryKeyComparator.INSTANCE);
+        long tableOffset = 0;
+
+        try (FileChannel tableChannel = FileChannel.open(compactedFile, StandardOpenOption.READ,
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+             FileChannel indexChannel = FileChannel.open(compactedIndex, StandardOpenOption.READ,
+                     StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+             Arena arena = Arena.ofConfined()) {
+            MemorySegment tableMemorySegment = tableChannel.map(FileChannel.MapMode.READ_WRITE,
+                    0, tableSize, arena);
+            MemorySegment indexMemorySegment = indexChannel.map(FileChannel.MapMode.READ_WRITE,
+                    0, (long) size * Long.BYTES, arena);
             while (iterator.hasNext()) {
                 Entry<MemorySegment> currentItem = iterator.next();
                 Map.Entry<MemorySegment, Entry<MemorySegment>> currentEntry =
                         Map.entry(currentItem.key(), new BaseEntry<>(currentItem.key(), currentItem.value()));
-                FileManager.writeEntry(randomAccessDataFile, currentEntry);
-                offset = FileManager.writeIndexes(randomAccessIndexFile, offset, currentEntry);
+                offset = fileManager.writeEntry(tableMemorySegment, tableOffset, currentEntry);
+                fileManager.writeIndexes(indexMemorySegment, (count + 1) * Long.BYTES, tableOffset);
+                tableOffset = offset;
                 count++;
             }
 
-            setIndexSize(randomAccessIndexFile, count);
+            setIndexSize(indexMemorySegment, count);
         }
 
         Files.move(compactedFile, basePath.resolve(MAIN_FILE_NAME), ATOMIC_MOVE);
@@ -110,6 +135,7 @@ public class CompactManager {
                     if (currentFile.getFileName().toString().startsWith(fileName)) {
                         ssTables.add(currentFile);
                     }
+
                     if (currentFile.getFileName().toString().startsWith(fileIndexName)) {
                         ssIndexes.add(currentFile);
                     }
@@ -134,13 +160,8 @@ public class CompactManager {
         return false;
     }
 
-    private static void getStartPosition(RandomAccessFile randomAccessIndexFile) throws IOException {
-        randomAccessIndexFile.seek(Long.BYTES);
-    }
-
-    private static void setIndexSize(RandomAccessFile randomAccessIndexFile, long count) throws IOException {
-        randomAccessIndexFile.seek(0);
-        randomAccessIndexFile.writeLong(count);
+    private static void setIndexSize(MemorySegment indexMemorySegment, long count) {
+        indexMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, count);
     }
 
     private void deleteFiles(List<Path> filePaths) throws IOException {

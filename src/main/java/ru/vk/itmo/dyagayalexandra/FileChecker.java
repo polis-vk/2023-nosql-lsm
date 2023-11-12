@@ -116,9 +116,7 @@ public class FileChecker {
                 dataString.indexOf(fileExtension)))
                 != Integer.parseInt(indexString.substring(
                 indexString.indexOf(fileIndexName) + fileIndexName.length(),
-                indexString.indexOf(fileExtension))
-        )
-        ) {
+                indexString.indexOf(fileExtension)))) {
             throw new NoSuchFileException("The files don't match.");
         }
     }

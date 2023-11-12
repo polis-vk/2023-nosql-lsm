@@ -7,10 +7,10 @@ import java.util.Comparator;
 
 public class EntryKeyComparator implements Comparator<Entry<MemorySegment>> {
 
-    private final MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
+    public static final Comparator<Entry<MemorySegment>> INSTANCE = new EntryKeyComparator();
 
     @Override
     public int compare(Entry<MemorySegment> entry1, Entry<MemorySegment> entry2) {
-        return memorySegmentComparator.compare(entry1.key(), entry2.key());
+        return MemorySegmentComparator.INSTANCE.compare(entry1.key(), entry2.key());
     }
 }
