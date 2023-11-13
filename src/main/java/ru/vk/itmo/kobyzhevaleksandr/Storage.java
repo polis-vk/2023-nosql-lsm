@@ -12,6 +12,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -27,14 +28,18 @@ import java.util.stream.Stream;
 public class Storage {
 
     private static final String TABLE_FILENAME = "ssTable";
-    private static final String COMPACTED_TABLE_FILENAME = TABLE_FILENAME + "Compact";
     private static final String TABLE_EXTENSION = ".dat";
+    private static final String COMPACTED_TABLE_FILENAME = TABLE_FILENAME + "Compact" + TABLE_EXTENSION;
     private static final long NULL_SIZE = -1;
     private static final long ENTRY_COUNT_OFFSET = 0;
+    private static final Logger logger = Logger.getLogger(Storage.class.getPackage().getName());
+    private static final Pattern tablesPattern = Pattern.compile(TABLE_FILENAME + "\\d*" + TABLE_EXTENSION + "$");
 
     private final Arena arena = Arena.ofShared();
     private final Config config;
     private final List<MemorySegment> mappedSsTables;
+
+    private boolean isCompacted = false;
 
     /*
     Filling ssTable with bytes from the memory segment with a structure:
@@ -46,7 +51,6 @@ public class Storage {
         this.config = config;
         mappedSsTables = new ArrayList<>();
         Path tablesDir = config.basePath();
-        Logger logger = Logger.getLogger(this.getClass().getPackage().getName());
 
         if (!Files.exists(tablesDir)) {
             logger.log(Level.WARNING, "Can''t find the file {0}", tablesDir);
@@ -117,28 +121,26 @@ public class Storage {
         }
         arena.close();
 
-        if (entries.isEmpty()) {
+        if (entries.isEmpty() || isCompacted) {
             return;
         }
 
-        String tableIndex = String.format("%010d", mappedSsTables.size());
-        Path tablePath = config.basePath().resolve(TABLE_FILENAME + tableIndex + TABLE_EXTENSION);
+        Path tablePath = getTablePathForIndex(mappedSsTables.size());
         saveOnDisk(entries, tablePath);
     }
 
     public void compact(Iterable<Entry<MemorySegment>> iterable) throws IOException {
-        if (!arena.scope().isAlive() || !iterable.iterator().hasNext()) {
+        if (!arena.scope().isAlive() || isCompacted || !iterable.iterator().hasNext()) {
             return;
         }
 
-        Path compactedTablePath = config.basePath().resolve(COMPACTED_TABLE_FILENAME + TABLE_EXTENSION);
+        Path compactedTablePath = config.basePath().resolve(COMPACTED_TABLE_FILENAME);
         saveOnDisk(iterable, compactedTablePath);
-        arena.close();
+        isCompacted = true;
 
         try (Stream<Path> files = Files.list(config.basePath())) {
-            Pattern pattern = Pattern.compile(TABLE_FILENAME + "\\d*" + TABLE_EXTENSION + "$");
             files
-                .filter(path -> pattern.matcher(path.toString()).find())
+                .filter(path -> tablesPattern.matcher(path.toString()).find())
                 .forEach(tablePath -> {
                     try {
                         Files.delete(tablePath);
@@ -148,20 +150,23 @@ public class Storage {
                 });
         }
 
-        String tableIndex = String.format("%010d", 0);
-        Path tablePath = config.basePath().resolve(TABLE_FILENAME + tableIndex + TABLE_EXTENSION);
-        Files.move(compactedTablePath, tablePath);
+        Path tablePath = getTablePathForIndex(0);
+        Files.move(compactedTablePath, tablePath, StandardCopyOption.ATOMIC_MOVE);
     }
 
-    /*
-    Saving to disk is done using Iterable. Iterable allows you to return multiple iterators.
-    In our case, the first iterator is used to calculate the size of the resulting ssTable and the number of entries,
-    and the second one is used to write segments directly to the mapped ssTable.
-
-    In addition, using Iterable allows you to make the saveOnDisk() method universal,
-    since saving is performed in two cases: when calling close(), that is, all entries from NavigableMap are written,
-    and also when compact(), which involves the use of iterators.
-    */
+    /**
+     * Saving to disk is done using {@link Iterable}. Iterable allows you to return multiple iterators.
+     * In our case, the first iterator is used to calculate the size of the resulting ssTable and the number of entries,
+     * and the second one is used to write segments directly to the mapped ssTable.
+     *
+     * <p>In addition, using Iterable allows you to make the {@code saveOnDisk()} method universal,
+     * since saving is performed in two cases: when calling {@link PersistentDao#close()},
+     * that is, all entries from {@link java.util.NavigableMap} are written,
+     * and also when {@link PersistentDao#compact()}, which involves the use of iterators.
+     *
+     * @param iterable data to be saved on disk
+     * @param tablePath path to the file where you want to save the data
+     */
     private static void saveOnDisk(Iterable<Entry<MemorySegment>> iterable, Path tablePath) throws IOException {
         try (Arena writeArena = Arena.ofConfined()) {
             long ssTableSize = 0;
@@ -261,5 +266,10 @@ public class Storage {
             }
         }
         return left;
+    }
+
+    private Path getTablePathForIndex(int index) {
+        String tableIndex = String.format("%010d", index);
+        return config.basePath().resolve(TABLE_FILENAME + tableIndex + TABLE_EXTENSION);
     }
 }
