@@ -9,14 +9,14 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-
-    private static final Comparator<MemorySegment> memorySegmentComparator = (segment1, segment2) -> {
+public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    private static final Comparator<MemorySegment> MEMORY_SEGMENT_COMPARATOR = (segment1, segment2) -> {
         long offset = segment1.mismatch(segment2);
         if (offset == -1) {
             return 0;
@@ -30,7 +30,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return segment1.get(ValueLayout.JAVA_BYTE, offset) - segment2.get(ValueLayout.JAVA_BYTE, offset);
     };
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable =
-            new ConcurrentSkipListMap<>(memorySegmentComparator);
+            new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
 
     private final Arena readArena;
     private final Path ssTablePath;
@@ -38,13 +38,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private boolean compacted;
     private final Storage storage;
 
-    public InMemoryDao() {
+    public MemorySegmentDao() {
         ssTablePath = null;
         readArena = null;
         storage = null;
     }
 
-    public InMemoryDao(Config config) {
+    public MemorySegmentDao(Config config) {
         ssTablePath = config.basePath();
         readArena = Arena.ofShared();
         storage = new Storage(ssTablePath, readArena);
@@ -52,7 +52,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return storage.range(getMemTableIterator(from, to), from, to, memorySegmentComparator);
+        return storage.range(getMemTableIterator(from, to), from, to, MEMORY_SEGMENT_COMPARATOR);
     }
 
     private Iterator<Entry<MemorySegment>> getMemTableIterator(MemorySegment from, MemorySegment to) {
@@ -71,13 +71,25 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> value = memTable.get(key);
-        if (memTable.containsKey(key) && value.value() == null) {
+        if (value != null && value.value() == null) {
             return null;
         }
         if (value != null || storage.ssTables == null) {
             return value;
         }
-        return storage.getSsTableDataByKey(key, memorySegmentComparator);
+        Iterator<Entry<MemorySegment>> iterator = storage.range(Collections.emptyIterator(),
+                key,
+                null,
+                MEMORY_SEGMENT_COMPARATOR);
+
+        if (!iterator.hasNext()) {
+            return null;
+        }
+        Entry<MemorySegment> next = iterator.next();
+        if (MEMORY_SEGMENT_COMPARATOR.compare(next.key(), key) == 0) {
+            return next;
+        }
+        return null;
     }
 
     @Override
@@ -91,17 +103,35 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
         Iterator<Entry<MemorySegment>> dataIterator = get(null, null);
+        Arena writeArena = Arena.ofConfined();
         MemorySegment buffer = NmapBuffer.getWriteBufferToSsTable(getCompactionTableByteSize(),
                 ssTablePath,
-                storage.ssTablesQuantity);
+                storage.ssTablesQuantity,
+                writeArena,
+                true);
         long bufferByteSize = buffer.byteSize();
         buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, bufferByteSize - Long.BYTES, ssTablesEntryQuantity);
-        long[] offsets = new long[2];
-        offsets[1] = bufferByteSize - Long.BYTES - ssTablesEntryQuantity * 2L * Long.BYTES;
+        long dataOffset = 0;
+        long indexOffset = bufferByteSize - Long.BYTES - ssTablesEntryQuantity * 2L * Long.BYTES;
         while (dataIterator.hasNext()) {
-            storage.writeEntryAndIndexesToCompactionTable(buffer, dataIterator.next(), offsets);
+            Entry<MemorySegment> entry = dataIterator.next();
+            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+            indexOffset += Long.BYTES;
+            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset, entry.key().byteSize());
+            dataOffset += Long.BYTES;
+            MemorySegment.copy(entry.key(), 0, buffer, dataOffset, entry.key().byteSize());
+            dataOffset += entry.key().byteSize();
+            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+            indexOffset += Long.BYTES;
+            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset, entry.value().byteSize());
+            dataOffset += Long.BYTES;
+            MemorySegment.copy(entry.value(), 0, buffer, dataOffset, entry.value().byteSize());
+            dataOffset += entry.value().byteSize();
         }
-        StorageHelper.deleteOldSsTables(ssTablePath, storage.ssTablesQuantity);
+        if (writeArena.scope().isAlive()) {
+            writeArena.close();
+        }
+        StorageHelper.deleteOldSsTables(ssTablePath);
         StorageHelper.renameCompactedSsTable(ssTablePath);
         compacted = true;
     }
@@ -109,9 +139,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void close() throws IOException {
         if (compacted) {
+            readArena.close();
             return;
         }
         if (memTable.isEmpty()) {
+            readArena.close();
             return;
         }
         if (!readArena.scope().isAlive()) {
@@ -135,5 +167,4 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         ssTablesEntryQuantity = countEntry;
         return compactionTableByteSize + countEntry * 4L * Long.BYTES + Long.BYTES;
     }
-
 }

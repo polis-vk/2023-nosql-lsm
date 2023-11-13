@@ -2,6 +2,7 @@ package ru.vk.itmo.tyapuevdmitrij;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -14,51 +15,39 @@ import java.util.List;
 import java.util.NoSuchElementException;
 
 public class Storage {
-    protected List<MemorySegment> ssTables;
-    protected static long memTableEntriesSize;
-    protected static final String SS_TABLE_FILE_NAME = "ssTable";
+    private final StorageHelper storageHelper;
     protected final int ssTablesQuantity;
+    protected List<MemorySegment> ssTables;
 
     public Storage(Path ssTablePath, Arena readArena) {
+        storageHelper = new StorageHelper();
         ssTablesQuantity = StorageHelper.findSsTablesQuantity(ssTablePath);
         ssTables = new ArrayList<>(ssTablesQuantity);
-        if (ssTablesQuantity != 0) {
-            for (int i = 0; i < ssTablesQuantity; i++) {
-                Path path = ssTablePath.resolve(SS_TABLE_FILE_NAME + i);
-                ssTables.add(NmapBuffer.getReadBufferFromSsTable(path, readArena));
-            }
+        for (int i = 0; i < ssTablesQuantity; i++) {
+            Path path = ssTablePath.resolve(StorageHelper.SS_TABLE_FILE_NAME + i);
+            ssTables.add(NmapBuffer.getReadBufferFromSsTable(path, readArena));
         }
     }
 
-    public void writeEntryAndIndexesToCompactionTable(MemorySegment buffer,
-                                                      Entry<MemorySegment> entry, long... offsets) {
-        buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, offsets[1], offsets[0]);
-        offsets[1] += Long.BYTES;
-        buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, offsets[0], entry.key().byteSize());
-        offsets[0] += Long.BYTES;
-        MemorySegment.copy(entry.key(), 0, buffer, offsets[0], entry.key().byteSize());
-        offsets[0] += entry.key().byteSize();
-        buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, offsets[1], offsets[0]);
-        offsets[1] += Long.BYTES;
-        buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, offsets[0], entry.value().byteSize());
-        offsets[0] += Long.BYTES;
-        MemorySegment.copy(entry.value(), 0, buffer, offsets[0], entry.value().byteSize());
-        offsets[0] += entry.value().byteSize();
-    }
-
     public void save(Iterable<Entry<MemorySegment>> memTableEntries, Path ssTablePath) throws IOException {
-        MemorySegment buffer = NmapBuffer.getWriteBufferToSsTable(StorageHelper.getSsTableDataByteSize(memTableEntries),
+        Arena writeArena = Arena.ofConfined();
+        MemorySegment buffer = NmapBuffer.getWriteBufferToSsTable(storageHelper.getSsTableDataByteSize(memTableEntries),
                 ssTablePath,
-                ssTablesQuantity);
+                ssTablesQuantity,
+                writeArena,
+                false);
         writeMemTableDataToFile(buffer, memTableEntries);
+        if (writeArena.scope().isAlive()) {
+            writeArena.close();
+        }
     }
 
     private void writeMemTableDataToFile(MemorySegment buffer, Iterable<Entry<MemorySegment>> memTableEntries) {
         long offset = 0;
         long bufferByteSize = buffer.byteSize();
-        long writeIndexPosition = bufferByteSize - memTableEntriesSize * 2L * Long.BYTES - Long.BYTES;
+        long writeIndexPosition = bufferByteSize - storageHelper.memTableEntriesCount * 2L * Long.BYTES - Long.BYTES;
         //write to the end of file size of memTable
-        buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, bufferByteSize - Long.BYTES, memTableEntriesSize);
+        buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, bufferByteSize - Long.BYTES, storageHelper.memTableEntriesCount);
         for (Entry<MemorySegment> entry : memTableEntries) {
             buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
             //  write keyByteSizeOffsetPosition to the end of buffer
@@ -132,35 +121,6 @@ public class Storage {
         }
         long valueOffset = valueByteSizeOffset + Long.BYTES;
         return ssTable.asSlice(valueOffset, valueByteSize);
-    }
-
-    public Entry<MemorySegment> getSsTableDataByKey(MemorySegment key,
-                                                    Comparator<MemorySegment> memorySegmentComparator) {
-        for (int i = ssTables.size() - 1; i > -1; i--) {
-            MemorySegment ssTable = ssTables.get(i);
-            long memTableSize = ssTable.get(ValueLayout.JAVA_LONG_UNALIGNED, ssTable.byteSize() - Long.BYTES);
-            long left = 0;
-            long right = memTableSize - 1L;
-            long lastKeyIndexOffset = ssTable.byteSize() - 3 * Long.BYTES;
-            while (left <= right) {
-                long mid = (right + left) >>> 1;
-                long midOffset = lastKeyIndexOffset - (memTableSize - 1L) * Long.BYTES * 2L + mid * 2L * Long.BYTES;
-                MemorySegment readKey = getKeyByOffset(ssTable, midOffset);
-                int res = memorySegmentComparator.compare(readKey, key);
-                if (res == 0) {
-                    MemorySegment value = getValueByOffset(ssTable, midOffset + Long.BYTES);
-                    if (value == null) {
-                        return null;
-                    }
-                    return new BaseEntry<>(key, value);
-                } else if (res > 0) {
-                    right = mid - 1;
-                } else {
-                    left = mid + 1;
-                }
-            }
-        }
-        return null;
     }
 
     public Iterator<Entry<MemorySegment>> range(

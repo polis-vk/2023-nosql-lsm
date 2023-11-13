@@ -33,10 +33,16 @@ public final class NmapBuffer {
 
     static MemorySegment getWriteBufferToSsTable(Long writeBytes,
                                                  Path ssTablePath,
-                                                 int ssTablesQuantity) throws IOException {
+                                                 int ssTablesQuantity,
+                                                 Arena writeArena,
+                                                 boolean compactionFlag) throws IOException {
         MemorySegment buffer;
-        Path path = ssTablePath.resolve(Storage.SS_TABLE_FILE_NAME + ssTablesQuantity);
-        Arena writeArena = Arena.ofConfined();
+        Path path;
+        if (compactionFlag) {
+            path = ssTablePath.resolve(StorageHelper.COMPACTED_FILE_NAME);
+        } else {
+            path = ssTablePath.resolve(StorageHelper.SS_TABLE_FILE_NAME + ssTablesQuantity);
+        }
         try (FileChannel channel = FileChannel.open(path, EnumSet.of(StandardOpenOption.READ,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,

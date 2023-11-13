@@ -7,13 +7,13 @@ import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
+import java.nio.file.StandardCopyOption;
 
-public final class StorageHelper {
+public class StorageHelper {
+    protected static final String SS_TABLE_FILE_NAME = "ssTable";
 
-    private StorageHelper() {
-        throw new IllegalStateException("Utility class");
-    }
+    protected static final String COMPACTED_FILE_NAME = "compact";
+    protected long memTableEntriesCount;
 
     static int findSsTablesQuantity(Path ssTablePath) {
         File dir = new File(ssTablePath.toUri());
@@ -21,13 +21,16 @@ public final class StorageHelper {
         if (files == null) {
             return 0;
         }
-        long countSsTables = Arrays.stream(files)
-                .filter(file -> file.isFile() && file.getName().contains(Storage.SS_TABLE_FILE_NAME))
-                .count();
+        long countSsTables = 0L;
+        for (File file : files) {
+            if (file.isFile() && file.getName().contains(SS_TABLE_FILE_NAME)) {
+                countSsTables++;
+            }
+        }
         return (int) countSsTables;
     }
 
-    static void deleteOldSsTables(Path ssTablePath, int ssTablesQuantity) {
+    static void deleteOldSsTables(Path ssTablePath) {
         File directory = new File(ssTablePath.toUri());
         if (!directory.exists() && !directory.isDirectory()) {
             return;
@@ -37,7 +40,7 @@ public final class StorageHelper {
             return;
         }
         for (File file : files) {
-            if (!file.getName().contains(Storage.SS_TABLE_FILE_NAME + ssTablesQuantity)) {
+            if (file.getName().contains(SS_TABLE_FILE_NAME)) {
                 try {
                     Files.delete(file.toPath());
                 } catch (IOException e) {
@@ -48,22 +51,21 @@ public final class StorageHelper {
     }
 
     static void renameCompactedSsTable(Path ssTablePath) {
-        File directory = new File(ssTablePath.toUri());
-        boolean renamed = false;
-        if (directory.exists() && directory.isDirectory()) {
-            File[] remainingFiles = directory.listFiles();
-            if (remainingFiles != null && remainingFiles.length == 1) {
-                File remainingFile = remainingFiles[0];
-                String newFilePath = remainingFile.getParent() + File.separator + Storage.SS_TABLE_FILE_NAME + 0;
-                renamed = remainingFile.renameTo(new File(newFilePath));
-            }
-        }
-        if (!renamed) {
-            throw new SecurityException();
+        Path compactionFile = ssTablePath.resolve(COMPACTED_FILE_NAME);
+        Path newCompactionFile = ssTablePath.resolve(SS_TABLE_FILE_NAME + 0);
+        try {
+            Files.move(
+                    compactionFile,
+                    newCompactionFile,
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+        } catch (IOException e) {
+            throw new SecurityException(e);
         }
     }
 
-    static long getSsTableDataByteSize(Iterable<Entry<MemorySegment>> memTableEntries) {
+    protected long getSsTableDataByteSize(Iterable<Entry<MemorySegment>> memTableEntries) {
         long ssTableDataByteSize = 0;
         long entriesCount = 0;
         for (Entry<MemorySegment> entry : memTableEntries) {
@@ -73,7 +75,7 @@ public final class StorageHelper {
             }
             entriesCount++;
         }
-        Storage.memTableEntriesSize = entriesCount;
+        memTableEntriesCount = entriesCount;
         return ssTableDataByteSize + entriesCount * Long.BYTES * 4L + Long.BYTES;
     }
 }
