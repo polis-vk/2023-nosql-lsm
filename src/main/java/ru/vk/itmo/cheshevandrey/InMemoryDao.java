@@ -57,6 +57,20 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.executor = Executors.newCachedThreadPool();
         arena = Arena.ofShared();
         this.environment = new Environment(new ConcurrentSkipListMap<>(Tools::compare), config, arena);
+
+        completeCompactIfNeeded();
+    }
+
+    private void completeCompactIfNeeded() {
+        if (environment.shouldCompact()) {
+            executor.execute(() -> {
+                try {
+                    environment.completeCompact();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        }
     }
 
     @Override
@@ -159,7 +173,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         writeLock.lock();
         try {
-            currEnv.completeCompact();
             isCompacting.set(false);
             if (shouldCompactAfterReloadEnv.get()) {
                 // Вызываем новый compact() из другого потока, чтобы не блокироваться.

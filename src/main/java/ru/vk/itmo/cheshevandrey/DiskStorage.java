@@ -74,18 +74,18 @@ public class DiskStorage {
             return;
         }
 
+        // Записываем компакшн во временный файл.
         Path compactionTmpPath = storagePath.resolve(COMPACTION_TMP_NAME);
-        // Если ранее произошло падение при попытке записать в этот файл.
         Files.deleteIfExists(compactionTmpPath);
         saveSsTableToTmpFile(compactionTmpPath, iterable);
 
+        // Записываем во временный индексный файл число файлов, которые используются при компакте.
         try {
             Files.createFile(storagePath.resolve(INDEX_NAME));
         } catch (FileAlreadyExistsException ignored) {
             // it's ok.
         }
         List<String> files = Files.readAllLines(storagePath.resolve(INDEX_NAME));
-        // Запишем во временный файл число файлов, которые используются при компакте.
         Files.write(
                 storagePath.resolve(COMPACTION_INDEX_TMP_NAME),
                 Collections.singletonList(String.valueOf(files.size())),
@@ -93,6 +93,7 @@ public class DiskStorage {
                 StandardOpenOption.WRITE
         );
 
+        // Переименовываем временный скомпакченный в актуальный скомпакченный.
         Path compactionPath = storagePath.resolve(COMPACTION_NAME);
         Files.deleteIfExists(compactionPath);
         try {
@@ -100,7 +101,6 @@ public class DiskStorage {
         } catch (FileAlreadyExistsException ignored) {
             // it's ok.
         }
-
         Files.move(
                 compactionTmpPath,
                 compactionPath,
@@ -110,15 +110,15 @@ public class DiskStorage {
 
         // При успешном выполнении в данной точке имеем файл COMPACTION_NAME скомпакченных данных
         // и файл COMPACTION_INDEX_TMP_NAME с одним числом (количеством использованных файлов).
+
+        completeCompact(storagePath);
     }
 
-    /**
-     * 1) Удаляем файлы, которые были использованы при компакте.
-     * 2) Переименовываем текущий скомпакченный.
-     * 3) Переименовываем файлы, которые были добавлены флашем на момент компакта.
-     * Должны выполнять все перечисленные действия под блокировкой.
-     */
-    public void completeCompact(Path storagePath) throws IOException {
+    public static boolean isCompactWasCompletedCorrectly(Path storagePath) {
+        return Files.exists(storagePath.resolve(COMPACTION_NAME));
+    }
+
+    public static void completeCompact(Path storagePath) throws IOException {
         // Удаляем файлы, которые были использованы при компакте.
         List<String> compactIndexTmpLines = Files.readAllLines(storagePath.resolve(COMPACTION_INDEX_TMP_NAME));
         int compactedSsTablesNumber = Integer.parseInt(compactIndexTmpLines.get(0));
@@ -126,26 +126,39 @@ public class DiskStorage {
             Files.delete(storagePath.resolve(String.valueOf(i)));
         }
 
-        // Переименовываем текущий скомпакченный.
+        // Переименовываем файлы, которые были добавлены флашем на момент компакта
+        List<String> files = Files.readAllLines(storagePath.resolve(INDEX_NAME));
+        List<String> newFiles = new ArrayList<>();
+        newFiles.add("0");
+        for (int i = compactedSsTablesNumber; i < files.size(); i++) {
+            String newFileName = String.valueOf(i - compactedSsTablesNumber + 1);
+            newFiles.add(newFileName);
+            Files.move(
+                    storagePath.resolve(String.valueOf(i)),
+                    storagePath.resolve(newFileName),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+        }
+
+        // Сохраняем список актуальных файлов.
+        Path indexFilePath = storagePath.resolve(INDEX_NAME);
+        Files.deleteIfExists(indexFilePath);
+        Files.write(
+                indexFilePath,
+                newFiles,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.WRITE
+        );
+
+        // Переименовываем текущий скомпакченный в актуальный.
         Files.move(
                 storagePath.resolve(COMPACTION_NAME),
                 storagePath.resolve("0"),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
-
-        // Переименовываем файлы, которые были добавлены флашем на момент компакта.
-        List<String> files = Files.readAllLines(storagePath.resolve(INDEX_NAME));
-        for (int i = 0; i < files.size(); i++) {
-            Files.move(
-                    storagePath.resolve(String.valueOf(i)),
-                    storagePath.resolve(String.valueOf(i - compactedSsTablesNumber)),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING
-            );
-        }
     }
-
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
         try {
@@ -177,14 +190,15 @@ public class DiskStorage {
                 StandardCopyOption.REPLACE_EXISTING
         );
 
+        Path newFilePath = storagePath.resolve(newFileName);
         try {
-            Files.createFile(storagePath.resolve(newFileName));
+            Files.createFile(newFilePath);
         } catch (FileAlreadyExistsException ignored) {
             // it's ok.
         }
         Files.move(
                 storagePath.resolve(SSTABLE_TMP_NAME),
-                storagePath.resolve(newFileName),
+                newFilePath,
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
@@ -257,8 +271,6 @@ public class DiskStorage {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-
-        // Реализовать компакт, если произошло падение.
 
         try {
             Files.createFile(storagePath.resolve(INDEX_NAME));
