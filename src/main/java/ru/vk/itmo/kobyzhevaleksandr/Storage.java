@@ -39,7 +39,7 @@ public class Storage {
     private final Config config;
     private final List<MemorySegment> mappedSsTables;
 
-    private boolean isCompacted = false;
+    private boolean isCompacted;
 
     /*
     Filling ssTable with bytes from the memory segment with a structure:
