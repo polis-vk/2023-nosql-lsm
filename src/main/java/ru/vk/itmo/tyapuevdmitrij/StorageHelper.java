@@ -16,8 +16,7 @@ public class StorageHelper {
     protected long memTableEntriesCount;
 
     static int findSsTablesQuantity(Path ssTablePath) {
-        File dir = new File(ssTablePath.toUri());
-        File[] files = dir.listFiles();
+        File[] files = getDirectoryFiles(ssTablePath);
         if (files == null) {
             return 0;
         }
@@ -31,11 +30,7 @@ public class StorageHelper {
     }
 
     static void deleteOldSsTables(Path ssTablePath) {
-        File directory = new File(ssTablePath.toUri());
-        if (!directory.exists() && !directory.isDirectory()) {
-            return;
-        }
-        File[] files = directory.listFiles();
+        File[] files = getDirectoryFiles(ssTablePath);
         if (files == null) {
             return;
         }
@@ -44,10 +39,18 @@ public class StorageHelper {
                 try {
                     Files.delete(file.toPath());
                 } catch (IOException e) {
-                    throw new SecurityException(e);
+                    throw new FilesException("Can't delete file " + file.toPath(), e);
                 }
             }
         }
+    }
+
+    private static File[] getDirectoryFiles(Path ssTablePath) {
+        File directory = new File(ssTablePath.toUri());
+        if (!directory.exists() || !directory.isDirectory()) {
+            return null;
+        }
+        return directory.listFiles();
     }
 
     static void renameCompactedSsTable(Path ssTablePath) {
@@ -61,7 +64,7 @@ public class StorageHelper {
                     StandardCopyOption.REPLACE_EXISTING
             );
         } catch (IOException e) {
-            throw new SecurityException(e);
+            throw new FilesException("Can't rename file", e);
         }
     }
 
