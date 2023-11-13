@@ -17,7 +17,7 @@ public class StorageHelper {
 
     static int findSsTablesQuantity(Path ssTablePath) {
         File[] files = getDirectoryFiles(ssTablePath);
-        if (files == null) {
+        if (files.length == 0) {
             return 0;
         }
         long countSsTables = 0L;
@@ -31,9 +31,6 @@ public class StorageHelper {
 
     static void deleteOldSsTables(Path ssTablePath) {
         File[] files = getDirectoryFiles(ssTablePath);
-        if (files == null) {
-            return;
-        }
         for (File file : files) {
             if (file.getName().contains(SS_TABLE_FILE_NAME)) {
                 try {
@@ -48,7 +45,7 @@ public class StorageHelper {
     private static File[] getDirectoryFiles(Path ssTablePath) {
         File directory = new File(ssTablePath.toUri());
         if (!directory.exists() || !directory.isDirectory()) {
-            return null;
+            return new File[0];
         }
         return directory.listFiles();
     }
