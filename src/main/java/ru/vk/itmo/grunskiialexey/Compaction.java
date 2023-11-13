@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 
+// TODO read class 1:00
 public class Compaction {
     private static final String NAME_INDEX_FILE = "index.idx";
     private final List<MemorySegment> segmentList;
@@ -99,7 +100,11 @@ public class Compaction {
         }
 
         // Delete old data
-        deleteFilesAndInMemory(Files.readAllLines(indexFile, StandardCharsets.UTF_8), storagePath);
+        DiskStorage.deleteFilesAndInMemory(
+                segmentList,
+                Files.readAllLines(indexFile, StandardCharsets.UTF_8),
+                storagePath
+        );
         iterable.clear();
 
         Files.move(
@@ -111,13 +116,6 @@ public class Compaction {
                 List.of("0"),
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
         );
-    }
-
-    private void deleteFilesAndInMemory(List<String> existedFiles, Path storagePath) throws IOException {
-        for (String fileName : existedFiles) {
-            Files.delete(storagePath.resolve(fileName));
-        }
-        segmentList.clear();
     }
 
     private Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {

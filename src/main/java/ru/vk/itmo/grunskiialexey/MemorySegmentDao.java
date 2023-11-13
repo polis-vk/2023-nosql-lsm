@@ -16,7 +16,18 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
+/*
+5 minutes for describing class
+class which gives to client main things like
+
+1. Make and check files for having data
+2. get(key) - may be better
+3. get(range) - okey launch storage
+4. flush - will be in different FlushClass
+5. compact - will be in different CompactClass
+ */
 public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    // no necessary
     private final Comparator<MemorySegment> comparator = MemorySegmentDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
@@ -50,6 +61,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         return Byte.compare(b1, b2);
     }
 
+    // may get more better query
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         return diskStorage.range(getInMemory(from, to), from, to);
@@ -98,7 +110,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     @Override
     public void flush() throws IOException {
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
+            Flush.save(path, storage.values());
         }
     }
 
