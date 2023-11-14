@@ -31,9 +31,7 @@ class Storage implements Closeable {
 
     // TODO: Писать это в meta файл
     private final Path compactedTablesAmountPath;
-    private List<FileChannel> sstableFileChannels = new ArrayList<>();
     private List<MemorySegment> sstableMappedList = new ArrayList<>();
-    private List<FileChannel> indexFileChannels = new ArrayList<>();
     private List<MemorySegment> indexMappedList = new ArrayList<>();
     private final Arena arena;
     // Блокировка используется для поддержания консистентного количества текущих sstable
@@ -81,7 +79,7 @@ class Storage implements Closeable {
     final int getTotalSStables() {
         sstablesAmountRWLock.readLock().lock();
         try {
-            return sstableFileChannels.size();
+            return sstableMappedList.size();
         } finally {
             sstablesAmountRWLock.readLock().unlock();
         }
@@ -90,7 +88,7 @@ class Storage implements Closeable {
     private Entry<MemorySegment> seekForValueInFile(MemorySegment key, int sstableNum) {
         sstablesAmountRWLock.readLock().lock();
         try {
-            if (sstableNum >= sstableFileChannels.size()) {
+            if (sstableNum >= sstableMappedList.size()) {
                 return null;
             }
 
@@ -176,22 +174,23 @@ class Storage implements Closeable {
     void incTotalSStablesAmount() throws IOException {
         sstablesAmountRWLock.writeLock().lock();
         try {
-            int totalSStables = sstableFileChannels.size();
+            int totalSStables = sstableMappedList.size();
             Files.writeString(metaFilePath, String.valueOf(totalSStables + 1));
 
             Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + totalSStables);
             Path indexPath = storagePath.resolve(INDEX_BASE_NAME + totalSStables);
 
-            FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
-            sstableFileChannels.add(sstableFileChannel);
-            MemorySegment sstableMapped =
-                    sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
+            MemorySegment sstableMapped;
+            try (FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ)) {
+                sstableMapped =
+                        sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
+            }
             sstableMappedList.add(sstableMapped);
 
-            FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ);
-            indexFileChannels.add(indexFileChannel);
-            MemorySegment indexMapped =
-                    indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
+            MemorySegment indexMapped;
+            try (FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ)) {
+                indexMapped = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
+            }
             indexMappedList.add(indexMapped);
         } finally {
             sstablesAmountRWLock.writeLock().unlock();
@@ -199,9 +198,8 @@ class Storage implements Closeable {
     }
 
     @Override
-    public void close() throws IOException {
-        closeFileChannels(sstableFileChannels);
-        closeFileChannels(indexFileChannels);
+    public void close() {
+        // Does nothing since I don't have any resources to close now
     }
 
     public MemorySegment mappedSStable(int i) {
@@ -241,6 +239,7 @@ class Storage implements Closeable {
         sstablesAmountRWLock.writeLock().lock();
         try {
             for (int i = 0; i < compactedSStablesAmount; i++) {
+                mappedIndex(i).unload();
                 Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + i));
                 Files.deleteIfExists(storagePath.resolve(INDEX_BASE_NAME + i));
             }
@@ -262,13 +261,9 @@ class Storage implements Closeable {
             }
 
             int totalSStables = Integer.parseInt(Files.readString(metaFilePath));
-            closeFileChannels(indexFileChannels);
-            closeFileChannels(sstableFileChannels);
 
             sstableMappedList = new ArrayList<>();
             indexMappedList = new ArrayList<>();
-            sstableFileChannels = new ArrayList<>();
-            indexFileChannels = new ArrayList<>();
 
             for (int i = compactedSStablesAmount; i < totalSStables; i++) {
                 Path oldSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + i);
@@ -299,28 +294,24 @@ class Storage implements Closeable {
             Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + sstableNum);
             Path indexPath = storagePath.resolve(INDEX_BASE_NAME + sstableNum);
 
-            FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ);
-            sstableFileChannels.add(sstableFileChannel);
-            MemorySegment sstableMapped =
-                    sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), this.arena);
+            MemorySegment sstableMapped;
+            try (FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ)) {
+                sstableMapped =
+                        sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), this.arena);
+            }
             sstableMappedList.add(sstableMapped);
 
-            FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ);
-            indexFileChannels.add(indexFileChannel);
-            MemorySegment indexMapped =
-                    indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), this.arena);
+            MemorySegment indexMapped;
+            try (FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ)) {
+                indexMapped =
+                        indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), this.arena);
+            }
             indexMappedList.add(indexMapped);
         }
     }
 
     private static int convertOldFileNumToNew(int oldNum, int compactedSStablesNum) {
         return oldNum - compactedSStablesNum + 1;
-    }
-
-    private void closeFileChannels(List<FileChannel> indexFileChannels) throws IOException {
-        for (FileChannel fc : indexFileChannels) {
-            if (fc.isOpen()) fc.close();
-        }
     }
 
     long findOffsetInIndex(MemorySegment from, MemorySegment to, int fileNum) {
