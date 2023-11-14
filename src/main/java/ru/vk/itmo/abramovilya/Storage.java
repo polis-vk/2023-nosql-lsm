@@ -33,7 +33,7 @@ class Storage implements Closeable {
     private final Path compactedTablesAmountPath;
     private List<MemorySegment> sstableMappedList = new ArrayList<>();
     private List<MemorySegment> indexMappedList = new ArrayList<>();
-    private Arena arena = Arena.ofShared();
+    private final Arena arena = Arena.ofAuto();
     // Блокировка используется для поддержания консистентного количества текущих sstable
     private final ReadWriteLock sstablesAmountRWLock = new ReentrantReadWriteLock();
 
@@ -198,9 +198,9 @@ class Storage implements Closeable {
 
     @Override
     public void close() {
-        if (arena.scope().isAlive()) {
-            arena.close();
-        }
+//        if (arena.scope().isAlive()) {
+//            arena.close();
+//        }
     }
 
     public MemorySegment mappedSStable(int i) {
@@ -280,8 +280,6 @@ class Storage implements Closeable {
             }
 
             int newTotalSStables = convertOldFileNumToNew(totalSStables, compactedSStablesAmount);
-            arena.close();
-            arena = Arena.ofShared();
             fillFileRepresentationLists(newTotalSStables);
 
             Files.writeString(metaFilePath, String.valueOf(newTotalSStables));
