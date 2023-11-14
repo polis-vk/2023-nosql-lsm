@@ -166,8 +166,7 @@ public class DiskStorage {
                 indexFile,
                 remainFileNames,
                 StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
+                StandardOpenOption.CREATE
         );
         remainFileNames.add(INDEX_IDX);
 

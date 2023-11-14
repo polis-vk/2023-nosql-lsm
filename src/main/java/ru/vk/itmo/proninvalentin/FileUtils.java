@@ -32,9 +32,9 @@ public final class FileUtils {
         int compactionFileName = Integer.parseInt(getFileNameForCompaction(existedFiles));
         if (compactionFileName == 0) {
             return "0";
-        } else {
-            return String.valueOf(compactionFileName - 1);
         }
+
+        return String.valueOf(compactionFileName - 1);
     }
 
     public static String getNewFileName(List<String> existedFiles) {
@@ -45,7 +45,7 @@ public final class FileUtils {
 
     public static String getFileNameForCompaction(List<String> existedFiles) {
         return existedFiles.isEmpty() || Integer.parseInt(existedFiles.getFirst()) > 0
-                ? "0"
+                ? String.valueOf(0)
                 : getNewFileName(existedFiles);
     }
 }
