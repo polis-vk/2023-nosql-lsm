@@ -10,7 +10,10 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -33,7 +36,8 @@ class Storage implements Closeable {
     private List<FileChannel> indexFileChannels = new ArrayList<>();
     private List<MemorySegment> indexMappedList = new ArrayList<>();
     private final Arena arena;
-    private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
+    // Блокировка используется для поддержания консистентного количества текущих sstable
+    private final ReadWriteLock sstablesAmountRWLock = new ReentrantReadWriteLock();
 
     Storage(Config config, Arena arena) throws IOException {
         storagePath = config.basePath();
@@ -75,16 +79,16 @@ class Storage implements Closeable {
     }
 
     final int getTotalSStables() {
-        readWriteLock.readLock().lock();
+        sstablesAmountRWLock.readLock().lock();
         try {
             return sstableFileChannels.size();
         } finally {
-            readWriteLock.readLock().unlock();
+            sstablesAmountRWLock.readLock().unlock();
         }
     }
 
     private Entry<MemorySegment> seekForValueInFile(MemorySegment key, int sstableNum) {
-        readWriteLock.readLock().lock();
+        sstablesAmountRWLock.readLock().lock();
         try {
             if (sstableNum >= sstableFileChannels.size()) {
                 return null;
@@ -109,7 +113,7 @@ class Storage implements Closeable {
             }
             return null;
         } finally {
-            readWriteLock.readLock().unlock();
+            sstablesAmountRWLock.readLock().unlock();
         }
     }
 
@@ -146,14 +150,16 @@ class Storage implements Closeable {
 
     void writeMapIntoFile(long sstableSize, long indexSize, NavigableMap<MemorySegment, Entry<MemorySegment>> map)
             throws IOException {
-
-        // FIXME: тут возможны неверные данные
-        // Возможна проблема когда один поток выполняет writeMapIntoFile, но еще не успел заинкрементить totalSStables
-        // Можно инкременить сразу, но тогда непонятно что произойдет в случае если первый поток умрет не дописав в файл
-        int totalSStables = getTotalSStables();
-        Path sstablePath = storagePath.resolve(Storage.SSTABLE_BASE_NAME + totalSStables);
-        Path indexPath = storagePath.resolve(Storage.INDEX_BASE_NAME + totalSStables);
-        StorageFileWriter.writeMapIntoFile(sstableSize, indexSize, map, sstablePath, indexPath);
+        // Блокировка нужна чтобы totalSStables было верным на момент создания файла
+        sstablesAmountRWLock.readLock().lock();
+        try {
+            int totalSStables = getTotalSStables();
+            Path sstablePath = storagePath.resolve(Storage.SSTABLE_BASE_NAME + totalSStables);
+            Path indexPath = storagePath.resolve(Storage.INDEX_BASE_NAME + totalSStables);
+            StorageFileWriter.writeMapIntoFile(sstableSize, indexSize, map, sstablePath, indexPath);
+        } finally {
+            sstablesAmountRWLock.readLock().unlock();
+        }
     }
 
     private Entry<Long> calcCompactedSStableIndexSize(Iterator<Entry<MemorySegment>> iterator) {
@@ -168,9 +174,9 @@ class Storage implements Closeable {
     }
 
     void incTotalSStablesAmount() throws IOException {
-        int totalSStables = getTotalSStables();
-        readWriteLock.writeLock().lock();
+        sstablesAmountRWLock.writeLock().lock();
         try {
+            int totalSStables = sstableFileChannels.size();
             Files.writeString(metaFilePath, String.valueOf(totalSStables + 1));
 
             Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + totalSStables);
@@ -188,7 +194,7 @@ class Storage implements Closeable {
                     indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
             indexMappedList.add(indexMapped);
         } finally {
-            readWriteLock.writeLock().unlock();
+            sstablesAmountRWLock.writeLock().unlock();
         }
     }
 
@@ -226,13 +232,13 @@ class Storage implements Closeable {
         if (!Files.exists(compactedTablesAmountPath)) {
             Files.createFile(compactedTablesAmountPath);
         }
-        Files.writeString(metaFilePath, String.valueOf(sstablesToCompact), StandardOpenOption.WRITE);
+        Files.writeString(compactedTablesAmountPath, String.valueOf(sstablesToCompact), StandardOpenOption.WRITE);
 
         finishCompact(sstablesToCompact);
     }
 
     private void finishCompact(int compactedSStablesAmount) throws IOException {
-        readWriteLock.writeLock().lock();
+        sstablesAmountRWLock.writeLock().lock();
         try {
             for (int i = 0; i < compactedSStablesAmount; i++) {
                 Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + i));
@@ -271,10 +277,10 @@ class Storage implements Closeable {
                 Path newIndexPath = storagePath.resolve(INDEX_BASE_NAME + convertOldFileNumToNew(i, compactedSStablesAmount));
 
                 if (Files.exists(oldSStablePath)) {
-                    Files.move(oldSStablePath, newSStablePath);
+                    Files.move(oldSStablePath, newSStablePath, StandardCopyOption.ATOMIC_MOVE);
                 }
                 if (Files.exists(oldIndexPath)) {
-                    Files.move(oldIndexPath, newIndexPath);
+                    Files.move(oldIndexPath, newIndexPath, StandardCopyOption.ATOMIC_MOVE);
                 }
             }
 
@@ -284,7 +290,7 @@ class Storage implements Closeable {
             Files.writeString(metaFilePath, String.valueOf(newTotalSStables));
             Files.deleteIfExists(compactedTablesAmountPath);
         } finally {
-            readWriteLock.writeLock().unlock();
+            sstablesAmountRWLock.writeLock().unlock();
         }
     }
 

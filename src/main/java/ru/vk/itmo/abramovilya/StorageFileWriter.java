@@ -67,7 +67,6 @@ final class StorageFileWriter {
                                  NavigableMap<MemorySegment, Entry<MemorySegment>> map,
                                  Path sstablePath,
                                  Path indexPath) throws IOException {
-        System.out.println("wr start");
         long storageWriteOffset = 0;
         long indexWriteOffset = 0;
         try (var storageChannel = FileChannel.open(sstablePath,
@@ -111,7 +110,6 @@ final class StorageFileWriter {
                 storageWriteOffset = writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
             }
             mappedStorage.force();
-            System.out.println("wr end");
         }
     }
 
