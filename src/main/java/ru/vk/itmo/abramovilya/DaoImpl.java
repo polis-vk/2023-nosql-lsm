@@ -22,7 +22,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<>(DaoImpl::compareMemorySegments);
     private final AtomicLong memoryMapSize = new AtomicLong();
     private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushingMap = null;
-    private final Arena arena = Arena.ofShared();
     private final Storage storage;
 
     // Я использую семафор вместо Lock потому что я хочу делать lock() в одном потоке, а unlock() - в другом
@@ -39,7 +38,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public DaoImpl(Config config) throws IOException {
         flushThresholdBytes = config.flushThresholdBytes();
-        storage = new Storage(config, arena);
+        storage = new Storage(config);
     }
 
     Iterator<Entry<MemorySegment>> firstNsstablesIterator(int n) {
@@ -211,9 +210,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         backgroundCompactQueue.close();
         if (!map.isEmpty()) {
             flush();
-        }
-        if (arena.scope().isAlive()) {
-            arena.close();
         }
         storage.close();
     }

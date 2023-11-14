@@ -33,13 +33,12 @@ class Storage implements Closeable {
     private final Path compactedTablesAmountPath;
     private List<MemorySegment> sstableMappedList = new ArrayList<>();
     private List<MemorySegment> indexMappedList = new ArrayList<>();
-    private final Arena arena;
+    private Arena arena = Arena.ofShared();
     // Блокировка используется для поддержания консистентного количества текущих sstable
     private final ReadWriteLock sstablesAmountRWLock = new ReentrantReadWriteLock();
 
-    Storage(Config config, Arena arena) throws IOException {
+    Storage(Config config) throws IOException {
         storagePath = config.basePath();
-        this.arena = arena;
 
         Files.createDirectories(storagePath);
         compactedTablesAmountPath = storagePath.resolve("cmpctd");
@@ -199,7 +198,9 @@ class Storage implements Closeable {
 
     @Override
     public void close() {
-        // Does nothing since I don't have any resources to close now
+        if (arena.scope().isAlive()) {
+            arena.close();
+        }
     }
 
     public MemorySegment mappedSStable(int i) {
@@ -239,7 +240,6 @@ class Storage implements Closeable {
         sstablesAmountRWLock.writeLock().lock();
         try {
             for (int i = 0; i < compactedSStablesAmount; i++) {
-                mappedIndex(i).unload();
                 Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + i));
                 Files.deleteIfExists(storagePath.resolve(INDEX_BASE_NAME + i));
             }
@@ -280,6 +280,8 @@ class Storage implements Closeable {
             }
 
             int newTotalSStables = convertOldFileNumToNew(totalSStables, compactedSStablesAmount);
+            arena.close();
+            arena = Arena.ofShared();
             fillFileRepresentationLists(newTotalSStables);
 
             Files.writeString(metaFilePath, String.valueOf(newTotalSStables));
