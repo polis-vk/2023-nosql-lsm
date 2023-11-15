@@ -21,11 +21,18 @@ import static ru.vk.itmo.grunskiialexey.DiskStorage.tombstone;
 public class Flush {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
+//    private final long flushThresholdBytes;
+    private final Path flushPath;
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
+    public Flush(Path flushPath/*, long flushThresholdBytes*/) {
+        this.flushPath = flushPath;
+//        this.flushThresholdBytes = flushThresholdBytes;
+    }
+
+    public void save(Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve(NAME_TMP_INDEX_FILE);
-        final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
+        final Path indexTmp = flushPath.resolve(NAME_TMP_INDEX_FILE);
+        final Path indexFile = flushPath.resolve(NAME_INDEX_FILE);
 
         try {
             Files.createFile(indexFile);
@@ -50,7 +57,7 @@ public class Flush {
 
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve(newFileName),
+                        flushPath.resolve(newFileName),
                         StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE
                 );
                 Arena writeArena = Arena.ofConfined()

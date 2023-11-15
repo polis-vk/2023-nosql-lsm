@@ -31,7 +31,8 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     private final Comparator<MemorySegment> comparator = MemorySegmentDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
-    private final Compaction diskStorage;
+    private final Compaction compaction;
+    private final Flush flush;
     private final Path path;
 
     public MemorySegmentDao(Config config) throws IOException {
@@ -40,7 +41,8 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new Compaction(DiskStorage.loadOrRecover(path, arena));
+        this.compaction = new Compaction(DiskStorage.loadOrRecover(path, arena));
+        this.flush = new Flush(path/*, config.flushThresholdBytes()*/);
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -64,7 +66,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     // may get more better query
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return diskStorage.range(getInMemory(from, to), from, to);
+        return compaction.range(getInMemory(from, to), from, to);
     }
 
     private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
@@ -95,7 +97,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             return entry;
         }
 
-        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+        Iterator<Entry<MemorySegment>> iterator = compaction.range(Collections.emptyIterator(), key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -110,13 +112,13 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     @Override
     public void flush() throws IOException {
         if (!storage.isEmpty()) {
-            Flush.save(path, storage.values());
+            flush.save(storage.values());
         }
     }
 
     @Override
     public void compact() throws IOException {
-        diskStorage.compact(path, storage);
+        compaction.compact(path, storage);
     }
 
     @Override

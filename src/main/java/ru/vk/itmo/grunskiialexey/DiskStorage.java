@@ -100,11 +100,13 @@ public final class DiskStorage {
         return tombstone(left);
     }
 
+    // getting count of records
     static long recordsCount(MemorySegment segment) {
         long indexSize = indexSize(segment);
         return indexSize / Long.BYTES / 2;
     }
 
+    // getting first offset of key
     private static long indexSize(MemorySegment segment) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
@@ -114,7 +116,11 @@ public final class DiskStorage {
     }
 
     static long startOfKey(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
+        return segment.getAtIndex(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2);
+    }
+
+    static long startOfValue(MemorySegment segment, long recordIndex) {
+        return segment.getAtIndex(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 + 1);
     }
 
     static long endOfKey(MemorySegment segment, long recordIndex) {
@@ -123,10 +129,6 @@ public final class DiskStorage {
 
     private static long normalizedStartOfValue(MemorySegment segment, long recordIndex) {
         return normalize(startOfValue(segment, recordIndex));
-    }
-
-    static long startOfValue(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
     }
 
     static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
