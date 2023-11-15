@@ -1,4 +1,4 @@
-package ru.vk.itmo.khodosovaelena;
+package ru.vk.itmo.supriadkinadaria;
 
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
@@ -10,21 +10,22 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+import static java.util.Collections.emptyIterator;
 
-    private final Comparator<MemorySegment> comparator = InMemoryDao::compare;
+public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+
+    private final Comparator<MemorySegment> comparator = MemorySegmentDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
 
-    public InMemoryDao(Config config) throws IOException {
+    public MemorySegmentDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
         Files.createDirectories(path);
 
@@ -84,7 +85,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return entry;
         }
 
-        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(emptyIterator(), key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -97,6 +98,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
+    public void compact() throws IOException {
+        diskStorage.compact(path, () -> get(null, null));
+        storage.clear();
+    }
+
+    @Override
     public void close() throws IOException {
         if (!arena.scope().isAlive()) {
             return;
@@ -106,14 +113,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         if (!storage.isEmpty()) {
             DiskStorage.save(path, storage.values());
-        }
-    }
-
-    @Override
-    public void compact() throws IOException {
-        final Iterable<Entry<MemorySegment>> iterableStorage = () -> get(null, null);
-        if (iterableStorage.iterator().hasNext()) {
-            diskStorage.compact(path, iterableStorage);
         }
     }
 }
