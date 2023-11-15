@@ -63,6 +63,7 @@ public final class DiskStorage {
         segmentList.clear();
     }
 
+    // gets first element >= after key
     public static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);
 
@@ -90,10 +91,10 @@ public final class DiskStorage {
 
             int b1 = Byte.toUnsignedInt(segment.get(ValueLayout.JAVA_BYTE, startOfKey + mismatch));
             int b2 = Byte.toUnsignedInt(key.get(ValueLayout.JAVA_BYTE, mismatch));
-            if (b1 > b2) {
-                right = mid - 1;
-            } else {
+            if (b1 <= b2) {
                 left = mid + 1;
+            } else {
+                right = mid - 1;
             }
         }
 
@@ -138,6 +139,7 @@ public final class DiskStorage {
         return segment.byteSize();
     }
 
+    // we do this for point that it's the tombstone
     static long tombstone(long offset) {
         return 1L << 63 | offset;
     }

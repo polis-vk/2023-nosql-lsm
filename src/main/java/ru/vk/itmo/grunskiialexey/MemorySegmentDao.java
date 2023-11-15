@@ -10,7 +10,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
@@ -97,7 +96,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             return entry;
         }
 
-        Iterator<Entry<MemorySegment>> iterator = compaction.range(Collections.emptyIterator(), key, null);
+        Iterator<Entry<MemorySegment>> iterator = compaction.range(key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -118,7 +117,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public void compact() throws IOException {
-        compaction.compact(path, storage);
+        compaction.compact(path);
     }
 
     @Override

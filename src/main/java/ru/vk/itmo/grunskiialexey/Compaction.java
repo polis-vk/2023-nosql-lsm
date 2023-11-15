@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 
 // TODO read class 1:00
@@ -30,14 +29,11 @@ public class Compaction {
     }
 
     public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
+            Iterator<Entry<MemorySegment>> inMemoryIterator,
             MemorySegment from, MemorySegment to
     ) {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
-        for (MemorySegment memorySegment : segmentList) {
-            iterators.add(iterator(memorySegment, from, to));
-        }
-        iterators.add(firstIterator);
+        List<Iterator<Entry<MemorySegment>>> iterators = getFileIterators(from, to);
+        iterators.add(inMemoryIterator);
 
         return new MergeIterator<>(
                 iterators,
@@ -46,11 +42,24 @@ public class Compaction {
         );
     }
 
-    public void compact(
-            Path storagePath,
-            NavigableMap<MemorySegment, Entry<MemorySegment>> iterable
-    ) throws IOException {
-        if (segmentList.isEmpty() || (segmentList.size() == 1 && iterable.isEmpty())) {
+    public Iterator<Entry<MemorySegment>> range(MemorySegment from, MemorySegment to) {
+        return new MergeIterator<>(
+                getFileIterators(from, to),
+                Comparator.comparing(Entry::key, MemorySegmentDao::compare),
+                entry -> entry.value() == null
+        );
+    }
+
+    private List<Iterator<Entry<MemorySegment>>> getFileIterators(MemorySegment from, MemorySegment to) {
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        for (MemorySegment memorySegment : segmentList) {
+            iterators.add(iterator(memorySegment, from, to));
+        }
+        return iterators;
+    }
+
+    public void compact(Path storagePath) throws IOException {
+        if (segmentList.size() <= 1) {
             return;
         }
 
@@ -60,7 +69,7 @@ public class Compaction {
 
         long startValuesOffset = 0;
         long maxOffset = 0;
-        for (Iterator<Entry<MemorySegment>> it = range(iterable.values().iterator(), null, null); it.hasNext(); ) {
+        for (Iterator<Entry<MemorySegment>> it = range(null, null); it.hasNext(); ) {
             Entry<MemorySegment> entry = it.next();
             startValuesOffset++;
             maxOffset += entry.key().byteSize() + entry.value().byteSize();
@@ -82,7 +91,7 @@ public class Compaction {
 
             long dataOffset = startValuesOffset;
             int indexOffset = 0;
-            for (Iterator<Entry<MemorySegment>> it = range(iterable.values().iterator(), null, null); it.hasNext(); ) {
+            for (Iterator<Entry<MemorySegment>> it = range(null, null); it.hasNext(); ) {
                 Entry<MemorySegment> entry = it.next();
 
                 MemorySegment key = entry.key();
@@ -105,7 +114,6 @@ public class Compaction {
                 Files.readAllLines(indexFile, StandardCharsets.UTF_8),
                 storagePath
         );
-        iterable.clear();
 
         Files.move(
                 newTmpCompactedFileName, newCompactedFileName,
@@ -119,11 +127,9 @@ public class Compaction {
     }
 
     private Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : DiskStorage.normalize(DiskStorage.indexOf(page, from));
-        long recordIndexTo = to == null
-                ? DiskStorage.recordsCount(page)
-                : DiskStorage.normalize(DiskStorage.indexOf(page, to));
         long recordsCount = DiskStorage.recordsCount(page);
+        long recordIndexFrom = from == null ? 0 : DiskStorage.normalize(DiskStorage.indexOf(page, from));
+        long recordIndexTo = to == null ? recordsCount : DiskStorage.normalize(DiskStorage.indexOf(page, to));
 
         return new Iterator<>() {
             long index = recordIndexFrom;
