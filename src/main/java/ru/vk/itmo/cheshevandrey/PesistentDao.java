@@ -7,8 +7,6 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
@@ -19,10 +17,9 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Config config;
-    private final Path path;
 
     private final Arena arena;
     private Environment environment;
@@ -37,12 +34,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final AtomicBoolean shouldFlushAfterReloadEnv;
     private final AtomicBoolean shouldCompactAfterReloadEnv;
 
-    private static final Logger logger = Logger.getLogger(InMemoryDao.class.getName());
+    private static final Logger logger = Logger.getLogger(PesistentDao.class.getName());
 
-    public InMemoryDao(Config config) throws IOException {
+    public PesistentDao(Config config) throws IOException {
         this.config = config;
-        this.path = config.basePath().resolve("data");
-        Files.createDirectories(path);
 
         ReadWriteLock lock = new ReentrantReadWriteLock();
         this.readLock = lock.readLock();
@@ -56,21 +51,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         this.executor = Executors.newCachedThreadPool();
         arena = Arena.ofShared();
-        this.environment = new Environment(new ConcurrentSkipListMap<>(Tools::compare), config, arena);
+        this.environment = new Environment(new ConcurrentSkipListMap<>(Tools::compare), config.basePath(), arena);
 
-        completeCompactIfNeeded();
-    }
-
-    private void completeCompactIfNeeded() {
-        if (environment.shouldCompact()) {
-            executor.execute(() -> {
-                try {
-                    environment.completeCompact();
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            });
-        }
+        environment.completeCompactIfNeeded();
     }
 
     @Override
@@ -207,6 +190,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             if (isFlushing.get()) {
                 if (!environment.getTable().isEmpty()) {
+                    // Сразу после перезагрузки окружения должны будем сделать флаш.
                     shouldFlushAfterReloadEnv.set(true);
                 }
                 return;
@@ -221,7 +205,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } finally {
             readLock.unlock();
         }
-
 
         executor.execute(() -> {
             try {
@@ -242,8 +225,8 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void setNewEnvironment() throws IOException {
-        this.environment = new Environment(environment.getTable(), config, arena);
-        // Вызываем новый flush() из другого потока, чтобы не блокироваться.
+        this.environment = new Environment(environment.getTable(), config.basePath(), arena);
+        // Вызываем новый флаш из другого потока, чтобы не блокироваться.
         executor.execute(() -> {
             try {
                 if (shouldFlushAfterReloadEnv.get()) {

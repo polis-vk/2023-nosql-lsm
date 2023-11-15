@@ -2,14 +2,19 @@ package ru.vk.itmo.cheshevandrey;
 
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 public final class Tools {
 
     // To hide the implicit public constructor.
     private Tools() {
     }
+
 
     static Entry<MemorySegment> entryToReturn(Entry<MemorySegment> entry) {
         if (entry.value() == null) {
@@ -39,6 +44,24 @@ public final class Tools {
     static long recordsCount(MemorySegment segment) {
         long indexSize = indexSize(segment);
         return indexSize / Long.BYTES / 2;
+    }
+
+
+    static void createFile(Path newFile) throws IOException {
+        try {
+            Files.createFile(newFile);
+        } catch (FileAlreadyExistsException ignored) {
+            // it's ok.
+        }
+    }
+
+    static Path getDirWithExistsCheck(Path workPath) throws IOException {
+        try {
+            Files.createDirectory(workPath);
+        } catch (FileAlreadyExistsException ignored) {
+            // it's ok.
+        }
+        return workPath;
     }
 
     static long indexSize(MemorySegment segment) {

@@ -8,26 +8,90 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.FileAlreadyExistsException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
+import java.util.stream.IntStream;
 
 public class DiskStorage {
 
     private final List<MemorySegment> segmentList;
 
+    private final Dir workDir;
+    private final Path mainWorkDir;
+    private final Path tmpWorkDir;
+    private final Path storagePath;
+
+    private static final String DIR_1 = "main-1";
+    private static final String DIR_2 = "main-2";
+    private static final String STORAGE_META_NAME = "meta.mt";
+    private static final String STORAGE_META_TMP_NAME = "meta.tmp";
+
     private static final String INDEX_TMP_NAME = "index.tmp";
-    private static final String COMPACTION_INDEX_TMP_NAME = "compaction-index.tmp";
+    private static final String COMPACTION_INDEX_TMP_NAME = "compaction-index.idx";
     private static final String COMPACTION_TMP_NAME = "compaction.tmp";
-    private static final String SSTABLE_TMP_NAME = "sstable.tmp";
     private static final String COMPACTION_NAME = "compaction.cmp";
     private static final String INDEX_NAME = "index.idx";
 
-    public DiskStorage(List<MemorySegment> segmentList) {
-        this.segmentList = segmentList;
+    private enum Dir {
+        DIR_1, DIR_2
+    }
+
+    public DiskStorage(Path storagePath, Arena arena) throws IOException {
+        this.storagePath = storagePath;
+
+        this.workDir = getWorkDir(storagePath);
+        mainWorkDir = storagePath.resolve(workDir == Dir.DIR_1 ? DIR_1 : DIR_2);
+        tmpWorkDir = storagePath.resolve(workDir == Dir.DIR_1 ? DIR_2 : DIR_1);
+        try {
+            Files.createDirectory(mainWorkDir);
+        } catch (FileAlreadyExistsException ignored) {
+            // it's ok.
+        }
+        try {
+            Files.createDirectory(tmpWorkDir);
+        } catch (FileAlreadyExistsException ignored) {
+            // it's ok.
+        }
+
+
+        this.segmentList = loadOrRecover(arena);
+    }
+
+    private Dir getWorkDir(Path storagePath) throws IOException {
+        Path metaPath = storagePath.resolve(STORAGE_META_NAME);
+
+        if (!Files.exists(metaPath)) {
+            return Dir.DIR_1;
+        }
+
+        String firstString = Files.readAllLines(metaPath).get(0);
+        int dirIndex = Integer.parseInt(firstString);
+
+        return dirIndex > 0 ? Dir.DIR_2 : Dir.DIR_1;
+    }
+
+    private List<MemorySegment> loadOrRecover(Arena arena) throws IOException {
+        Path indexFilePath = mainWorkDir.resolve(INDEX_NAME);
+        Tools.createFile(indexFilePath);
+        List<String> files = Files.readAllLines(indexFilePath);
+        int ssTablesNumber = files.size();
+
+        List<MemorySegment> result = new ArrayList<>(ssTablesNumber);
+        for (int ssTable = 0; ssTable < ssTablesNumber; ssTable++) {
+            Path file = mainWorkDir.resolve(String.valueOf(ssTable));
+            try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+                MemorySegment fileSegment = fileChannel.map(
+                        FileChannel.MapMode.READ_WRITE,
+                        0,
+                        Files.size(file),
+                        arena
+                );
+                result.add(fileSegment);
+            }
+        }
+
+        return result;
     }
 
     public Iterator<Entry<MemorySegment>> range(
@@ -47,19 +111,6 @@ public class DiskStorage {
         };
     }
 
-    public Iterator<Entry<MemorySegment>> diskRange(
-            MemorySegment from,
-            MemorySegment to) {
-        List<Iterator<Entry<MemorySegment>>> iterators = getDiskIterators(from, to);
-
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, Tools::compare)) {
-            @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
-                return memorySegmentEntry.value() == null;
-            }
-        };
-    }
-
     private List<Iterator<Entry<MemorySegment>>> getDiskIterators(MemorySegment from, MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
@@ -68,39 +119,30 @@ public class DiskStorage {
         return iterators;
     }
 
-    public void compact(Path storagePath) throws IOException {
+    public void compact() throws IOException {
         IterableStorage iterable = new IterableStorage(this);
         if (!iterable.iterator().hasNext()) {
             return;
         }
 
-        // Записываем компакшн во временный файл.
-        Path compactionTmpPath = storagePath.resolve(COMPACTION_TMP_NAME);
-        Files.deleteIfExists(compactionTmpPath);
-        saveSsTableToTmpFile(compactionTmpPath, iterable);
-
-        // Записываем во временный индексный файл число файлов, которые используются при компакте.
-        try {
-            Files.createFile(storagePath.resolve(INDEX_NAME));
-        } catch (FileAlreadyExistsException ignored) {
-            // it's ok.
-        }
-        List<String> files = Files.readAllLines(storagePath.resolve(INDEX_NAME));
+        // Записываем названия файлов, которые используются при компакте.
+        List<String> compactFiles = IntStream.range(0, segmentList.size()).mapToObj(Integer::toString).toList();
         Files.write(
-                storagePath.resolve(COMPACTION_INDEX_TMP_NAME),
-                Collections.singletonList(String.valueOf(files.size())),
+                mainWorkDir.resolve(COMPACTION_INDEX_TMP_NAME),
+                compactFiles,
                 StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE
+                StandardOpenOption.TRUNCATE_EXISTING
         );
 
+        // Записываем компакшн во временный файл.
+        Path compactionTmpPath = mainWorkDir.resolve(COMPACTION_TMP_NAME);
+        Files.deleteIfExists(compactionTmpPath);
+        saveSsTable(compactionTmpPath, iterable);
+
         // Переименовываем временный скомпакченный в актуальный скомпакченный.
-        Path compactionPath = storagePath.resolve(COMPACTION_NAME);
+        Path compactionPath = mainWorkDir.resolve(COMPACTION_NAME);
         Files.deleteIfExists(compactionPath);
-        try {
-            Files.createFile(compactionPath);
-        } catch (FileAlreadyExistsException ignored) {
-            // it's ok.
-        }
+        Tools.createFile(compactionPath);
         Files.move(
                 compactionTmpPath,
                 compactionPath,
@@ -111,100 +153,127 @@ public class DiskStorage {
         // При успешном выполнении в данной точке имеем файл COMPACTION_NAME скомпакченных данных
         // и файл COMPACTION_INDEX_TMP_NAME с одним числом (количеством использованных файлов).
 
-        completeCompact(storagePath);
+        completeCompact();
     }
 
-    public static boolean isCompactWasCompletedCorrectly(Path storagePath) {
-        return Files.exists(storagePath.resolve(COMPACTION_NAME));
-    }
+    public void completeCompact() throws IOException {
+        Path indexFilePath = mainWorkDir.resolve(INDEX_NAME);
+        Path compIndexFilePath = mainWorkDir.resolve(COMPACTION_INDEX_TMP_NAME);
 
-    public static void completeCompact(Path storagePath) throws IOException {
-        // Удаляем файлы, которые были использованы при компакте.
-        List<String> compactIndexTmpLines = Files.readAllLines(storagePath.resolve(COMPACTION_INDEX_TMP_NAME));
-        int compactedSsTablesNumber = Integer.parseInt(compactIndexTmpLines.get(0));
-        for (int i = 0; i < compactedSsTablesNumber; i++) {
-            Files.delete(storagePath.resolve(String.valueOf(i)));
-        }
+        int actualFilesCount = Files.readAllLines(indexFilePath).size();
+        int compactFilesCount = Files.readAllLines(compIndexFilePath).size();
+        int countDiff = actualFilesCount - compactFilesCount;
 
-        // Переименовываем файлы, которые были добавлены флашем на момент компакта
-        List<String> files = Files.readAllLines(storagePath.resolve(INDEX_NAME));
-        List<String> newFiles = new ArrayList<>();
-        newFiles.add("0");
-        for (int i = compactedSsTablesNumber; i < files.size(); i++) {
-            String newFileName = String.valueOf(i - compactedSsTablesNumber + 1);
-            newFiles.add(newFileName);
+        // Копируем файлы, которые были добавлены флашем во время компакта во временную директорию.
+        for (int i = compactFilesCount; i < actualFilesCount; i++) {
+            String oldFileName = String.valueOf(i);
+            Path copyPath = tmpWorkDir.resolve(String.valueOf(i - compactFilesCount + 1));
+            Tools.createFile(copyPath);
             Files.move(
-                    storagePath.resolve(String.valueOf(i)),
-                    storagePath.resolve(newFileName),
+                    mainWorkDir.resolve(oldFileName),
+                    copyPath,
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING
             );
         }
 
-        // Сохраняем список актуальных файлов.
-        Path indexFilePath = storagePath.resolve(INDEX_NAME);
-        Files.deleteIfExists(indexFilePath);
+        // Записываем актуальные названия ssTable'ов во временный индексный файл.
+        List<String> newFiles = IntStream.rangeClosed(0, countDiff).mapToObj(Integer::toString).toList();
         Files.write(
-                indexFilePath,
+                compIndexFilePath,
                 newFiles,
                 StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE
+                StandardOpenOption.TRUNCATE_EXISTING
         );
 
-        // Переименовываем текущий скомпакченный в актуальный.
+        // Копируем индексный файл во временную директорию.
         Files.move(
-                storagePath.resolve(COMPACTION_NAME),
-                storagePath.resolve("0"),
+                compIndexFilePath,
+                tmpWorkDir.resolve(INDEX_NAME),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
+
+        // Копируем скомпакченный файл во временную директорию.
+        Files.move(
+                mainWorkDir.resolve(COMPACTION_NAME),
+                tmpWorkDir.resolve("0"),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+        );
+
+        // Атомарно меняем состояние.
+        updateActualDir();
+
+        // Очищаем предыдущую рабочую директорию.
+        deleteFilesInsideDir(mainWorkDir);
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
-        try {
-            Files.createFile(storagePath.resolve(INDEX_NAME));
-        } catch (FileAlreadyExistsException ignored) {
-            // it's ok.
+    private void updateActualDir() throws IOException {
+        Path metaTmpPath = storagePath.resolve(STORAGE_META_TMP_NAME);
+        Path metaPath = storagePath.resolve(STORAGE_META_NAME);
+
+        String newDir = workDir == Dir.DIR_1 ? "1" : "0";
+        Files.deleteIfExists(metaTmpPath);
+        Files.write(
+                metaTmpPath,
+                Collections.singletonList(newDir),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        Tools.createFile(metaPath);
+        // Атомарно меняем состояние.
+        Files.move(
+                metaTmpPath,
+                metaPath,
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+        );
+
+        // Если все было успешно выполнено, то в этой точке имеем измененную актуальную директорию.
+    }
+
+    public void completeCompactIfNeeded() throws IOException {
+        Path compactionFilePath = mainWorkDir.resolve(COMPACTION_NAME);
+        if (Files.exists(compactionFilePath)) {
+            completeCompact();
         }
-        saveSsTableToTmpFile(storagePath.resolve(SSTABLE_TMP_NAME), iterable);
-        moveFilesToActualState(storagePath);
     }
 
-    private static void moveFilesToActualState(Path storagePath) throws IOException {
-        List<String> files = Files.readAllLines(storagePath.resolve(INDEX_NAME));
+
+    public void save(Iterable<Entry<MemorySegment>> iterable) throws IOException {
+        Path indexFilePath = mainWorkDir.resolve(INDEX_NAME);
+        Path indexTmpPath = mainWorkDir.resolve(INDEX_TMP_NAME);
+
+        Tools.createFile(indexFilePath);
+        List<String> files = Files.readAllLines(indexFilePath);
         String newFileName = String.valueOf(files.size());
+        Path newFilePath = mainWorkDir.resolve(newFileName);
+
+        Files.deleteIfExists(newFilePath);
+        saveSsTable(newFilePath, iterable);
+
+        // Запишем актуальный набор sstable во временный индексный файл.
         files.add(newFileName);
-
-        Path indexTmpPath = storagePath.resolve(INDEX_TMP_NAME);
-        try {
-            Files.createFile(indexTmpPath);
-        } catch (FileAlreadyExistsException ignored) {
-            // it's ok.
-        }
-        Files.write(indexTmpPath, files);
-
-        Files.move(
-                storagePath.resolve(INDEX_TMP_NAME),
-                storagePath.resolve(INDEX_NAME),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING
+        Files.deleteIfExists(indexTmpPath);
+        Files.write(
+                indexTmpPath,
+                files,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
         );
 
-        Path newFilePath = storagePath.resolve(newFileName);
-        try {
-            Files.createFile(newFilePath);
-        } catch (FileAlreadyExistsException ignored) {
-            // it's ok.
-        }
+        // Переименуем временный индексный в актуальный.
         Files.move(
-                storagePath.resolve(SSTABLE_TMP_NAME),
-                newFilePath,
+                indexTmpPath,
+                indexFilePath,
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
     }
 
-    private static void saveSsTableToTmpFile(Path tmpPath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
+    private static void saveSsTable(Path pathToSave, Iterable<Entry<MemorySegment>> iterable) throws IOException {
         long dataSize = 0;
         long count = 0;
         for (Entry<MemorySegment> entry : iterable) {
@@ -219,10 +288,11 @@ public class DiskStorage {
 
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        tmpPath,
+                        pathToSave,
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
-                        StandardOpenOption.CREATE
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.TRUNCATE_EXISTING
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
@@ -270,33 +340,6 @@ public class DiskStorage {
         }
     }
 
-    public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-
-        try {
-            Files.createFile(storagePath.resolve(INDEX_NAME));
-        } catch (FileAlreadyExistsException ignored) {
-            // it's ok.
-        }
-        List<String> files = Files.readAllLines(storagePath.resolve(INDEX_NAME));
-        int ssTablesNumber = files.size();
-
-        List<MemorySegment> result = new ArrayList<>(ssTablesNumber);
-        for (int ssTable = 0; ssTable < ssTablesNumber; ssTable++) {
-            Path file = storagePath.resolve(String.valueOf(ssTable));
-            try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-                MemorySegment fileSegment = fileChannel.map(
-                        FileChannel.MapMode.READ_WRITE,
-                        0,
-                        Files.size(file),
-                        arena
-                );
-                result.add(fileSegment);
-            }
-        }
-
-        return result;
-    }
-
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = Tools.recordsCount(segment);
@@ -333,6 +376,16 @@ public class DiskStorage {
         }
 
         return Tools.tombstone(left);
+    }
+
+    private static void deleteFilesInsideDir(Path dir) throws IOException {
+        Files.walkFileTree(dir, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                Files.delete(file);
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
@@ -374,7 +427,7 @@ public class DiskStorage {
 
         @Override
         public Iterator<Entry<MemorySegment>> iterator() {
-            return diskStorage.diskRange(null, null);
+            return diskStorage.range(Collections.emptyIterator(), Collections.emptyIterator(), null, null);
         }
     }
 }

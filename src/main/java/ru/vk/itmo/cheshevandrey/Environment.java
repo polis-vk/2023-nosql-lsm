@@ -6,6 +6,7 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -17,19 +18,16 @@ public class Environment {
     private final AtomicLong memTableBytes;
 
     private final DiskStorage diskStorage;
-    private final Config config;
 
     public Environment(ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memtable,
-                       Config config,
+                       Path storagePath,
                        Arena arena)
             throws IOException {
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(config.basePath(), arena));
+        this.diskStorage = new DiskStorage(storagePath, arena);
 
         this.table = memtable;
         this.flushingTable = new ConcurrentSkipListMap<>(Tools::compare);
         this.memTableBytes = new AtomicLong(0);
-
-        this.config = config;
     }
 
     public Iterator<Entry<MemorySegment>> range(MemorySegment from, MemorySegment to) {
@@ -37,14 +35,6 @@ public class Environment {
         Iterator<Entry<MemorySegment>> flushingIterator = getInMemory(from, to, false).iterator();
 
         return diskStorage.range(memTableIterator, flushingIterator, from, to);
-    }
-
-    public boolean shouldCompact() {
-        return DiskStorage.isCompactWasCompletedCorrectly(config.basePath());
-    }
-
-    public void completeCompact() throws IOException {
-        DiskStorage.completeCompact(config.basePath());
     }
 
     private Iterable<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to, Boolean isMemTable) {
@@ -77,11 +67,15 @@ public class Environment {
         table = new ConcurrentSkipListMap<>(Tools::compare);
         memTableBytes.set(0);
 
-        DiskStorage.save(config.basePath(), flushingTable.values());
+        diskStorage.save(flushingTable.values());
     }
 
     public void compact() throws IOException {
-        diskStorage.compact(config.basePath());
+        diskStorage.compact();
+    }
+
+    public void completeCompactIfNeeded() throws IOException {
+        diskStorage.completeCompactIfNeeded();
     }
 
     public ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> getTable() {
