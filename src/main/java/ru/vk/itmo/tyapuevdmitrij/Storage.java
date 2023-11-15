@@ -15,13 +15,13 @@ import java.util.List;
 import java.util.NoSuchElementException;
 
 public class Storage {
-    private final StorageHelper storageHelper;
+    protected final StorageHelper storageHelper;
     protected final int ssTablesQuantity;
     protected List<MemorySegment> ssTables;
 
     public Storage(Path ssTablePath, Arena readArena) {
         storageHelper = new StorageHelper();
-        ssTablesQuantity = StorageHelper.findSsTablesQuantity(ssTablePath);
+        ssTablesQuantity = storageHelper.findSsTablesQuantity(ssTablePath);
         ssTables = new ArrayList<>(ssTablesQuantity);
         for (int i = 0; i < ssTablesQuantity; i++) {
             Path path = ssTablePath.resolve(StorageHelper.SS_TABLE_FILE_NAME + i);
@@ -30,15 +30,12 @@ public class Storage {
     }
 
     public void save(Iterable<Entry<MemorySegment>> memTableEntries, Path ssTablePath) throws IOException {
-        Arena writeArena = Arena.ofConfined();
-        MemorySegment buffer = NmapBuffer.getWriteBufferToSsTable(storageHelper.getSsTableDataByteSize(memTableEntries),
-                ssTablePath,
-                ssTablesQuantity,
-                writeArena,
-                false);
-        writeMemTableDataToFile(buffer, memTableEntries);
-        if (writeArena.scope().isAlive()) {
-            writeArena.close();
+        Path path = ssTablePath.resolve(StorageHelper.SS_TABLE_FILE_NAME + ssTablesQuantity);
+        try (Arena writeArena = Arena.ofConfined()) {
+            MemorySegment buffer;
+            buffer = NmapBuffer.getWriteBufferToSsTable(storageHelper.getSsTableDataByteSize(memTableEntries),
+                    path, writeArena);
+            writeMemTableDataToFile(buffer, memTableEntries);
         }
     }
 

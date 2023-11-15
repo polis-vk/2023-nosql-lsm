@@ -99,54 +99,50 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public void compact() throws IOException {
-        if (storage.ssTablesQuantity == 0 && memTable.isEmpty()) {
+        if ((storage.ssTablesQuantity == 0 || storage.ssTablesQuantity == 1) && memTable.isEmpty()) {
             return;
         }
         Iterator<Entry<MemorySegment>> dataIterator = get(null, null);
-        Arena writeArena = Arena.ofConfined();
-        MemorySegment buffer = NmapBuffer.getWriteBufferToSsTable(getCompactionTableByteSize(),
-                ssTablePath,
-                storage.ssTablesQuantity,
-                writeArena,
-                true);
-        long bufferByteSize = buffer.byteSize();
-        buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, bufferByteSize - Long.BYTES, ssTablesEntryQuantity);
-        long dataOffset = 0;
-        long indexOffset = bufferByteSize - Long.BYTES - ssTablesEntryQuantity * 2L * Long.BYTES;
-        while (dataIterator.hasNext()) {
-            Entry<MemorySegment> entry = dataIterator.next();
-            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-            indexOffset += Long.BYTES;
-            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset, entry.key().byteSize());
-            dataOffset += Long.BYTES;
-            MemorySegment.copy(entry.key(), 0, buffer, dataOffset, entry.key().byteSize());
-            dataOffset += entry.key().byteSize();
-            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-            indexOffset += Long.BYTES;
-            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset, entry.value().byteSize());
-            dataOffset += Long.BYTES;
-            MemorySegment.copy(entry.value(), 0, buffer, dataOffset, entry.value().byteSize());
-            dataOffset += entry.value().byteSize();
+        Path compactionPath = ssTablePath.resolve(StorageHelper.COMPACTED_FILE_NAME);
+        try (Arena writeArena = Arena.ofConfined()) {
+            MemorySegment buffer = NmapBuffer.getWriteBufferToSsTable(getCompactionTableByteSize(),
+                    compactionPath, writeArena);
+            long bufferByteSize = buffer.byteSize();
+            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, bufferByteSize - Long.BYTES, ssTablesEntryQuantity);
+            long dataOffset = 0;
+            long indexOffset = bufferByteSize - Long.BYTES - ssTablesEntryQuantity * 2L * Long.BYTES;
+            while (dataIterator.hasNext()) {
+                Entry<MemorySegment> entry = dataIterator.next();
+                buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                indexOffset += Long.BYTES;
+                buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset, entry.key().byteSize());
+                dataOffset += Long.BYTES;
+                MemorySegment.copy(entry.key(), 0, buffer, dataOffset, entry.key().byteSize());
+                dataOffset += entry.key().byteSize();
+                buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                indexOffset += Long.BYTES;
+                buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset, entry.value().byteSize());
+                dataOffset += Long.BYTES;
+                MemorySegment.copy(entry.value(), 0, buffer, dataOffset, entry.value().byteSize());
+                dataOffset += entry.value().byteSize();
+            }
         }
-        if (writeArena.scope().isAlive()) {
-            writeArena.close();
-        }
-        StorageHelper.deleteOldSsTables(ssTablePath);
-        StorageHelper.renameCompactedSsTable(ssTablePath);
+        storage.storageHelper.deleteOldSsTables(ssTablePath);
+        storage.storageHelper.renameCompactedSsTable(ssTablePath);
         compacted = true;
     }
 
     @Override
     public void close() throws IOException {
+        if (!readArena.scope().isAlive()) {
+            return;
+        }
         if (compacted) {
             readArena.close();
             return;
         }
         if (memTable.isEmpty()) {
             readArena.close();
-            return;
-        }
-        if (!readArena.scope().isAlive()) {
             return;
         }
         readArena.close();

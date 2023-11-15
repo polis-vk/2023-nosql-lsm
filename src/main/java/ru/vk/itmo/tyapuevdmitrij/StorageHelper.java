@@ -10,12 +10,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 public class StorageHelper {
-    protected static final String SS_TABLE_FILE_NAME = "ssTable";
+    static final String SS_TABLE_FILE_NAME = "ssTable";
 
-    protected static final String COMPACTED_FILE_NAME = "compact";
+    static final String COMPACTED_FILE_NAME = "compact";
     protected long memTableEntriesCount;
 
-    static int findSsTablesQuantity(Path ssTablePath) {
+    public int findSsTablesQuantity(Path ssTablePath) {
         File[] files = getDirectoryFiles(ssTablePath);
         if (files.length == 0) {
             return 0;
@@ -29,7 +29,7 @@ public class StorageHelper {
         return (int) countSsTables;
     }
 
-    static void deleteOldSsTables(Path ssTablePath) {
+    public void deleteOldSsTables(Path ssTablePath) {
         File[] files = getDirectoryFiles(ssTablePath);
         for (File file : files) {
             if (file.getName().contains(SS_TABLE_FILE_NAME)) {
@@ -42,7 +42,7 @@ public class StorageHelper {
         }
     }
 
-    private static File[] getDirectoryFiles(Path ssTablePath) {
+    private File[] getDirectoryFiles(Path ssTablePath) {
         File directory = new File(ssTablePath.toUri());
         if (!directory.exists() || !directory.isDirectory()) {
             return new File[0];
@@ -50,7 +50,7 @@ public class StorageHelper {
         return directory.listFiles();
     }
 
-    static void renameCompactedSsTable(Path ssTablePath) {
+    public void renameCompactedSsTable(Path ssTablePath) {
         Path compactionFile = ssTablePath.resolve(COMPACTED_FILE_NAME);
         Path newCompactionFile = ssTablePath.resolve(SS_TABLE_FILE_NAME + 0);
         try {
@@ -65,7 +65,7 @@ public class StorageHelper {
         }
     }
 
-    protected long getSsTableDataByteSize(Iterable<Entry<MemorySegment>> memTableEntries) {
+    public long getSsTableDataByteSize(Iterable<Entry<MemorySegment>> memTableEntries) {
         long ssTableDataByteSize = 0;
         long entriesCount = 0;
         for (Entry<MemorySegment> entry : memTableEntries) {
