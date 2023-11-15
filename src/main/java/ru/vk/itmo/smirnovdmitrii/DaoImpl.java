@@ -3,43 +3,43 @@ package ru.vk.itmo.smirnovdmitrii;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.smirnovdmitrii.inmemory.InMemoryDao;
+import ru.vk.itmo.smirnovdmitrii.inmemory.InMemoryDaoImpl;
+import ru.vk.itmo.smirnovdmitrii.outofmemory.FileDao;
+import ru.vk.itmo.smirnovdmitrii.outofmemory.OutMemoryDao;
 import ru.vk.itmo.smirnovdmitrii.util.EqualsComparator;
 import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
-import ru.vk.itmo.smirnovdmitrii.util.MergeIterator;
-import ru.vk.itmo.smirnovdmitrii.util.PeekingIterator;
-import ru.vk.itmo.smirnovdmitrii.util.WrappedIterator;
+import ru.vk.itmo.smirnovdmitrii.util.iterators.MergeIterator;
+import ru.vk.itmo.smirnovdmitrii.util.iterators.WrappedIterator;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final InMemoryDao<MemorySegment, Entry<MemorySegment>> inMemoryDao;
+    private final ExecutorService flushService = Executors.newSingleThreadExecutor();
     private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
+    private final ExecutorService compactService = Executors.newSingleThreadExecutor();
     private final EqualsComparator<MemorySegment> comparator = new MemorySegmentComparator();
-    private final OutMemoryDaoController outMemoryDaoController;
-
-    public DaoImpl() {
-        inMemoryDao = new InMemoryDaoImpl();
-        outMemoryDao = new FileDao();
-        outMemoryDaoController = new OutMemoryDaoControllerImpl(outMemoryDao);
-    }
 
     public DaoImpl(final Config config) {
-        inMemoryDao = new InMemoryDaoImpl();
         outMemoryDao = new FileDao(config.basePath());
-        outMemoryDaoController = new OutMemoryDaoControllerImpl(outMemoryDao);
+        inMemoryDao = new InMemoryDaoImpl(config.flushThresholdBytes(), outMemoryDao);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
         int id = 0;
-        final PeekingIterator<Entry<MemorySegment>> inMemoryIterator
-                = new WrappedIterator<>(id++, inMemoryDao.get(from, to));
         final MergeIterator.Builder<MemorySegment, Entry<MemorySegment>> builder
-                = new MergeIterator.Builder<>(comparator)
-                .addIterator(inMemoryIterator);
+                = new MergeIterator.Builder<>(comparator);
+        for (final Iterator<Entry<MemorySegment>> inMemoryIterator : inMemoryDao.get(from, to)) {
+            builder.addIterator(new WrappedIterator<>(id++, inMemoryIterator));
+        }
         for (final Iterator<Entry<MemorySegment>> outMemoryIterator : outMemoryDao.get(from, to)) {
             builder.addIterator(new WrappedIterator<>(id++, outMemoryIterator));
         }
@@ -61,24 +61,41 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(final Entry<MemorySegment> entry) {
-        inMemoryDao.upsert(entry);
+        try {
+            inMemoryDao.upsert(entry);
+        } catch (final IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     @Override
     public void flush() {
-        outMemoryDaoController.flush(inMemoryDao.commit());
+        flushService.execute(() -> {
+            try {
+                inMemoryDao.flush();
+            } catch (final IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
     }
 
     @Override
     public void compact() {
-        outMemoryDaoController.compact();
+        compactService.execute(() -> {
+            try {
+                outMemoryDao.compact();
+            } catch (final IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
     }
 
     @Override
     public void close() throws IOException {
         flush();
-        outMemoryDaoController.close();
-        outMemoryDao.close();
+        flushService.close();
+        compactService.close();
         inMemoryDao.close();
+        outMemoryDao.close();
     }
 }

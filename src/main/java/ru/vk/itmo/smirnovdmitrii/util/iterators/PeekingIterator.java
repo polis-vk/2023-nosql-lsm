@@ -1,4 +1,4 @@
-package ru.vk.itmo.smirnovdmitrii.util;
+package ru.vk.itmo.smirnovdmitrii.util.iterators;
 
 import java.util.Iterator;
 

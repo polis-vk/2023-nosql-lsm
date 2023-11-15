@@ -9,13 +9,14 @@ import ru.vk.itmo.test.DaoFactory;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 
 @DaoFactory(stage = 5)
 public class MemorySegmentFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new DaoImpl();
+        return new DaoImpl(new Config(Path.of("dao"), 1073741824));
     }
 
     @Override

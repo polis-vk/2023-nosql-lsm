@@ -1,13 +1,15 @@
-package ru.vk.itmo.smirnovdmitrii;
+package ru.vk.itmo.smirnovdmitrii.outofmemory;
 
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTable;
+import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTableGroup;
+import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTableIterator;
+import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTableStorage;
+import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTableStorageImpl;
+import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTableUtil;
 import ru.vk.itmo.smirnovdmitrii.util.MemorySegmentComparator;
-import ru.vk.itmo.smirnovdmitrii.util.MergeIterator;
-import ru.vk.itmo.smirnovdmitrii.util.WrappedIterator;
-import ru.vk.itmo.smirnovdmitrii.util.sstable.SSTable;
-import ru.vk.itmo.smirnovdmitrii.util.sstable.SSTableStorage;
-import ru.vk.itmo.smirnovdmitrii.util.sstable.SSTableStorageImpl;
-import ru.vk.itmo.smirnovdmitrii.util.sstable.SSTableUtil;
+import ru.vk.itmo.smirnovdmitrii.util.iterators.MergeIterator;
+import ru.vk.itmo.smirnovdmitrii.util.iterators.WrappedIterator;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -22,25 +24,21 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>> {
-    private static final Path DEFAULT_BASE_PATH = Path.of("");
     private static final String INDEX_FILE_NAME = "index.idx";
     private final MemorySegmentComparator comparator = new MemorySegmentComparator();
     private final SSTableStorage storage;
-    private final Arena arena = Arena.ofShared();
-    private final Path basePath;
 
-    public FileDao() {
-        this(DEFAULT_BASE_PATH);
-    }
+    private final ExecutorService compactor = Executors.newSingleThreadExecutor();
+    private final Path basePath;
 
     public FileDao(final Path basePath) {
         this.basePath = basePath;
-        this.storage = new SSTableStorageImpl(basePath, INDEX_FILE_NAME);
         try {
             Files.createDirectories(basePath);
         } catch (final IOException e) {
@@ -54,55 +52,10 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         } catch (final IOException e) {
             throw new UncheckedIOException(e);
         }
-        final List<String> paths;
         try {
-            paths = Files.readAllLines(indexFilePath);
+            this.storage = new SSTableStorageImpl(basePath, INDEX_FILE_NAME);
         } catch (final IOException e) {
-            throw new UncheckedIOException("exception while reading index file.", e);
-        }
-        for (final String path : paths) {
-            final Path filePath = basePath.resolve(path);
-            try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ)) {
-                final MemorySegment mapped
-                        = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
-                storage.add(new SSTable(mapped, filePath));
-            } catch (final IOException e) {
-                throw new UncheckedIOException("exception while mapping SSTables", e);
-            }
-        }
-    }
-
-    /**
-     * Iterator for SSTable.
-     */
-    private static class SSTableIterator implements Iterator<Entry<MemorySegment>> {
-        private final SSTable ssTable;
-        private final long upperBoundOffset;
-        private long offset;
-
-        public SSTableIterator(
-                final SSTable ssTable,
-                final long from,
-                final long to
-        ) {
-            this.ssTable = ssTable;
-            this.offset = from;
-            this.upperBoundOffset = to;
-        }
-
-        @Override
-        public boolean hasNext() {
-            return offset < upperBoundOffset;
-        }
-
-        @Override
-        public Entry<MemorySegment> next() {
-            if (!hasNext()) {
-                throw new NoSuchElementException("No more elements");
-            }
-            final Entry<MemorySegment> entry = SSTableUtil.readBlock(ssTable, offset);
-            offset++;
-            return entry;
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -147,7 +100,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
      * ...
      * block n
      */
-    public SSTable save(
+    public String save(
             final Iterable<Entry<MemorySegment>> entries
     ) throws IOException {
         Objects.requireNonNull(entries, "entries must be not null");
@@ -205,11 +158,7 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
-        final MemorySegment mappedNewSSTable;
-        try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ)) {
-            mappedNewSSTable = channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
-        }
-        return new SSTable(mappedNewSSTable, filePath);
+        return filePath.getFileName().toString();
     }
 
     private Path newSsTablePath() {
@@ -222,13 +171,14 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
             final Iterable<SSTable> iterable
     ) {
         final List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
+        final SSTableGroup group = new SSTableGroup();
         for (final SSTable ssTable : iterable) {
             try {
                 ssTable.open();
-                if (ssTable.isAlive().get()) {
+                if (!ssTable.isAlive().get()) {
                     continue;
                 }
-                iterators.add(get(from, to, ssTable));
+                iterators.add(get(group, from, to, ssTable));
             } finally {
                 ssTable.close();
             }
@@ -237,16 +187,13 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
     }
 
     private Iterator<Entry<MemorySegment>> get(
+            final SSTableGroup group,
             final MemorySegment from,
             final MemorySegment to,
             final SSTable ssTable
     ) {
-        final long fromOffset = from == null
-                ? 0 : SSTableUtil.upperBound(from, ssTable, comparator);
-        final long toOffset = to == null
-                ? SSTableUtil.blockCount(ssTable) : SSTableUtil.upperBound(to, ssTable, comparator);
         return new SSTableIterator(
-                ssTable, fromOffset, toOffset
+                group, ssTable, from, to, storage, comparator
         );
     }
 
@@ -263,22 +210,21 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         if (size == 0 || size == 1) {
             return;
         }
-        final SSTable savedSSTable = save(() -> {
+        final String compactionFileName = save(() -> {
             final MergeIterator.Builder<MemorySegment, Entry<MemorySegment>> builder
                     = new MergeIterator.Builder<>(comparator);
+            final SSTableGroup group = new SSTableGroup();
             for (int i = 0; i < ssTables.size(); i++) {
-                builder.addIterator(new WrappedIterator<>(i, get(null, null, ssTables.get(i))));
+                builder.addIterator(new WrappedIterator<>(i, get(group, null, null, ssTables.get(i))));
             }
             return builder.build();
         });
-        storage.compact(savedSSTable, ssTables);
+        storage.compact(compactionFileName, ssTables);
     }
 
     @Override
     public void close() {
+        compactor.close();
         storage.close();
-        if (arena.scope().isAlive()) {
-            arena.close();
-        }
     }
 }

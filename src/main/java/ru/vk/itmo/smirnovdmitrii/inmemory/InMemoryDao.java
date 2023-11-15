@@ -1,40 +1,38 @@
-package ru.vk.itmo.smirnovdmitrii;
+package ru.vk.itmo.smirnovdmitrii.inmemory;
 
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
 import java.util.Iterator;
+import java.util.List;
 
 public interface InMemoryDao<D, E extends Entry<D>> extends AutoCloseable {
 
     /**
-     * Committing state of elements in memory represented as map.
-     * Returns {@link Iterable} representing sorted elements in memory.
-     * After that in memory dao will be empty.
-     * Changing this map can produce bad work of {@link InMemoryDao}.
-     * @return sorted map of elements in memory.
+     * Maybe flushes memtable to file.
      */
-    Iterable<E> commit();
+    void flush() throws IOException;
 
     /**
-     * Return iterator for data in memory from key {@code from} to key {@code to}.
+     * Return iterators for every in memory storage sorted from newer to older from key {@code from} to key {@code to}.
      * @param from from key.
      * @param to to key.
      * @return returned iterator.
      */
-    Iterator<Entry<D>> get(D from, D to);
+    List<Iterator<E>> get(D from, D to);
 
     /**
      * Return entry that associated with key {@code key}. Null if there is no entry with such key.
      * @param key key to search.
      * @return entry associated with key.
      */
-    Entry<D> get(D key);
+    E get(D key);
 
     /**
      * Adding entry to in memory dao. If there was entry with same key, then replace it.
      * @param entry entry to add.
      */
-    void upsert(Entry<D> entry);
+    void upsert(E entry) throws IOException;
 
     @Override
     void close();

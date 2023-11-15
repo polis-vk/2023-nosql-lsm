@@ -1,4 +1,4 @@
-package ru.vk.itmo.smirnovdmitrii.util.sstable;
+package ru.vk.itmo.smirnovdmitrii.outofmemory.sstable;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;

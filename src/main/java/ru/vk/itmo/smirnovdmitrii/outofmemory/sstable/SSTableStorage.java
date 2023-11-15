@@ -1,4 +1,4 @@
-package ru.vk.itmo.smirnovdmitrii.util.sstable;
+package ru.vk.itmo.smirnovdmitrii.outofmemory.sstable;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -7,16 +7,18 @@ import java.util.List;
 public interface SSTableStorage extends Closeable, Iterable<SSTable> {
     /**
      * Thread save compaction method for storage. Replaces {@code compacted} SSTables with one {@code compaction}.
-     * @param compaction representing compacted files.
+     * @param compactionFileName file with compacted data from SSTables.
      * @param compacted representing files that was compacted.
      */
-    void compact(final SSTable compaction, final List<SSTable> compacted) throws IOException;
+    void compact(final String compactionFileName, final List<SSTable> compacted) throws IOException;
 
     /**
      * Adding SSTable to storage.
-     * @param ssTable SSTable to add.
+     * @param ssTableFileName SSTable to add.
      */
-    void add(final SSTable ssTable) throws IOException;
+    void add(final String ssTableFileName) throws IOException;
+
+    SSTable getLast();
 
     @Override
     void close();

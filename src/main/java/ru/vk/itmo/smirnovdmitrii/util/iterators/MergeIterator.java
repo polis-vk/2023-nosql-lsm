@@ -1,10 +1,12 @@
-package ru.vk.itmo.smirnovdmitrii.util;
+package ru.vk.itmo.smirnovdmitrii.util.iterators;
 
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.smirnovdmitrii.util.BinaryMinHeap;
+import ru.vk.itmo.smirnovdmitrii.util.EqualsComparator;
+import ru.vk.itmo.smirnovdmitrii.util.MinHeap;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 

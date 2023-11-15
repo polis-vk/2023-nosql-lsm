@@ -1,7 +1,6 @@
-package ru.vk.itmo.smirnovdmitrii;
+package ru.vk.itmo.smirnovdmitrii.outofmemory;
 
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.smirnovdmitrii.util.sstable.SSTable;
 
 import java.io.IOException;
 import java.util.Iterator;
