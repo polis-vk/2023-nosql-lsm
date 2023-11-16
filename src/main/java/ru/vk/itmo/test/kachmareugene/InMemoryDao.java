@@ -46,12 +46,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        if (key == null) {
-            return null;
-        }
-        Entry<MemorySegment> value = mp.get(key);
-        if (value != null) {
-            return value.value() == null ? null : value;
+        if (mp.containsKey(key)) {
+            if (mp.get(key).value() == null) {
+                return null;
+            }
+            return mp.get(key);
         }
         var res = controller.getRow(controller.searchInSStables(key));
         if (res == null) {

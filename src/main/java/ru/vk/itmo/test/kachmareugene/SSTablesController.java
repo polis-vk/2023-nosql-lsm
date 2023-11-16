@@ -8,9 +8,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.OpenOption;
-import java.nio.file.Path;
+import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -21,17 +19,15 @@ import java.util.stream.Stream;
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
+import static ru.vk.itmo.test.kachmareugene.Utils.getValueOrNull;
 
 public class SSTablesController {
     private final Path ssTablesDir;
     private final List<MemorySegment> ssTables = new ArrayList<>();
-    private final List<MemorySegment> ssTablesIndexes = new ArrayList<>();
     private final List<Path> ssTablesPaths = new ArrayList<>();
-    private final List<Path> ssTablesIndexesPaths = new ArrayList<>();
     private static final String SS_TABLE_COMMON_PREF = "ssTable";
     //  index format: (long) keyOffset, (long) keyLen, (long) valueOffset, (long) valueLen
     private static final long ONE_LINE_SIZE = 4 * Long.BYTES;
-    private static final String INDEX_COMMON_PREF = "index";
     private final Arena arenaForReading = Arena.ofShared();
     private boolean isClosedArena;
     private final Comparator<MemorySegment> segComp;
@@ -41,7 +37,6 @@ public class SSTablesController {
         this.segComp = com;
 
         ssTablesPaths.addAll(openFiles(dir, SS_TABLE_COMMON_PREF, ssTables));
-        ssTablesIndexesPaths.addAll(openFiles(dir, INDEX_COMMON_PREF, ssTablesIndexes));
     }
 
     public SSTablesController(Comparator<MemorySegment> com) {
@@ -72,27 +67,27 @@ public class SSTablesController {
         }
     }
 
-    private boolean greaterThen(MemorySegment mappedIndex, long lineInBytesOffset,
-                                MemorySegment mappedData, MemorySegment key) {
-        long offset = mappedIndex.get(ValueLayout.JAVA_LONG, lineInBytesOffset);
-        long size = mappedIndex.get(ValueLayout.JAVA_LONG, lineInBytesOffset + Long.BYTES);
-        return segComp.compare(key, mappedData.asSlice(offset, size)) > 0;
+    private boolean greaterThen(long keyOffset, long keySize,
+                                MemorySegment mapped, MemorySegment key) {
+
+        return segComp.compare(key, mapped.asSlice(keyOffset, keySize)) > 0;
     }
 
     //Gives offset for line in index file
-    private long searchKeyInFile(MemorySegment mappedIndex, MemorySegment mappedData, MemorySegment key) {
+    private long searchKeyInFile(int ind, MemorySegment mapped, MemorySegment key) {
         long l = -1;
-        long r = mappedIndex.byteSize() / ONE_LINE_SIZE;
+        long r = getNumberOfEntries(mapped);
 
         while (r - l > 1) {
             long mid = (l + r) / 2;
-            if (greaterThen(mappedIndex, mid * ONE_LINE_SIZE, mappedData, key)) {
+            SSTableRowInfo info = createRowInfo(ind, mid);
+            if (greaterThen(info.keyOffset, info.keySize, mapped, key)) {
                 l = mid;
             } else {
                 r = mid;
             }
         }
-        return r == (mappedIndex.byteSize() / ONE_LINE_SIZE) ? -1 : r;
+        return r == getNumberOfEntries(mapped) ? -1 : r;
     }
 
     //return - List ordered form the latest created sstable to the first.
@@ -102,7 +97,7 @@ public class SSTablesController {
         for (int i = ssTables.size() - 1; i >= 0; i--) {
             long entryIndexesLine = 0;
             if (key != null) {
-                entryIndexesLine = searchKeyInFile(ssTablesIndexes.get(i), ssTables.get(i), key);
+                entryIndexesLine = searchKeyInFile(i, ssTables.get(i), key);
              }
             if (entryIndexesLine < 0) {
                 continue;
@@ -112,18 +107,18 @@ public class SSTablesController {
         return ans;
     }
 
-    private SSTableRowInfo createRowInfo(int ind, long rowShift) {
-        long start = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG, rowShift * ONE_LINE_SIZE);
-        long size = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG, rowShift * ONE_LINE_SIZE + Long.BYTES);
+    private SSTableRowInfo createRowInfo(int ind, final long rowIndex) {
+        long start = ssTables.get(ind).get(ValueLayout.JAVA_LONG_UNALIGNED, rowIndex * ONE_LINE_SIZE + Long.BYTES);
+        long size = ssTables.get(ind).get(ValueLayout.JAVA_LONG_UNALIGNED, rowIndex * ONE_LINE_SIZE + Long.BYTES * 2);
 
-        long start1 = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG,rowShift * ONE_LINE_SIZE + Long.BYTES * 2);
-        long size1 = ssTablesIndexes.get(ind).get(ValueLayout.JAVA_LONG,rowShift * ONE_LINE_SIZE + Long.BYTES * 3);
-        return new SSTableRowInfo(start, size, start1, size1, ind, rowShift);
+        long start1 = ssTables.get(ind).get(ValueLayout.JAVA_LONG_UNALIGNED,rowIndex * ONE_LINE_SIZE + Long.BYTES * 3);
+        long size1 = ssTables.get(ind).get(ValueLayout.JAVA_LONG_UNALIGNED,rowIndex * ONE_LINE_SIZE + Long.BYTES * 4);
+        return new SSTableRowInfo(start, size, start1, size1, ind, rowIndex);
     }
 
     public SSTableRowInfo searchInSStables(MemorySegment key) {
-        for (int i = ssTablesIndexes.size() - 1; i >= 0; i--) {
-            long ind = searchKeyInFile(ssTablesIndexes.get(i), ssTables.get(i), key);
+        for (int i = ssTables.size() - 1; i >= 0; i--) {
+            long ind = searchKeyInFile(i, ssTables.get(i), key);
             if (ind >= 0) {
                 return createRowInfo(i, ind);
             }
@@ -150,7 +145,7 @@ public class SSTablesController {
      * Ignores deleted values.
      */
     public SSTableRowInfo getNextInfo(SSTableRowInfo info, MemorySegment maxKey) {
-        for (long t = info.rowShift + 1; t < ssTablesIndexes.get(info.ssTableInd).byteSize() / ONE_LINE_SIZE; t++) {
+        for (long t = info.rowShift + 1; t < getNumberOfEntries(ssTables.get(info.ssTableInd)); t++) {
             var inf = createRowInfo(info.ssTableInd, t);
 
             Entry<MemorySegment> row = getRow(inf);
@@ -159,6 +154,10 @@ public class SSTablesController {
             }
         }
         return null;
+    }
+
+    private long getNumberOfEntries(MemorySegment memSeg) {
+        return memSeg.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
     public void dumpIterator(Iterable<Entry<MemorySegment>> iter) throws IOException {
@@ -170,57 +169,67 @@ public class SSTablesController {
         }
         String suff = String.valueOf(Utils.getMaxNumberOfFile(ssTablesDir, SS_TABLE_COMMON_PREF) + 1);
         Set<OpenOption> options = Set.of(WRITE, READ, CREATE);
+
+        final Path tmpFile = ssTablesDir.resolve("data.tmp");
+        final Path targetFile = ssTablesDir.resolve(SS_TABLE_COMMON_PREF + suff);
+
+        try {
+            Files.createFile(ssTablesDir.resolve(SS_TABLE_COMMON_PREF + suff));
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
+        }
+
+
         try (FileChannel ssTableChannel =
-                     FileChannel.open(ssTablesDir
-                             .resolve(SS_TABLE_COMMON_PREF + suff), options);
-             FileChannel indexChannel =
-                     FileChannel.open(ssTablesDir
-                             .resolve(INDEX_COMMON_PREF + suff), options);
+                     FileChannel.open(tmpFile, options);
              Arena saveArena = Arena.ofConfined()) {
 
             long ssTableLenght = 0L;
             long indexLength = 0L;
+
             while (iter1.hasNext()) {
                 var seg = iter1.next();
                 ssTableLenght += seg.key().byteSize() + getValueOrNull(seg).byteSize();
                 indexLength += ONE_LINE_SIZE;
             }
             long currOffsetSSTable = 0L;
-            long currOffsetIndex = 0L;
 
             MemorySegment mappedSSTable = ssTableChannel.map(
-                    FileChannel.MapMode.READ_WRITE, currOffsetSSTable, ssTableLenght, saveArena);
-            MemorySegment mappedIndex = indexChannel.map(
-                    FileChannel.MapMode.READ_WRITE, currOffsetIndex, indexLength, saveArena);
+                    FileChannel.MapMode.READ_WRITE, currOffsetSSTable, ssTableLenght + indexLength + Long.BYTES,
+                    saveArena);
+
+            currOffsetSSTable = Utils.dumpLong(mappedSSTable, indexLength / ONE_LINE_SIZE, currOffsetSSTable);
+
+            long shiftForData = indexLength + Long.BYTES;
 
             for (Entry<MemorySegment> kv : iter) {
-                currOffsetIndex = Utils.dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
-                currOffsetSSTable = Utils.dumpSegment(mappedSSTable, kv.key(), currOffsetSSTable);
-                currOffsetIndex = Utils.dumpLong(mappedIndex, kv.key().byteSize(), currOffsetIndex);
+                // key offset
+                currOffsetSSTable = Utils.dumpLong(mappedSSTable, shiftForData, currOffsetSSTable);
+                // key length
+                currOffsetSSTable = Utils.dumpLong(mappedSSTable, kv.key().byteSize(), currOffsetSSTable);
+                shiftForData += kv.key().byteSize();
 
-                currOffsetIndex = Utils.dumpLong(mappedIndex, currOffsetSSTable, currOffsetIndex);
-                currOffsetSSTable = Utils.dumpSegment(mappedSSTable, getValueOrNull(kv), currOffsetSSTable);
-                currOffsetIndex = Utils.dumpLong(mappedIndex, rightByteSize(kv), currOffsetIndex);
+                // value offset
+                currOffsetSSTable = Utils.dumpLong(mappedSSTable, shiftForData, currOffsetSSTable);
+                // value length
+                currOffsetSSTable = Utils.dumpLong(mappedSSTable, Utils.rightByteSize(kv), currOffsetSSTable);
+                shiftForData += getValueOrNull(kv).byteSize();
             }
+
+            for (Entry<MemorySegment> kv : iter) {
+                currOffsetSSTable = Utils.dumpSegment(mappedSSTable, kv.key(), currOffsetSSTable);
+                currOffsetSSTable = Utils.dumpSegment(mappedSSTable, getValueOrNull(kv), currOffsetSSTable);
+            }
+
+            Files.deleteIfExists(targetFile);
+
+            Files.move(tmpFile, targetFile, StandardCopyOption.ATOMIC_MOVE);
+
         } finally {
             closeArena();
         }
     }
 
-    private long rightByteSize(Entry<MemorySegment> memSeg) {
-        if (memSeg.value() == null) {
-            return -1;
-        }
-        return memSeg.value().byteSize();
-    }
-
-    private MemorySegment getValueOrNull(Entry<MemorySegment> kv) {
-        MemorySegment value = kv.value();
-        if (kv.value() == null) {
-            value = MemorySegment.NULL;
-        }
-        return value;
-    }
     private void closeArena() {
         if (!isClosedArena) {
             arenaForReading.close();
@@ -230,14 +239,6 @@ public class SSTablesController {
 
     public void deleteAllOldFiles() throws IOException {
         closeArena();
-        deleteFiles(ssTablesPaths);
-        deleteFiles(ssTablesIndexesPaths);
-    }
-
-    private void deleteFiles(List<Path> files) throws IOException {
-        for (Path file : files) {
-            Files.deleteIfExists(file);
-        }
-        files.clear();
+        Utils.deleteFiles(ssTablesPaths);
     }
 }
