@@ -21,12 +21,12 @@ import static ru.vk.itmo.grunskiialexey.DiskStorage.tombstone;
 public class Flush {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
-//    private final long flushThresholdBytes;
+    private final long flushThresholdBytes;
     private final Path flushPath;
 
-    public Flush(Path flushPath/*, long flushThresholdBytes*/) {
+    public Flush(Path flushPath, long flushThresholdBytes) {
         this.flushPath = flushPath;
-//        this.flushThresholdBytes = flushThresholdBytes;
+        this.flushThresholdBytes = flushThresholdBytes;
     }
 
     public void save(Iterable<Entry<MemorySegment>> iterable)

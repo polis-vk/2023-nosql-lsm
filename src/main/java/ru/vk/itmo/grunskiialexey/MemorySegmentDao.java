@@ -41,7 +41,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         arena = Arena.ofShared();
 
         this.compaction = new Compaction(DiskStorage.loadOrRecover(path, arena));
-        this.flush = new Flush(path/*, config.flushThresholdBytes()*/);
+        this.flush = new Flush(path, config.flushThresholdBytes());
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
