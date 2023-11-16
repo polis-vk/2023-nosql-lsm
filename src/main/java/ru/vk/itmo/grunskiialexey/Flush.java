@@ -15,6 +15,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static ru.vk.itmo.grunskiialexey.DiskStorage.tombstone;
 
@@ -22,11 +23,13 @@ public class Flush {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
     private final long flushThresholdBytes;
+    private final AtomicInteger lastFileNumber;
     private final Path flushPath;
 
-    public Flush(Path flushPath, long flushThresholdBytes) {
+    public Flush(Path flushPath, long flushThresholdBytes, AtomicInteger lastFileNumber) {
         this.flushPath = flushPath;
         this.flushThresholdBytes = flushThresholdBytes;
+        this.lastFileNumber = lastFileNumber;
     }
 
     public void save(Iterable<Entry<MemorySegment>> iterable)
@@ -41,7 +44,7 @@ public class Flush {
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        String newFileName = String.valueOf(existedFiles.size());
+        int newFileName = MemorySegmentDao.lastFileNumber.getAndIncrement();
 
         long dataSize = 0;
         long count = 0;
@@ -57,7 +60,7 @@ public class Flush {
 
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        flushPath.resolve(newFileName),
+                        flushPath.resolve(Integer.toString(newFileName)),
                         StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE
                 );
                 Arena writeArena = Arena.ofConfined()
@@ -106,7 +109,7 @@ public class Flush {
 
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
-        list.add(newFileName);
+        list.add(Integer.toString(newFileName));
         Files.write(
                 indexFile,
                 list,

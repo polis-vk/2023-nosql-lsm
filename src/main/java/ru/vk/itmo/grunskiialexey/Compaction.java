@@ -18,14 +18,17 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 // TODO read class 1:00
 public class Compaction {
     private static final String NAME_INDEX_FILE = "index.idx";
     private final List<MemorySegment> segmentList;
+    private final AtomicInteger lastFileNumber;
 
-    public Compaction(List<MemorySegment> segmentList) {
+    public Compaction(List<MemorySegment> segmentList, AtomicInteger lastFileNumber) {
         this.segmentList = segmentList;
+        this.lastFileNumber = lastFileNumber;
     }
 
     public Iterator<Entry<MemorySegment>> range(
@@ -64,8 +67,9 @@ public class Compaction {
         }
 
         final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
-        final Path newTmpCompactedFileName = storagePath.resolve("-1");
-        final Path newCompactedFileName = storagePath.resolve("0");
+        final String fileName = Integer.toString(MemorySegmentDao.lastFileNumber.getAndIncrement());
+        final Path newTmpCompactedFileName = storagePath.resolve(fileName + ".tmp");
+        final Path newCompactedFileName = storagePath.resolve(fileName);
 
         long startValuesOffset = 0;
         long maxOffset = 0;
@@ -121,7 +125,7 @@ public class Compaction {
         );
         Files.write(
                 indexFile,
-                List.of("0"),
+                List.of(fileName),
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
         );
     }
