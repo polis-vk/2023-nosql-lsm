@@ -41,4 +41,9 @@ public class DaoFactory implements ru.vk.itmo.test.DaoFactory.Factory<MemorySegm
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
         return new DaoWithCompaction(config);
     }
+
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new InMemoryDao(config);
+    }
 }

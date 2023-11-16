@@ -76,7 +76,6 @@ public class SSTablesController {
                                 MemorySegment mappedData, MemorySegment key) {
         long offset = mappedIndex.get(ValueLayout.JAVA_LONG, lineInBytesOffset);
         long size = mappedIndex.get(ValueLayout.JAVA_LONG, lineInBytesOffset + Long.BYTES);
-
         return segComp.compare(key, mappedData.asSlice(offset, size)) > 0;
     }
 
@@ -96,7 +95,7 @@ public class SSTablesController {
         return r == (mappedIndex.byteSize() / ONE_LINE_SIZE) ? -1 : r;
     }
 
-    //return - List ordered form the latest created  sstable to the first.
+    //return - List ordered form the latest created sstable to the first.
     public List<SSTableRowInfo> firstGreaterKeys(MemorySegment key) {
         List<SSTableRowInfo> ans = new ArrayList<>();
 
@@ -222,7 +221,6 @@ public class SSTablesController {
         }
         return value;
     }
-
     private void closeArena() {
         if (!isClosedArena) {
             arenaForReading.close();
