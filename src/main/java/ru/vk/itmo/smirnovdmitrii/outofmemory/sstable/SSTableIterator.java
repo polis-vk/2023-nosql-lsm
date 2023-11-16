@@ -62,17 +62,15 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
             }
             try {
                 ssTable.open();
-                if (!ssTable.isAlive().get()) {
-                    ssTable.close();
-                    if (reposition()) {
-                        offset++;
-                    }
-                } else {
+                if (ssTable.isAlive().get()) {
                     next = SSTableUtil.readBlock(ssTable, offset++);
                     return result;
                 }
             } finally {
                 ssTable.close();
+            }
+            if (reposition()) {
+                offset++;
             }
         }
     }
@@ -93,8 +91,13 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
                 ssTable.close();
             }
 
-            final SSTable newSSTable = storage.getLast();
-            final boolean isRegistered = group.register(newSSTable);
+            final SSTable newSSTable = storage.getCompaction(ssTable);
+            final boolean isRegistered;
+            if (newSSTable == null) {
+                isRegistered = false;
+            } else {
+                isRegistered = group.register(newSSTable);
+            }
             group.deregister(ssTable);
             if (!isRegistered) {
                 ssTable = null;

@@ -18,7 +18,7 @@ public interface SSTableStorage extends Closeable, Iterable<SSTable> {
      */
     void add(final String ssTableFileName) throws IOException;
 
-    SSTable getLast();
+    SSTable getCompaction(final SSTable ssTable);
 
     @Override
     void close();

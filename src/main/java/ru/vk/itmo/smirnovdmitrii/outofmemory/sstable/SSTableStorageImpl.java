@@ -14,6 +14,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.rmi.RemoteException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -54,24 +55,25 @@ public class SSTableStorageImpl implements SSTableStorage {
             if (compacted.remove(priority)) {
                 continue;
             }
-
             if (!indexFileRecord.getName().equals("delete")) {
                 final Path tablePath = basePath.resolve(indexFileRecord.getName());
-                if (Files.exists(tablePath)) {
-                    try (FileChannel channel = FileChannel.open(tablePath, StandardOpenOption.READ)) {
-                        storage.add(
-                                new SSTable(
-                                        channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena),
-                                        tablePath,
-                                        priority
-                                )
-                        );
-                    }
-                    ssTableNames.add(indexFileRecord.getName());
-                    if (indexFileRecord.isCompaction()) {
-                        compacted.addAll(indexFileRecord.getCompactedPriorities());
-                    }
+                if (Files.notExists(tablePath)) {
+                    throw new RemoteException("corrupted");
                 }
+                try (FileChannel channel = FileChannel.open(tablePath, StandardOpenOption.READ)) {
+                    storage.add(
+                            new SSTable(
+                                    channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena),
+                                    tablePath,
+                                    priority
+                            )
+                    );
+                }
+                ssTableNames.add(indexFileRecord.getName());
+
+            }
+            if (indexFileRecord.isCompaction()) {
+                compacted.addAll(indexFileRecord.getCompactedPriorities());
             }
         }
         priorityCounter = new AtomicLong(maxPriority + 1);
@@ -103,8 +105,11 @@ public class SSTableStorageImpl implements SSTableStorage {
     }
 
     @Override
-    public SSTable getLast() {
-        return storage.getLast();
+    public SSTable getCompaction(final SSTable ssTable) {
+        if (storage.isEmpty()) {
+            return null;
+        }
+        return storage.last();
     }
 
     @Override
@@ -118,6 +123,7 @@ public class SSTableStorageImpl implements SSTableStorage {
             }
             final SSTable compaction = new SSTable(mappedCompaction, compactionPath, minPriority);
             appendToIndex(compactionIndexRecord(compaction, compacted));
+            storage.add(compaction);
         }
         compacted.forEach(storage::remove);
         deleter.execute(() -> deleteTask(
