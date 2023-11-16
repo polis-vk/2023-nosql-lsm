@@ -168,11 +168,11 @@ public class SSTableStorageImpl implements SSTableStorage {
             indexRecord.append("delete");
         } else {
             indexRecord.append(compaction.path().getFileName().toString())
-                    .append(" ")
+                    .append(' ')
                     .append(compaction.priority());
         }
         for (final SSTable ssTable: compacted) {
-            indexRecord.append(" ")
+            indexRecord.append(' ')
                     .append(ssTable.priority());
         }
         return indexRecord.toString();

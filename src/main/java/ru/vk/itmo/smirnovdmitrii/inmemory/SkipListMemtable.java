@@ -9,18 +9,30 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class SkipListMemtable implements Memtable {
     public final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
     private final SortedMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private final AtomicLong readerCounter = new AtomicLong(0);
+    private final AtomicBoolean isAlive = new AtomicBoolean(true);
+    private final AtomicLong currentSize = new AtomicLong(0);
 
     @Override
-    public Iterator<Entry<MemorySegment>> iterator() {
-        return get(null, null);
+    public boolean tryOpen() {
+        readerCounter.incrementAndGet();
+        if (!isAlive.get()) {
+            readerCounter.decrementAndGet();
+            return false;
+        }
+        return true;
     }
 
-    private final AtomicLong currentSize = new AtomicLong(0);
+    @Override
+    public void close() {
+        readerCounter.decrementAndGet();
+    }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
@@ -35,6 +47,21 @@ public class SkipListMemtable implements Memtable {
             map = storage.subMap(from, to);
         }
         return map.values().iterator();
+    }
+
+    @Override
+    public boolean isAlive() {
+        return isAlive.get();
+    }
+
+    @Override
+    public void kill() {
+        isAlive.set(false);
+    }
+
+    @Override
+    public long writers() {
+        return readerCounter.get();
     }
 
     @Override
@@ -64,4 +91,8 @@ public class SkipListMemtable implements Memtable {
         currentSize.addAndGet(sizeAdd);
     }
 
+    @Override
+    public Iterator<Entry<MemorySegment>> iterator() {
+        return get(null, null);
+    }
 }

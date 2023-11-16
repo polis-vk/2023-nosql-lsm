@@ -31,7 +31,7 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     @Override
     public List<Iterator<Entry<MemorySegment>>> get(final MemorySegment from, final MemorySegment to) {
         final List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
-        for (final Memtable memtable: memtables.get()) {
+        for (final Memtable memtable : memtables.get()) {
             iterators.add(memtable.get(from, to));
         }
         return iterators;
@@ -39,7 +39,7 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
-        for (final Memtable memtable: memtables.get()) {
+        for (final Memtable memtable : memtables.get()) {
             final Entry<MemorySegment> result = memtable.get(key);
             if (result != null) {
                 return result;
@@ -53,15 +53,19 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
         while (true) {
             final List<Memtable> currentMemtables = memtables.get();
             final Memtable memtable = currentMemtables.get(0);
-            if (memtable.size() >= flushThresholdBytes) {
-                if (currentMemtables.size() == MAX_MEMTABLES) {
-                    throw new OutOfMemoryError("TOO MANY UPSERTS!!!!");
+            if (memtable.tryOpen()) {
+                try (memtable) {
+                    if (memtable.size() >= flushThresholdBytes) {
+                        if (currentMemtables.size() == MAX_MEMTABLES) {
+                            throw new OutOfMemoryError("TOO MANY UPSERTS!!!!");
+                        }
+                    } else {
+                        memtable.upsert(entry);
+                        return;
+                    }
                 }
-                tryUpdate(currentMemtables, memtable);
-            } else {
-                memtable.upsert(entry);
-                break;
             }
+            tryUpdate(currentMemtables, memtable);
         }
     }
 
@@ -80,6 +84,8 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
         newMemtables.add(new SkipListMemtable());
         newMemtables.addAll(currentMemtables);
         if (memtables.compareAndSet(currentMemtables, newMemtables)) {
+            memtable.kill();
+            while (memtable.writers() > 0) ;
             outMemoryDao.flush(memtable);
             removeLast();
         }
