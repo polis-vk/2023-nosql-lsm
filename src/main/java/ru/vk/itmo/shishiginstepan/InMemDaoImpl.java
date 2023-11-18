@@ -7,28 +7,32 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
+import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memStorage = new ConcurrentSkipListMap<>(
-            (o1, o2) -> {
-                var mismatch = o1.mismatch(o2);
-                if (mismatch == -1) {
-                    return 0;
-                }
+    private static final Comparator<MemorySegment> keyComparator = (o1, o2) -> {
+        long mismatch = o1.mismatch(o2);
+        if (mismatch == -1) {
+            return 0;
+        }
 
-                if (mismatch == o1.byteSize()) {
-                    return -1;
-                }
+        if (mismatch == o1.byteSize()) {
+            return -1;
+        }
 
-                if (mismatch == o2.byteSize()) {
-                    return 1;
-                }
-                byte b1 = o1.get(ValueLayout.JAVA_BYTE, mismatch);
-                byte b2 = o2.get(ValueLayout.JAVA_BYTE, mismatch);
-                return Byte.compare(b1, b2);
-            }
+        if (mismatch == o2.byteSize()) {
+            return 1;
+        }
+        byte b1 = o1.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b2 = o2.get(ValueLayout.JAVA_BYTE, mismatch);
+        return Byte.compare(b1, b2);
+    };
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memStorage = new ConcurrentSkipListMap<>(
+            keyComparator
     );
 
     private final PersistentStorage persistentStorage;
@@ -36,34 +40,42 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemDaoImpl(Path basePath) {
         this.basePath = basePath;
-        persistentStorage = new PersistentStorage(this.basePath);
+        this.persistentStorage = new PersistentStorage(this.basePath);
     }
 
     public InMemDaoImpl() {
         this.basePath = Paths.get("./");
-        persistentStorage = new PersistentStorage(this.basePath);
+        this.persistentStorage = new PersistentStorage(this.basePath);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        Iterator<Entry<MemorySegment>> memIterator;
         if (to == null && from == null) {
-            return this.memStorage.values().iterator();
+            memIterator = this.memStorage.values().iterator();
         } else if (to == null) {
-            return this.memStorage.tailMap(from).sequencedValues().iterator();
+            memIterator = this.memStorage.tailMap(from).sequencedValues().iterator();
         } else if (from == null) {
-            return this.memStorage.headMap(to).sequencedValues().iterator();
+            memIterator = this.memStorage.headMap(to).sequencedValues().iterator();
         } else {
-            return this.memStorage.subMap(from, to).sequencedValues().iterator();
+            memIterator = this.memStorage.subMap(from, to).sequencedValues().iterator();
         }
+        List<Iterator<Entry<MemorySegment>>> persistentIterators = this.persistentStorage.get(from, to, memIterator);
+        return new SkipDeletedIterator(
+                new MergeIterator(persistentIterators)
+        );
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        var val = this.memStorage.get(key);
-        if (val == null) {
-            return persistentStorage.get(key);
+        Entry<MemorySegment> entry = this.memStorage.get(key);
+        if (entry == null) {
+            entry = persistentStorage.get(key);
         }
-        return val;
+        if (entry != null && entry.value() == null) {
+            return null;
+        }
+        return entry;
     }
 
     @Override
@@ -72,8 +84,21 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
+    public void close() {
+        this.flush();
+        this.persistentStorage.close();
+    }
+
+    @Override
     public void flush() {
-        persistentStorage.store(memStorage.values());
-        memStorage.clear();
+        if (!this.memStorage.isEmpty()) {
+            this.persistentStorage.store(this.memStorage.values());
+        }
+        this.memStorage.clear();
+    }
+
+    @Override
+    public void compact() {
+        persistentStorage.compact(this.get(null, null));
     }
 }
