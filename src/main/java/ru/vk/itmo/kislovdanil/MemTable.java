@@ -1,38 +1,39 @@
 package ru.vk.itmo.kislovdanil;
 
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.kislovdanil.exceptions.DBException;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Comparator;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-/* Basically, ConcurrentSkipList with counter of threads that putting value in it.
+/* Basically, ConcurrentSkipList with ReadWriteLock to identify the moment when all inserts are done.
     Necessary for preventing data loss while flushing.
  */
 public class MemTable {
     public ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> storage;
-    private final AtomicInteger puttingThreadsCount = new AtomicInteger(0);
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     public MemTable(Comparator<MemorySegment> comparator) {
         this.storage = new ConcurrentSkipListMap<>(comparator);
     }
 
     public Entry<MemorySegment> put(Entry<MemorySegment> entry) {
-        puttingThreadsCount.incrementAndGet();
-        Entry<MemorySegment> wasBefore = storage.put(entry.key(), entry);
-        puttingThreadsCount.decrementAndGet();
-        return wasBefore;
+        lock.readLock().lock();
+        try {
+            return storage.put(entry.key(), entry);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     public void waitPuttingThreads() {
+        lock.writeLock().lock();
         try {
-            while (puttingThreadsCount.get() > 0) {
-                Thread.sleep(10);
-            }
-        } catch (InterruptedException e) {
-            throw new DBException(e);
+        }
+        finally {
+            lock.writeLock().unlock();
         }
     }
 }

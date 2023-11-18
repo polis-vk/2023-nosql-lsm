@@ -133,7 +133,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         }
     }
 
-    private void makeFlush() throws IOException, InterruptedException {
+    private void makeFlush() throws IOException {
         if (!memTable.storage.isEmpty()) {
             MemTable currentMemTable = memTable;
             additionalStorage = currentMemTable.storage;
@@ -153,7 +153,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
                     try {
                         isFlushing = true;
                         makeFlush();
-                    } catch (IOException | InterruptedException e) {
+                    } catch (IOException e) {
                         throw new DBException(e);
                     } finally {
                         isFlushing = false;
