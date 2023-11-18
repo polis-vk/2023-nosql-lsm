@@ -19,10 +19,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
@@ -35,7 +32,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     // Temporary storage in case of main storage flushing (Read only)
     private volatile NavigableMap<MemorySegment, Entry<MemorySegment>> additionalStorage =
-            memTable.storage;
+            new ConcurrentSkipListMap<>(comparator);
 
     // In case of additional table overload while main table is flushing
     private volatile boolean isFlushing;
