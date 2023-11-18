@@ -16,7 +16,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -46,7 +45,7 @@ public class SSTableStorageImpl implements SSTableStorage {
     private void load() throws IOException {
         final List<String> lines = Files.readAllLines(basePath.resolve(indexFileName)).reversed();
         final Set<Long> compacted = new HashSet<>();
-        final List<String> ssTableNames = new ArrayList<>();
+        final Set<String> ssTableNames = new HashSet<>();
         long maxPriority = 0;
         final List<SSTable> ssTables = new ArrayList<>();
         for (final String indexRecord : lines) {
@@ -74,7 +73,6 @@ public class SSTableStorageImpl implements SSTableStorage {
                 compacted.addAll(indexFileRecord.getCompactedPriorities());
             }
         }
-        Collections.sort(ssTables);
         storage.set(ssTables);
         priorityCounter = new AtomicLong(maxPriority + 1);
         Files.walkFileTree(basePath, new SimpleFileVisitor<>() {
@@ -86,10 +84,11 @@ public class SSTableStorageImpl implements SSTableStorage {
                 return FileVisitResult.CONTINUE;
             }
         });
-        newIndex(ssTables.stream()
-                .map(this::ssTableIndexRecord)
-                .toList()
-        );
+        final List<String> newIndexFileLines = new ArrayList<>();
+        for (int i = ssTables.size() - 1; i >= 0; i--) {
+            newIndexFileLines.add(ssTableIndexRecord(ssTables.get(i)));
+        }
+        newIndex(newIndexFileLines);
     }
 
     @Override
@@ -132,8 +131,8 @@ public class SSTableStorageImpl implements SSTableStorage {
                 minPriority = Math.min(ssTable.priority(), minPriority);
             }
             compaction = new SSTable(mappedCompaction, compactionPath, minPriority);
-            appendToIndex(compactionIndexRecord(compaction, compacted));
         }
+        appendToIndex(compactionIndexRecord(compaction, compacted));
         final SSTable firstCompacted = compacted.getFirst();
         while (true) {
             final List<SSTable> oldSSTables = storage.get();
