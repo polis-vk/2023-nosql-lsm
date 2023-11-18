@@ -12,8 +12,6 @@ import java.util.NoSuchElementException;
  * Iterator for SSTable.
  */
 public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
-    @SuppressWarnings("UnusedVariable")
-    private final SSTableGroup group;
     private final MemorySegment upperBound;
     private final SSTableStorage storage;
     private final EqualsComparator<MemorySegment> comparator;
@@ -23,15 +21,12 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private long offset;
 
     public SSTableIterator(
-            final SSTableGroup ssTableGroup,
             final SSTable ssTable,
             final MemorySegment from,
             final MemorySegment to,
             final SSTableStorage ssTableStorage,
             final EqualsComparator<MemorySegment> comparator
     ) {
-        ssTableGroup.register(ssTable);
-        this.group = ssTableGroup;
         this.ssTable = ssTable;
         this.next = new BaseEntry<>(from, null);
         this.upperBound = to;

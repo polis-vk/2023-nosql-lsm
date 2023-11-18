@@ -2,7 +2,6 @@ package ru.vk.itmo.smirnovdmitrii.outofmemory;
 
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTable;
-import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTableGroup;
 import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTableIterator;
 import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTableStorage;
 import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTableStorageImpl;
@@ -170,26 +169,16 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
             final Iterable<SSTable> iterable
     ) {
         final List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
-        final SSTableGroup group = new SSTableGroup();
         for (final SSTable ssTable : iterable) {
             if (ssTable.tryOpen()) {
                 try (ssTable) {
-                    iterators.add(get(group, from, to, ssTable));
+                    iterators.add(new SSTableIterator(
+                            ssTable, from, to, storage, comparator
+                    ));
                 }
             }
         }
         return iterators;
-    }
-
-    private Iterator<Entry<MemorySegment>> get(
-            final SSTableGroup group,
-            final MemorySegment from,
-            final MemorySegment to,
-            final SSTable ssTable
-    ) {
-        return new SSTableIterator(
-                group, ssTable, from, to, storage, comparator
-        );
     }
 
     @Override
@@ -208,9 +197,9 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         final String compactionFileName = save(() -> {
             final MergeIterator.Builder<MemorySegment, Entry<MemorySegment>> builder
                     = new MergeIterator.Builder<>(comparator);
-            final SSTableGroup group = new SSTableGroup();
             for (int i = 0; i < ssTables.size(); i++) {
-                builder.addIterator(new WrappedIterator<>(i, get(group, null, null, ssTables.get(i))));
+                builder.addIterator(new WrappedIterator<>(i,
+                        new SSTableIterator(ssTables.get(i), null, null, storage, comparator)));
             }
             return builder.build();
         });
