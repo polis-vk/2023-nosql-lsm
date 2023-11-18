@@ -17,41 +17,28 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final FileManager fileManager;
-    private final AtomicBoolean isClosed;
-    private final AtomicBoolean isBackgroundFlushing;
-    private final List<Future<?>> taskResults;
-    private final ExecutorService service;
+    private FileManager fileManager;
+    private final AtomicBoolean isClosed = new AtomicBoolean();
+    private final List<Future<?>> taskResults = new CopyOnWriteArrayList<>();
+    private final ExecutorService service =
+            Executors.newSingleThreadExecutor(r -> new Thread(r, "BackgroundFlushAndCompact"));
     private long flushThresholdBytes;
     private State state;
-    private final ReadWriteLock lock;
-    private final Object object;
+    private static final MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
+    private final EntryKeyComparator entryKeyComparator = new EntryKeyComparator(memorySegmentComparator);
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     public Storage() {
-        fileManager = null;
-        isClosed = new AtomicBoolean(false);
-        isBackgroundFlushing = new AtomicBoolean(false);
-        taskResults = new CopyOnWriteArrayList<>();
-        lock = new ReentrantReadWriteLock();
-        object = new Object();
-        service = Executors.newSingleThreadExecutor(r -> new Thread(r, "BackgroundFlushAndCompact"));
     }
 
     public Storage(Config config) {
-        fileManager = new FileManager(config);
+        fileManager = new FileManager(config, memorySegmentComparator, entryKeyComparator);
         state = State.emptyState(fileManager);
-        isClosed = new AtomicBoolean(false);
-        isBackgroundFlushing = new AtomicBoolean(false);
-        taskResults = new CopyOnWriteArrayList<>();
-        lock = new ReentrantReadWriteLock();
-        object = new Object();
-        service = Executors.newSingleThreadExecutor(r -> new Thread(r, "BackgroundFlushAndCompact"));
         flushThresholdBytes = config.flushThresholdBytes();
     }
 
@@ -61,28 +48,21 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new RuntimeException("Unable to get: close operation performed.");
         }
 
-        State currentState;
-        lock.readLock().lock();
-        try {
-            currentState = this.state;
-        } finally {
-            lock.readLock().unlock();
-        }
-
         ArrayList<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
         if (from == null && to == null) {
-            iterators.add(currentState.dataStorage.values().iterator());
+            iterators.add(state.dataStorage.values().iterator());
         } else if (from == null) {
-            iterators.add(currentState.dataStorage.headMap(to).values().iterator());
+            iterators.add(state.dataStorage.headMap(to).values().iterator());
         } else if (to == null) {
-            iterators.add(currentState.dataStorage.tailMap(from).values().iterator());
+            iterators.add(state.dataStorage.tailMap(from).values().iterator());
         } else {
-            iterators.add(currentState.dataStorage.subMap(from, to).values().iterator());
+            iterators.add(state.dataStorage.subMap(from, to).values().iterator());
         }
 
-        iterators.add(currentState.getFlushingPairsIterator());
-        iterators.addAll(currentState.fileManager.createIterators(from, to));
-        Iterator<Entry<MemorySegment>> mergedIterator = MergedIterator.createMergedIterator(iterators, EntryKeyComparator.INSTANCE);
+        iterators.add(state.getFlushingPairsIterator());
+        iterators.addAll(state.fileManager.createIterators(from, to));
+        Iterator<Entry<MemorySegment>> mergedIterator =
+                MergedIterator.createMergedIterator(iterators, entryKeyComparator);
         return new SkipNullIterator(mergedIterator);
     }
 
@@ -92,17 +72,9 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new RuntimeException("Unable to get: close operation performed.");
         }
 
-        State currentState;
-        lock.readLock().lock();
-        try {
-            currentState = this.state;
-        } finally {
-            lock.readLock().unlock();
-        }
-
-        Entry<MemorySegment> result = currentState.dataStorage.get(key);
+        Entry<MemorySegment> result = state.dataStorage.get(key);
         if (result == null) {
-            result = currentState.fileManager.get(key);
+            result = state.fileManager.get(key);
         }
 
         return (result == null || result.value() == null) ? null : result;
@@ -114,18 +86,27 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new RuntimeException("Unable to upsert: close operation performed.");
         }
 
-        State currentState = currentState();
-        int entryValueLength = entry.value() == null ? 0 : (int) entry.value().byteSize();
-        int delta = 2 * (int) entry.key().byteSize() + entryValueLength;
-        synchronized (object) {
-            if (currentState.getSize().get() + delta >= flushThresholdBytes) {
-                startFlushing();
-            } else {
-                currentState.updateSize(delta);
-            }
+        if (entry == null || entry.key() == null) {
+            throw new IllegalArgumentException("Attempt to upsert empty entry.");
         }
 
-        currentState.dataStorage.put(entry.key(), entry);
+        int entryValueLength = entry.value() == null ? 0 : (int) entry.value().byteSize();
+        int delta = 2 * (int) entry.key().byteSize() + entryValueLength;
+
+        if (state.dataStorage.size() + delta >= flushThresholdBytes) {
+            if (!state.flushingDataStorage.isEmpty()) {
+                throw new RuntimeException("Unable to flush: another background flush performing.");
+            }
+
+            flush();
+        }
+
+        lock.readLock().lock();
+        try {
+            state.dataStorage.put(entry.key(), entry);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     @Override
@@ -134,12 +115,11 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new RuntimeException("Unable to flush: close operation performed.");
         }
 
-        State currentState = this.state;
-        if (currentState.dataStorage.isEmpty()) {
+        if (state.dataStorage.isEmpty() || !state.flushingDataStorage.isEmpty()) {
             return;
         }
 
-        startFlushing();
+        performBackgroundFlush();
     }
 
     @Override
@@ -158,71 +138,40 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         if (fileManager == null) {
+            isClosed.set(true);
             return;
         }
 
-        flush();
         performClose();
         fileManager.closeArena();
         isClosed.set(true);
     }
 
-    private State currentState() {
-        State currentState;
+    private void performBackgroundFlush() {
         lock.writeLock().lock();
         try {
-            currentState = this.state;
+            state = state.beforeFlushState();
         } finally {
             lock.writeLock().unlock();
         }
 
-        return currentState;
-    }
-
-    private void startFlushing() {
-        if (isBackgroundFlushing.get()) {
-            throw new IllegalStateException("Unable to flash: tables are full.");
-        }
-
-        isBackgroundFlushing.set(true);
-        performBackgroundFlush();
-    }
-
-    private void performBackgroundFlush() {
-        State currentState = currentState();
         taskResults.add(service.submit(() -> {
-            try {
-                lock.writeLock().lock();
-                try {
-                    this.state = currentState.beforeFlushState();
-                } finally {
-                    lock.writeLock().unlock();
-                }
+            state.fileManager.flush(state.flushingDataStorage.values());
 
-                currentState.fileManager.flush(currentState.dataStorage);
-                
-                lock.writeLock().lock();
-                try {
-                    this.state = this.state.afterFlushState();
-                } finally {
-                    lock.writeLock().unlock();
-                }
+            lock.writeLock().lock();
+            try {
+                state = state.afterFlushState();
             } finally {
-                isBackgroundFlushing.set(false);
+                lock.writeLock().unlock();
             }
         }));
     }
 
     private void performCompact() {
-        State currentState = currentState();
-        taskResults.add(service.submit(() -> {
-            currentState.fileManager.performCompact(currentState.fileManager.createIterators(null, null),
-                    !currentState.dataStorage.isEmpty());
-        }));
+        taskResults.add(service.submit(state.fileManager::performCompact));
     }
 
     private void performClose() {
-        service.shutdown();
         for (Future<?> taskResult : taskResults) {
             if (taskResult != null && !taskResult.isDone()) {
                 try {
@@ -233,6 +182,8 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
 
+        flush();
+
         service.close();
         taskResults.clear();
     }
@@ -240,7 +191,6 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static class State {
         private final NavigableMap<MemorySegment, Entry<MemorySegment>> dataStorage;
         private final NavigableMap<MemorySegment, Entry<MemorySegment>> flushingDataStorage;
-        private final AtomicInteger pairsSize;
         private final FileManager fileManager;
 
         private State(NavigableMap<MemorySegment, Entry<MemorySegment>> dataStorage,
@@ -249,30 +199,19 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
             this.dataStorage = dataStorage;
             this.fileManager = fileManager;
             this.flushingDataStorage = flushingDataStorage;
-            pairsSize = new AtomicInteger(0);
         }
 
         private static State emptyState(FileManager fileManager) {
-            return new State(new ConcurrentSkipListMap<>(MemorySegmentComparator.INSTANCE),
-                    new ConcurrentSkipListMap<>(MemorySegmentComparator.INSTANCE), fileManager);
+            return new State(new ConcurrentSkipListMap<>(memorySegmentComparator),
+                    new ConcurrentSkipListMap<>(memorySegmentComparator), fileManager);
         }
 
         private State beforeFlushState() {
-            return new State(new ConcurrentSkipListMap<>(MemorySegmentComparator.INSTANCE),
-                    dataStorage, fileManager);
+            return new State(new ConcurrentSkipListMap<>(memorySegmentComparator), dataStorage, fileManager);
         }
 
         private State afterFlushState() {
-            return new State(dataStorage, new ConcurrentSkipListMap<>(MemorySegmentComparator.INSTANCE),
-                    fileManager);
-        }
-
-        private AtomicInteger getSize() {
-            return pairsSize;
-        }
-
-        private void updateSize(int delta) {
-            pairsSize.getAndAdd(delta);
+            return new State(dataStorage, new ConcurrentSkipListMap<>(memorySegmentComparator), fileManager);
         }
 
         private Iterator<Entry<MemorySegment>> getFlushingPairsIterator() {

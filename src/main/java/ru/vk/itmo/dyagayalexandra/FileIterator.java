@@ -13,15 +13,15 @@ public class FileIterator implements Iterator<Entry<MemorySegment>> {
     private final MemorySegment ssIndex;
     private long currentIndex;
     private final long endIndex;
-    private final FileManager fileManager;
+    private final FileReaderManager fileReaderManager;
 
     public FileIterator(MemorySegment ssTable, MemorySegment ssIndex, MemorySegment from,
-                        MemorySegment to, long indexSize, FileManager fileManager) throws IOException {
+                        MemorySegment to, long indexSize, FileReaderManager fileReaderManager) throws IOException {
         this.ssTable = ssTable;
         this.ssIndex = ssIndex;
-        currentIndex = from == null ? 0 : fileManager.getEntryIndex(ssTable, ssIndex, from, indexSize);
-        endIndex = to == null ? indexSize : fileManager.getEntryIndex(ssTable, ssIndex, to, indexSize);
-        this.fileManager = fileManager;
+        currentIndex = from == null ? 0 : fileReaderManager.getEntryIndex(ssTable, ssIndex, from, indexSize);
+        endIndex = to == null ? indexSize : fileReaderManager.getEntryIndex(ssTable, ssIndex, to, indexSize);
+        this.fileReaderManager = fileReaderManager;
     }
 
     @Override
@@ -37,7 +37,7 @@ public class FileIterator implements Iterator<Entry<MemorySegment>> {
 
         Entry<MemorySegment> entry;
         try {
-            entry = fileManager.getCurrentEntry(currentIndex, ssTable, ssIndex);
+            entry = fileReaderManager.getCurrentEntry(currentIndex, ssTable, ssIndex);
         } catch (IOException e) {
             throw new NoSuchElementException("There is no next element.", e);
         }

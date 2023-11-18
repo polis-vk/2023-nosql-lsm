@@ -1,6 +1,5 @@
 package ru.vk.itmo.dyagayalexandra;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
@@ -8,19 +7,19 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableMap;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class FileManager {
-
-    private long filesCount;
     private static final String FILE_NAME = "data";
     private static final String FILE_INDEX_NAME = "index";
     private static final String FILE_EXTENSION = ".txt";
@@ -29,20 +28,27 @@ public class FileManager {
     private final List<MemorySegment> ssIndexes;
     private final List<Path> ssTablesPaths;
     private final List<Path> ssIndexesPaths;
-    private final List<FileIterator> fileIterators;
     private final CompactManager compactManager;
+    private final FileWriterManager fileWriterManager;
+    private final FileReaderManager fileReaderManager;
+    private final MemorySegmentComparator memorySegmentComparator;
     private final Arena arena;
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
-    public FileManager(Config config) {
+    public FileManager(Config config, MemorySegmentComparator memorySegmentComparator,
+                       EntryKeyComparator entryKeyComparator) {
         basePath = config.basePath();
         ssTables = new ArrayList<>();
         ssIndexes = new ArrayList<>();
         ssTablesPaths = new ArrayList<>();
         ssIndexesPaths = new ArrayList<>();
-        fileIterators = new ArrayList<>();
-        compactManager = new CompactManager(FILE_NAME, FILE_INDEX_NAME, FILE_EXTENSION, this);
-        FileChecker fileChecker = new FileChecker(FILE_NAME, FILE_INDEX_NAME, FILE_EXTENSION, compactManager);
         arena = Arena.ofShared();
+        this.memorySegmentComparator = memorySegmentComparator;
+        fileWriterManager = new FileWriterManager(FILE_NAME, FILE_EXTENSION, FILE_INDEX_NAME, basePath, arena);
+        fileReaderManager = new FileReaderManager(memorySegmentComparator);
+        compactManager = new CompactManager(FILE_NAME, FILE_INDEX_NAME, FILE_EXTENSION, entryKeyComparator,
+                                                                                      fileWriterManager);
+        FileChecker fileChecker = new FileChecker(FILE_NAME, FILE_INDEX_NAME, FILE_EXTENSION, compactManager);
         try {
             List<Map.Entry<MemorySegment, MemorySegment>> allDataSegments = fileChecker.checkFiles(basePath, arena);
             getData(allDataSegments, fileChecker.getAllDataPaths(basePath));
@@ -51,58 +57,19 @@ public class FileManager {
         }
     }
 
-    public void save(NavigableMap<MemorySegment, Entry<MemorySegment>> storage) throws IOException {
-        if (storage.isEmpty()) {
-            return;
-        }
-
-        Path tablePath = basePath.resolve(FILE_NAME + filesCount + FILE_EXTENSION);
-        Path indexPath = basePath.resolve(FILE_INDEX_NAME + filesCount + FILE_EXTENSION);
-
-        long indexOffset = Long.BYTES;
-        long tableSize = 0;
-        long[] offsets = new long[storage.entrySet().size()];
-        try (FileChannel tableChannel = FileChannel.open(tablePath, StandardOpenOption.READ,
-                StandardOpenOption.WRITE, StandardOpenOption.CREATE);
-             FileChannel indexChannel = FileChannel.open(indexPath, StandardOpenOption.READ,
-                     StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
-            int index = 0;
-            for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : storage.entrySet()) {
-                long offset = tableSize;
-                tableSize += 2 * Integer.BYTES + entry.getValue().key().byteSize();
-                if (entry.getValue().value() != null) {
-                    tableSize += entry.getValue().value().byteSize();
-                }
-                offsets[index++] = tableSize - offset;
-            }
-
-            MemorySegment tableMemorySegment = tableChannel.map(FileChannel.MapMode.READ_WRITE,
-                    0, tableSize, arena);
-            MemorySegment indexMemorySegment = indexChannel.map(FileChannel.MapMode.READ_WRITE,
-                    0, (long) (storage.size() + 1) * Long.BYTES, arena);
-            writeStorageSize(indexMemorySegment, storage.size());
-            index = 0;
-            for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : storage.entrySet()) {
-                writeEntry(tableMemorySegment, offsets[index], entry);
-                writeIndexes(indexMemorySegment, indexOffset, offsets[index++]);
-                indexOffset += Long.BYTES;
-            }
-        }
-    }
-
-    public Entry<MemorySegment> get(MemorySegment key) {
+    Entry<MemorySegment> get(MemorySegment key) {
         for (int i = 0; i < ssTables.size(); i++) {
             FileIterator fileIterator;
             try {
                 fileIterator = new FileIterator(ssTables.get(i), ssIndexes.get(i), key, null,
-                        getIndexSize(ssIndexes.get(i)), this);
+                        fileReaderManager.getIndexSize(ssIndexes.get(i)), fileReaderManager);
             } catch (IOException e) {
                 throw new UncheckedIOException("Failed to create FileIterator", e);
             }
 
             if (fileIterator.hasNext()) {
                 Entry<MemorySegment> currentEntry = fileIterator.next();
-                if (currentEntry != null && MemorySegmentComparator.INSTANCE.compare(currentEntry.key(), key) == 0) {
+                if (currentEntry != null && memorySegmentComparator.compare(currentEntry.key(), key) == 0) {
                     return currentEntry;
                 }
             }
@@ -111,49 +78,40 @@ public class FileManager {
         return null;
     }
 
-    public void performCompact(List<Iterator<Entry<MemorySegment>>> iterators, boolean hasDataStorage) {
-
-        Iterator<Entry<MemorySegment>> iterator;
-        iterator = MergedIterator.createMergedIterator(iterators, EntryKeyComparator.INSTANCE);
-        if (!iterator.hasNext()) {
-            return;
-        }
-
-        int count = 1;
-        while (iterator.hasNext()) {
-            iterator.next();
-            count++;
-        }
-
-        if (filesCount <= 1 && !hasDataStorage) {
+    void performCompact() {
+        if (ssTables.size() <= 1) {
             return;
         }
 
         try {
-            compactManager.compact(basePath, iterators, count);
+            compactManager.compact(basePath, this);
             compactManager.deleteAllFiles(ssTablesPaths, ssIndexesPaths);
             compactManager.renameCompactFile(basePath);
+            afterCompact();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to complete compact.", e);
         }
-
-        ssTables.clear();
-        ssIndexes.clear();
-        ssTablesPaths.clear();
-        ssIndexesPaths.clear();
-        filesCount = 1;
     }
 
-    void flush(NavigableMap<MemorySegment, Entry<MemorySegment>> storage) {
+    void flush(Collection<Entry<MemorySegment>> entryCollection) {
         try {
-            save(storage);
-            filesCount++;
+            FileWriterManager.SavedFilesInfo savedFilesInfo =
+                    fileWriterManager.save(entryCollection, ssTables.size(), ssIndexes.size());
+            lock.readLock().lock();
+            try {
+                ssTables.addFirst(savedFilesInfo.getSSTable());
+                ssIndexes.addFirst(savedFilesInfo.getSSIndex());
+                ssTablesPaths.addFirst(savedFilesInfo.getSSTablePath());
+                ssIndexesPaths.addFirst(savedFilesInfo.getSSIndexPath());
+            } finally {
+                lock.readLock().unlock();
+            }
         } catch (IOException e) {
             throw new UncheckedIOException("Error saving storage.", e);
         }
     }
 
-    public List<Iterator<Entry<MemorySegment>>> createIterators(MemorySegment from, MemorySegment to) {
+    List<Iterator<Entry<MemorySegment>>> createIterators(MemorySegment from, MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
         for (int i = 0; i < ssTables.size(); i++) {
             iterators.add(createFileIterator(ssTables.get(i), ssIndexes.get(i), from, to));
@@ -165,10 +123,8 @@ public class FileManager {
     private Iterator<Entry<MemorySegment>> createFileIterator(MemorySegment ssTable, MemorySegment ssIndex,
                                                               MemorySegment from, MemorySegment to) {
         try {
-            long indexSize = getIndexSize(ssIndex);
-            FileIterator fileIterator = new FileIterator(ssTable, ssIndex, from, to, indexSize, this);
-            fileIterators.add(fileIterator);
-            return fileIterator;
+            long indexSize = fileReaderManager.getIndexSize(ssIndex);
+            return new FileIterator(ssTable, ssIndex, from, to, indexSize, fileReaderManager);
         } catch (IOException e) {
             throw new UncheckedIOException("An error occurred while reading files.", e);
         }
@@ -176,7 +132,6 @@ public class FileManager {
 
     private void getData(List<Map.Entry<MemorySegment, MemorySegment>> allDataSegments,
                          List<Map.Entry<Path, Path>> allDataPaths) {
-        filesCount = allDataSegments.size();
         for (Map.Entry<MemorySegment, MemorySegment> entry : allDataSegments) {
             ssTables.add(entry.getKey());
             ssIndexes.add(entry.getValue());
@@ -188,101 +143,44 @@ public class FileManager {
         }
     }
 
-    public long writeEntry(MemorySegment tableMemorySegment, long offset,
-                           Map.Entry<MemorySegment, Entry<MemorySegment>> entry) {
-        Entry<MemorySegment> entryValue = entry.getValue();
-        long tableFileOffset = offset;
-        tableMemorySegment.set(ValueLayout.JAVA_INT_UNALIGNED, tableFileOffset,
-                (int) entryValue.key().byteSize());
-        tableFileOffset += Integer.BYTES;
+    private void afterCompact() throws IOException {
+        Path ssTablePath = basePath.resolve(FILE_NAME + "0" + FILE_EXTENSION);
+        Path ssIndexPath = basePath.resolve(FILE_INDEX_NAME + "0" + FILE_EXTENSION);
 
-        byte[] keyByteArray = entryValue.key().toArray(ValueLayout.JAVA_BYTE);
-        for (byte keyByte : keyByteArray) {
-            tableMemorySegment.set(ValueLayout.JAVA_BYTE, tableFileOffset, keyByte);
-            tableFileOffset++;
+        MemorySegment tableMemorySegment;
+        MemorySegment indexMemorySegment;
+
+        try (FileChannel tableChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ,
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
+            tableMemorySegment = tableChannel.map(FileChannel.MapMode.READ_WRITE,
+                    0, Files.size(ssTablePath), arena);
         }
 
-        if (entryValue.value() != null) {
-            tableMemorySegment.set(ValueLayout.JAVA_INT_UNALIGNED, tableFileOffset,
-                    (int) entryValue.value().byteSize());
-            tableFileOffset += Integer.BYTES;
-            byte[] valueByteArray = entryValue.value().toArray(ValueLayout.JAVA_BYTE);
-            for (byte valueByte : valueByteArray) {
-                tableMemorySegment.set(ValueLayout.JAVA_BYTE, tableFileOffset, valueByte);
-                tableFileOffset++;
-            }
-        } else {
-            tableMemorySegment.set(ValueLayout.JAVA_INT_UNALIGNED, tableFileOffset, -1);
-            tableFileOffset += Integer.BYTES;
+        try (FileChannel indexChannel = FileChannel.open(ssIndexPath, StandardOpenOption.READ,
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
+            indexMemorySegment = indexChannel.map(FileChannel.MapMode.READ_WRITE,
+                    0, Files.size(ssIndexPath), arena);
         }
 
-        return tableFileOffset;
-    }
-
-    public void writeIndexes(MemorySegment indexMemorySegment, long indexOffset, long offset) {
-        indexMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, offset);
-    }
-
-    private void writeStorageSize(MemorySegment indexMemorySegment, long storageSize) {
-        indexMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, storageSize);
-    }
-
-    private long getIndexSize(MemorySegment indexMemorySegment) {
-        return indexMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
-    }
-
-    public long getEntryIndex(MemorySegment ssTable, MemorySegment ssIndex,
-                              MemorySegment key, long indexSize) throws IOException {
-        long low = 0;
-        long high = indexSize - 1;
-        long mid = (low + high) / 2;
-        while (low <= high) {
-            Entry<MemorySegment> current = getCurrentEntry(mid, ssTable, ssIndex);
-            int compare = MemorySegmentComparator.INSTANCE.compare(key, current.key());
-            if (compare > 0) {
-                low = mid + 1;
-            } else if (compare < 0) {
-                high = mid - 1;
-            } else {
-                return mid;
-            }
-            mid = (low + high) / 2;
+        lock.readLock().lock();
+        try {
+            ssTables.clear();
+            ssIndexes.clear();
+            ssTablesPaths.clear();
+            ssIndexesPaths.clear();
+            ssTables.add(tableMemorySegment);
+            ssIndexes.add(indexMemorySegment);
+            ssTablesPaths.add(ssTablePath);
+            ssIndexesPaths.add(ssIndexPath);
+        } finally {
+            lock.readLock().unlock();
         }
-
-        return low;
     }
 
-    public Entry<MemorySegment> getCurrentEntry(long position, MemorySegment ssTable,
-                                                MemorySegment ssIndex) throws IOException {
-
-        long offset = ssIndex.get(ValueLayout.JAVA_LONG_UNALIGNED,
-                (position + 1) * Long.BYTES);
-        int keyLength = ssTable.get(ValueLayout.JAVA_INT_UNALIGNED, offset);
-        offset += Integer.BYTES;
-
-        byte[] keyByteArray = new byte[keyLength];
-        for (int i = 0; i < keyLength; i++) {
-            keyByteArray[i] = ssTable.get(ValueLayout.JAVA_BYTE, offset);
-            offset++;
+    void closeArena() {
+        if (arena == null || !arena.scope().isAlive()) {
+            return;
         }
-
-        int valueLength = ssTable.get(ValueLayout.JAVA_INT_UNALIGNED, offset);
-        offset += Integer.BYTES;
-        if (valueLength == -1) {
-            return new BaseEntry<>(MemorySegment.ofArray(keyByteArray), null);
-        }
-
-        byte[] valueByteArray = new byte[valueLength];
-        for (int i = 0; i < valueLength; i++) {
-            valueByteArray[i] = ssTable.get(ValueLayout.JAVA_BYTE, offset);
-            offset++;
-        }
-
-        return new BaseEntry<>(MemorySegment.ofArray(keyByteArray),
-                MemorySegment.ofArray(valueByteArray));
-    }
-
-    public void closeArena() {
         arena.close();
     }
 }

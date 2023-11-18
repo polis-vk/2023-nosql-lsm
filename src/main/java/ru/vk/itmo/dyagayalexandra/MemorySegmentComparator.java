@@ -6,8 +6,6 @@ import java.util.Comparator;
 
 public final class MemorySegmentComparator implements Comparator<MemorySegment> {
 
-    public static final Comparator<MemorySegment> INSTANCE = new MemorySegmentComparator();
-
     @Override
     public int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
         long offset = memorySegment1.mismatch(memorySegment2);

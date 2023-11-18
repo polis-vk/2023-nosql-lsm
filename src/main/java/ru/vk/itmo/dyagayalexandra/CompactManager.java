@@ -26,28 +26,32 @@ public class CompactManager {
     private final String fileIndexName;
     private Path compactedFile;
     private Path compactedIndex;
+    private final EntryKeyComparator entryKeyComparator;
+    private final FileWriterManager fileWriterManager;
     private static final String TEMP_FILE_NAME = "tempCompact.txt";
     private static final String TEMP_FILE_INDEX_NAME = "tempCompactIndex.txt";
     private static final String MAIN_FILE_NAME = "mainCompact.txt";
     private static final String MAIN_FILE_INDEX_NAME = "mainCompactIndex.txt";
-    private final FileManager fileManager;
 
-    public CompactManager(String fileName, String fileIndexName, String fileExtension, FileManager fileManager) {
+    public CompactManager(String fileName, String fileIndexName, String fileExtension,
+                          EntryKeyComparator entryKeyComparator, FileWriterManager fileWriterManager) {
         this.fileName = fileName;
         this.fileIndexName = fileIndexName;
         this.fileExtension = fileExtension;
-        this.fileManager = fileManager;
+        this.entryKeyComparator = entryKeyComparator;
+        this.fileWriterManager = fileWriterManager;
     }
 
-    public void compact(Path basePath, List<Iterator<Entry<MemorySegment>>> iterators, int size) throws IOException {
-        long count = 0;
-        long offset = 0;
+    void compact(Path basePath, FileManager fileManager) throws IOException {
+        long indexOffset = Long.BYTES;
+        long offset;
         compactedFile = basePath.resolve(TEMP_FILE_NAME);
         compactedIndex = basePath.resolve(TEMP_FILE_INDEX_NAME);
 
         Iterator<Entry<MemorySegment>> iterator =
-                MergedIterator.createMergedIterator(iterators, EntryKeyComparator.INSTANCE);
+                MergedIterator.createMergedIterator(fileManager.createIterators(null, null), entryKeyComparator);
 
+        int storageSize = 0;
         long tableSize = 0;
         while (iterator.hasNext()) {
             Entry<MemorySegment> currentItem = iterator.next();
@@ -57,9 +61,10 @@ public class CompactManager {
             } else {
                 tableSize += Integer.BYTES;
             }
+            storageSize++;
         }
 
-        iterator = MergedIterator.createMergedIterator(iterators, EntryKeyComparator.INSTANCE);
+        iterator = MergedIterator.createMergedIterator(fileManager.createIterators(null, null), entryKeyComparator);
         long tableOffset = 0;
 
         try (FileChannel tableChannel = FileChannel.open(compactedFile, StandardOpenOption.READ,
@@ -70,18 +75,17 @@ public class CompactManager {
             MemorySegment tableMemorySegment = tableChannel.map(FileChannel.MapMode.READ_WRITE,
                     0, tableSize, arena);
             MemorySegment indexMemorySegment = indexChannel.map(FileChannel.MapMode.READ_WRITE,
-                    0, (long) size * Long.BYTES, arena);
+                    0, (long) (storageSize + 1) * Long.BYTES, arena);
             while (iterator.hasNext()) {
                 Entry<MemorySegment> currentItem = iterator.next();
                 Map.Entry<MemorySegment, Entry<MemorySegment>> currentEntry =
                         Map.entry(currentItem.key(), new BaseEntry<>(currentItem.key(), currentItem.value()));
-                offset = fileManager.writeEntry(tableMemorySegment, tableOffset, currentEntry);
-                fileManager.writeIndexes(indexMemorySegment, (count + 1) * Long.BYTES, tableOffset);
+                offset = fileWriterManager.writeEntry(tableMemorySegment, tableOffset, currentEntry.getValue());
+                fileWriterManager.writeIndexes(indexMemorySegment, indexOffset, tableOffset);
                 tableOffset = offset;
-                count++;
+                indexOffset += Long.BYTES;
             }
-
-            setIndexSize(indexMemorySegment, count);
+            setIndexSize(indexMemorySegment, storageSize);
         }
 
         Files.move(compactedFile, basePath.resolve(MAIN_FILE_NAME), ATOMIC_MOVE);
@@ -90,15 +94,15 @@ public class CompactManager {
         compactedIndex = basePath.resolve(MAIN_FILE_INDEX_NAME);
     }
 
-    public void renameCompactFile(Path basePath) throws IOException {
+    void renameCompactFile(Path basePath) throws IOException {
         Files.move(compactedFile, basePath.resolve(fileName + "0" + fileExtension), ATOMIC_MOVE);
         Files.move(compactedIndex, basePath.resolve(fileIndexName + "0" + fileExtension), ATOMIC_MOVE);
     }
 
-    public void deleteAllFiles(List<Path> ssTables, List<Path> ssIndexes) {
+    void deleteAllFiles(List<Path> ssTables, List<Path> ssIndexes) {
         for (Path ssTable : ssTables) {
             try {
-                Files.delete(ssTable);
+                Files.deleteIfExists(ssTable);
             } catch (IOException e) {
                 throw new UncheckedIOException("Error deleting a ssTable file.", e);
             }
@@ -106,14 +110,14 @@ public class CompactManager {
 
         for (Path ssIndex : ssIndexes) {
             try {
-                Files.delete(ssIndex);
+                Files.deleteIfExists(ssIndex);
             } catch (IOException e) {
                 throw new UncheckedIOException("Error deleting a ssIndex file.", e);
             }
         }
     }
 
-    public boolean deleteTempFile(Path basePath, Path file, List<Path> files) throws IOException {
+    boolean deleteTempFile(Path basePath, Path file, List<Path> files) throws IOException {
         if (file.equals(basePath.resolve(TEMP_FILE_NAME))) {
             Files.delete(basePath.resolve(TEMP_FILE_NAME));
             if (files.contains(basePath.resolve(TEMP_FILE_INDEX_NAME))) {
@@ -126,7 +130,7 @@ public class CompactManager {
         return false;
     }
 
-    public boolean clearIfCompactFileExists(Path basePath, Path file, List<Path> files) throws IOException {
+    boolean clearIfCompactFileExists(Path basePath, Path file, List<Path> files) throws IOException {
         if (file.equals(basePath.resolve(MAIN_FILE_NAME))) {
             if (files.contains(basePath.resolve(MAIN_FILE_INDEX_NAME))) {
                 List<Path> ssTables = new ArrayList<>();
@@ -160,7 +164,7 @@ public class CompactManager {
         return false;
     }
 
-    private static void setIndexSize(MemorySegment indexMemorySegment, long count) {
+    private void setIndexSize(MemorySegment indexMemorySegment, long count) {
         indexMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, count);
     }
 
