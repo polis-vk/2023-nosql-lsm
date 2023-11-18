@@ -1,7 +1,7 @@
 package ru.vk.itmo.smirnovdmitrii.outofmemory.sstable;
 
 import ru.vk.itmo.smirnovdmitrii.outofmemory.IndexFileRecord;
-import ru.vk.itmo.smirnovdmitrii.util.exceptions.CorruptedError;
+import ru.vk.itmo.smirnovdmitrii.util.exceptions.CorruptedException;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -55,7 +55,7 @@ public class SSTableStorageImpl implements SSTableStorage {
             if (!compacted.remove(priority) && !indexFileRecord.getName().equals("delete")) {
                 final Path tablePath = basePath.resolve(indexFileRecord.getName());
                 if (Files.notExists(tablePath)) {
-                    throw new CorruptedError("corrupted: file from record [" + indexRecord + "] not found.");
+                    throw new CorruptedException("corrupted: file from record [" + indexRecord + "] not found.");
                 }
                 try (FileChannel channel = FileChannel.open(tablePath, StandardOpenOption.READ)) {
                     ssTables.add(
