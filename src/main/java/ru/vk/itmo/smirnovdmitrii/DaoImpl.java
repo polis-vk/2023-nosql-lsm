@@ -22,9 +22,8 @@ import java.util.concurrent.Executors;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final InMemoryDao<MemorySegment, Entry<MemorySegment>> inMemoryDao;
-    private final ExecutorService flushService = Executors.newSingleThreadExecutor();
+    private final ExecutorService compactionService = Executors.newSingleThreadExecutor();
     private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
-    private final ExecutorService compactService = Executors.newSingleThreadExecutor();
     private final EqualsComparator<MemorySegment> comparator = new MemorySegmentComparator();
 
     public DaoImpl(final Config config) {
@@ -69,19 +68,13 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void flush() {
-        flushService.execute(() -> {
-            try {
-                inMemoryDao.flush();
-            } catch (final IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        });
+    public void flush() throws IOException {
+        inMemoryDao.flush();
     }
 
     @Override
     public void compact() {
-        compactService.execute(() -> {
+        compactionService.execute(() -> {
             try {
                 outMemoryDao.compact();
             } catch (final IOException e) {
@@ -92,10 +85,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        flush();
-        flushService.close();
-        compactService.close();
         inMemoryDao.close();
+        compactionService.close();
         outMemoryDao.close();
     }
 }

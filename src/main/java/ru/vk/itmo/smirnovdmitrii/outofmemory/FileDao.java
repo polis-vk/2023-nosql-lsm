@@ -63,17 +63,16 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
     public Entry<MemorySegment> get(final MemorySegment key) {
         Objects.requireNonNull(key);
         for (final SSTable ssTable : storage) {
-            try {
-                ssTable.open();
-                if (!ssTable.isAlive().get()) {
-                    continue;
+            if (ssTable.tryOpen()) {
+                try (ssTable) {
+                    if (!ssTable.isAlive().get()) {
+                        continue;
+                    }
+                    final long offset = SSTableUtil.binarySearch(key, ssTable, comparator);
+                    if (offset >= 0) {
+                        return SSTableUtil.readBlock(ssTable, offset);
+                    }
                 }
-                final long offset = SSTableUtil.binarySearch(key, ssTable, comparator);
-                if (offset >= 0) {
-                    return SSTableUtil.readBlock(ssTable, offset);
-                }
-            } finally {
-                ssTable.close();
             }
         }
         return null;
@@ -173,14 +172,10 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         final List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
         final SSTableGroup group = new SSTableGroup();
         for (final SSTable ssTable : iterable) {
-            try {
-                ssTable.open();
-                if (!ssTable.isAlive().get()) {
-                    continue;
+            if (ssTable.tryOpen()) {
+                try (ssTable) {
+                    iterators.add(get(group, from, to, ssTable));
                 }
-                iterators.add(get(group, from, to, ssTable));
-            } finally {
-                ssTable.close();
             }
         }
         return iterators;

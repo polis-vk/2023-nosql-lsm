@@ -12,6 +12,7 @@ import java.util.NoSuchElementException;
  * Iterator for SSTable.
  */
 public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
+    @SuppressWarnings("UnusedVariable")
     private final SSTableGroup group;
     private final MemorySegment upperBound;
     private final SSTableStorage storage;
@@ -60,14 +61,13 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
                 next = null;
                 return result;
             }
-            try {
-                ssTable.open();
-                if (ssTable.isAlive().get()) {
+            if (ssTable.tryOpen()) {
+                try {
                     next = SSTableUtil.readBlock(ssTable, offset++);
                     return result;
+                } finally {
+                    ssTable.close();
                 }
-            } finally {
-                ssTable.close();
             }
             if (reposition()) {
                 offset++;
@@ -77,33 +77,19 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     private boolean reposition() {
         while (true) {
-            try {
-                ssTable.open();
-                if (ssTable.isAlive().get()) {
+            if (ssTable.tryOpen()) {
+                try {
                     long binarySearchResult = next.key() == null ? 0
                             : SSTableUtil.binarySearch(next.key(), ssTable, comparator);
                     upperBoundOffset = upperBound == null ? SSTableUtil.blockCount(ssTable)
                             : SSTableUtil.upperBound(upperBound, ssTable, comparator);
                     offset = SSTableUtil.normalize(binarySearchResult);
                     return binarySearchResult == offset;
+                } finally {
+                    ssTable.close();
                 }
-            } finally {
-                ssTable.close();
             }
-
-            final SSTable newSSTable = storage.getCompaction(ssTable);
-            final boolean isRegistered;
-            if (newSSTable == null) {
-                isRegistered = false;
-            } else {
-                isRegistered = group.register(newSSTable);
-            }
-            group.deregister(ssTable);
-            if (!isRegistered) {
-                ssTable = null;
-                return false;
-            }
-            ssTable = newSSTable;
+            ssTable = storage.getCompaction(ssTable);
         }
     }
 

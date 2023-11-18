@@ -50,11 +50,6 @@ public class SkipListMemtable implements Memtable {
     }
 
     @Override
-    public boolean isAlive() {
-        return isAlive.get();
-    }
-
-    @Override
     public void kill() {
         isAlive.set(false);
     }

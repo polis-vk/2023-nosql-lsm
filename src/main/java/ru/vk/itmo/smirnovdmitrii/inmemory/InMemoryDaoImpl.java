@@ -2,12 +2,16 @@ package ru.vk.itmo.smirnovdmitrii.inmemory;
 
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.smirnovdmitrii.outofmemory.OutMemoryDao;
+import ru.vk.itmo.smirnovdmitrii.util.exceptions.TooManyUpsertsException;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemorySegment>> {
@@ -16,6 +20,7 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     private final AtomicReference<List<Memtable>> memtables;
     private final long flushThresholdBytes;
     private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
     public InMemoryDaoImpl(
             final long flushThresholdBytes,
@@ -49,61 +54,73 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     }
 
     @Override
-    public void upsert(final Entry<MemorySegment> entry) throws IOException {
+    public void upsert(final Entry<MemorySegment> entry) {
         while (true) {
             final List<Memtable> currentMemtables = memtables.get();
             final Memtable memtable = currentMemtables.get(0);
             if (memtable.tryOpen()) {
                 try (memtable) {
-                    if (memtable.size() >= flushThresholdBytes) {
-                        if (currentMemtables.size() == MAX_MEMTABLES) {
-                            throw new OutOfMemoryError("TOO MANY UPSERTS!!!!");
-                        }
-                    } else {
+                    if (memtable.size() < flushThresholdBytes) {
                         memtable.upsert(entry);
                         return;
                     }
                 }
             }
-            tryUpdate(currentMemtables, memtable);
+            executorService.execute(() -> tryFlush(true));
         }
     }
 
     @Override
-    public void flush() throws IOException {
-        final List<Memtable> currentMemtables = memtables.get();
-        if (currentMemtables.size() == MAX_MEMTABLES) {
-            return;
-        }
-        final Memtable memtable = currentMemtables.get(0);
-        tryUpdate(currentMemtables, memtable);
+    public void flush() {
+        executorService.execute(() -> tryFlush(false));
     }
 
-    private void tryUpdate(final List<Memtable> currentMemtables, final Memtable memtable) throws IOException {
+    private void tryFlush(final boolean isFull) {
+        final List<Memtable> currentMemtables = memtables.get();
+        final Memtable memtable = currentMemtables.get(0);
+        if (isFull && (memtable.size() < flushThresholdBytes)) {
+            return;
+        }
+        if (currentMemtables.size() == MAX_MEMTABLES) {
+            if (isFull) {
+                throw new TooManyUpsertsException("to many upserts.");
+            }
+            return;
+        }
         final List<Memtable> newMemtables = new ArrayList<>(currentMemtables.size() + 1);
         newMemtables.add(new SkipListMemtable());
         newMemtables.addAll(currentMemtables);
         if (memtables.compareAndSet(currentMemtables, newMemtables)) {
-            memtable.kill();
-            while (memtable.writers() > 0) ;
-            outMemoryDao.flush(memtable);
-            removeLast();
+           flush(memtable);
         }
     }
 
-    private void removeLast() {
+    private void flush(final Memtable memtable) {
+        memtable.kill();
         while (true) {
-            final List<Memtable> prevList = memtables.get();
-            final List<Memtable> newList = new ArrayList<>(prevList);
-            newList.removeLast();
-            if (memtables.compareAndSet(prevList, newList)) {
-                return;
+            if (memtable.writers() == 0) {
+                try {
+                    outMemoryDao.flush(memtable);
+                    while (true) {
+                        final List<Memtable> prevList = memtables.get();
+                        final List<Memtable> newList = new ArrayList<>(prevList);
+                        newList.remove(memtable);
+                        if (memtables.compareAndSet(prevList, newList)) {
+                            break;
+                        }
+                    }
+                } catch (final IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+                break;
             }
         }
     }
 
     @Override
     public void close() {
+        executorService.close();
+        flush(memtables.get().getFirst());
         memtables.get().clear();
     }
 
