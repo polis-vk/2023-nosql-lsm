@@ -18,7 +18,6 @@ public final class Tools {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
-
     static MemorySegment slice(MemorySegment page, long start, long end) {
         return page.asSlice(start, end - start);
     }

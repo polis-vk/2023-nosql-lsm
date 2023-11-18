@@ -8,9 +8,17 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.*;
-import java.util.*;
-
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 
 public class DiskStorage {
 
@@ -83,6 +91,8 @@ public class DiskStorage {
 
         // После успешного выполнения ожидаем увидеть скомпакченый файл COMPACT_FILE_NAME.
         save(storagePath, storage, true);
+
+        bringUpToDateState(storagePath);
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable, boolean isForCompact)
@@ -161,8 +171,6 @@ public class DiskStorage {
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING
             );
-
-            bringUpToDateState(storagePath);
             return;
         }
 
