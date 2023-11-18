@@ -19,7 +19,11 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
@@ -138,14 +142,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         additionalStorage = currentMemTable.storage;
         memTable = new MemTable(comparator);
         // Necessary to get snapshot without data loss
-        currentMemTable.lock.writeLock().lock();
-        try {
-            // SSTable constructor with entries iterator writes MemTable data on disk deleting old data if it exists
-            tables.add(new SSTable(config.basePath(), comparator,
-                    getNextId(), additionalStorage.values().iterator()));
-        } finally {
-            currentMemTable.lock.writeLock().unlock();
-        }
+        currentMemTable.waitPuttingThreads();
+        // SSTable constructor with entries iterator writes MemTable data on disk deleting old data if it exists
+        tables.add(new SSTable(config.basePath(), comparator,
+                getNextId(), additionalStorage.values().iterator()));
     }
 
     @Override
