@@ -50,7 +50,7 @@ public class BinaryMinHeap<T> implements MinHeap<T> {
         return list.isEmpty();
     }
 
-    private void siftDown(final int i) {
+    public void siftDown(final int i) {
         int index = i;
         final int size = list.size();
         while (true) {
@@ -75,7 +75,7 @@ public class BinaryMinHeap<T> implements MinHeap<T> {
         }
     }
 
-    private void siftUp() {
+    public void siftUp() {
         int index = list.size() - 1;
         while (comparator.compare(list.get(index), list.get((index - 1) / 2)) < 0) {
             final int nextIndex = (index - 1) / 2;

@@ -3,7 +3,6 @@ package ru.vk.itmo.smirnovdmitrii.util.iterators;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.smirnovdmitrii.util.BinaryMinHeap;
 import ru.vk.itmo.smirnovdmitrii.util.EqualsComparator;
-import ru.vk.itmo.smirnovdmitrii.util.MinHeap;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -12,7 +11,7 @@ import java.util.List;
 
 public class MergeIterator<T, E extends Entry<T>> implements Iterator<E> {
     private final EqualsComparator<T> comparator;
-    private final MinHeap<PeekingIterator<E>> heap;
+    private final BinaryMinHeap<PeekingIterator<E>> heap;
 
     private MergeIterator(
             final Collection<PeekingIterator<E>> iterators,
@@ -39,18 +38,14 @@ public class MergeIterator<T, E extends Entry<T>> implements Iterator<E> {
         return heap.min() != null;
     }
 
-    private void add(final PeekingIterator<E> iterator) {
-        if (iterator.hasNext()) {
-            heap.add(iterator);
-        }
-    }
-
     @Override
     public E next() {
         advance();
         final PeekingIterator<E> iterator = heap.removeMin();
         final E result = iterator.next();
-        add(iterator);
+        if (iterator.hasNext()) {
+            heap.add(iterator);
+        }
         final T key = result.key();
         while (!heap.isEmpty()) {
             final PeekingIterator<E> currentIterator = heap.min();
@@ -75,9 +70,13 @@ public class MergeIterator<T, E extends Entry<T>> implements Iterator<E> {
     }
 
     private void skip() {
-        final PeekingIterator<E> iterator = heap.removeMin();
+        final PeekingIterator<E> iterator = heap.min();
         iterator.next();
-        add(iterator);
+        if (iterator.hasNext()) {
+            heap.siftDown(0);
+        } else {
+            heap.removeMin();
+        }
     }
 
     public static class Builder<T, E extends Entry<T>> {
