@@ -164,10 +164,9 @@ public class DiskStorage {
         }
 
         if (isForCompact) {
-            Path compactFilePath = storagePath.resolve(COMPACT_FILE_NAME);
             Files.move(
                     newSsTablePath,
-                    compactFilePath,
+                    storagePath.resolve(COMPACT_FILE_NAME),
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING
             );
@@ -198,13 +197,12 @@ public class DiskStorage {
         }
 
         String newFileName = "0";
-        Path newFilePath = storagePath.resolve(newFileName);
 
         updateIndex(storagePath, Collections.singletonList(newFileName));
 
         Files.move(
                 storagePath.resolve(COMPACT_FILE_NAME),
-                newFilePath,
+                storagePath.resolve(newFileName),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
