@@ -27,7 +27,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
+/**
+ * Storage of SSTables. Manages SSTables.
+ */
 public class SSTableStorageImpl implements SSTableStorage {
+    // Sorted by SSTable priority.
     private final AtomicReference<List<SSTable>> storage = new AtomicReference<>(null);
     private final ExecutorService deleter = Executors.newSingleThreadExecutor();
     private final Path basePath;
@@ -42,6 +46,10 @@ public class SSTableStorageImpl implements SSTableStorage {
         load();
     }
 
+    /**
+     * Loading SSTables from index file.
+     * @throws IOException if I/O error occurs.
+     */
     private void load() throws IOException {
         final List<String> lines = Files.readAllLines(basePath.resolve(indexFileName)).reversed();
         final Set<Long> compacted = new HashSet<>();
@@ -91,6 +99,11 @@ public class SSTableStorageImpl implements SSTableStorage {
         newIndex(newIndexFileLines);
     }
 
+    /**
+     * Adding SSTable to storage from given file name.
+     * @param ssTableFileName SSTable to add.
+     * @throws IOException if I/O error occurs.
+     */
     @Override
     public void add(final String ssTableFileName) throws IOException {
         if (ssTableFileName == null) {
@@ -111,8 +124,14 @@ public class SSTableStorageImpl implements SSTableStorage {
         }
     }
 
+    /**
+     * Returns where SSTable was compacted. If given SSTable is alive, then unspecified.
+     * @param ssTable SSTable that was compacted (dead)
+     * @return SSTable where provided SSTable was compacted.
+     */
     @Override
     public SSTable getCompaction(final SSTable ssTable) {
+        // While we're compacting all SSTable in one, always returns last SSTable.
         final List<SSTable> currentStorage = storage.get();
         if (currentStorage.isEmpty()) {
             return null;
@@ -120,6 +139,12 @@ public class SSTableStorageImpl implements SSTableStorage {
         return currentStorage.getLast();
     }
 
+    /**
+     * Replaces Provided SSTables with SSTable from provided path.
+     * @param compactionFileName file with compacted data from SSTables.
+     * @param compacted representing files that was compacted.
+     * @throws IOException if I/O error occurs.
+     */
     @Override
     public void compact(final String compactionFileName, final List<SSTable> compacted) throws IOException {
         SSTable compaction = null;
@@ -127,6 +152,7 @@ public class SSTableStorageImpl implements SSTableStorage {
             final Path compactionPath = basePath.resolve(compactionFileName);
             final MemorySegment mappedCompaction = map(compactionPath);
             long minPriority = Long.MAX_VALUE;
+            // Taking minimal priority for reason if we want to compact in the mid in future.
             for (final SSTable ssTable : compacted) {
                 minPriority = Math.min(ssTable.priority(), minPriority);
             }
@@ -134,10 +160,12 @@ public class SSTableStorageImpl implements SSTableStorage {
         }
         appendToIndex(compactionIndexRecord(compaction, compacted));
         final SSTable firstCompacted = compacted.getFirst();
+        // tries to add SSTable to list with CAS. If failed - tries again.
         while (true) {
             final List<SSTable> oldSSTables = storage.get();
             final List<SSTable> newSSTables = new ArrayList<>();
             int index = 0;
+            // Adding all SSTable that was not compacted. They have greater priority.
             while (oldSSTables.get(index).priority() != firstCompacted.priority()) {
                 newSSTables.add(oldSSTables.get(index));
                 index++;
@@ -166,6 +194,7 @@ public class SSTableStorageImpl implements SSTableStorage {
         while (deleted < compacted.size()) {
             for (int i = 0; i < compacted.size(); i++) {
                 final SSTable ssTable = compacted.get(i);
+                // If still has readers then we can't delete file.
                 if (ssTable == null || ssTable.readers().get() != 0) {
                     continue;
                 }
@@ -180,10 +209,44 @@ public class SSTableStorageImpl implements SSTableStorage {
         }
     }
 
+    /**
+     * Record for SSTable in index file.
+     * Looks like:<br>
+     * <br>
+     * sstable sstable_file_name priority<br>
+     * <br>
+     * <br>
+     * Example:
+     * <br>
+     * sstable sstable_file 1
+     * <br>
+     * <br>
+     * @param ssTable SSTable witch record will be created.
+     * @return SSTable record.
+     */
     private String ssTableIndexRecord(final SSTable ssTable) {
         return String.format("sstable %s %d", ssTable.path().getFileName().toString(), ssTable.priority());
     }
 
+    /**
+     * Record for compaction SSTable in index file. Looks like:<br>
+     * compaction name priority compacted_file_priority1, compacted_file_priority2...
+     * <br>
+     * or
+     * <br>
+     * compaction delete compacted_file_priority1, compacted_file_priority2...
+     * <br>
+     * Because compacted files can form empty file or no SSTable.
+     * <br>
+     * Example:
+     * <br>
+     * compaction delete 1 2 3
+     * <br>
+     * <br>
+     * @param compaction compaction file. Null if compacted in empty SSTable.
+     * @param compacted SSTable that were compacted.
+     * @return record for compaction file.
+     */
     private String compactionIndexRecord(final SSTable compaction, final List<SSTable> compacted) {
         final StringBuilder indexRecord = new StringBuilder("compaction ");
         if (compaction == null) {
@@ -200,6 +263,11 @@ public class SSTableStorageImpl implements SSTableStorage {
         return indexRecord.toString();
     }
 
+    /**
+     * Adds record in index file.
+     * @param line addition line
+     * @throws IOException if I/O error occurs.
+     */
     private void appendToIndex(final String line) throws IOException {
         indexFileLock.lock();
         try {
@@ -211,6 +279,9 @@ public class SSTableStorageImpl implements SSTableStorage {
         }
     }
 
+    /**
+     * Creates new index file from provided list.
+     */
     private void newIndex(final List<String> list) throws IOException {
         final Path indexFilePath = basePath.resolve(indexFileName);
         final Path indexFileTmpPath = basePath.resolve(indexFilePath + ".tmp");

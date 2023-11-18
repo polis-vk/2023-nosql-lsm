@@ -65,8 +65,9 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
                         return;
                     }
                 }
+                executorService.execute(() -> tryFlush(true));
             }
-            executorService.execute(() -> tryFlush(true));
+            // Try again. We get SSTable that was just killed and replaced.
         }
     }
 
@@ -75,6 +76,10 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
         executorService.execute(() -> tryFlush(false));
     }
 
+    /**
+     * Tries to flush memtable. Parameter {@code isFull} true, if we flush because of threshehold,
+     * or false, if it is requested flush.
+     */
     private void tryFlush(final boolean isFull) {
         final List<Memtable> currentMemtables = memtables.get();
         final Memtable memtable = currentMemtables.get(0);
@@ -90,17 +95,25 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
         final List<Memtable> newMemtables = new ArrayList<>(currentMemtables.size() + 1);
         newMemtables.add(new SkipListMemtable());
         newMemtables.addAll(currentMemtables);
+        // Tries to change with CAS. If failed that it doesn't bother us.
+        // It means that it was already flushed from another thread.
         if (memtables.compareAndSet(currentMemtables, newMemtables)) {
            flush(memtable);
         }
     }
 
+    /**
+     * Flushing memtable on disk.
+     */
     private void flush(final Memtable memtable) {
+        // kills memtable, so there is no new writers to memtable
         memtable.kill();
         while (true) {
+            // Waiting until there is no writers. It will be fast.
             if (memtable.writers() == 0) {
                 try {
                     outMemoryDao.flush(memtable);
+                    // Tries to delete memtable from list with CAS. If failed tries again.
                     while (true) {
                         final List<Memtable> prevList = memtables.get();
                         final List<Memtable> newList = new ArrayList<>(prevList);

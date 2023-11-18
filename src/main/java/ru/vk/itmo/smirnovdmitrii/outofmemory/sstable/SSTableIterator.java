@@ -49,6 +49,10 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         return safeNext();
     }
 
+    /**
+     * Returns null if where is no next element.
+     * @return next element.
+     */
     private Entry<MemorySegment> safeNext() {
         final Entry<MemorySegment> result = next;
         while (true) {
@@ -70,6 +74,10 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         }
     }
 
+    /**
+     * Tries to position current SSTable, if SSTable is dead then tries to find SSTable where to read from.
+     * @return true if after repositioning current element equals to element before repositioning.
+     */
     private boolean reposition() {
         while (true) {
             if (ssTable.tryOpen()) {

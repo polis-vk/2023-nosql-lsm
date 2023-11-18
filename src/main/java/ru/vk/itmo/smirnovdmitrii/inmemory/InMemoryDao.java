@@ -9,7 +9,7 @@ import java.util.List;
 public interface InMemoryDao<D, E extends Entry<D>> extends AutoCloseable {
 
     /**
-     * Maybe flushes memtable to file.
+     * Maybe flushes memtable to file. Works in background.
      */
     void flush() throws IOException;
 

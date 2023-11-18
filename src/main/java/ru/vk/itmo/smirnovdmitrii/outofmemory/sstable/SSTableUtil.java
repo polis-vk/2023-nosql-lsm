@@ -7,6 +7,9 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
+/**
+ * Utils works only with opened SSTable.
+ */
 public final class SSTableUtil {
 
     private SSTableUtil() {

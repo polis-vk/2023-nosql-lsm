@@ -5,6 +5,9 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 
+/**
+ * Representation of memtable.
+ */
 public interface Memtable extends AutoCloseable, Iterable<Entry<MemorySegment>> {
 
     long size();

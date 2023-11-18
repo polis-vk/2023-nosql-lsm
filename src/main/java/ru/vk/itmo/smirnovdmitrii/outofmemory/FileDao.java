@@ -97,6 +97,8 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
      * block 2
      * ...
      * block n
+     *
+     * @return File name, where entries were saved.
      */
     public String save(
             final Iterable<Entry<MemorySegment>> entries

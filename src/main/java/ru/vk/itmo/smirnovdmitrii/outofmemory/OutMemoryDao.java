@@ -28,7 +28,7 @@ public interface OutMemoryDao<D, E extends Entry<D>> extends AutoCloseable {
     List<Iterator<E>> get(D from, D to);
 
     /**
-     * Compact all sstables on disk in one sstable with memtables in one sstable.
+     * Compact all sstables on disk in one sstable. Works in background
      * @throws IOException if I/O error occurs.
      */
     void compact() throws IOException;
