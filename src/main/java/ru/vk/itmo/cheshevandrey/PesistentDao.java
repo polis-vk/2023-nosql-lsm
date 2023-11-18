@@ -7,6 +7,7 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
@@ -30,9 +31,6 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final AtomicBoolean isFlushing;
     private final AtomicBoolean isCompacting;
-    private final AtomicBoolean isFlushCompleted;
-    private final AtomicBoolean shouldFlushAfterReloadEnv;
-    private final AtomicBoolean shouldCompactAfterReloadEnv;
 
     private static final Logger logger = Logger.getLogger(PesistentDao.class.getName());
 
@@ -45,13 +43,15 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         this.isFlushing = new AtomicBoolean(false);
         this.isCompacting = new AtomicBoolean(false);
-        this.isFlushCompleted = new AtomicBoolean(false);
-        this.shouldFlushAfterReloadEnv = new AtomicBoolean(false);
-        this.shouldCompactAfterReloadEnv = new AtomicBoolean(false);
 
         this.executor = Executors.newCachedThreadPool();
         arena = Arena.ofShared();
-        this.environment = new Environment(new ConcurrentSkipListMap<>(Tools::compare), config.basePath(), arena);
+        this.environment = new Environment(
+                new ConcurrentSkipListMap<>(Tools::compare),
+                new ConcurrentSkipListMap<>(Tools::compare),
+                config.basePath(),
+                arena
+        );
 
         environment.completeCompactIfNeeded();
     }
@@ -125,20 +125,11 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         Environment currEnv;
         readLock.lock();
         try {
-            if (isCompacting.get()) {
-                if (isFlushCompleted.get()) {
-                    // Запомнили, что должны будем опять запустить compact().
-                    shouldCompactAfterReloadEnv.set(true);
-                    // Считаем, что уже учли выполненные флаши.
-                    isFlushCompleted.set(false);
-                }
-                return;
-            }
-
             // Могут выполнять несколько потоков.
             // Должны гарантировать, что один поток будет выполнять флаш.
             boolean tryToCompact = isCompacting.compareAndSet(false, true);
             if (!tryToCompact) {
+                // Считаем, что уже компактим.
                 return;
             }
             currEnv = environment;
@@ -149,28 +140,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         executor.execute(() -> {
             try {
                 currEnv.compact();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
-
-        writeLock.lock();
-        try {
-            isCompacting.set(false);
-            if (shouldCompactAfterReloadEnv.get()) {
-                // Вызываем новый compact() из другого потока, чтобы не блокироваться.
-                callCompactFromAnotherThread();
-                shouldCompactAfterReloadEnv.set(false);
-            }
-        } finally {
-            writeLock.unlock();
-        }
-    }
-
-    private void callCompactFromAnotherThread() {
-        executor.execute(() -> {
-            try {
-                compact();
+                isCompacting.set(false);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -186,29 +156,25 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public void flush() throws IOException {
+        Environment currEnv;
         readLock.lock();
         try {
-            if (isFlushing.get()) {
-                if (!environment.getTable().isEmpty()) {
-                    // Сразу после перезагрузки окружения должны будем сделать флаш.
-                    shouldFlushAfterReloadEnv.set(true);
-                }
-                return;
-            }
-
             // Могут выполнять несколько потоков.
-            // Должны гарантировать, что один поток будет выполнять флаш.
+            // Должны гарантировать, что один поток будет выполнять флаш в фоне.
             boolean tryToFlush = isFlushing.compareAndSet(false, true);
             if (!tryToFlush) {
+                // Считаем, что уже флашим.
                 return;
             }
+            currEnv = environment;
         } finally {
             readLock.unlock();
         }
 
         executor.execute(() -> {
             try {
-                environment.flush();
+                currEnv.flush();
+                isFlushing.set(false);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -216,28 +182,17 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         writeLock.lock();
         try {
-            isFlushing.set(false);
-            isFlushCompleted.set(true);
-            setNewEnvironment();
+            this.environment = new Environment(
+                    new ConcurrentSkipListMap<>(Tools::compare),
+                    environment.getTable(),
+                    config.basePath(),
+                    arena
+            );
         } finally {
             writeLock.unlock();
         }
     }
 
-    private void setNewEnvironment() throws IOException {
-        this.environment = new Environment(environment.getTable(), config.basePath(), arena);
-        // Вызываем новый флаш из другого потока, чтобы не блокироваться.
-        executor.execute(() -> {
-            try {
-                if (shouldFlushAfterReloadEnv.get()) {
-                    shouldFlushAfterReloadEnv.set(false);
-                    flush();
-                }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
-    }
 
     @Override
     public void close() throws IOException {

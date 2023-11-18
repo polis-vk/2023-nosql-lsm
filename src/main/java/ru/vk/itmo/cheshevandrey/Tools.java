@@ -15,7 +15,6 @@ public final class Tools {
     private Tools() {
     }
 
-
     static Entry<MemorySegment> entryToReturn(Entry<MemorySegment> entry) {
         if (entry.value() == null) {
             return null;
@@ -55,14 +54,6 @@ public final class Tools {
         }
     }
 
-    static Path getDirWithExistsCheck(Path workPath) throws IOException {
-        try {
-            Files.createDirectory(workPath);
-        } catch (FileAlreadyExistsException ignored) {
-            // it's ok.
-        }
-        return workPath;
-    }
 
     static long indexSize(MemorySegment segment) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);

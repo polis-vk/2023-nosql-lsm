@@ -1,6 +1,5 @@
 package ru.vk.itmo.cheshevandrey;
 
-import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
@@ -13,20 +12,21 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class Environment {
 
-    private ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> table;
-    private ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> flushingTable;
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> table;
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> flushingTable;
     private final AtomicLong memTableBytes;
 
     private final DiskStorage diskStorage;
 
     public Environment(ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memtable,
+                       ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> flushingTable,
                        Path storagePath,
                        Arena arena)
             throws IOException {
         this.diskStorage = new DiskStorage(storagePath, arena);
 
         this.table = memtable;
-        this.flushingTable = new ConcurrentSkipListMap<>(Tools::compare);
+        this.flushingTable = flushingTable;
         this.memTableBytes = new AtomicLong(0);
     }
 
@@ -63,11 +63,7 @@ public class Environment {
     }
 
     public void flush() throws IOException {
-        flushingTable = table;
-        table = new ConcurrentSkipListMap<>(Tools::compare);
-        memTableBytes.set(0);
-
-        diskStorage.save(flushingTable.values());
+        diskStorage.save(table.values());
     }
 
     public void compact() throws IOException {
