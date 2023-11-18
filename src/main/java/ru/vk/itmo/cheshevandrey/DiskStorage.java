@@ -230,22 +230,6 @@ public class DiskStorage {
         );
     }
 
-    private static final class IterableStorage implements Iterable<Entry<MemorySegment>> {
-
-        Iterable<Entry<MemorySegment>> iterableMemTable;
-        DiskStorage diskStorage;
-
-        private IterableStorage(Iterable<Entry<MemorySegment>> iterableMemTable, DiskStorage diskStorage) {
-            this.iterableMemTable = iterableMemTable;
-            this.diskStorage = diskStorage;
-        }
-
-        @Override
-        public Iterator<Entry<MemorySegment>> iterator() {
-            return diskStorage.range(iterableMemTable.iterator(), null, null);
-        }
-    }
-
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = Tools.recordsCount(segment);
 
