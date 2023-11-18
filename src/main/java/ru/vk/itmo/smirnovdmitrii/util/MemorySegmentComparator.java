@@ -22,9 +22,4 @@ public final class MemorySegmentComparator implements EqualsComparator<MemorySeg
     public boolean equals(final MemorySegment o1, final MemorySegment o2) {
         return o1.mismatch(o2) == -1;
     }
-
-    @Override
-    public boolean equals(final MemorySegment o1, final MemorySegment o2) {
-        return o1.mismatch(o2) == -1;
-    }
 }
