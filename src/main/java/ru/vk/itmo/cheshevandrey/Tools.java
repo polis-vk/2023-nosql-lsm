@@ -5,9 +5,6 @@ import java.lang.foreign.ValueLayout;
 
 public final class Tools {
 
-    private static final String DELIMITER = "_";
-    private static final String EXTENSION = ".sst";
-
     // to hide the implicit public constructor
     private Tools() {
     }
@@ -21,9 +18,6 @@ public final class Tools {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
-    static String getFileName(int ssTableNumber, int compactNumber) {
-        return ssTableNumber + DELIMITER + compactNumber + EXTENSION;
-    }
 
     static MemorySegment slice(MemorySegment page, long start, long end) {
         return page.asSlice(start, end - start);

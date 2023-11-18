@@ -16,21 +16,22 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final Comparator<MemorySegment> comparator = InMemoryDao::compare;
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private final Comparator<MemorySegment> comparator = PersistentDao::compare;
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
 
-    public InMemoryDao(Config config) throws IOException {
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+
+    public PersistentDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        this.diskStorage = new DiskStorage(arena, path);
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -98,12 +99,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        diskStorage.compact(path, getInMemory(null, null));
+        DiskStorage.compact(path, diskStorage, getInMemory(null, null));
+        storage = new ConcurrentSkipListMap<>(comparator);
     }
 
     @Override
     public void flush() throws IOException {
-        DiskStorage.save(path, storage.values());
+        DiskStorage.save(path, storage.values(), false);
     }
 
     @Override
