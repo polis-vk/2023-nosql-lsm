@@ -1,7 +1,6 @@
 package ru.vk.itmo.kislovdanil;
 
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.kislovdanil.exceptions.DBException;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Comparator;
@@ -33,7 +32,7 @@ public class MemTable {
                 Thread.sleep(10);
             }
         } catch (InterruptedException e) {
-            throw new DBException(e);
+            Thread.currentThread().interrupt();
         }
     }
 }
