@@ -13,7 +13,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 public class MemTable {
     public ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> storage;
-    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    public final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     public MemTable(Comparator<MemorySegment> comparator) {
         this.storage = new ConcurrentSkipListMap<>(comparator);
@@ -25,15 +25,6 @@ public class MemTable {
             return storage.put(entry.key(), entry);
         } finally {
             lock.readLock().unlock();
-        }
-    }
-
-    public void waitPuttingThreads() {
-        lock.writeLock().lock();
-        try {
-        }
-        finally {
-            lock.writeLock().unlock();
         }
     }
 }

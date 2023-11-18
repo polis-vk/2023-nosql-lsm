@@ -134,15 +134,20 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     }
 
     private void makeFlush() throws IOException {
-        if (!memTable.storage.isEmpty()) {
-            MemTable currentMemTable = memTable;
-            additionalStorage = currentMemTable.storage;
-            memTable = new MemTable(comparator);
-            // Necessary to get snapshot without data loss
-            currentMemTable.waitPuttingThreads();
+        if (memTable.storage.isEmpty()) {
+            return;
+        }
+        MemTable currentMemTable = memTable;
+        additionalStorage = currentMemTable.storage;
+        memTable = new MemTable(comparator);
+        // Necessary to get snapshot without data loss
+        currentMemTable.lock.writeLock().lock();
+        try {
             // SSTable constructor with entries iterator writes MemTable data on disk deleting old data if it exists
             tables.add(new SSTable(config.basePath(), comparator,
                     getNextId(), additionalStorage.values().iterator()));
+        } finally {
+            currentMemTable.lock.writeLock().unlock();
         }
     }
 
