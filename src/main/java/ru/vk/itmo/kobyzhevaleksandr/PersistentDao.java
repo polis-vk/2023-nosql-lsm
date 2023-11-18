@@ -75,9 +75,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     }
 
     /*
-    First, the state is fixed and a check is made for multiple flushes.
-    Next, the entry is placed in the memory table with the new size recorded in bytes and
-    an automatic flush is performed if the threshold has been exceeded.
+    First, check is made for multiple flushes. Next, the entry is placed in the memory table with the new size
+    recorded in bytes and an automatic flush is performed if the threshold has been exceeded.
      */
     @Override
     public void upsert(Entry<MemorySegment> entry) {
@@ -85,23 +84,22 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
             throw new IllegalArgumentException("Entry cannot be null.");
         }
 
-        State currentState = state;
-        if (currentState.memoryTableByteSize.get() >= config.flushThresholdBytes()
-            && currentState.flushingMemoryTable != null) {
+        if (state.memoryTableByteSize.get() >= config.flushThresholdBytes()
+            && state.flushingMemoryTable != null) {
             throw new ApplicationException("Memory table is full, overload possible");
         }
 
         long valueSize = entry.value() == null ? 0 : entry.value().byteSize();
         lock.readLock().lock();
         try {
-            currentState.memoryTable.put(entry.key(), entry);
-            currentState.memoryTableByteSize.addAndGet(Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize);
+            state.memoryTable.put(entry.key(), entry);
+            state.memoryTableByteSize.addAndGet(Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize);
         } finally {
             lock.readLock().unlock();
         }
 
         try {
-            if (currentState.memoryTableByteSize.get() >= config.flushThresholdBytes()) {
+            if (state.memoryTableByteSize.get() >= config.flushThresholdBytes()) {
                 flush();
             }
         } catch (IOException e) {
