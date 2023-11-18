@@ -43,11 +43,20 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
         return tableId;
     }
 
+    public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId) throws IOException {
+        this(basePath, memSegComp, tableId, null, false);
+    }
+
     public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
+                   Iterator<Entry<MemorySegment>> entriesContainer) throws IOException {
+        this(basePath, memSegComp, tableId, entriesContainer, true);
+    }
+
+    private SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
                    Iterator<Entry<MemorySegment>> entriesContainer,
                    boolean rewrite) throws IOException {
         this.tableId = tableId;
-        ssTablePath = basePath.resolve(Long.toString(tableId));
+        this.ssTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
         Path summaryFilePath = ssTablePath.resolve("summary");
         Path indexFilePath = ssTablePath.resolve("index");
