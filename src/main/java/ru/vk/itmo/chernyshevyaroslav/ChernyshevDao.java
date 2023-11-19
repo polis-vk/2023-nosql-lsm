@@ -31,7 +31,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        this.diskStorage = new DiskStorage(FileUtils.loadOrRecover(path, arena));
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -106,14 +106,14 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
+            FileUtils.save(path, storage.values());
         }
     }
 
     @Override
     public void compact() throws IOException {
         flush();
-        CompactorUtils.compact(path, this::all);
+        FileUtils.compact(path, this::all);
         storage.clear();
     }
 
