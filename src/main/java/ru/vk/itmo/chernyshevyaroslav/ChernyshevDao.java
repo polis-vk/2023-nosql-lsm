@@ -15,6 +15,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -27,7 +28,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path path;
     private final long flushThresholdBytes;
     private long size = 0;
-    private boolean isThresholdReached = false;
+    private final AtomicBoolean isThresholdReached = new AtomicBoolean(false);
 
     public ChernyshevDao(Config config) throws IOException {
         this.path = config.basePath().resolve(DATA_PATH);
@@ -127,10 +128,10 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void upsert(Entry<MemorySegment> entry) {
         long entrySize = entry.key().byteSize() * 2 + (entry.value() != null ? entry.value().byteSize() : 0);
         if (size + entrySize > flushThresholdBytes) {
-            if (isThresholdReached) {
+            if (isThresholdReached.get()) {
                 throw new RuntimeException("flushThresholdBytes reached; Automatic flush is in progress");
             } else {
-                isThresholdReached = true;
+                isThresholdReached.set(true);
                 size += entrySize;
                 try {
                     new Thread(() -> {
@@ -142,7 +143,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         }
                     }).start();
                 } finally {
-                    isThresholdReached = false;
+                    isThresholdReached.set(false);
                 }
             }
         }
