@@ -3,6 +3,7 @@ package ru.vk.itmo.chernyshevyaroslav;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -198,9 +199,7 @@ public final class FileUtils {
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
-            throw new RuntimeException(e);
-        } {
-
+            throw new UncheckedIOException(e);
         }
     }
 }
