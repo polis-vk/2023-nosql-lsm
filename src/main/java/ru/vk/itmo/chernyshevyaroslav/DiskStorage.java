@@ -40,7 +40,7 @@ public class DiskStorage {
         }
         iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, InMemoryDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, ChernyshevDao::compare)) {
             @Override
             protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;

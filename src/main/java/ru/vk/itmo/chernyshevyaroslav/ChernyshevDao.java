@@ -16,16 +16,16 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String DATA_PATH = "data";
-    private final Comparator<MemorySegment> comparator = InMemoryDao::compare;
+    private final Comparator<MemorySegment> comparator = ChernyshevDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
 
-    public InMemoryDao(Config config) throws IOException {
+    public ChernyshevDao(Config config) throws IOException {
         this.path = config.basePath().resolve(DATA_PATH);
         Files.createDirectories(path);
 
