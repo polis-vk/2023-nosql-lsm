@@ -54,6 +54,14 @@ public final class Tools {
         }
     }
 
+    static void createDir(Path dir) throws IOException {
+        try {
+            Files.createDirectory(dir);
+        } catch (FileAlreadyExistsException ignored) {
+            // it's ok.
+        }
+    }
+
 
     static long indexSize(MemorySegment segment) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);

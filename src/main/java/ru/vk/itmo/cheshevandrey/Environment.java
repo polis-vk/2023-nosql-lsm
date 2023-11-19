@@ -34,7 +34,7 @@ public class Environment {
         Iterator<Entry<MemorySegment>> memTableIterator = getInMemory(from, to, true).iterator();
         Iterator<Entry<MemorySegment>> flushingIterator = getInMemory(from, to, false).iterator();
 
-        return diskStorage.range(memTableIterator, flushingIterator, from, to);
+        return diskStorage.range(memTableIterator, flushingIterator, from, to, false);
     }
 
     private Iterable<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to, Boolean isMemTable) {
