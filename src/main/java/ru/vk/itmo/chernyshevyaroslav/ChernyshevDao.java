@@ -114,6 +114,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void compact() throws IOException {
         flush();
         CompactorUtils.compact(path, this::all);
+        storage.clear();
     }
 
     @Override
