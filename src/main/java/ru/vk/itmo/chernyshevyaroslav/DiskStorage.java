@@ -19,6 +19,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class DiskStorage {
 
@@ -48,7 +49,7 @@ public class DiskStorage {
         };
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
+    public synchronized static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve(INDEX_TMP);
         final Path indexFile = storagePath.resolve(INDEX_IDX);
@@ -157,7 +158,7 @@ public class DiskStorage {
         }
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        List<MemorySegment> result = new ArrayList<>(existedFiles.size());
+        List<MemorySegment> result = new CopyOnWriteArrayList<>();
         for (String fileName : existedFiles) {
             Path file = storagePath.resolve(fileName);
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {

@@ -21,6 +21,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final String DATA_PATH = "data";
     private final Comparator<MemorySegment> comparator = InMemoryDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    //private final NavigableMap<MemorySegment, Entry<MemorySegment>> storageDouble = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
@@ -108,7 +109,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void flush() throws IOException {
+    public synchronized void flush() throws IOException {
         if (!storage.isEmpty()) {
             DiskStorage.save(path, storage.values());
         }
@@ -125,21 +126,27 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         long entrySize = entry.key().byteSize() * 2 + (entry.value() != null ? entry.value().byteSize() : 0);
-        if (isThresholdReached && (size + entrySize > flushThresholdBytes)) {
-            throw new RuntimeException("flushThresholdBytes reached; Automatic flush is in progress");
-        }
-        size += entrySize;
-        if (size > flushThresholdBytes) {
-            isThresholdReached = true;
-            try {
-                flush();
-                storage.clear();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            } finally {
-                isThresholdReached = false;
+        if (size + entrySize > flushThresholdBytes) {
+            if (isThresholdReached) {
+                throw new RuntimeException("flushThresholdBytes reached; Automatic flush is in progress");
+            } else {
+                isThresholdReached = true;
+                size += entrySize;
+                try {
+                    new Thread(() -> {
+                        try {
+                            flush();
+                            storage.clear();
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }
+                    }).start();
+                } finally {
+                    isThresholdReached = false;
+                }
             }
         }
+
         storage.put(entry.key(), entry);
     }
 }
