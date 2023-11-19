@@ -16,10 +16,10 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String DATA_PATH = "data";
-    private final Comparator<MemorySegment> comparator = InMemoryDao::compare;
+    private final Comparator<MemorySegment> comparator = ChernyshevDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     //private final NavigableMap<MemorySegment, Entry<MemorySegment>> storageDouble = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
@@ -29,14 +29,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private long size = 0;
     private boolean isThresholdReached = false;
 
-    public InMemoryDao(Config config) throws IOException {
+    public ChernyshevDao(Config config) throws IOException {
         this.path = config.basePath().resolve(DATA_PATH);
         this.flushThresholdBytes = config.flushThresholdBytes();
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        this.diskStorage = new DiskStorage(FileUtils.loadOrRecover(path, arena));
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -111,7 +111,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public synchronized void flush() throws IOException {
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values());
+            FileUtils.save(path, storage.values(), false);
         }
     }
 
@@ -119,7 +119,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void compact() throws IOException {
         //flush();
         if (all().hasNext()) {
-            CompactorUtils.compact(path, this::all);
+            FileUtils.compact(path, this::all);
         }
     }
 
