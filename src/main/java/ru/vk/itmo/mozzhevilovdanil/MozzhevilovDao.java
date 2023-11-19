@@ -23,10 +23,7 @@ public class MozzhevilovDao implements Dao<MemorySegment, Entry<MemorySegment>> 
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return new DatabaseIterator(
-                getMap(from, to),
-                tablesManager.get(from, to)
-        );
+        return new DatabaseIterator(getMap(from, to), tablesManager.get(from, to));
     }
 
     private Iterator<Entry<MemorySegment>> getMap(MemorySegment from, MemorySegment to) {
@@ -58,6 +55,11 @@ public class MozzhevilovDao implements Dao<MemorySegment, Entry<MemorySegment>> 
 
     @Override
     public void close() throws IOException {
-        tablesManager.store(storage);
+        tablesManager.store(storage, false);
+    }
+
+    @Override
+    public void compact() throws IOException {
+        tablesManager.compact(storage);
     }
 }
