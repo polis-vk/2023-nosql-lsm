@@ -106,7 +106,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         if (!storage.isEmpty()) {
-            FileUtils.save(path, storage.values());
+            FileUtils.save(path, storage.values(), false);
         }
     }
 

@@ -20,12 +20,13 @@ public final class FileUtils {
 
     private static final String INDEX_IDX = "index.idx";
     private static final String INDEX_TMP = "index.tmp";
+    private static final String COMPACTION_TMP = "Compaction.tmp";
 
     private FileUtils() {
         throw new IllegalStateException("Utility class");
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
+    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable, boolean isCompaction)
             throws IOException {
         final Path indexTmp = storagePath.resolve(INDEX_TMP);
         final Path indexFile = storagePath.resolve(INDEX_IDX);
@@ -37,7 +38,7 @@ public final class FileUtils {
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        String newFileName = String.valueOf(existedFiles.size());
+        String newFileName = isCompaction ? COMPACTION_TMP : String.valueOf(existedFiles.size());
 
         long dataSize = 0;
         long count = 0;
@@ -107,7 +108,9 @@ public final class FileUtils {
 
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
-        list.add(newFileName);
+        if (!isCompaction) {
+            list.add(newFileName);
+        }
         Files.write(
                 indexFile,
                 list,
@@ -120,6 +123,9 @@ public final class FileUtils {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
+        if (Files.exists(storagePath.resolve(COMPACTION_TMP))) {
+            finalizeCompaction(storagePath);
+        }
         Path indexTmp = storagePath.resolve(INDEX_TMP);
         Path indexFile = storagePath.resolve(INDEX_IDX);
 
@@ -152,7 +158,7 @@ public final class FileUtils {
     }
 
     public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
-        final Path indexFile = storagePath.resolve(INDEX_IDX);
+        Path indexFile = storagePath.resolve(INDEX_IDX);
 
         try {
             Files.createFile(indexFile);
@@ -165,10 +171,18 @@ public final class FileUtils {
             Files.delete(indexFile);
             return;
         }
-        save(storagePath, iterable);
+        save(storagePath, iterable, true);
+        finalizeCompaction(storagePath);
+    }
+
+    private static void finalizeCompaction(Path storagePath) {
+        Path indexFile = storagePath.resolve(INDEX_IDX);
+
+        try {
+            List<String> existingFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
         for (String file : existingFiles) {
-            Files.delete(storagePath.resolve(file));
+            Files.deleteIfExists(storagePath.resolve(file));
         }
 
         Files.writeString(
@@ -179,10 +193,14 @@ public final class FileUtils {
                 StandardOpenOption.TRUNCATE_EXISTING
         );
 
-        Files.move(storagePath.resolve(String.valueOf(existingFiles.size())),
+        Files.move(storagePath.resolve(COMPACTION_TMP),
                 storagePath.resolve("0"),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING);
-    }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        } {
 
+        }
+    }
 }
