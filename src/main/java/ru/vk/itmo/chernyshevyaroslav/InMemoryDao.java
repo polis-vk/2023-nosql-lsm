@@ -24,9 +24,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
+    private final long flushThresholdBytes;
+    private long size = 0;
+    private boolean isThresholdReached = false;
 
     public InMemoryDao(Config config) throws IOException {
         this.path = config.basePath().resolve(DATA_PATH);
+        this.flushThresholdBytes = config.flushThresholdBytes();
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
@@ -112,12 +116,30 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        flush();
-        CompactorUtils.compact(path, this::all);
+        //flush();
+        if (all().hasNext()) {
+            CompactorUtils.compact(path, this::all);
+        }
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
+        long entrySize = entry.key().byteSize() * 2 + (entry.value() != null ? entry.value().byteSize() : 0);
+        if (isThresholdReached && (size + entrySize > flushThresholdBytes)) {
+            throw new RuntimeException("flushThresholdBytes reached; Automatic flush is in progress");
+        }
+        size += entrySize;
+        if (size > flushThresholdBytes) {
+            isThresholdReached = true;
+            try {
+                flush();
+                storage.clear();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            } finally {
+                isThresholdReached = false;
+            }
+        }
         storage.put(entry.key(), entry);
     }
 }
