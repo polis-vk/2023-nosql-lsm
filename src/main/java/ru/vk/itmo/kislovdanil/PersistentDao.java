@@ -3,26 +3,94 @@ package ru.vk.itmo.kislovdanil;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.kislovdanil.exceptions.DBException;
+import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;
+import ru.vk.itmo.kislovdanil.iterators.MergeIterator;
 
+import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
-            new ConcurrentSkipListMap<>(new MemSegComparator());
-    private final SSTable table;
+    public static final MemorySegment DELETED_VALUE = null;
     private final Config config;
-    private final Comparator<MemorySegment> comp = new MemSegComparator();
+    private final List<SSTable> tables = new ArrayList<>();
+    private final Comparator<MemorySegment> comparator = new MemSegComparator();
+    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
+            new ConcurrentSkipListMap<>(comparator);
+
+    private long lastTimestamp = System.currentTimeMillis();
 
     public PersistentDao(Config config) throws IOException {
         this.config = config;
-        // SSTable constructor with rewrite=false reads table data from disk if it exists
-        this.table = new SSTable(config.basePath(), comp, 0L, storage, false);
+        File basePathDirectory = new File(config.basePath().toString());
+        String[] ssTablesIds = basePathDirectory.list();
+        if (ssTablesIds == null) return;
+        for (String tableID : ssTablesIds) {
+            // SSTable constructor with rewrite=false reads table data from disk if it exists
+            tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID),
+                    storage, false));
+        }
+        tables.sort(SSTable::compareTo);
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        List<DatabaseIterator> iterators = new ArrayList<>(tables.size() + 1);
+        for (SSTable table : tables) {
+            iterators.add(table.getRange(from, to));
+        }
+        iterators.add(new MemTableIterator(from, to));
+        return new MergeIterator(iterators, comparator);
+    }
+
+    private static Entry<MemorySegment> wrapEntryIfDeleted(Entry<MemorySegment> entry) {
+        if (entry.value() == DELETED_VALUE) return null;
+        return entry;
+    }
+
+    @Override
+    public Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> ans = storage.get(key);
+        if (ans != null) return wrapEntryIfDeleted(ans);
+        try {
+            for (SSTable table : tables) {
+                Entry<MemorySegment> data = table.find(key);
+                if (data != null) {
+                    return wrapEntryIfDeleted(data);
+                }
+            }
+        } catch (IOException e) {
+            throw new DBException(e);
+        }
+        return null;
+    }
+
+    @Override
+    public void upsert(Entry<MemorySegment> entry) {
+        storage.put(entry.key(), entry);
+    }
+
+    @Override
+    public void flush() throws IOException {
+        if (!storage.isEmpty()) {
+            lastTimestamp = Math.max(lastTimestamp + 1, System.currentTimeMillis());
+            // SSTable constructor with rewrite=true writes MemTable data on disk deleting old data if it exists
+            tables.add(new SSTable(config.basePath(), comparator,
+                    lastTimestamp, storage, true));
+        }
+    }
+
+    @Override
+    public void close() throws IOException {
+        flush();
     }
 
     private static class MemSegComparator implements Comparator<MemorySegment> {
@@ -39,35 +107,34 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    @Override
-    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) return storage.values().iterator();
-        if (from != null && to == null) return storage.tailMap(from).values().iterator();
-        if (from == null) return storage.headMap(to).values().iterator();
-        return storage.subMap(from, to).values().iterator();
-    }
+    private class MemTableIterator implements DatabaseIterator {
+        Iterator<Entry<MemorySegment>> innerIter;
 
-    @Override
-    public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> ans = storage.get(key);
-        if (ans != null) return ans;
-        try {
-            return table.find(key);
-        } catch (IOException e) {
-            return null;
+        public MemTableIterator(MemorySegment from, MemorySegment to) {
+            if (from == null && to == null) {
+                innerIter = storage.values().iterator();
+            } else if (from != null && to == null) {
+                innerIter = storage.tailMap(from).values().iterator();
+            } else if (from == null) {
+                innerIter = storage.headMap(to).values().iterator();
+            } else {
+                innerIter = storage.subMap(from, to).values().iterator();
+            }
         }
-    }
 
-    @Override
-    public void upsert(Entry<MemorySegment> entry) {
-        storage.put(entry.key(), entry);
-    }
+        @Override
+        public long getPriority() {
+            return Long.MAX_VALUE;
+        }
 
-    @Override
-    public void close() throws IOException {
-        if (!storage.isEmpty()) {
-            // SSTable constructor with rewrite=true writes MemTable data on disk deleting old data if it exists
-            new SSTable(config.basePath(), comp, 0L, storage, true);
+        @Override
+        public boolean hasNext() {
+            return innerIter.hasNext();
+        }
+
+        @Override
+        public Entry<MemorySegment> next() {
+            return innerIter.next();
         }
     }
 }
