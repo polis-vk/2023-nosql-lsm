@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DiskStorage {
 
@@ -24,8 +25,12 @@ public class DiskStorage {
     private static final String INDEX_FILE_NAME = "index";
     private static final String SSTABLE_EXT = ".sstable";
     private static final String TMP_EXT = ".tmp";
+    private final Arena arena;
+    private final ReentrantReadWriteLock rwLock;
 
     public DiskStorage(List<Path> ssTablePaths, Arena arena) throws IOException {
+        this.arena = arena;
+        this.rwLock = new ReentrantReadWriteLock();
         tableList = new ArrayList<>();
         for (Path path : ssTablePaths) {
             tableList.add(new SsTable(path, arena));
@@ -33,22 +38,28 @@ public class DiskStorage {
     }
 
     public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
+            List<Iterator<Entry<MemorySegment>>> memoryIterators,
             MemorySegment from,
             MemorySegment to) {
 
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(tableList.size() + 1);
-        for (SsTable ssTable : tableList) {
-            iterators.add(ssTable.iterator(from, to));
-        }
-        iterators.add(firstIterator);
-
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
-            @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
-                return memorySegmentEntry.value() == null;
+        rwLock.readLock().lock();
+        try {
+            List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(tableList.size() + 1);
+            for (SsTable ssTable : tableList) {
+                iterators.add(ssTable.iterator(from, to));
             }
-        };
+
+            iterators.addAll(memoryIterators);
+
+            return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
+                @Override
+                protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+                    return memorySegmentEntry.value() == null;
+                }
+            };
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     /**
@@ -59,7 +70,7 @@ public class DiskStorage {
      * data:
      * |key0|value0|key1|value1|...
      */
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
+    public void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
@@ -86,9 +97,10 @@ public class DiskStorage {
         }
         long indexSize = count * 2 * Long.BYTES;
 
+        Path tablePath = storagePath.resolve(newFileName);
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve(newFileName),
+                        tablePath,
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE
@@ -120,8 +132,8 @@ public class DiskStorage {
                 indexOffset += Long.BYTES;
             }
         }
-
         updateIndex(indexFile, indexTmp, existedFiles, newFileName);
+        add(new SsTable(tablePath, arena));
     }
 
     private static void updateIndex(Path indexFile, Path indexTmp, List<String> existedFiles, String newFileName)
@@ -142,9 +154,15 @@ public class DiskStorage {
     }
 
     public void compact(Path storagePath) throws IOException {
-        if (tableList.isEmpty()) {
-            return;
+        rwLock.readLock().lock();
+        try {
+            if (tableList.isEmpty()) {
+                return;
+            }
+        } finally {
+            rwLock.readLock().unlock();
         }
+
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
 
         try {
@@ -164,9 +182,10 @@ public class DiskStorage {
         dataSize += count * Long.BYTES * 2;
 
         MemorySegment fileSegment;
+        Path tablePath = storagePath.resolve("0" + TMP_EXT);
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve("0" + TMP_EXT),
+                        tablePath,
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE
@@ -199,11 +218,17 @@ public class DiskStorage {
         }
 
         updateIndexAndCleanUp(storagePath, indexFile);
-        tableList.clear();
-        tableList.add(new SsTable(fileSegment));
+
+        rwLock.writeLock().lock();
+        try {
+            tableList.clear();
+            tableList.add(new SsTable(tablePath, arena));
+        } finally {
+            rwLock.writeLock().unlock();
+        }
     }
 
-    private void updateIndexAndCleanUp(Path storagePath, Path indexFile) throws IOException {
+    private static void updateIndexAndCleanUp(Path storagePath, Path indexFile) throws IOException {
 
         final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
@@ -234,17 +259,30 @@ public class DiskStorage {
     }
 
     private MergeIterator<Entry<MemorySegment>> getMergeIterator() {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(tableList.size() + 1);
-        for (SsTable ssTable : tableList) {
-            iterators.add(ssTable.iterator(null, null));
-        }
-
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
-            @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
-                return memorySegmentEntry.value() == null;
+        rwLock.readLock().lock();
+        try {
+            List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(tableList.size() + 1);
+            for (SsTable ssTable : tableList) {
+                iterators.add(ssTable.iterator(null, null));
             }
-        };
+
+            return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
+                @Override
+                protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+                    return memorySegmentEntry.value() == null;
+                }
+            };
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
+    private void add(SsTable ssTable) {
+        rwLock.writeLock().lock();
+        try {
+            tableList.add(ssTable);
+        } finally {
+            rwLock.writeLock().unlock();
+        }
+    }
 }

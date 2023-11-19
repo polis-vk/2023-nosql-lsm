@@ -28,10 +28,6 @@ public class SsTable {
         }
     }
 
-    public SsTable(MemorySegment segment) {
-        this.segment = segment;
-    }
-
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);
 

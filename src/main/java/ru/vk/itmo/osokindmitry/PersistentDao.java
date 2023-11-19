@@ -12,12 +12,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
+    private final MemTable memTable;
     private final Arena arena;
     private final Path path;
     private final DiskStorage diskStorage;
@@ -28,8 +33,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ExecutorService finalizer;
     private Future<?> autoFlushing;
     private Future<?> flushingTask;
-    private volatile boolean shuttingDown;
-    private long storageSize;
+    private final AtomicBoolean shuttingDown;
 
     public PersistentDao(Config config) throws IOException {
         path = config.basePath().resolve("data");
@@ -37,32 +41,34 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         thresholdBytes = config.flushThresholdBytes();
         arena = Arena.ofShared();
-        storage = new ConcurrentSkipListMap<>(PersistentDao::compare);
-
         rwLock = new ReentrantReadWriteLock();
+
+        memTable = new MemTable(new ConcurrentSkipListMap<>(PersistentDao::compare), thresholdBytes, rwLock);
+
 
         compactionExecutor = Executors.newSingleThreadExecutor();
         flushExecutor = Executors.newFixedThreadPool(2);
         finalizer = Executors.newSingleThreadExecutor();
 
         autoFlushing = flushExecutor.submit(new AutoFlusher());
-        shuttingDown = false;
-        storageSize = 0;
+        shuttingDown = new AtomicBoolean(false);
 
         this.diskStorage = new DiskStorage(Utils.loadOrRecover(path), arena);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> entry = storage.get(key);
-        if (entry != null) {
-            if (entry.value() == null) {
-                return null;
+        rwLock.readLock().lock();
+        try {
+            Entry<MemorySegment> entry = memTable.get(key);
+            if (entry != null) {
+                return entry;
             }
-            return entry;
+        } finally {
+            rwLock.readLock().unlock();
         }
 
-        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyList(), key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -88,34 +94,21 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return Byte.compare(b1, b2);
     }
 
-    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) {
-            return storage.values().iterator();
-        }
-        if (from == null) {
-            return storage.headMap(to).values().iterator();
-        }
-        if (to == null) {
-            return storage.tailMap(from).values().iterator();
-        }
-        return storage.subMap(from, to).values().iterator();
-    }
-
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return diskStorage.range(getInMemory(from, to), from, to);
+        rwLock.readLock().lock();
+        try {
+            return diskStorage.range(memTable.get(from, to), from, to);
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) throws IllegalStateException {
-        // если флашится первый мем тейбл и заполнен второй, то кидаем исключение
         rwLock.writeLock().lock();
         try {
-            if (unableToUpsert(entry)) {
-                throw new IllegalStateException();
-            }
-            storage.put(entry.key(), entry);
-            storageSize += entry.key().byteSize() + entry.value().byteSize();
+            memTable.put(entry.key(), entry);
         } finally {
             rwLock.writeLock().unlock();
         }
@@ -123,20 +116,30 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        if (!storage.isEmpty()) {
-            flushingTask = flushExecutor.submit(new FlushingTask<>());
+        rwLock.readLock().lock();
+        try {
+            if (!memTable.getTable().isEmpty()) {
+                flushingTask = flushExecutor.submit(new FlushingTask<>());
+            }
+        } finally {
+            rwLock.readLock().unlock();
         }
     }
 
     @Override
     public void compact() {
-        autoFlushing = compactionExecutor.submit(() -> {
-            try {
-                diskStorage.compact(path);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        rwLock.readLock().lock();
+        try {
+            compactionExecutor.execute(() -> {
+                try {
+                    diskStorage.compact(path);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     @Override
@@ -144,7 +147,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!arena.scope().isAlive()) {
             return;
         }
-        shuttingDown = true;
+        shuttingDown.set(true);
         autoFlushing.cancel(true);
         compactionExecutor.close();
         flushExecutor.close();
@@ -153,43 +156,39 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         finalizer.close();
     }
 
-    private boolean unableToUpsert(Entry<MemorySegment> entry) {
-        return storageSize + entry.key().byteSize() + entry.value().byteSize() > thresholdBytes
-                && !flushingTask.isDone();
-    }
-
     private class FlushingTask<V> extends FutureTask<V> {
         public FlushingTask() {
             super(() -> {
+                rwLock.writeLock().lock();
                 try {
-                    DiskStorage.save(path, storage.values());
-                    storage = new ConcurrentSkipListMap<>(PersistentDao::compare);
-                    storageSize = 0;
+                    memTable.set(new ConcurrentSkipListMap<>(PersistentDao::compare));
+                    memTable.setIsFlushing(true);
+                    diskStorage.save(path, memTable.getTable().values());
+                    memTable.setIsFlushing(false);
                 } catch (IOException e) {
                     throw new RuntimeException(e);
+                } finally {
+                    rwLock.writeLock().unlock();
                 }
                 return null;
             });
         }
-
-//        @Override
-//        protected void done() {
-//            super.done();
-//        }
-
     }
 
     private class AutoFlusher implements Runnable {
 
         @Override
         public void run() {
-            while (!shuttingDown) {
-                if (storageSize > thresholdBytes) {
-                    try {
+            while (!shuttingDown.get()) {
+                rwLock.readLock().lock();
+                try {
+                    if (memTable.size() > thresholdBytes) {
                         flush();
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
                     }
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                } finally {
+                    rwLock.readLock().unlock();
                 }
             }
         }
