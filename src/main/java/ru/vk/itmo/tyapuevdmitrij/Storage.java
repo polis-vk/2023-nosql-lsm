@@ -7,7 +7,9 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -19,32 +21,61 @@ public class Storage {
     protected final int ssTablesQuantity;
     protected List<MemorySegment> ssTables;
 
-    public Storage(Path ssTablePath, Arena readArena) {
+    protected final Arena readArena;
+
+    public Storage(Path ssTablePath) {
         storageHelper = new StorageHelper();
         ssTablesQuantity = storageHelper.findSsTablesQuantity(ssTablePath);
         ssTables = new ArrayList<>(ssTablesQuantity);
+        readArena = Arena.ofShared();
         for (int i = 0; i < ssTablesQuantity; i++) {
             Path path = ssTablePath.resolve(StorageHelper.SS_TABLE_FILE_NAME + i);
             ssTables.add(NmapBuffer.getReadBufferFromSsTable(path, readArena));
         }
     }
 
-    public void save(Iterable<Entry<MemorySegment>> memTableEntries, Path ssTablePath) throws IOException {
-        Path path = ssTablePath.resolve(StorageHelper.SS_TABLE_FILE_NAME + ssTablesQuantity);
+    public void save(Iterable<Entry<MemorySegment>> memTableEntries,
+                     Path ssTablePath,
+                     Storage prevState) throws IOException {
+        if (!readArena.scope().isAlive()) {
+            return;
+        }
+        readArena.close();
+        if (!memTableEntries.iterator().hasNext()) {
+            return;
+        }
+        Path path = ssTablePath.resolve(StorageHelper.TEMP_SS_TABLE_FILE_NAME + prevState.ssTablesQuantity);
         try (Arena writeArena = Arena.ofConfined()) {
             MemorySegment buffer;
-            buffer = NmapBuffer.getWriteBufferToSsTable(storageHelper.getSsTableDataByteSize(memTableEntries),
+            buffer = NmapBuffer.getWriteBufferToSsTable(prevState.storageHelper.getSsTableDataByteSize(memTableEntries),
                     path, writeArena);
-            writeMemTableDataToFile(buffer, memTableEntries);
+            prevState.writeMemTableDataToFile(buffer, memTableEntries, prevState);
+        }
+        Path newPath = ssTablePath.resolve(StorageHelper.SS_TABLE_FILE_NAME + prevState.ssTablesQuantity);
+        try {
+            Files.move(
+                    path,
+                    newPath,
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+        } catch (IOException e) {
+            throw new FilesException("Can't rename file", e);
         }
     }
 
-    private void writeMemTableDataToFile(MemorySegment buffer, Iterable<Entry<MemorySegment>> memTableEntries) {
+    private void writeMemTableDataToFile(MemorySegment buffer,
+                                         Iterable<Entry<MemorySegment>> memTableEntries,
+                                         Storage prevState) {
         long offset = 0;
         long bufferByteSize = buffer.byteSize();
-        long writeIndexPosition = bufferByteSize - storageHelper.memTableEntriesCount * 2L * Long.BYTES - Long.BYTES;
+        long writeIndexPosition;
+        writeIndexPosition = bufferByteSize - prevState.storageHelper.memTableEntriesCount * 2L * Long.BYTES
+                - Long.BYTES;
         //write to the end of file size of memTable
-        buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, bufferByteSize - Long.BYTES, storageHelper.memTableEntriesCount);
+        buffer.set(ValueLayout.JAVA_LONG_UNALIGNED,
+                bufferByteSize - Long.BYTES,
+                prevState.storageHelper.memTableEntriesCount);
         for (Entry<MemorySegment> entry : memTableEntries) {
             buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, entry.key().byteSize());
             //  write keyByteSizeOffsetPosition to the end of buffer
@@ -121,15 +152,16 @@ public class Storage {
     }
 
     public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
+            Iterator<Entry<MemorySegment>> flushMemTableIterator,
+            Iterator<Entry<MemorySegment>> memTableIterator,
             MemorySegment from,
             MemorySegment to, Comparator<MemorySegment> memorySegmentComparator) {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(ssTablesQuantity + 1);
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(ssTablesQuantity + 2);
         for (MemorySegment memorySegment : ssTables) {
             iterators.add(iterator(memorySegment, from, to, memorySegmentComparator));
         }
-        iterators.add(firstIterator);
-
+        iterators.add(flushMemTableIterator);
+        iterators.add(memTableIterator);
         return new MergeIterator(iterators, Comparator.comparing(Entry::key, memorySegmentComparator));
     }
 

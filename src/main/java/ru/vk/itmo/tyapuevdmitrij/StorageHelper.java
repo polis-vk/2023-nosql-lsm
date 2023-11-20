@@ -11,6 +11,7 @@ import java.nio.file.StandardCopyOption;
 
 public class StorageHelper {
     static final String SS_TABLE_FILE_NAME = "ssTable";
+    static final String TEMP_SS_TABLE_FILE_NAME = "tempSsTable";
 
     static final String COMPACTED_FILE_NAME = "compact";
     protected long memTableEntriesCount;
