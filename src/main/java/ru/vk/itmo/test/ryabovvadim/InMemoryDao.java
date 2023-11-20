@@ -206,11 +206,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                 boolean shouldDelete = true;
                 if (FileUtils.hasExtension(file, DATA_FILE_EXT)) {
-                    String fileName = FileUtils.extractFileName(file, DATA_FILE_EXT);
-                    if (NumberUtils.isInteger(fileName)) {
+                    if (NumberUtils.isInteger(FileUtils.extractFileName(file, DATA_FILE_EXT))) {
                         ssTables.add(new SSTable(
                                 config.basePath(),
-                                Long.parseLong(fileName),
+                                Long.parseLong(FileUtils.extractFileName(file, DATA_FILE_EXT)),
                                 arena
                         ));
                         shouldDelete = false;
