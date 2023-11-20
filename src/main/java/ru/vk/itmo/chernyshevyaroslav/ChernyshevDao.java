@@ -28,6 +28,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     //private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final Memory memory = new Memory();
     private final AtomicBoolean isBackgroundFlushingInProgress = new AtomicBoolean(false);
+    private final AtomicBoolean isClosed = new AtomicBoolean(false);
 
     private static class Memory {
 
@@ -159,7 +160,11 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void close() throws IOException {
+    public synchronized void close() throws IOException {
+        if (isClosed.getAndSet(true)) {
+            throw new RuntimeException("Dao is already closed");
+        }
+
         if (!arena.scope().isAlive()) {
             return;
         }
