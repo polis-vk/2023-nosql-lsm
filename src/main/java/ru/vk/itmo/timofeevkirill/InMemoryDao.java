@@ -1,6 +1,5 @@
 package ru.vk.itmo.timofeevkirill;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
@@ -9,255 +8,217 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final Comparator<MemorySegment> comparator = new MSComparator();
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memTableMap =
-            new ConcurrentSkipListMap<>(comparator);
 
-    private final Arena readArena = Arena.ofShared();
-    private final NavigableMap<Long, MemorySegment> readMappedMemorySegments =
-            new ConcurrentSkipListMap<>(); // SSTables
+    private final Comparator<MemorySegment> comparator = InMemoryDao::compare;
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private final Arena arena;
+    private final DiskStorage diskStorage;
     private final Path path;
-    private final long latestFileIndex;
+    private final long flushThresholdBytes;
+    private final ExecutorService executorService = Executors.newFixedThreadPool(5);
+    private final AtomicLong storageBytesSize = new AtomicLong(0);
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> storageBuffer = new ConcurrentSkipListMap<>(comparator);
 
-    public InMemoryDao(Config config) {
-        this.path = config.basePath();
-        this.latestFileIndex = readConfig();
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private Future<?> flushTask = null;
+    private Future<?> compactionTask = null;
+
+    public InMemoryDao(Config config) throws IOException {
+        this.path = config.basePath().resolve("data");
+        this.flushThresholdBytes = config.flushThresholdBytes();
+        Files.createDirectories(path);
+
+        arena = Arena.ofShared();
+
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
-    private long readConfig() {
-        Path configPath = path.resolve(Constants.FILE_NAME_CONFIG);
-        try (Arena readConfigArena = Arena.ofConfined();
-             FileChannel fileChannel = FileChannel.open(configPath, Constants.READ_OPTIONS)
-        ) {
-            MemorySegment configMemorySegment =
-                    fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(configPath), readConfigArena);
-            return configMemorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
-        } catch (IOException e) {
+    static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
+        long mismatch = memorySegment1.mismatch(memorySegment2);
+        if (mismatch == -1) {
+            return 0;
+        }
+
+        if (mismatch == memorySegment1.byteSize()) {
             return -1;
+        }
+
+        if (mismatch == memorySegment2.byteSize()) {
+            return 1;
+        }
+        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
+        return Byte.compare(b1, b2);
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        List<Iterator<Entry<MemorySegment>>> inMem = new ArrayList<>(List.of(cutInMemory(storage, from, to)));
+        if (!(flushTask == null || flushTask.isDone())) {
+            inMem.addFirst(cutInMemory(storageBuffer, from, to));
+        }
+        return diskStorage.range(from, to, inMem);
+    }
+
+    private Iterator<Entry<MemorySegment>> cutInMemory(NavigableMap<MemorySegment, Entry<MemorySegment>> toCut,
+                                                       MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return toCut.values().iterator();
+        }
+        if (from == null) {
+            return toCut.headMap(to).values().iterator();
+        }
+        if (to == null) {
+            return toCut.tailMap(from).values().iterator();
+        }
+        return toCut.subMap(from, to).values().iterator();
+    }
+
+    @Override
+    public void upsert(Entry<MemorySegment> entry) {
+        if (!(flushTask == null || flushTask.isDone()) && storageBytesSize.get() >= flushThresholdBytes) {
+            throw new RuntimeException("Previous flush has not yet ended");
+        }
+
+        lock.readLock().lock();
+        try {
+            long valueSize;
+            if (entry.value() == null) {
+                valueSize = Long.BYTES;
+            } else {
+                valueSize = entry.value().byteSize();
+            }
+            Entry<MemorySegment> prev = storage.put(entry.key(), entry);
+            if (prev != null) {
+                storageBytesSize.addAndGet(valueSize);
+            } else {
+                storageBytesSize.addAndGet(entry.key().byteSize() + valueSize);
+            }
+        } finally {
+            lock.readLock().unlock();
+        }
+
+
+        if (storageBytesSize.get() >= flushThresholdBytes) {
+            try {
+                flush();
+            } catch (IOException e) {
+                throw new RuntimeException("Auto flush exception");
+            }
         }
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        // First trying to return the file from MemTable
-        Entry<MemorySegment> entry = memTableMap.get(key);
+        Entry<MemorySegment> entry = storage.get(key);
         if (entry != null) {
-            return filterNullValue(entry);
-        }
-
-        for (long i = latestFileIndex; i >= 0; i--) {
-            // Pull files into memory and save them so as not to pull them in again
-            MemorySegment readMappedMemorySegment = readMappedMemorySegments.computeIfAbsent(i, this::readFileAtIndex);
-            if (readMappedMemorySegment == null) {
+            if (entry.value() == null) {
                 return null;
             }
+            return entry;
+        }
 
-            // Search for each file, pulling out a page from memory
-            Entry<MemorySegment> entryFromFile = binarySearchSSTable(readMappedMemorySegment, key);
-            if (entryFromFile != null) {
-                return filterNullValue(entryFromFile);
+        if (storageBuffer != null) {
+            Entry<MemorySegment> bufferEntry = storageBuffer.get(key);
+            if (bufferEntry != null) {
+                if (bufferEntry.value() == null) {
+                    return null;
+                }
+                return bufferEntry;
             }
         }
 
-        return null;
-    }
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(key, null, List.of(Collections.emptyIterator()));
 
-    private Entry<MemorySegment> binarySearchSSTable(MemorySegment sstable, MemorySegment key) {
-        long offset = 0;
-        long biteCount = 0;
-        List<Long> offsets = new ArrayList<>();
-
-        while (offset < sstable.byteSize()) {
-            biteCount++;
-            offsets.clear();
-
-            offset = processPage(sstable, offsets, offset, key, biteCount);
-
-            Entry<MemorySegment> entryFromFile = binarySearch(offsets, key, sstable);
-            if (entryFromFile != null) {
-                return entryFromFile;
-            }
-        }
-
-        return null;
-    }
-
-    private long processPage(MemorySegment sstable, List<Long> offsets,
-                             long offset, MemorySegment key, long biteCount) {
-        long currentOffset = offset;
-        while (currentOffset < Constants.PAGE_SIZE * biteCount && currentOffset < sstable.byteSize()) {
-            long keySize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, currentOffset);
-            currentOffset += Long.BYTES;
-            long valueSize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, currentOffset + keySize);
-
-            long currentTotalSize = skipValue(keySize, valueSize, currentOffset);
-            if (currentTotalSize > Constants.PAGE_SIZE * biteCount) {
-                // Remove the extra key shift, as it no longer fits
-                currentOffset -= Long.BYTES;
-                break;
-            }
-            if (keySize == key.byteSize()) {
-                // Remove the extra key shift, as it no longer fits
-                long offsetRemovingLast = currentOffset - Long.BYTES;
-                offsets.add(offsetRemovingLast);
-            }
-            currentOffset = skipValue(keySize, valueSize, currentOffset);
-        }
-        return currentOffset;
-    }
-
-    private long skipValue(long keySize, long valueSize, long offset) {
-        if (valueSize == -1L) {
-            // null handle
-            return offset + keySize + Long.BYTES + Long.BYTES;
-        } else {
-            return offset + keySize + Long.BYTES + valueSize;
-        }
-    }
-
-    private MemorySegment readFileAtIndex(long index) {
-        MemorySegment tryReadMappedMemorySegment;
-        Path ipath = path.resolve(Constants.FILE_NAME_PREFIX + index);
-        try (FileChannel fileChannel = FileChannel.open(ipath, Constants.READ_OPTIONS)) {
-            tryReadMappedMemorySegment = fileChannel
-                    .map(FileChannel.MapMode.READ_ONLY, 0, Files.size(ipath), readArena);
-        } catch (IOException e) {
-            tryReadMappedMemorySegment = null;
-        }
-        return tryReadMappedMemorySegment;
-    }
-
-    private Entry<MemorySegment> filterNullValue(Entry<MemorySegment> entry) {
-        if (entry.value() == null) {
+        if (!iterator.hasNext()) {
             return null;
         }
-
-        return entry;
-    }
-
-    private Entry<MemorySegment> binarySearch(List<Long> offsets, MemorySegment key, MemorySegment memorySegment) {
-        int left = 0;
-        int right = offsets.size() - 1;
-
-        while (left <= right) {
-            int mid = left + (right - left) / 2;
-            long offset = offsets.get(mid);
-            long keySize = memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
-            MemorySegment midKey = memorySegment.asSlice(offset, keySize);
-
-            int compareResult = comparator.compare(key, midKey);
-            if (compareResult == 0) {
-                offset += keySize;
-                long valueSize = memorySegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
-                MemorySegment midValue;
-                if (valueSize == -1L) {
-                    midValue = null;
-                } else {
-                    midValue = memorySegment.asSlice(offset, valueSize);
-                }
-                return new BaseEntry<>(midKey, midValue);
-            } else if (compareResult > 0) {
-                left = mid + 1;
-            } else {
-                right = mid - 1;
-            }
+        Entry<MemorySegment> next = iterator.next();
+        if (compare(next.key(), key) == 0) {
+            return next;
         }
-
         return null;
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        // Read all missing files
-        for (long i = latestFileIndex; i >= 0; i--) {
-            readMappedMemorySegments.computeIfAbsent(i, this::readFileAtIndex);
+    public synchronized void compact() throws IOException {
+        if (!(compactionTask == null || compactionTask.isDone())) {
+            return;
         }
 
-        return new MemFileIterator(comparator, readMappedMemorySegments, memTableMap, from, to);
+        compactionTask = executorService.submit(() -> {
+            try {
+                DiskStorage.compact(path, this::all);
+            } catch (IOException e) {
+                throw new RuntimeException("Can not compact");
+            }
+        });
+    }
+
+    @Override
+    public synchronized void flush() throws IOException {
+        if (!(flushTask == null || flushTask.isDone()) || storage.isEmpty()) {
+            return;
+        }
+
+        lock.writeLock().lock();
+        try {
+            storageBuffer = storage;
+            storage = new ConcurrentSkipListMap<>(comparator);
+            storageBytesSize.set(0);
+        } finally {
+            lock.writeLock().unlock();
+        }
+
+        flushTask = executorService.submit(() -> {
+            try {
+                diskStorage.saveNextSSTable(path, storageBuffer.values(), arena);
+                storageBuffer = null;
+            } catch (IOException e) {
+                throw new RuntimeException("Can not flush", e);
+            }
+        });
     }
 
     @Override
     public void close() throws IOException {
-        // Freeing the arena to open a writing channel
-        if (!readArena.scope().isAlive()) {
+        try {
+            if (compactionTask != null && !compactionTask.isDone() && !compactionTask.isCancelled()) {
+                compactionTask.get();
+            }
+            if (flushTask != null && !flushTask.isDone()) {
+                flushTask.get();
+            }
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException("Dao can not be stopped gracefully", e);
+        }
+        executorService.close();
+
+        if (!storage.isEmpty()) {
+            diskStorage.saveNextSSTable(path, storage.values(), arena);
+        }
+
+        if (!arena.scope().isAlive()) {
             return;
         }
-        readArena.close();
-
-        Path ssTableNumPath = path.resolve(Constants.FILE_NAME_PREFIX + (latestFileIndex + 1));
-        try (FileChannel fileChannel = FileChannel.open(ssTableNumPath, Constants.WRITE_OPTIONS);
-             Arena writeArena = Arena.ofConfined()) {
-            // Calculate the writing size, using all the entries and their sizes
-            long mappedMemorySize =
-                    memTableMap.values().stream().mapToLong(e -> {
-                        long valueSize;
-                        if (e.value() == null) {
-                            valueSize = 0L;
-                        } else {
-                            valueSize = e.value().byteSize();
-                        }
-                        return e.key().byteSize() + valueSize;
-                    }).sum();
-            mappedMemorySize += Long.BYTES * memTableMap.size() * 2L;
-            MemorySegment writeMappedMemorySegment =
-                    fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, mappedMemorySize, writeArena);
-
-            // Write memTable
-            writeMemTableToSSTable(writeMappedMemorySegment);
-        }
-
-        // Update config
-        try (Arena writeConfigArena = Arena.ofConfined();
-             FileChannel fileChannel =
-                     FileChannel.open(path.resolve(Constants.FILE_NAME_CONFIG), Constants.WRITE_OPTIONS)) {
-            MemorySegment writeConfig =
-                    fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, Long.BYTES, writeConfigArena);
-            writeConfig.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, latestFileIndex + 1);
-        }
-    }
-
-    private void writeMemTableToSSTable(MemorySegment writeMappedMemorySegment) {
-        long offset = 0;
-        for (Entry<MemorySegment> entry : memTableMap.values()) {
-            MemorySegment key = entry.key();
-            writeMappedMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, key.byteSize());
-            offset += Long.BYTES;
-            MemorySegment.copy(key, 0, writeMappedMemorySegment, offset, key.byteSize());
-            offset += key.byteSize();
-
-            MemorySegment value = entry.value();
-            if (value == null) {
-                writeMappedMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1L);
-                offset += Long.BYTES;
-            } else {
-                writeMappedMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, value.byteSize());
-                offset += Long.BYTES;
-                MemorySegment.copy(value, 0, writeMappedMemorySegment, offset, value.byteSize());
-                offset += value.byteSize();
-            }
-        }
-    }
-
-    @Override
-    public void upsert(Entry<MemorySegment> entry) {
-        memTableMap.put(entry.key(), entry);
-    }
-
-    @Override
-    public Iterator<Entry<MemorySegment>> all() {
-        return memTableMap.values().iterator();
+        arena.close();
     }
 }
