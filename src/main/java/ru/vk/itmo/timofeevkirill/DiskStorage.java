@@ -1,10 +1,8 @@
 package ru.vk.itmo.timofeevkirill;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -20,14 +18,18 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 
-import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.*;
+import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.INDEX_TMP_FILE;
+import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.INDEX_FILE;
+import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.SSTABLE_PREFIX;
+import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.iterator;
+import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.tombstone;
+import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.compactionFile;
+import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.finalizeCompaction;
 
 public class DiskStorage {
-    private final static String SSTABLE_PREFIX = DiskStorageUtils.SSTABLE_PREFIX;
     private final List<MemorySegment> segmentList = new CopyOnWriteArrayList<>();
 
     public DiskStorage(List<MemorySegment> segmentList) {

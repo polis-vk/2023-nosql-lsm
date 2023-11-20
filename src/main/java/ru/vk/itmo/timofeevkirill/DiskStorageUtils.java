@@ -19,6 +19,9 @@ import java.util.stream.Stream;
 
 public class DiskStorageUtils {
 
+    private DiskStorageUtils() {
+    }
+
     public static final String SSTABLE_PREFIX = "sstable_";
     public static final String INDEX_TMP_FILE = "index.tmp";
     public static final String INDEX_FILE = "index.idx";
@@ -35,8 +38,7 @@ public class DiskStorageUtils {
                     }
                 });
             }
-        }
-        else {
+        } else {
             toDelete.forEach(p -> {
                 try {
                     Files.delete(p);
