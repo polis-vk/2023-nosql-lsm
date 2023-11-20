@@ -176,7 +176,7 @@ public class SSTable {
 
         Path tmpDataFile = FileUtils.makePath(prefix, Long.toString(id), FileUtils.TMP_FILE_EXT);
         try (FileChannel dataFileChannel = FileChannel.open(tmpDataFile, CREATE, WRITE, READ, TRUNCATE_EXISTING)) {
-            long dataOffset = countRecords * Long.BYTES;
+            long dataOffset = (long) countRecords * Long.BYTES;
             MemorySegment dataSegment = dataFileChannel.map(
                 MapMode.READ_WRITE,
                 0,
