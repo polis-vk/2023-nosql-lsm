@@ -16,13 +16,13 @@ import java.nio.channels.FileChannel;
 import java.nio.channels.FileChannel.MapMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collection;
+import java.nio.file.StandardCopyOption;
 import java.util.Iterator;
-import java.util.List;
+import java.util.NoSuchElementException;
 
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 public class SSTable {
@@ -30,27 +30,15 @@ public class SSTable {
     private final long id;
     private final MemorySegment data;
     private final int countRecords;
-    private final List<Long> offsets;
 
     public SSTable(Path parentPath, long id, Arena arena) throws IOException {
         this.parentPath = parentPath;
         this.id = id;
         Path dataFile = getDataFilePath();
-        Path offsetsFile = getOffsetFilePath();
 
         try (FileChannel dataFileChannel = FileChannel.open(dataFile, READ)) {
-            try (FileChannel offsetsFileChannel = FileChannel.open(offsetsFile, READ)) {
-                this.data = dataFileChannel.map(MapMode.READ_ONLY, 0, dataFileChannel.size(), arena);
-                this.countRecords = (int) (offsetsFileChannel.size() / Long.BYTES);
-                this.offsets = new ArrayList<>();
-
-                MemorySegment offsetsSegment = offsetsFileChannel.map(
-                        MapMode.READ_ONLY, 0, offsetsFileChannel.size(), arena
-                );
-                for (int i = 0; i < countRecords; ++i) {
-                    offsets.add(offsetsSegment.get(ValueLayout.JAVA_LONG, i * Long.BYTES));
-                }
-            }
+            this.data = dataFileChannel.map(MapMode.READ_ONLY, 0, dataFileChannel.size(), arena);
+            this.countRecords = (int) (this.data.get(ValueLayout.JAVA_LONG, 0) / Long.BYTES);
         }
     }
 
@@ -59,7 +47,7 @@ public class SSTable {
         if (offsetIndex < 0) {
             return null;
         }
-        return new BaseEntry<>(key, readValue(getRecordInfo(offsets.get(offsetIndex))));
+        return new BaseEntry<>(key, readValue(getRecordInfo(getOffset(offsetIndex))));
     }
 
     public FutureIterator<Entry<MemorySegment>> findEntries(MemorySegment from, MemorySegment to) {
@@ -74,7 +62,7 @@ public class SSTable {
             toIndex = toOffsetIndex < 0 ? -toOffsetIndex : toOffsetIndex;
         }
 
-        Iterator<Long> offsetsIterator = offsets.subList(fromIndex, toIndex).iterator();
+        Iterator<Long> offsetsIterator = getOffsetIterator(fromIndex, toIndex);
         return new LazyIterator<>(
                 () -> {
                     RecordInfo recordInfo = getRecordInfo(offsetsIterator.next());
@@ -89,7 +77,7 @@ public class SSTable {
         int r = countRecords;
         while (l + 1 < r) {
             int mid = (l + r) / 2;
-            RecordInfo recordInfo = getRecordInfo(offsets.get(mid));
+            RecordInfo recordInfo = getRecordInfo(getOffset(mid));
             int compareResult = MemorySegmentUtils.compareMemorySegments(
                     data, recordInfo.keyOffset(), recordInfo.valueOffset(),
                     key, 0, key.byteSize()
@@ -138,82 +126,104 @@ public class SSTable {
         return data.asSlice(recordInfo.valueOffset(), recordInfo.valueSize());
     }
 
+    private long getOffset(int index) {
+        return data.get(ValueLayout.JAVA_LONG, index * Long.BYTES);
+    }
+
+    private Iterator<Long> getOffsetIterator(int fromIndex, int toIndex) {
+        return new Iterator<>() {
+            private int curIndex = fromIndex;
+
+            @Override
+            public boolean hasNext() {
+                return curIndex < toIndex;
+            }
+
+            @Override
+            public Long next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                return getOffset(curIndex++);
+            }
+        };
+    }
+
     public static void save(
             Path prefix,
             long id,
-            Collection<Entry<MemorySegment>> entries,
+            Iterable<Entry<MemorySegment>> entries,
             Arena arena
     ) throws IOException {
-        Path dataFile = FileUtils.makePath(prefix, Long.toString(id), FileUtils.DATA_FILE_EXT);
-        Path offsetsFile = FileUtils.makePath(prefix, Long.toString(id), FileUtils.OFFSETS_FILE_EXT);
-        try (FileChannel dataFileChannel = FileChannel.open(dataFile, CREATE, WRITE, READ)) {
-            try (FileChannel offsetsFileChannel = FileChannel.open(offsetsFile, CREATE, WRITE, READ)) {
-                long dataSize = 0;
-                for (Entry<MemorySegment> entry : entries) {
-                    dataSize += 2;
-                    MemorySegment key = entry.key();
-                    MemorySegment value = entry.value();
+        long dataSize = 0;
+        int countRecords = 0;
+        for (Entry<MemorySegment> entry : entries) {
+            ++countRecords;
+            dataSize += 2;
+            MemorySegment key = entry.key();
+            MemorySegment value = entry.value();
 
-                    dataSize += NumberUtils.toBytes(key.byteSize()).length + key.byteSize();
-                    if (value != null) {
-                        dataSize += NumberUtils.toBytes(value.byteSize()).length + value.byteSize();
-                    }
-                }
-
-                MemorySegment dataSegment = dataFileChannel.map(MapMode.READ_WRITE, 0, dataSize, arena);
-                MemorySegment offsetsSegment = offsetsFileChannel.map(
-                        MapMode.READ_WRITE,
-                        0,
-                        Long.BYTES * entries.size(),
-                        arena
-                );
-                long dataSegmentOffset = 0;
-                long offsetsSegmentOffset = 0;
-
-                for (Entry<MemorySegment> entry : entries) {
-                    MemorySegment key = entry.key();
-                    MemorySegment value = entry.value();
-                    byte[] keySizeInBytes = NumberUtils.toBytes(key.byteSize());
-                    byte[] valueSizeInBytes = value == null
-                            ? new byte[0]
-                            : NumberUtils.toBytes(value.byteSize());
-
-                    offsetsSegment.set(ValueLayout.JAVA_LONG, offsetsSegmentOffset, dataSegmentOffset);
-                    offsetsSegmentOffset += Long.BYTES;
-
-                    byte meta = SSTableMeta.buildMeta(entry);
-                    byte sizeInfo = (byte) ((keySizeInBytes.length << 4) | valueSizeInBytes.length);
-                    dataSegment.set(ValueLayout.JAVA_BYTE, dataSegmentOffset++, meta);
-                    dataSegment.set(ValueLayout.JAVA_BYTE, dataSegmentOffset++, sizeInfo);
-
-                    MemorySegmentUtils.copyByteArray(keySizeInBytes, dataSegment, dataSegmentOffset);
-                    dataSegmentOffset += keySizeInBytes.length;
-                    MemorySegmentUtils.copyByteArray(valueSizeInBytes, dataSegment, dataSegmentOffset);
-                    dataSegmentOffset += valueSizeInBytes.length;
-                    MemorySegment.copy(key, 0, dataSegment, dataSegmentOffset, key.byteSize());
-                    dataSegmentOffset += key.byteSize();
-                    if (value != null) {
-                        MemorySegment.copy(
-                                value, 0, dataSegment, dataSegmentOffset, value.byteSize()
-                        );
-                        dataSegmentOffset += value.byteSize();
-                    }
-                }
+            dataSize += NumberUtils.toBytes(key.byteSize()).length + key.byteSize();
+            if (value != null) {
+                dataSize += NumberUtils.toBytes(value.byteSize()).length + value.byteSize();
             }
         }
+
+        if (countRecords == 0) {
+            return;
+        }
+
+        Path tmpDataFile = FileUtils.makePath(prefix, Long.toString(id), FileUtils.TMP_FILE_EXT);
+        try (FileChannel dataFileChannel = FileChannel.open(tmpDataFile, CREATE, WRITE, READ, TRUNCATE_EXISTING)) {
+            long dataOffset = countRecords * Long.BYTES;
+            MemorySegment dataSegment = dataFileChannel.map(
+                MapMode.READ_WRITE,
+                0,
+                dataSize + dataOffset,
+                arena
+            );
+
+            int curEntryNumber = 0;
+            for (Entry<MemorySegment> entry : entries) {
+                dataSegment.set(ValueLayout.JAVA_LONG, curEntryNumber * Long.BYTES, dataOffset);
+
+                MemorySegment key = entry.key();
+                MemorySegment value = entry.value();
+                byte[] keySizeInBytes = NumberUtils.toBytes(key.byteSize());
+                byte[] valueSizeInBytes = value == null
+                        ? new byte[0]
+                        : NumberUtils.toBytes(value.byteSize());
+
+                byte meta = SSTableMeta.buildMeta(entry);
+                byte sizeInfo = (byte) ((keySizeInBytes.length << 4) | valueSizeInBytes.length);
+                dataSegment.set(ValueLayout.JAVA_BYTE, dataOffset++, meta);
+                dataSegment.set(ValueLayout.JAVA_BYTE, dataOffset++, sizeInfo);
+
+                MemorySegmentUtils.copyByteArray(keySizeInBytes, dataSegment, dataOffset);
+                dataOffset += keySizeInBytes.length;
+                MemorySegmentUtils.copyByteArray(valueSizeInBytes, dataSegment, dataOffset);
+                dataOffset += valueSizeInBytes.length;
+                MemorySegment.copy(key, 0, dataSegment, dataOffset, key.byteSize());
+                dataOffset += key.byteSize();
+                if (value != null) {
+                    MemorySegment.copy(value, 0, dataSegment, dataOffset, value.byteSize());
+                    dataOffset += value.byteSize();
+                }
+
+                ++curEntryNumber;
+            }
+        }
+
+        Path dataFile = FileUtils.makePath(prefix, Long.toString(id), FileUtils.DATA_FILE_EXT);
+        Files.move(tmpDataFile, dataFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
     public void delete() throws IOException {
         Files.deleteIfExists(getDataFilePath());
-        Files.deleteIfExists(getOffsetFilePath());
     }
 
     private Path getDataFilePath() {
         return FileUtils.makePath(parentPath, Long.toString(id), FileUtils.DATA_FILE_EXT);
-    }
-
-    private Path getOffsetFilePath() {
-        return FileUtils.makePath(parentPath, Long.toString(id), FileUtils.OFFSETS_FILE_EXT);
     }
 
     public long getId() {

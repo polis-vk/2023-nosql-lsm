@@ -10,6 +10,7 @@ import ru.vk.itmo.test.ryabovvadim.iterators.LazyIterator;
 import ru.vk.itmo.test.ryabovvadim.iterators.PriorityIterator;
 import ru.vk.itmo.test.ryabovvadim.utils.FileUtils;
 import ru.vk.itmo.test.ryabovvadim.utils.MemorySegmentUtils;
+import ru.vk.itmo.test.ryabovvadim.utils.NumberUtils;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -20,7 +21,6 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -53,9 +53,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         if (Files.notExists(config.basePath())) {
-            Files.createDirectory(config.basePath());
+            Files.createDirectories(config.basePath());
         }
-        updateSSTables();
+        updateSSTables(true);
     }
 
     @Override
@@ -188,8 +188,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void compact() throws IOException {
         if (existsPath()) {
-            List<Entry<MemorySegment>> entries = new ArrayList<>();
-            all().forEachRemaining(entries::add);
+            saveEntries(this::all);
 
             for (SSTable ssTable : ssTables) {
                 ssTable.delete();
@@ -197,35 +196,37 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             ssTables.clear();
             memoryTable.clear();
 
-            if (!entries.isEmpty()) {
-                saveEntries(entries);
-                updateSSTables();
-            }
+            updateSSTables(false);
         }
     }
 
-    private void updateSSTables() throws IOException {
+    private void updateSSTables(boolean isStartup) throws IOException {
         if (existsPath()) {
             Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                     if (FileUtils.hasExtension(file, DATA_FILE_EXT)) {
-                        ssTables.add(new SSTable(
-                                config.basePath(),
-                                Long.parseLong(FileUtils.extractFileName(file, DATA_FILE_EXT)),
-                                arena
-                        ));
+                        String fileName = FileUtils.extractFileName(file, DATA_FILE_EXT);
+                        if (NumberUtils.isInteger(fileName)) {
+                            ssTables.add(new SSTable(
+                                    config.basePath(),
+                                    Long.parseLong(fileName),
+                                    arena
+                            ));
+                            return FileVisitResult.CONTINUE;
+                        }
                     }
 
+                    if (isStartup) {
+                        Files.deleteIfExists(file);
+                    }
                     return FileVisitResult.CONTINUE;
                 }
             });
         }
     }
 
-    private long saveEntries(Collection<Entry<MemorySegment>> entries) throws IOException {
-        FileUtils.createParentDirectories(config.basePath());
-
+    private long saveEntries(Iterable<Entry<MemorySegment>> entries) throws IOException {
         long maxTableNumber = 0;
         for (SSTable ssTable : ssTables) {
             maxTableNumber = Math.max(maxTableNumber, ssTable.getId());

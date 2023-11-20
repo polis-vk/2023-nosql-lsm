@@ -6,7 +6,7 @@ import java.nio.file.Path;
 
 public final class FileUtils {
     public static final String DATA_FILE_EXT = "data";
-    public static final String OFFSETS_FILE_EXT = "offsets";
+    public static final String TMP_FILE_EXT = "tmp";
     private static final String FILE_EXTENSION_DELIMITER = ".";
 
     public static Path makePath(Path prefix, String name, String extension) {
