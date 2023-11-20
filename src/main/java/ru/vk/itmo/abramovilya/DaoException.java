@@ -1,6 +1,6 @@
 package ru.vk.itmo.abramovilya;
 
-public class DaoException extends RuntimeException{
+public class DaoException extends RuntimeException {
     public DaoException(String cause) {
         super(cause);
     }

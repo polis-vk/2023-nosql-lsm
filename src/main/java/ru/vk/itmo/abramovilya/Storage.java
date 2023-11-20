@@ -51,8 +51,8 @@ class Storage implements Closeable {
         // Restore consistent state if db was dropped during compaction
         Path indexCompacted = storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX);
         Path storageCompacted = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
-        if (Files.exists(compactedTablesAmountFilePath) &&
-                (Files.exists(indexCompacted) || Files.exists(storageCompacted))) {
+        if (Files.exists(compactedTablesAmountFilePath)
+                && (Files.exists(indexCompacted) || Files.exists(storageCompacted))) {
             if (Files.exists(compactionStateFilePath)) {
                 compactor.compactionState = compactor
                         .intToCompactionState(Integer.parseInt(Files.readString(compactionStateFilePath)));
@@ -103,8 +103,8 @@ class Storage implements Closeable {
             MemorySegment storageMapped = sstableMappedList.get(sstableNum);
             MemorySegment indexMapped = indexMappedList.get(sstableNum);
 
-            int foundIndex = upperBound(key, storageMapped, indexMapped, indexMapped.byteSize());
-            long keyStorageOffset = getKeyStorageOffset(indexMapped, foundIndex);
+            int foundIndex = StorageUtils.upperBound(key, storageMapped, indexMapped, indexMapped.byteSize());
+            long keyStorageOffset = StorageUtils.getKeyStorageOffset(indexMapped, foundIndex);
             long foundKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
             keyStorageOffset += Long.BYTES;
 
@@ -121,13 +121,6 @@ class Storage implements Closeable {
         } finally {
             sstablesAmountRWLock.readLock().unlock();
         }
-    }
-
-    static long getKeyStorageOffset(MemorySegment indexMapped, int entryNum) {
-        return indexMapped.get(
-                ValueLayout.JAVA_LONG_UNALIGNED,
-                (long) (Integer.BYTES + Long.BYTES) * entryNum + Integer.BYTES
-        );
     }
 
     private Entry<MemorySegment> getEntryFromIndexFile(MemorySegment sstableMapped,
@@ -262,8 +255,8 @@ class Storage implements Closeable {
             }
             return Integer.BYTES;
         } else {
-            int foundIndex = upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
-            long keyStorageOffset = getKeyStorageOffset(indexMapped, foundIndex);
+            int foundIndex = StorageUtils.upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
+            long keyStorageOffset = StorageUtils.getKeyStorageOffset(indexMapped, foundIndex);
             long keySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
             keyStorageOffset += Long.BYTES;
 
@@ -274,27 +267,5 @@ class Storage implements Closeable {
             }
             return (long) foundIndex * (Integer.BYTES + Long.BYTES) + Integer.BYTES;
         }
-    }
-
-    private static int upperBound(MemorySegment key,
-                                  MemorySegment storageMapped,
-                                  MemorySegment indexMapped,
-                                  long indexSize) {
-        int l = -1;
-        int r = indexMapped.get(ValueLayout.JAVA_INT_UNALIGNED, indexSize - Long.BYTES - Integer.BYTES);
-
-        while (r - l > 1) {
-            int m = (r + l) / 2;
-            long keyStorageOffset = getKeyStorageOffset(indexMapped, m);
-            long keySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
-            keyStorageOffset += Long.BYTES;
-
-            if (DaoImpl.compareMemorySegmentsUsingOffset(key, storageMapped, keyStorageOffset, keySize) > 0) {
-                l = m;
-            } else {
-                r = m;
-            }
-        }
-        return r;
     }
 }

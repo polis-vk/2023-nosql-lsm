@@ -6,13 +6,16 @@ import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.NavigableMap;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -21,7 +24,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(DaoImpl::compareMemorySegments);
     private final AtomicLong memoryMapSize = new AtomicLong();
-    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushingMap = null;
+    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushingMap;
     private final Storage storage;
 
     // Я использую семафор вместо Lock потому что я хочу делать lock() в одном потоке, а unlock() - в другом
@@ -34,7 +37,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ReadWriteLock mapUpsertExchangeLock = new ReentrantReadWriteLock();
     private final ExecutorService backgroundFlushQueue = Executors.newSingleThreadExecutor();
     private final ExecutorService backgroundCompactQueue = Executors.newSingleThreadExecutor();
-
 
     public DaoImpl(Config config) throws IOException {
         flushThresholdBytes = config.flushThresholdBytes();
@@ -66,10 +68,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         if (flushingMap != null) {
             var flushingValue = flushingMap.get(key);
-            if (flushingValue != null) {
-                if (flushingValue.value() != null) {
-                    return flushingValue;
-                }
+
+            if (flushingValue != null && flushingValue.value() != null) {
+                return flushingValue;
+            } else if (flushingValue != null && flushingValue.value() == null) {
                 return null;
             }
         }
@@ -127,7 +129,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         });
     }
 
-    // TODO: Сделать flush неблокирующим
     // Одновременно может работать только один flush
     // Если какой-то flush в процессе исполнение и приходит запрос на еще один flush,
     // мы добавляем эту задачу в очередь и ждем завершения
