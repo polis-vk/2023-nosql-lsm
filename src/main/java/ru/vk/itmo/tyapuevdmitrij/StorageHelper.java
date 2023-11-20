@@ -112,7 +112,7 @@ public class StorageHelper {
                 dataOffset += entry.value().byteSize();
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new IllegalStateException(e);
         }
     }
 
