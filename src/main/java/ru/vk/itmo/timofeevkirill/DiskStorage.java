@@ -21,13 +21,10 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 
-import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.INDEX_TMP_FILE;
-import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.INDEX_FILE;
-import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.SSTABLE_PREFIX;
-import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.iterator;
-import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.tombstone;
 import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.compactionFile;
 import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.finalizeCompaction;
+import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.iterator;
+import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.tombstone;
 
 public class DiskStorage {
     private final List<MemorySegment> segmentList = new CopyOnWriteArrayList<>();
@@ -56,8 +53,8 @@ public class DiskStorage {
 
     public void saveNextSSTable(Path storagePath, Iterable<Entry<MemorySegment>> iterable, Arena arena)
             throws IOException {
-        final Path indexTmp = storagePath.resolve(INDEX_TMP_FILE);
-        final Path indexFile = storagePath.resolve(INDEX_FILE);
+        final Path indexTmp = storagePath.resolve(DiskStorageUtils.INDEX_TMP_FILE);
+        final Path indexFile = storagePath.resolve(DiskStorageUtils.INDEX_FILE);
 
         try {
             Files.createFile(indexFile);
@@ -65,7 +62,7 @@ public class DiskStorage {
             // it is ok, actually it is normal state
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        String newFileName = SSTABLE_PREFIX + existedFiles.size();
+        String newFileName = DiskStorageUtils.SSTABLE_PREFIX + existedFiles.size();
 
         long dataSize = 0;
         long count = 0;
@@ -170,7 +167,7 @@ public class DiskStorage {
 
         List<Path> toDelete;
         try (Stream<Path> stream = Files.find(storagePath, 1,
-                (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
+                (path, attrs) -> path.getFileName().toString().startsWith(DiskStorageUtils.SSTABLE_PREFIX))) {
             toDelete = stream.toList();
         }
 
@@ -256,8 +253,8 @@ public class DiskStorage {
             finalizeCompaction(storagePath, Collections.emptyList());
         }
 
-        Path indexTmp = storagePath.resolve(INDEX_TMP_FILE);
-        Path indexFile = storagePath.resolve(INDEX_FILE);
+        Path indexTmp = storagePath.resolve(DiskStorageUtils.INDEX_TMP_FILE);
+        Path indexFile = storagePath.resolve(DiskStorageUtils.INDEX_FILE);
 
         if (!Files.exists(indexFile)) {
             if (Files.exists(indexTmp)) {
