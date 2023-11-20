@@ -204,8 +204,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                if (FileUtils.hasExtension(file, DATA_FILE_EXT) &&
-                        NumberUtils.isInteger(FileUtils.extractFileName(file, DATA_FILE_EXT))) {
+                if (FileUtils.hasExtension(file, DATA_FILE_EXT) && NumberUtils.isInteger(
+                        FileUtils.extractFileName(file, DATA_FILE_EXT)
+                )) {
                     ssTables.add(new SSTable(
                             config.basePath(),
                             Long.parseLong(FileUtils.extractFileName(file, DATA_FILE_EXT)),
