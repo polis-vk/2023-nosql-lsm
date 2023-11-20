@@ -1,63 +1,101 @@
 package ru.vk.itmo.solnyshkoksenia;
 
-import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.solnyshkoksenia.storage.DiskStorage;
 
+import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.NavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final Comparator<Entry<MemorySegment>> comparator =
-            Comparator.comparing(o -> ByteBuffer.wrap(o.key().toArray(ValueLayout.JAVA_BYTE)));
-    private final List<Entry<MemorySegment>> list = new CopyOnWriteArrayList<>();
+    private static final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private Arena arena;
+    private DiskStorage diskStorage;
 
-    @Override
-    public synchronized Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        int fromIndex = getIndex(from, 0);
-        int toIndex = getIndex(to, list.size());
-        return list.subList(fromIndex, toIndex).iterator();
+    public DaoImpl() {
+        // Empty constructor
+    }
+
+    public DaoImpl(Config config) throws IOException {
+        Path path = config.basePath().resolve("data");
+        Files.createDirectories(path);
+
+        arena = Arena.ofShared();
+
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena), path);
     }
 
     @Override
-    public synchronized void upsert(Entry<MemorySegment> entry) {
-        int index = Collections.binarySearch(list, entry, comparator);
-        if (index >= 0) {
-            list.set(index, entry);
-        } else {
-            list.add(-(index + 1), entry);
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        return diskStorage.range(getInMemory(from, to), from, to);
+    }
+
+    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return storage.values().iterator();
         }
+        if (from == null) {
+            return storage.headMap(to).values().iterator();
+        }
+        if (to == null) {
+            return storage.tailMap(from).values().iterator();
+        }
+        return storage.subMap(from, to).values().iterator();
     }
 
     @Override
-    public synchronized Entry<MemorySegment> get(MemorySegment key) {
-        Iterator<Entry<MemorySegment>> iterator = get(key, null);
+    public void upsert(Entry<MemorySegment> entry) {
+        storage.put(entry.key(), entry);
+    }
+
+    @Override
+    public Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> entry = storage.get(key);
+        if (entry != null) {
+            if (entry.value() == null) {
+                return null;
+            }
+            return entry;
+        }
+
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+
         if (!iterator.hasNext()) {
             return null;
         }
         Entry<MemorySegment> next = iterator.next();
-
-        if (comparator.compare(baseEntry(next.key()), baseEntry(key)) == 0) {
+        if (comparator.compare(next.key(), key) == 0) {
             return next;
         }
         return null;
     }
 
-    private int getIndex(MemorySegment segment, int defaultIndex) {
-        if (segment != null && segment.byteSize() != 0) {
-            int index = Collections.binarySearch(list, baseEntry(segment), comparator);
-            return index < 0 ? -(index + 1) : index;
-        }
-        return defaultIndex;
+    @Override
+    public void compact() throws IOException {
+        diskStorage.compact(storage.values());
+        storage.clear();
     }
 
-    private Entry<MemorySegment> baseEntry(MemorySegment key) {
-        return new BaseEntry<>(key, MemorySegment.NULL);
+    @Override
+    public void close() throws IOException {
+        if (!arena.scope().isAlive()) {
+            return;
+        }
+
+        arena.close();
+
+        if (!storage.isEmpty()) {
+            diskStorage.save(storage.values());
+        }
     }
 }

@@ -38,6 +38,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable =
             new ConcurrentSkipListMap<>(MemorySegmentUtils::compareMemorySegments);
     private final Config config;
+
     private final NavigableSet<SSTable> ssTables = new TreeSet<>(
             Comparator.comparingLong(SSTable::getId).reversed()
     );
@@ -152,8 +153,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         List<PriorityIterator<Entry<MemorySegment>>> priorityIterators = new ArrayList<>();
 
         if (entriesIterator.hasNext()) {
-            priorityIterators.add(new PriorityIterator<>(new LazyIterator<>(entriesIterator), priority));
-            ++priority;
+            priorityIterators.add(new PriorityIterator<>(new LazyIterator<>(entriesIterator), priority++));
         }
         for (FutureIterator<Entry<MemorySegment>> it : loadedIterators) {
             priorityIterators.add(new PriorityIterator<>(it, priority++));

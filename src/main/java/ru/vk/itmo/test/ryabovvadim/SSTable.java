@@ -91,6 +91,7 @@ public class SSTable {
                 l = mid;
             }
         }
+
         return lowerBound ? -r - 1 : -l - 1;
     }
 
