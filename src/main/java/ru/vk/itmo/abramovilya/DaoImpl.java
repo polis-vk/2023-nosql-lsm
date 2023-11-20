@@ -71,7 +71,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             if (flushingValue != null && flushingValue.value() != null) {
                 return flushingValue;
-            } else if (flushingValue != null && flushingValue.value() == null) {
+            }
+            if (flushingValue != null && flushingValue.value() == null) {
                 return null;
             }
         }
