@@ -47,6 +47,10 @@ public final class Storage implements Closeable {
 
     public static Storage load(Config config) throws IOException {
         Path path = config.basePath();
+        Path compactedFile = path.resolve("compacted" + DB_EXTENSION);
+        if (Files.exists(compactedFile)) {
+            throw new IllegalStateException("compaction not finished!");
+        }
 
         List<MemorySegment> ssTables = new ArrayList<>();
         Arena arena = Arena.ofShared();

@@ -80,11 +80,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             lock.readLock().unlock();
         }
         if (flush) {
-            flushInBg(false);
+            flushInBackground(false);
         }
     }
 
-    private Future<?> flushInBg(boolean canBeParallel) {
+    private Future<?> flushInBackground(boolean canBeParallel) {
         lock.writeLock().lock();
         try {
             State currenState = accessStateAndCloseCheck();
@@ -132,7 +132,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         // await flush to complete
         if (flush) {
-            Future<?> future = flushInBg(true);
+            Future<?> future = flushInBackground(true);
             awaitFlushToFinish(future);
         }
     }
