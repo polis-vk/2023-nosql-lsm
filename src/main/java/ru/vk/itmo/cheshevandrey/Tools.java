@@ -62,7 +62,6 @@ public final class Tools {
         }
     }
 
-
     static long indexSize(MemorySegment segment) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }

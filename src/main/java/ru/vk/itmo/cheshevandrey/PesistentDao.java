@@ -7,7 +7,6 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
@@ -48,7 +47,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena = Arena.ofShared();
         this.environment = new Environment(
                 new ConcurrentSkipListMap<>(Tools::compare),
-                new ConcurrentSkipListMap<>(Tools::compare),
+                0,
                 config.basePath(),
                 arena
         );
@@ -67,8 +66,8 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         readLock.lock();
         try {
             currEnv = environment;
-            if (currEnv.getMemTableBytes().get() > config.flushThresholdBytes() && isFlushing.get()) {
-                throw new IllegalStateException("table is full, flushing in process");
+            if (currEnv.getBytes() > config.flushThresholdBytes() && isFlushing.get()) {
+                throw new IllegalStateException("Table is full, flushing in process.");
             }
         } finally {
             readLock.unlock();
@@ -81,7 +80,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             flush();
         } catch (IOException e) {
-            logger.severe("flush error");
+            logger.severe("Flush error.");
         }
     }
 
@@ -104,7 +103,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return Tools.entryToReturn(flushingTableEntry);
         }
 
-        Iterator<Entry<MemorySegment>> iterator = currEnv.range(null, null);
+        Iterator<Entry<MemorySegment>> iterator = currEnv.range(key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -156,7 +155,6 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public void flush() throws IOException {
-        Environment currEnv;
         readLock.lock();
         try {
             // Могут выполнять несколько потоков.
@@ -166,14 +164,13 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 // Считаем, что уже флашим.
                 return;
             }
-            currEnv = environment;
         } finally {
             readLock.unlock();
         }
 
         executor.execute(() -> {
             try {
-                currEnv.flush();
+                environment.flush();
                 isFlushing.set(false);
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -183,8 +180,8 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         writeLock.lock();
         try {
             this.environment = new Environment(
-                    new ConcurrentSkipListMap<>(Tools::compare),
                     environment.getTable(),
+                    environment.getBytes(),
                     config.basePath(),
                     arena
             );

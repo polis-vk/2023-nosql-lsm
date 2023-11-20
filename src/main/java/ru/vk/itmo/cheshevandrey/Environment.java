@@ -12,46 +12,46 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class Environment {
 
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> table;
-    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> flushingTable;
-    private final AtomicLong memTableBytes;
+    private ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memTable;
+    private ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> flushingTable;
+    private AtomicLong memTableBytes;
 
     private final DiskStorage diskStorage;
 
-    public Environment(ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memtable,
-                       ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> flushingTable,
-                       Path storagePath,
-                       Arena arena)
-            throws IOException {
+    public Environment(
+            ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> table,
+            long bytes,
+            Path storagePath,
+            Arena arena
+    ) throws IOException {
         this.diskStorage = new DiskStorage(storagePath, arena);
-
-        this.table = memtable;
-        this.flushingTable = flushingTable;
-        this.memTableBytes = new AtomicLong(0);
+        this.memTable = table;
+        this.flushingTable = new ConcurrentSkipListMap<>(Tools::compare);
+        this.memTableBytes = new AtomicLong(bytes);
     }
 
     public Iterator<Entry<MemorySegment>> range(MemorySegment from, MemorySegment to) {
         Iterator<Entry<MemorySegment>> memTableIterator = getInMemory(from, to, true).iterator();
         Iterator<Entry<MemorySegment>> flushingIterator = getInMemory(from, to, false).iterator();
 
-        return diskStorage.range(memTableIterator, flushingIterator, from, to, false);
+        return diskStorage.range(memTableIterator, flushingIterator, from, to, Range.ALL);
     }
 
     private Iterable<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to, Boolean isMemTable) {
         if (from == null && to == null) {
-            return (isMemTable ? table : flushingTable).values();
+            return (isMemTable ? memTable : flushingTable).values();
         }
         if (from == null) {
-            return (isMemTable ? table : flushingTable).headMap(to).values();
+            return (isMemTable ? memTable : flushingTable).headMap(to).values();
         }
         if (to == null) {
-            return (isMemTable ? table : flushingTable).tailMap(from).values();
+            return (isMemTable ? memTable : flushingTable).tailMap(from).values();
         }
-        return (isMemTable ? table : flushingTable).subMap(from, to).values();
+        return (isMemTable ? memTable : flushingTable).subMap(from, to).values();
     }
 
     public synchronized long put(Entry<MemorySegment> entry) {
-        table.put(entry.key(), entry);
+        memTable.put(entry.key(), entry);
 
         long currSize = entry.key().byteSize();
         if (entry.value() != null) {
@@ -63,7 +63,11 @@ public class Environment {
     }
 
     public void flush() throws IOException {
-        diskStorage.save(table.values());
+        this.flushingTable = memTable;
+        this.memTable = new ConcurrentSkipListMap<>(Tools::compare);
+        this.memTableBytes = new AtomicLong(0);
+
+        diskStorage.save(flushingTable.values());
     }
 
     public void compact() throws IOException {
@@ -75,15 +79,15 @@ public class Environment {
     }
 
     public ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> getTable() {
-        return table;
+        return memTable;
     }
 
-    public AtomicLong getMemTableBytes() {
-        return memTableBytes;
+    public long getBytes() {
+        return memTableBytes.get();
     }
 
     public Entry<MemorySegment> getMemTableEntry(MemorySegment key) {
-        return table.get(key);
+        return memTable.get(key);
     }
 
     public Entry<MemorySegment> getFlushingTableEntry(MemorySegment key) {

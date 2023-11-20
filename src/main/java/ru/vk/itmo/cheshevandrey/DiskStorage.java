@@ -1,6 +1,5 @@
 package ru.vk.itmo.cheshevandrey;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
@@ -9,29 +8,26 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
-import java.util.stream.IntStream;
 
 import static ru.vk.itmo.cheshevandrey.Tools.createDir;
 import static ru.vk.itmo.cheshevandrey.Tools.createFile;
 
 public class DiskStorage {
 
-    private final List<MemorySegment> mainSegmentList;
-    private final List<MemorySegment> flushedSegmentList;
+    private final List<MemorySegment> primarySegmentList;
+    private final List<MemorySegment> secondarySegmentList;
 
     private final Dir workDir;
     private final Path mainWorkDir;
     private final Path flushWorkDir;
     private final Path storagePath;
 
-    private static final String DIR_1 = "main-1";
-    private static final String DIR_2 = "main-2";
+    private static final String DIR_1 = "dir-1";
+    private static final String DIR_2 = "dir-2";
     private static final String STORAGE_META_NAME = "meta.mt";
     private static final String STORAGE_META_TMP_NAME = "meta.tmp";
 
-    private static final String ZERO_TMP_FILE_NAME = "0.tmp";
     private static final String INDEX_NAME = "index.idx";
     private static final String INDEX_TMP_NAME = "index.tmp";
     private static final String COMPACTION_NAME = "compaction.cmp";
@@ -48,18 +44,25 @@ public class DiskStorage {
 
         init();
 
-        // Если не существует мета-файла, то ни разу не происходил компакт и
-        // директория, из которой берутся файлы для компакта пустая,
-        // так как при флаше файлы записываются в директорию для флаша.
-        if (Files.exists(storagePath.resolve(STORAGE_META_NAME))) {
+        if (!Files.exists(storagePath.resolve(STORAGE_META_NAME))) {
             isNewStorage = false;
         }
 
-        this.mainSegmentList = loadOrRecover(mainWorkDir, arena);
-        this.flushedSegmentList = loadOrRecover(flushWorkDir, arena);
+        this.primarySegmentList = loadOrRecover(mainWorkDir, arena);
+        this.secondarySegmentList = loadOrRecover(flushWorkDir, arena);
+    }
+
+    private enum Dir {
+        DIR_1, DIR_2
     }
 
     private void init() throws IOException {
+        try {
+            Files.createDirectory(storagePath);
+        } catch (FileAlreadyExistsException ignored) {
+            // it's ok.
+        }
+
         createDir(mainWorkDir);
         createDir(flushWorkDir);
 
@@ -77,10 +80,6 @@ public class DiskStorage {
         if (!Files.exists(flushIndexPath)) {
             updateIndex(singletonList, flushIndexPath);
         }
-    }
-
-    private enum Dir {
-        DIR_1, DIR_2
     }
 
     private Dir getWorkDir(Path storagePath) throws IOException {
@@ -136,20 +135,23 @@ public class DiskStorage {
             Iterator<Entry<MemorySegment>> secondIterator,
             MemorySegment from,
             MemorySegment to,
-            boolean isForCompact) {
+            Range range) {
 
-        int size = mainSegmentList.size() + flushedSegmentList.size() + 2;
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(size);
-        for (MemorySegment memorySegment : mainSegmentList) {
-            iterators.add(iterator(memorySegment, from, to));
-        }
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
 
-        if (!isForCompact) {
-            for (MemorySegment memorySegment : flushedSegmentList) {
-                iterators.add(iterator(memorySegment, from, to));
-            }
-            iterators.add(secondIterator);
-            iterators.add(firstIterator);
+        switch (range) {
+            case PRIMARY:
+                addIterators(iterators, primarySegmentList, from, to);
+                break;
+            case SECONDARY:
+                addIterators(iterators, secondarySegmentList, from, to);
+                break;
+            case ALL:
+                addIterators(iterators, primarySegmentList, from, to);
+                addIterators(iterators, secondarySegmentList, from, to);
+                iterators.add(secondIterator);
+                iterators.add(firstIterator);
+                break;
         }
 
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, Tools::compare)) {
@@ -160,8 +162,18 @@ public class DiskStorage {
         };
     }
 
+    private void addIterators(List<Iterator<Entry<MemorySegment>>> iterators,
+                              List<MemorySegment> segmentList,
+                              MemorySegment from,
+                              MemorySegment to) {
+        for (MemorySegment memorySegment : segmentList) {
+            iterators.add(SsTableIterator.iterator(memorySegment, from, to));
+        }
+    }
+
     public void compact() throws IOException {
-        IterableStorage iterable = new IterableStorage(this);
+        Range range = (isNewStorage || workDir == Dir.DIR_2) ? Range.SECONDARY : Range.PRIMARY;
+        IterableStorage iterable = new IterableStorage(this, range);
         if (!iterable.iterator().hasNext()) {
             return;
         }
@@ -185,7 +197,7 @@ public class DiskStorage {
 
     public void completeCompact() throws IOException {
 
-        // Заменяем файл "0" в директорию, в которую происходит флаш.
+        // Заменяем файл "0" в директории, в которую происходит флаш.
         Files.move(
                 storagePath.resolve(COMPACTION_NAME),
                 flushWorkDir.resolve("0"),
@@ -204,7 +216,7 @@ public class DiskStorage {
         }
 
         // Файл "0" заменяем на пустой.
-        Path zeroFileTmp = storagePath.resolve(ZERO_TMP_FILE_NAME);
+        Path zeroFileTmp = storagePath.resolve("0.tmp");
         try {
             Files.createFile(zeroFileTmp);
         } catch (FileAlreadyExistsException ignored) {
@@ -240,9 +252,6 @@ public class DiskStorage {
     }
 
     public void completeCompactIfNeeded() throws IOException {
-//
-//        ???????????????????????????????????
-//
 //        Path compactionFilePath = storagePath.resolve(COMPACTION_NAME);
 //        if (Files.exists(compactionFilePath)) {
 //            completeCompact();
@@ -250,55 +259,19 @@ public class DiskStorage {
     }
 
     public void save(Iterable<Entry<MemorySegment>> iterable) throws IOException {
-        Path indexFilePath = flushWorkDir.resolve(INDEX_NAME);
+        if (!iterable.iterator().hasNext()) {
+            return;
+        }
 
+        Path indexFilePath = flushWorkDir.resolve(INDEX_NAME);
         List<String> files = Files.readAllLines(indexFilePath);
         String newFileName = String.valueOf(files.size());
         files.add(newFileName);
-        Path newFilePath = flushWorkDir.resolve(newFileName);
 
+        Path newFilePath = flushWorkDir.resolve(newFileName);
         Files.deleteIfExists(newFilePath);
         saveSsTable(newFilePath, iterable);
-
         updateIndex(files, indexFilePath);
-
-        // Если ранее компакт не происходил, то для возможности компакта копируем файл в основную директорию.
-        if (isNewStorage) {
-            indexFilePath = mainWorkDir.resolve(INDEX_NAME);
-            files = Files.readAllLines(indexFilePath);
-            newFileName = String.valueOf(files.size());
-            files.add(newFileName);
-
-            Files.copy(
-                    newFilePath,
-                    mainWorkDir.resolve(newFileName),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING
-            );
-
-            updateIndex(files, indexFilePath);
-        }
-    }
-
-    private void updateIndex(List<String> files, Path indexPath) throws IOException {
-        Path indexTmpPath = flushWorkDir.resolve(INDEX_TMP_NAME);
-
-        // Запишем актуальный набор sstable во временный индексный файл.
-        Files.deleteIfExists(indexTmpPath);
-        Files.write(
-                indexTmpPath,
-                files,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
-        // Переименуем временный индексный в актуальный.
-        Files.move(
-                indexTmpPath,
-                indexPath,
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING
-        );
     }
 
     private void saveSsTable(Path pathToSave, Iterable<Entry<MemorySegment>> iterable) throws IOException {
@@ -319,8 +292,7 @@ public class DiskStorage {
                         pathToSave,
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
-                        StandardOpenOption.CREATE,
-                        StandardOpenOption.TRUNCATE_EXISTING
+                        StandardOpenOption.CREATE
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
@@ -368,83 +340,24 @@ public class DiskStorage {
         }
     }
 
-    private static long indexOf(MemorySegment segment, MemorySegment key) {
-        long recordsCount = Tools.recordsCount(segment);
+    private void updateIndex(List<String> files, Path indexPath) throws IOException {
+        Path indexTmpPath = flushWorkDir.resolve(INDEX_TMP_NAME);
 
-        long left = 0;
-        long right = recordsCount - 1;
-        while (left <= right) {
-            long mid = (left + right) >>> 1;
+        // Запишем актуальный набор sstable во временный индексный файл.
+        Files.deleteIfExists(indexTmpPath);
+        Files.write(
+                indexTmpPath,
+                files,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
 
-            long startOfKey = Tools.startOfKey(segment, mid);
-            long endOfKey = Tools.endOfKey(segment, mid);
-            long mismatch = MemorySegment.mismatch(segment, startOfKey, endOfKey, key, 0, key.byteSize());
-            if (mismatch == -1) {
-                return mid;
-            }
-
-            if (mismatch == key.byteSize()) {
-                right = mid - 1;
-                continue;
-            }
-
-            if (mismatch == endOfKey - startOfKey) {
-                left = mid + 1;
-                continue;
-            }
-
-            int b1 = Byte.toUnsignedInt(segment.get(ValueLayout.JAVA_BYTE, startOfKey + mismatch));
-            int b2 = Byte.toUnsignedInt(key.get(ValueLayout.JAVA_BYTE, mismatch));
-            if (b1 > b2) {
-                right = mid - 1;
-            } else {
-                left = mid + 1;
-            }
-        }
-
-        return Tools.tombstone(left);
-    }
-
-    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : Tools.normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? Tools.recordsCount(page) : Tools.normalize(indexOf(page, to));
-        long recordsCount = Tools.recordsCount(page);
-
-        return new Iterator<>() {
-            long index = recordIndexFrom;
-
-            @Override
-            public boolean hasNext() {
-                return index < recordIndexTo;
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                if (!hasNext()) {
-                    throw new NoSuchElementException();
-                }
-                MemorySegment key = Tools.slice(page, Tools.startOfKey(page, index), Tools.endOfKey(page, index));
-                long startOfValue = Tools.startOfValue(page, index);
-                MemorySegment value =
-                        startOfValue < 0
-                                ? null
-                                : Tools.slice(page, startOfValue, Tools.endOfValue(page, index, recordsCount));
-                index++;
-                return new BaseEntry<>(key, value);
-            }
-        };
-    }
-
-    private static final class IterableStorage implements Iterable<Entry<MemorySegment>> {
-        DiskStorage diskStorage;
-
-        private IterableStorage(DiskStorage diskStorage) {
-            this.diskStorage = diskStorage;
-        }
-
-        @Override
-        public Iterator<Entry<MemorySegment>> iterator() {
-            return diskStorage.range(Collections.emptyIterator(), Collections.emptyIterator(), null, null, true);
-        }
+        // Переименуем временный индексный в актуальный.
+        Files.move(
+                indexTmpPath,
+                indexPath,
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+        );
     }
 }
