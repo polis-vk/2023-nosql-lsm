@@ -12,7 +12,6 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -22,20 +21,20 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 class Storage implements Closeable {
-    private static final String COMPACTED_SUFFIX = "_compacted";
-    private static final String COMPACTING_SUFFIX = "_compacting";
-    private static final String SSTABLE_BASE_NAME = "storage";
-    private static final String INDEX_BASE_NAME = "index";
-    private final Path storagePath;
-    private final Path metaFilePath;
-    private final Path compactedTablesAmountFilePath;
-    private final Path compactionStateFilePath;
-    private List<MemorySegment> sstableMappedList = new ArrayList<>();
-    private List<MemorySegment> indexMappedList = new ArrayList<>();
-    private CompactionState compactionState = CompactionState.NO_COMPACTION;
-    private final Arena arena = Arena.ofAuto();
+    static final String COMPACTED_SUFFIX = "_compacted";
+    static final String COMPACTING_SUFFIX = "_compacting";
+    static final String SSTABLE_BASE_NAME = "storage";
+    static final String INDEX_BASE_NAME = "index";
+    final Path storagePath;
+    final Path metaFilePath;
+    final Path compactedTablesAmountFilePath;
+    final Path compactionStateFilePath;
+    final Compactor compactor = new Compactor(this);
+    List<MemorySegment> sstableMappedList = new ArrayList<>();
+    List<MemorySegment> indexMappedList = new ArrayList<>();
+    final Arena arena = Arena.ofAuto();
     // Блокировка используется для поддержания консистентного количества текущих sstable
-    private final ReadWriteLock sstablesAmountRWLock = new ReentrantReadWriteLock();
+    final ReadWriteLock sstablesAmountRWLock = new ReentrantReadWriteLock();
 
     Storage(Config config) throws IOException {
         storagePath = config.basePath();
@@ -55,9 +54,10 @@ class Storage implements Closeable {
         if (Files.exists(compactedTablesAmountFilePath) &&
                 (Files.exists(indexCompacted) || Files.exists(storageCompacted))) {
             if (Files.exists(compactionStateFilePath)) {
-                compactionState = intToCompactionState(Integer.parseInt(Files.readString(compactionStateFilePath)));
+                compactor.compactionState = compactor
+                        .intToCompactionState(Integer.parseInt(Files.readString(compactionStateFilePath)));
             } else {
-                compactionState = CompactionState.DELETE_REMAINING;
+                compactor.compactionState = CompactionState.DELETE_REMAINING;
             }
             finishCompact(Integer.parseInt(Files.readString(compactedTablesAmountFilePath)));
         } else {
@@ -68,15 +68,6 @@ class Storage implements Closeable {
         // Delete artifacts from unsuccessful compaction
         Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
         Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
-    }
-
-    private CompactionState intToCompactionState(int i) {
-        for (CompactionState cs : CompactionState.values()) {
-            if (cs.ordinal() == i) {
-                return cs;
-            }
-        }
-        throw new IllegalArgumentException("Unknown state: " + i);
     }
 
     Entry<MemorySegment> get(MemorySegment key) {
@@ -177,17 +168,6 @@ class Storage implements Closeable {
         }
     }
 
-    private Entry<Long> calcCompactedSStableIndexSize(Iterator<Entry<MemorySegment>> iterator) {
-        long storageSize = 0;
-        long indexSize = 0;
-        while (iterator.hasNext()) {
-            Entry<MemorySegment> entry = iterator.next();
-            storageSize += entry.key().byteSize() + entry.value().byteSize() + 2 * Long.BYTES;
-            indexSize += Integer.BYTES + Long.BYTES;
-        }
-        return new BaseEntry<>(storageSize, indexSize);
-    }
-
     void incTotalSStablesAmount() throws IOException {
         sstablesAmountRWLock.writeLock().lock();
         try {
@@ -200,13 +180,15 @@ class Storage implements Closeable {
             MemorySegment sstableMapped;
             try (FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ)) {
                 sstableMapped =
-                        sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
+                        sstableFileChannel
+                                .map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), arena);
             }
             sstableMappedList.add(sstableMapped);
 
             MemorySegment indexMapped;
             try (FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ)) {
-                indexMapped = indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
+                indexMapped = indexFileChannel
+                        .map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), arena);
             }
             indexMappedList.add(indexMapped);
         } finally {
@@ -227,123 +209,41 @@ class Storage implements Closeable {
         return indexMappedList.get(i);
     }
 
-    // compact вызывается из dao однопоточно
-    void compact(Iterator<Entry<MemorySegment>> iterator1, Iterator<Entry<MemorySegment>> iterator2, int sstablesToCompact)
-            throws IOException {
-
-        if (!Files.exists(compactedTablesAmountFilePath)) {
-            Files.createFile(compactedTablesAmountFilePath);
-        }
-        Files.writeString(compactedTablesAmountFilePath, String.valueOf(sstablesToCompact), StandardOpenOption.WRITE);
-
-        Entry<Long> storageIndexSize = calcCompactedSStableIndexSize(iterator1);
-        Path compactingSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX);
-        Path compactingIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTING_SUFFIX);
-        StorageFileWriter.writeIteratorIntoFile(storageIndexSize.key(),
-                storageIndexSize.value(),
-                iterator2,
-                compactingSStablePath,
-                compactingIndexPath);
-
-        // Move to ensure that compacting completed successfully
-        Path compactedSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
-        Path compactedIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX);
-        Files.move(compactingSStablePath, compactedSStablePath, StandardCopyOption.ATOMIC_MOVE);
-        Files.move(compactingIndexPath, compactedIndexPath, StandardCopyOption.ATOMIC_MOVE);
-
-        compactionState = CompactionState.DELETE_REMAINING;
-        if (!Files.exists(compactionStateFilePath)) {
-            Files.createFile(compactionStateFilePath);
-        }
-        Files.writeString(compactionStateFilePath, String.valueOf(compactionState.ordinal()), StandardOpenOption.WRITE);
-
+    void compact(Iterator<Entry<MemorySegment>> iterator1,
+                 Iterator<Entry<MemorySegment>> iterator2,
+                 int sstablesToCompact) throws IOException {
+        compactor.compact(iterator1, iterator2, sstablesToCompact);
         finishCompact(sstablesToCompact);
     }
 
-    // finishCompact имеет смысл вызывать только зная, сколько sstable'ов мы скомпактили
-    // иначе - непонятно, какие файлы удалять
     private void finishCompact(int compactedSStablesAmount) throws IOException {
         sstablesAmountRWLock.writeLock().lock();
         try {
-            if (compactionState == CompactionState.DELETE_REMAINING) {
-                for (int i = 0; i < compactedSStablesAmount; i++) {
-                    Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + i));
-                    Files.deleteIfExists(storagePath.resolve(INDEX_BASE_NAME + i));
-                }
-                compactionState = CompactionState.MOVE_COMPACTED;
-                Files.writeString(compactionStateFilePath, String.valueOf(compactionState.ordinal()), StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
-            }
-
-            if (compactionState == CompactionState.MOVE_COMPACTED) {
-                Path compactedSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
-                if (Files.exists(compactedSStablePath)) {
-                    Files.move(compactedSStablePath,
-                            storagePath.resolve(SSTABLE_BASE_NAME + 0),
-                            StandardCopyOption.ATOMIC_MOVE,
-                            StandardCopyOption.REPLACE_EXISTING);
-                }
-                Path compactedIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX);
-
-                if (Files.exists(compactedIndexPath)) {
-                    Files.move(compactedIndexPath,
-                            storagePath.resolve(INDEX_BASE_NAME + 0),
-                            StandardCopyOption.ATOMIC_MOVE,
-                            StandardCopyOption.REPLACE_EXISTING);
-                }
-            }
-
-            int totalSStables = Integer.parseInt(Files.readString(metaFilePath));
-
-            sstableMappedList = new ArrayList<>();
-            indexMappedList = new ArrayList<>();
-
-            for (int i = compactedSStablesAmount; i < totalSStables; i++) {
-                Path oldSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + i);
-                Path newSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + convertOldFileNumToNew(i, compactedSStablesAmount));
-                Path oldIndexPath = storagePath.resolve(INDEX_BASE_NAME + i);
-                Path newIndexPath = storagePath.resolve(INDEX_BASE_NAME + convertOldFileNumToNew(i, compactedSStablesAmount));
-
-                if (Files.exists(oldSStablePath)) {
-                    Files.move(oldSStablePath, newSStablePath, StandardCopyOption.ATOMIC_MOVE);
-                }
-                if (Files.exists(oldIndexPath)) {
-                    Files.move(oldIndexPath, newIndexPath, StandardCopyOption.ATOMIC_MOVE);
-                }
-            }
-
-            int newTotalSStables = convertOldFileNumToNew(totalSStables, compactedSStablesAmount);
-            fillFileRepresentationLists(newTotalSStables);
-
-            Files.writeString(metaFilePath, String.valueOf(newTotalSStables));
-            Files.deleteIfExists(compactedTablesAmountFilePath);
+            compactor.finishCompact(compactedSStablesAmount);
         } finally {
             sstablesAmountRWLock.writeLock().unlock();
         }
     }
 
-    private void fillFileRepresentationLists(int newTotalSStables) throws IOException {
+    void fillFileRepresentationLists(int newTotalSStables) throws IOException {
         for (int sstableNum = 0; sstableNum < newTotalSStables; sstableNum++) {
             Path sstablePath = storagePath.resolve(SSTABLE_BASE_NAME + sstableNum);
             Path indexPath = storagePath.resolve(INDEX_BASE_NAME + sstableNum);
 
             MemorySegment sstableMapped;
             try (FileChannel sstableFileChannel = FileChannel.open(sstablePath, StandardOpenOption.READ)) {
-                sstableMapped =
-                        sstableFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), this.arena);
+                sstableMapped = sstableFileChannel
+                        .map(FileChannel.MapMode.READ_ONLY, 0, Files.size(sstablePath), this.arena);
             }
             sstableMappedList.add(sstableMapped);
 
             MemorySegment indexMapped;
             try (FileChannel indexFileChannel = FileChannel.open(indexPath, StandardOpenOption.READ)) {
-                indexMapped =
-                        indexFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), this.arena);
+                indexMapped = indexFileChannel
+                        .map(FileChannel.MapMode.READ_ONLY, 0, Files.size(indexPath), this.arena);
             }
             indexMappedList.add(indexMapped);
         }
-    }
-
-    private static int convertOldFileNumToNew(int oldNum, int compactedSStablesNum) {
-        return oldNum - compactedSStablesNum + 1;
     }
 
     long findOffsetInIndex(MemorySegment from, MemorySegment to, int fileNum) {
