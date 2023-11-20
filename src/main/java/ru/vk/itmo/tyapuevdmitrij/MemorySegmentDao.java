@@ -27,19 +27,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    protected static final Comparator<MemorySegment> MEMORY_SEGMENT_COMPARATOR = (segment1, segment2) -> {
-        long offset = segment1.mismatch(segment2);
-        if (offset == -1) {
-            return 0;
-        }
-        if (offset == segment1.byteSize()) {
-            return -1;
-        }
-        if (offset == segment2.byteSize()) {
-            return 1;
-        }
-        return segment1.get(ValueLayout.JAVA_BYTE, offset) - segment2.get(ValueLayout.JAVA_BYTE, offset);
-    };
     private final Path ssTablePath;
     private long ssTablesEntryQuantity;
     private final Config config;
@@ -57,7 +44,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     public MemorySegmentDao(Config config) {
         ssTablePath = config.basePath();
-        state = new State(new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR),
+        state = new State(new ConcurrentSkipListMap<>(MemorySegmentComparator.getMemorySegmentComparator()),
                 null,
                 new Storage(ssTablePath));
         this.config = config;
@@ -65,14 +52,19 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        State state = this.state;
+        State currentState = this.state;
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
-        iterators.add(getMemTableIterator(from, to, state.flushMemTable));
-        iterators.add(getMemTableIterator(from, to, state.memTable));
-        if (state.storage.ssTablesQuantity == 0) {
-            return new MergeIterator(iterators, Comparator.comparing(Entry::key, MEMORY_SEGMENT_COMPARATOR));
+        iterators.add(getMemTableIterator(from, to, currentState.flushMemTable));
+        iterators.add(getMemTableIterator(from, to, currentState.memTable));
+        if (currentState.storage.ssTablesQuantity == 0) {
+            return new MergeIterator(iterators, Comparator.comparing(Entry::key,
+                    MemorySegmentComparator.getMemorySegmentComparator()));
         } else {
-            return state.storage.range(iterators.get(0), iterators.get(1), from, to, MEMORY_SEGMENT_COMPARATOR);
+            return currentState.storage.range(iterators.get(0),
+                    iterators.get(1),
+                    from,
+                    to,
+                    MemorySegmentComparator.getMemorySegmentComparator());
         }
     }
 
@@ -96,31 +88,31 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        State state = this.state;
-        Entry<MemorySegment> value = state.memTable.get(key);
+        State currentState = this.state;
+        Entry<MemorySegment> value = currentState.memTable.get(key);
         if (value != null && value.value() == null) {
             return null;
         }
-        if (value == null && state.flushMemTable != null) {
-            value = state.flushMemTable.get(key);
+        if (value == null && currentState.flushMemTable != null) {
+            value = currentState.flushMemTable.get(key);
         }
         if (value != null && value.value() == null) {
             return null;
         }
-        if (value != null || state.storage.ssTables == null) {
+        if (value != null || currentState.storage.ssTables == null) {
             return value;
         }
-        Iterator<Entry<MemorySegment>> iterator = state.storage.range(Collections.emptyIterator(),
+        Iterator<Entry<MemorySegment>> iterator = currentState.storage.range(Collections.emptyIterator(),
                 Collections.emptyIterator(),
                 key,
                 null,
-                MEMORY_SEGMENT_COMPARATOR);
+                MemorySegmentComparator.getMemorySegmentComparator());
 
         if (!iterator.hasNext()) {
             return null;
         }
         Entry<MemorySegment> next = iterator.next();
-        if (MEMORY_SEGMENT_COMPARATOR.compare(next.key(), key) == 0) {
+        if (MemorySegmentComparator.getMemorySegmentComparator().compare(next.key(), key) == 0) {
             return next;
         }
         return null;
@@ -128,14 +120,14 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        State state = this.state;
+        State currentState = this.state;
         if (config == null || config.flushThresholdBytes() == 0) {
-            state.memTable.put(entry.key(), entry);
+            currentState.memTable.put(entry.key(), entry);
             return;
         }
         upsertLock.readLock().lock();
         try {
-            Entry<MemorySegment> entryBySameKey = state.memTable.get(entry.key());
+            Entry<MemorySegment> entryBySameKey = currentState.memTable.get(entry.key());
             long entryBySameKeyByteSize = entry.key().byteSize();
             if (entryBySameKey != null) {
                 entryBySameKeyByteSize = entryBySameKey.value() == null ? 0 : entryBySameKey.value().byteSize();
@@ -143,9 +135,10 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             long entrySize = entry.key().byteSize();
             entrySize += entry.value() == null ? 0 : entry.value().byteSize();
             long entrySizeDelta = entrySize - entryBySameKeyByteSize;
-            long currentMemoryUsage = state.memoryUsage.addAndGet(entrySizeDelta);
+            long currentMemoryUsage = currentState.memoryUsage.addAndGet(entrySizeDelta);
             if (currentMemoryUsage > config.flushThresholdBytes()) {
-                if (!autoFlushing.getAndSet(true)) {
+                if (!autoFlushing.get()) {
+                    autoFlushing.set(true);
                     executor.execute(this::flushing);
                 }
 
@@ -169,7 +162,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         try {
             upsertLock.writeLock().lock();
             try {
-                state = new State(new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR),
+                state = new State(new ConcurrentSkipListMap<>(MemorySegmentComparator.getMemorySegmentComparator()),
                         state.memTable,
                         state.storage);
             } finally {
@@ -198,8 +191,8 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public void compact() throws IOException {
-        State state = this.state;
-        if (state.storage.ssTablesQuantity <= 1 && state.memTable.isEmpty()) {
+        State currentState = this.state;
+        if (currentState.storage.ssTablesQuantity <= 1 && currentState.memTable.isEmpty()) {
             return;
         }
         storageLock.lock();
@@ -208,12 +201,12 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
                 State stateNow = this.state;
                 storageLock.lock();
                 try {
-                    if (!state.storage.readArena.scope().isAlive()) {
+                    if (!currentState.storage.readArena.scope().isAlive()) {
                         return;
                     }
                     Iterator<Entry<MemorySegment>> ssTablesIterator = stateNow.storage.range(
                             Collections.emptyIterator(), Collections.emptyIterator(),
-                            null, null, MEMORY_SEGMENT_COMPARATOR);
+                            null, null, MemorySegmentComparator.getMemorySegmentComparator());
                     Path compactionPath = ssTablePath.resolve(StorageHelper.COMPACTED_FILE_NAME);
                     try (Arena writeArena = Arena.ofConfined()) {
                         MemorySegment buffer = NmapBuffer.getWriteBufferToSsTable(getCompactionTableByteSize(stateNow),
@@ -283,7 +276,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
                 Collections.emptyIterator(),
                 null,
                 null,
-                MEMORY_SEGMENT_COMPARATOR);
+                MemorySegmentComparator.getMemorySegmentComparator());
         long compactionTableByteSize = 0;
         long countEntry = 0;
         while (dataIterator.hasNext()) {
