@@ -1,20 +1,21 @@
 package ru.vk.itmo.test.chebotinalexandr;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.chebotinalexandr.InMemoryDao;
+import ru.vk.itmo.chebotinalexandr.NotOnlyInMemoryDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory
+@DaoFactory(stage = 4)
 public class MemorySegmentDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
+        return new NotOnlyInMemoryDao(config);
     }
 
     @Override
