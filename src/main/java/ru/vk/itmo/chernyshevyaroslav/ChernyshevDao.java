@@ -11,7 +11,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
-import java.util.Comparator;
+//import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -20,15 +20,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String DATA_PATH = "data";
-    private final Comparator<MemorySegment> comparator = ChernyshevDao::compare;
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
-    //private final NavigableMap<MemorySegment, Entry<MemorySegment>> storageDouble = new ConcurrentSkipListMap<>(comparator);
+    //private final Comparator<MemorySegment> comparator = ChernyshevDao::compare;
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
     private final long flushThresholdBytes;
     private long size = 0;
     private final AtomicBoolean isThresholdReached = new AtomicBoolean(false);
+
+    private static class Memory {
+        private static final NavigableMap<MemorySegment, Entry<MemorySegment>> storage =
+                new ConcurrentSkipListMap<>(ChernyshevDao::compare);
+        //private static final NavigableMap<MemorySegment, Entry<MemorySegment>> storageDouble =
+        //        new ConcurrentSkipListMap<>(ChernyshevDao::compare);
+
+        private static NavigableMap<MemorySegment, Entry<MemorySegment>> getStorage() {
+            return storage;
+        }
+    }
 
     public ChernyshevDao(Config config) throws IOException {
         this.path = config.basePath().resolve(DATA_PATH);
@@ -65,20 +74,20 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            return storage.values().iterator();
+            return Memory.getStorage().values().iterator();
         }
         if (from == null) {
-            return storage.headMap(to).values().iterator();
+            return Memory.getStorage().headMap(to).values().iterator();
         }
         if (to == null) {
-            return storage.tailMap(from).values().iterator();
+            return Memory.getStorage().tailMap(from).values().iterator();
         }
-        return storage.subMap(from, to).values().iterator();
+        return Memory.getStorage().subMap(from, to).values().iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> entry = storage.get(key);
+        Entry<MemorySegment> entry = Memory.getStorage().get(key);
         if (entry != null) {
             if (entry.value() == null) {
                 return null;
@@ -111,8 +120,8 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void flush() throws IOException {
-        if (!storage.isEmpty()) {
-            FileUtils.save(path, storage.values(), false);
+        if (!Memory.getStorage().isEmpty()) {
+            FileUtils.save(path, Memory.getStorage().values(), false);
         }
     }
 
@@ -137,7 +146,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     new Thread(() -> {
                         try {
                             flush();
-                            storage.clear();
+                            Memory.getStorage().clear();
                         } catch (IOException e) {
                             throw new RuntimeException(e);
                         }
@@ -148,6 +157,6 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
 
-        storage.put(entry.key(), entry);
+        Memory.storage.put(entry.key(), entry);
     }
 }
