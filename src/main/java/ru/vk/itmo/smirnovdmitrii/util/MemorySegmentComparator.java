@@ -15,7 +15,7 @@ public final class MemorySegmentComparator implements EqualsComparator<MemorySeg
         } else if (o2.byteSize() == offset) {
             return 1;
         }
-        return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, offset), o2.get(ValueLayout.JAVA_BYTE, offset));
+        return Byte.compareUnsigned(o1.get(ValueLayout.JAVA_BYTE, offset), o2.get(ValueLayout.JAVA_BYTE, offset));
     }
 
     @Override
