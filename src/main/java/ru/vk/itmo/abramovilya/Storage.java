@@ -28,11 +28,11 @@ class Storage implements Closeable {
     private static final String INDEX_BASE_NAME = "index";
     private final Path storagePath;
     private final Path metaFilePath;
-
-    // TODO: Писать это в meta файл
-    private final Path compactedTablesAmountPath;
+    private final Path compactedTablesAmountFilePath;
+    private final Path compactionStateFilePath;
     private List<MemorySegment> sstableMappedList = new ArrayList<>();
     private List<MemorySegment> indexMappedList = new ArrayList<>();
+    private CompactionState compactionState = CompactionState.NO_COMPACTION;
     private final Arena arena = Arena.ofAuto();
     // Блокировка используется для поддержания консистентного количества текущих sstable
     private final ReadWriteLock sstablesAmountRWLock = new ReentrantReadWriteLock();
@@ -41,7 +41,8 @@ class Storage implements Closeable {
         storagePath = config.basePath();
 
         Files.createDirectories(storagePath);
-        compactedTablesAmountPath = storagePath.resolve("cmpctd");
+        compactionStateFilePath = storagePath.resolve("compaction_state");
+        compactedTablesAmountFilePath = storagePath.resolve("compacted_tables");
         metaFilePath = storagePath.resolve("meta");
         if (!Files.exists(metaFilePath)) {
             Files.createFile(metaFilePath);
@@ -49,8 +50,16 @@ class Storage implements Closeable {
         }
 
         // Restore consistent state if db was dropped during compaction
-        if (Files.exists(compactedTablesAmountPath)) {
-            finishCompact(Integer.parseInt(Files.readString(compactedTablesAmountPath)));
+        Path indexCompacted = storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX);
+        Path storageCompacted = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
+        if (Files.exists(compactedTablesAmountFilePath) &&
+                (Files.exists(indexCompacted) || Files.exists(storageCompacted))) {
+            if (Files.exists(compactionStateFilePath)) {
+                compactionState = intToCompactionState(Integer.parseInt(Files.readString(compactionStateFilePath)));
+            } else {
+                compactionState = CompactionState.DELETE_REMAINING;
+            }
+            finishCompact(Integer.parseInt(Files.readString(compactedTablesAmountFilePath)));
         } else {
             int totalSSTables = Integer.parseInt(Files.readString(metaFilePath));
             fillFileRepresentationLists(totalSSTables);
@@ -59,6 +68,15 @@ class Storage implements Closeable {
         // Delete artifacts from unsuccessful compaction
         Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
         Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
+    }
+
+    private CompactionState intToCompactionState(int i) {
+        for (CompactionState cs : CompactionState.values()) {
+            if (cs.ordinal() == i) {
+                return cs;
+            }
+        }
+        throw new IllegalArgumentException("Unknown state: " + i);
     }
 
     Entry<MemorySegment> get(MemorySegment key) {
@@ -198,9 +216,7 @@ class Storage implements Closeable {
 
     @Override
     public void close() {
-//        if (arena.scope().isAlive()) {
-//            arena.close();
-//        }
+        // Does nothing since there are no resources to close now
     }
 
     public MemorySegment mappedSStable(int i) {
@@ -211,8 +227,15 @@ class Storage implements Closeable {
         return indexMappedList.get(i);
     }
 
+    // compact вызывается из dao однопоточно
     void compact(Iterator<Entry<MemorySegment>> iterator1, Iterator<Entry<MemorySegment>> iterator2, int sstablesToCompact)
             throws IOException {
+
+        if (!Files.exists(compactedTablesAmountFilePath)) {
+            Files.createFile(compactedTablesAmountFilePath);
+        }
+        Files.writeString(compactedTablesAmountFilePath, String.valueOf(sstablesToCompact), StandardOpenOption.WRITE);
+
         Entry<Long> storageIndexSize = calcCompactedSStableIndexSize(iterator1);
         Path compactingSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX);
         Path compactingIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTING_SUFFIX);
@@ -228,36 +251,45 @@ class Storage implements Closeable {
         Files.move(compactingSStablePath, compactedSStablePath, StandardCopyOption.ATOMIC_MOVE);
         Files.move(compactingIndexPath, compactedIndexPath, StandardCopyOption.ATOMIC_MOVE);
 
-        if (!Files.exists(compactedTablesAmountPath)) {
-            Files.createFile(compactedTablesAmountPath);
+        compactionState = CompactionState.DELETE_REMAINING;
+        if (!Files.exists(compactionStateFilePath)) {
+            Files.createFile(compactionStateFilePath);
         }
-        Files.writeString(compactedTablesAmountPath, String.valueOf(sstablesToCompact), StandardOpenOption.WRITE);
+        Files.writeString(compactionStateFilePath, String.valueOf(compactionState.ordinal()), StandardOpenOption.WRITE);
 
         finishCompact(sstablesToCompact);
     }
 
+    // finishCompact имеет смысл вызывать только зная, сколько sstable'ов мы скомпактили
+    // иначе - непонятно, какие файлы удалять
     private void finishCompact(int compactedSStablesAmount) throws IOException {
         sstablesAmountRWLock.writeLock().lock();
         try {
-            for (int i = 0; i < compactedSStablesAmount; i++) {
-                Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + i));
-                Files.deleteIfExists(storagePath.resolve(INDEX_BASE_NAME + i));
+            if (compactionState == CompactionState.DELETE_REMAINING) {
+                for (int i = 0; i < compactedSStablesAmount; i++) {
+                    Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + i));
+                    Files.deleteIfExists(storagePath.resolve(INDEX_BASE_NAME + i));
+                }
+                compactionState = CompactionState.MOVE_COMPACTED;
+                Files.writeString(compactionStateFilePath, String.valueOf(compactionState.ordinal()), StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING);
             }
 
-            Path compactedSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
-            if (Files.exists(compactedSStablePath)) {
-                Files.move(compactedSStablePath,
-                        storagePath.resolve(SSTABLE_BASE_NAME + 0),
-                        StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING);
-            }
-            Path compactedIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX);
+            if (compactionState == CompactionState.MOVE_COMPACTED) {
+                Path compactedSStablePath = storagePath.resolve(SSTABLE_BASE_NAME + COMPACTED_SUFFIX);
+                if (Files.exists(compactedSStablePath)) {
+                    Files.move(compactedSStablePath,
+                            storagePath.resolve(SSTABLE_BASE_NAME + 0),
+                            StandardCopyOption.ATOMIC_MOVE,
+                            StandardCopyOption.REPLACE_EXISTING);
+                }
+                Path compactedIndexPath = storagePath.resolve(INDEX_BASE_NAME + COMPACTED_SUFFIX);
 
-            if (Files.exists(compactedIndexPath)) {
-                Files.move(compactedIndexPath,
-                        storagePath.resolve(INDEX_BASE_NAME + 0),
-                        StandardCopyOption.ATOMIC_MOVE,
-                        StandardCopyOption.REPLACE_EXISTING);
+                if (Files.exists(compactedIndexPath)) {
+                    Files.move(compactedIndexPath,
+                            storagePath.resolve(INDEX_BASE_NAME + 0),
+                            StandardCopyOption.ATOMIC_MOVE,
+                            StandardCopyOption.REPLACE_EXISTING);
+                }
             }
 
             int totalSStables = Integer.parseInt(Files.readString(metaFilePath));
@@ -283,7 +315,7 @@ class Storage implements Closeable {
             fillFileRepresentationLists(newTotalSStables);
 
             Files.writeString(metaFilePath, String.valueOf(newTotalSStables));
-            Files.deleteIfExists(compactedTablesAmountPath);
+            Files.deleteIfExists(compactedTablesAmountFilePath);
         } finally {
             sstablesAmountRWLock.writeLock().unlock();
         }
