@@ -9,14 +9,9 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class Storage {
@@ -57,34 +52,48 @@ public class Storage {
         );
     }
 
-    public boolean compact(Path dataPath, Collection<Entry<MemorySegment>> values) throws IOException {
+    public boolean compact(Path dataPath, Iterable<Entry<MemorySegment>> values) throws IOException {
         Path indexFile = createOrMapIndexFile(dataPath);
         List<String> existedFiles = Files.readAllLines(indexFile);
         if (existedFiles.isEmpty()) {
             return false;
         }
 
-        String fileName = String.valueOf(SSTABLE_ID.incrementAndGet());
+        Path compactionTmpFile = getCompactionPath(dataPath);
 
-        compactData(dataPath.resolve(fileName), values);
+        compactData(compactionTmpFile, values);
+        finalizeCompaction(dataPath, existedFiles);
+        return true;
+    }
+
+    private void finalizeCompaction(Path dataPath, List<String> existedFiles) throws IOException {
+        Path compactionTmpFile = getCompactionPath(dataPath);
         for (String name : existedFiles) {
             Files.deleteIfExists(dataPath.resolve(name));
         }
-        Files.write(indexFile,
-                List.of(fileName),
+
+        Path indexFile = createOrMapIndexFile(dataPath);
+        String newSSTableName = String.valueOf(SSTABLE_ID.incrementAndGet());
+        Files.write(
+                indexFile,
+                Collections.singleton(newSSTableName),
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
-        return true;
+
+        Files.move(compactionTmpFile, dataPath.resolve(newSSTableName), StandardCopyOption.ATOMIC_MOVE);
     }
 
-    private void compactData(Path ssTablePath, Collection<Entry<MemorySegment>> values) throws IOException {
+    private Path getCompactionPath(Path dataPath) {
+        return dataPath.resolve("compaction.tmp");
+    }
+
+    private void compactData(Path ssTablePath, Iterable<Entry<MemorySegment>> values) throws IOException {
         long dataSize = 0;
         long entriesCount = 0;
-        Iterator<Entry<MemorySegment>> mergeIterator = range(values.iterator(), null, null);
-        while (mergeIterator.hasNext()) {
-            Entry<MemorySegment> entry = mergeIterator.next();
+
+        for (Entry<MemorySegment> entry : values) {
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
             dataSize += (value == null) ? 0 : value.byteSize();
@@ -99,11 +108,10 @@ public class Storage {
                     dataSize + indexSize,
                     arena);
 
-            mergeIterator = range(values.iterator(), null, null);
             Offset offset = new Offset(indexSize, 0);
-            while (mergeIterator.hasNext()) {
-                Entry<MemorySegment> entry = mergeIterator.next();
+            for (Entry<MemorySegment> entry : values) {
                 writeEntry(entry, segment, offset);
+
             }
         }
     }

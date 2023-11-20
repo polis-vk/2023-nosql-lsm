@@ -59,7 +59,7 @@ public class PersistentDaoImpl implements Dao<MemorySegment, Entry<MemorySegment
 
     @Override
     public void compact() throws IOException {
-        if (storage.compact(dataPath, memTable.values())) {
+        if (storage.compact(dataPath, this::all)) {
             memTable.clear();
         }
     }
