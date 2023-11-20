@@ -4,16 +4,20 @@ import ru.vk.itmo.Entry;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Collections;
+import java.util.Iterator;
 
 public class StorageHelper {
     static final String SS_TABLE_FILE_NAME = "ssTable";
     static final String TEMP_SS_TABLE_FILE_NAME = "tempSsTable";
-
     static final String COMPACTED_FILE_NAME = "compact";
+    private long ssTablesEntryQuantity;
     protected long memTableEntriesCount;
 
     public int findSsTablesQuantity(Path ssTablePath) {
@@ -78,5 +82,55 @@ public class StorageHelper {
         }
         memTableEntriesCount = entriesCount;
         return ssTableDataByteSize + entriesCount * Long.BYTES * 4L + Long.BYTES;
+    }
+
+    public void saveDataForCompaction(State stateNow, Path ssTablePath) {
+        Iterator<Entry<MemorySegment>> ssTablesIterator = stateNow.storage.range(
+                Collections.emptyIterator(), Collections.emptyIterator(),
+                null, null, MemorySegmentComparator.getMemorySegmentComparator());
+        Path compactionPath = ssTablePath.resolve(StorageHelper.COMPACTED_FILE_NAME);
+        try (Arena writeArena = Arena.ofConfined()) {
+            MemorySegment buffer = NmapBuffer.getWriteBufferToSsTable(getCompactionTableByteSize(stateNow),
+                    compactionPath, writeArena);
+            long bufferByteSize = buffer.byteSize();
+            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, bufferByteSize - Long.BYTES, ssTablesEntryQuantity);
+            long dataOffset = 0;
+            long indexOffset = bufferByteSize - Long.BYTES - ssTablesEntryQuantity * 2L * Long.BYTES;
+            while (ssTablesIterator.hasNext()) {
+                Entry<MemorySegment> entry = ssTablesIterator.next();
+                buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                indexOffset += Long.BYTES;
+                buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset, entry.key().byteSize());
+                dataOffset += Long.BYTES;
+                MemorySegment.copy(entry.key(), 0, buffer, dataOffset, entry.key().byteSize());
+                dataOffset += entry.key().byteSize();
+                buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                indexOffset += Long.BYTES;
+                buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset, entry.value().byteSize());
+                dataOffset += Long.BYTES;
+                MemorySegment.copy(entry.value(), 0, buffer, dataOffset, entry.value().byteSize());
+                dataOffset += entry.value().byteSize();
+            }
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private long getCompactionTableByteSize(State stateNow) {
+        Iterator<Entry<MemorySegment>> dataIterator = stateNow.storage.range(Collections.emptyIterator(),
+                Collections.emptyIterator(),
+                null,
+                null,
+                MemorySegmentComparator.getMemorySegmentComparator());
+        long compactionTableByteSize = 0;
+        long countEntry = 0;
+        while (dataIterator.hasNext()) {
+            Entry<MemorySegment> entry = dataIterator.next();
+            compactionTableByteSize += entry.key().byteSize();
+            compactionTableByteSize += entry.value().byteSize();
+            countEntry++;
+        }
+        ssTablesEntryQuantity = countEntry;
+        return compactionTableByteSize + countEntry * 4L * Long.BYTES + Long.BYTES;
     }
 }

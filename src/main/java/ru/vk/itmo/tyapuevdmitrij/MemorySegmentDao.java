@@ -28,7 +28,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path ssTablePath;
-    private long ssTablesEntryQuantity;
     private final Config config;
     private State state;
     private final Lock storageLock = new ReentrantLock();
@@ -137,11 +136,12 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             long entrySizeDelta = entrySize - entryBySameKeyByteSize;
             long currentMemoryUsage = currentState.memoryUsage.addAndGet(entrySizeDelta);
             if (currentMemoryUsage > config.flushThresholdBytes()) {
-                if (!autoFlushing.get()) {
-                    autoFlushing.set(true);
+                if (autoFlushing.get() && currentState.flushMemTable != null) {
+                 throw new FilesException("dont upsert - overload");
+                }
+                if (!autoFlushing.getAndSet(true)) {
                     executor.execute(this::flushing);
                 }
-
             }
             this.state.memTable.put(entry.key(), entry);
         } finally {
@@ -204,45 +204,16 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
                     if (!currentState.storage.readArena.scope().isAlive()) {
                         return;
                     }
-                    Iterator<Entry<MemorySegment>> ssTablesIterator = stateNow.storage.range(
-                            Collections.emptyIterator(), Collections.emptyIterator(),
-                            null, null, MemorySegmentComparator.getMemorySegmentComparator());
-                    Path compactionPath = ssTablePath.resolve(StorageHelper.COMPACTED_FILE_NAME);
-                    try (Arena writeArena = Arena.ofConfined()) {
-                        MemorySegment buffer = NmapBuffer.getWriteBufferToSsTable(getCompactionTableByteSize(stateNow),
-                                compactionPath, writeArena);
-                        long bufferByteSize = buffer.byteSize();
-                        buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, bufferByteSize - Long.BYTES, ssTablesEntryQuantity);
-                        long dataOffset = 0;
-                        long indexOffset = bufferByteSize - Long.BYTES - ssTablesEntryQuantity * 2L * Long.BYTES;
-                        while (ssTablesIterator.hasNext()) {
-                            Entry<MemorySegment> entry = ssTablesIterator.next();
-                            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                            indexOffset += Long.BYTES;
-                            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset, entry.key().byteSize());
-                            dataOffset += Long.BYTES;
-                            MemorySegment.copy(entry.key(), 0, buffer, dataOffset, entry.key().byteSize());
-                            dataOffset += entry.key().byteSize();
-                            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                            indexOffset += Long.BYTES;
-                            buffer.set(ValueLayout.JAVA_LONG_UNALIGNED, dataOffset, entry.value().byteSize());
-                            dataOffset += Long.BYTES;
-                            MemorySegment.copy(entry.value(), 0, buffer, dataOffset, entry.value().byteSize());
-                            dataOffset += entry.value().byteSize();
-                        }
-                    }
+                    stateNow.storage.storageHelper.saveDataForCompaction(stateNow, ssTablePath);
                     stateNow.storage.storageHelper.deleteOldSsTables(ssTablePath);
                     stateNow.storage.storageHelper.renameCompactedSsTable(ssTablePath);
                     Storage load = new Storage(ssTablePath);
                     upsertLock.writeLock().lock();
                     try {
-                            this.state = new State(this.state.memTable, this.state.flushMemTable, load);
-
+                        this.state = new State(this.state.memTable, this.state.flushMemTable, load);
                     } finally {
                         upsertLock.writeLock().unlock();
                     }
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
                 } finally {
                     storageLock.unlock();
                 }
@@ -269,23 +240,5 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             throw new IllegalStateException(e);
         }
         flush();
-    }
-
-    private long getCompactionTableByteSize(State stateNow) {
-        Iterator<Entry<MemorySegment>> dataIterator = stateNow.storage.range(Collections.emptyIterator(),
-                Collections.emptyIterator(),
-                null,
-                null,
-                MemorySegmentComparator.getMemorySegmentComparator());
-        long compactionTableByteSize = 0;
-        long countEntry = 0;
-        while (dataIterator.hasNext()) {
-            Entry<MemorySegment> entry = dataIterator.next();
-            compactionTableByteSize += entry.key().byteSize();
-            compactionTableByteSize += entry.value().byteSize();
-            countEntry++;
-        }
-        ssTablesEntryQuantity = countEntry;
-        return compactionTableByteSize + countEntry * 4L * Long.BYTES + Long.BYTES;
     }
 }
