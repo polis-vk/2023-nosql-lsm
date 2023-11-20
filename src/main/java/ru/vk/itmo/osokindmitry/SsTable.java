@@ -28,6 +28,40 @@ public class SsTable {
         }
     }
 
+    public Iterator<Entry<MemorySegment>> iterator(MemorySegment from, MemorySegment to) {
+        long recordIndexFrom = from == null ? 0 : normalize(indexOf(segment, from));
+        long recordIndexTo = to == null ? recordsCount(segment) : normalize(indexOf(segment, to));
+        long recordsCount = recordsCount(segment);
+
+        return new Iterator<>() {
+            long index = recordIndexFrom;
+
+            @Override
+            public boolean hasNext() {
+                return index < recordIndexTo;
+            }
+
+            @Override
+            public Entry<MemorySegment> next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                MemorySegment key = slice(segment, startOfKey(segment, index), endOfKey(segment, index));
+                long startOfValue = startOfValue(segment, index);
+                MemorySegment value =
+                        startOfValue < 0
+                                ? null
+                                : slice(segment, startOfValue, endOfValue(segment, index, recordsCount));
+                index++;
+                return new BaseEntry<>(key, value);
+            }
+        };
+    }
+
+    public boolean isEmpty() {
+        return segment.byteSize() == 0;
+    }
+
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);
 
@@ -107,36 +141,6 @@ public class SsTable {
             return startOfKey(segment, recordIndex + 1);
         }
         return segment.byteSize();
-    }
-
-    public Iterator<Entry<MemorySegment>> iterator(MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : normalize(indexOf(segment, from));
-        long recordIndexTo = to == null ? recordsCount(segment) : normalize(indexOf(segment, to));
-        long recordsCount = recordsCount(segment);
-
-        return new Iterator<>() {
-            long index = recordIndexFrom;
-
-            @Override
-            public boolean hasNext() {
-                return index < recordIndexTo;
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                if (!hasNext()) {
-                    throw new NoSuchElementException();
-                }
-                MemorySegment key = slice(segment, startOfKey(segment, index), endOfKey(segment, index));
-                long startOfValue = startOfValue(segment, index);
-                MemorySegment value =
-                        startOfValue < 0
-                                ? null
-                                : slice(segment, startOfValue, endOfValue(segment, index, recordsCount));
-                index++;
-                return new BaseEntry<>(key, value);
-            }
-        };
     }
 
 }

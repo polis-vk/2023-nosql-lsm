@@ -10,75 +10,55 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MemTable {
     private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> storage;
     private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> flushingStorage;
     private final AtomicLong storageSize;
     private final AtomicBoolean isFlushing;
-    private final ReentrantReadWriteLock rwLock;
     private final long thresholdBytes;
 
 
-    public MemTable(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage, long thresholdBytes, ReentrantReadWriteLock rwLock) {
+    public MemTable(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage, long thresholdBytes) {
         this.storage = new AtomicReference<>(storage);
         flushingStorage = new AtomicReference<>();
         storageSize = new AtomicLong(0);
         isFlushing = new AtomicBoolean(false);
-        this.rwLock = rwLock;
         this.thresholdBytes = thresholdBytes;
     }
 
     public ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> getTable() {
-        rwLock.readLock().lock();
-        try {
-            return storage.get();
-        } finally {
-            rwLock.readLock().unlock();
-        }
+        return storage.get();
+    }
+
+    public ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> getFlushingTable() {
+        return flushingStorage.get();
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-        rwLock.readLock().lock();
-        try {
-            Entry<MemorySegment> entry = get(key, storage);
-            if (entry == null) {
-                return get(key, flushingStorage);
-            }
-            return entry;
-        } finally {
-            rwLock.readLock().unlock();
+        Entry<MemorySegment> entry = get(key, storage);
+        if (entry == null && isFlushing.get()) {
+            return get(key, flushingStorage);
         }
+        return entry;
     }
 
     public List<Iterator<Entry<MemorySegment>>> get(MemorySegment from, MemorySegment to) {
 
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(2);
 
-        rwLock.readLock().lock();
-        try {
-            iterators.add(getInMemory(from, to, storage));
-            // если идет флаш, данные еще не на диске, надо вернуть данные со старого мемтейбл
-            if (isFlushing.get() && flushingStorage.get() != null) {
-                iterators.add(getInMemory(from, to, flushingStorage));
-            }
-        } finally {
-            rwLock.readLock().unlock();
+        iterators.add(getInMemory(from, to, storage));
+        if (isFlushing.get() && flushingStorage.get() != null) {
+            iterators.add(getInMemory(from, to, flushingStorage));
         }
 
         return iterators;
     }
 
     public void set(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> newStorage) {
-        rwLock.writeLock().lock();
-        try {
-            this.flushingStorage.set(storage.get());
-            this.storage.set(newStorage);
-            storageSize.set(0);
-        } finally {
-            rwLock.writeLock().unlock();
-        }
+        this.flushingStorage.set(storage.get());
+        this.storage.set(newStorage);
+        storageSize.set(0);
     }
 
     public void setIsFlushing(boolean isFlushing) {
@@ -90,20 +70,12 @@ public class MemTable {
             AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> storage
     ) {
         Entry<MemorySegment> entry;
-        rwLock.readLock().lock();
-        try {
-            entry = storage.get().get(key);
-        } finally {
-            rwLock.readLock().unlock();
-        }
+        entry = storage.get().get(key);
 
-        if (entry != null) {
-            if (entry.value() == null) {
-                return null;
-            }
-            return entry;
-        }
-        return null;
+        //            if (entry.value() == null) {
+        //                return null;
+        //            }
+        return entry;
     }
 
     private Iterator<Entry<MemorySegment>> getInMemory(
@@ -126,16 +98,12 @@ public class MemTable {
     public void put(MemorySegment key, Entry<MemorySegment> entry) {
         long entrySize = entrySize(entry);
 
-        rwLock.writeLock().lock();
-        try {
-            if (storageSize.get() + entrySize > thresholdBytes && isFlushing.get()) {
-                throw new IllegalStateException();
-            }
-            storage.get().put(key, entry);
-            storageSize.addAndGet(entrySize);
-        } finally {
-            rwLock.writeLock().unlock();
+        storageSize.addAndGet(entrySize);
+
+        if (storageSize.get() > thresholdBytes && isFlushing.get()) {
+            throw new IllegalStateException();
         }
+        storage.get().put(key, entry);
     }
 
     public long size() {

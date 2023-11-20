@@ -44,9 +44,11 @@ public class DiskStorage {
 
         rwLock.readLock().lock();
         try {
-            List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(tableList.size() + 1);
+            List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(tableList.size() + memoryIterators.size());
             for (SsTable ssTable : tableList) {
-                iterators.add(ssTable.iterator(from, to));
+                if (!ssTable.isEmpty()) {
+                    iterators.add(ssTable.iterator(from, to));
+                }
             }
 
             iterators.addAll(memoryIterators);

@@ -29,10 +29,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final long thresholdBytes;
     private final ReentrantReadWriteLock rwLock;
     private final ExecutorService compactionExecutor;
-    private final ExecutorService flushExecutor;
+    private ExecutorService flushExecutor;
     private final ExecutorService finalizer;
     private Future<?> autoFlushing;
-    private Future<?> flushingTask;
+//    private Future<?> flushingTask;
     private final AtomicBoolean shuttingDown;
 
     public PersistentDao(Config config) throws IOException {
@@ -43,8 +43,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena = Arena.ofShared();
         rwLock = new ReentrantReadWriteLock();
 
-        memTable = new MemTable(new ConcurrentSkipListMap<>(PersistentDao::compare), thresholdBytes, rwLock);
-
+        memTable = new MemTable(new ConcurrentSkipListMap<>(PersistentDao::compare), thresholdBytes);
 
         compactionExecutor = Executors.newSingleThreadExecutor();
         flushExecutor = Executors.newFixedThreadPool(2);
@@ -62,6 +61,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             Entry<MemorySegment> entry = memTable.get(key);
             if (entry != null) {
+                if (entry.value() == null) {
+                    return null;
+                }
                 return entry;
             }
         } finally {
@@ -119,7 +121,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         rwLock.readLock().lock();
         try {
             if (!memTable.getTable().isEmpty()) {
-                flushingTask = flushExecutor.submit(new FlushingTask<>());
+//                flushingTask = flushExecutor.submit(new FlushingTask<>());
+                flushExecutor.execute(new FlushingTask<>());
             }
         } finally {
             rwLock.readLock().unlock();
@@ -152,7 +155,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         compactionExecutor.close();
         flushExecutor.close();
         arena.close();
-        autoFlushing = finalizer.submit(new FlushingTask<>());
+        flushExecutor = finalizer;
+        flush();
         finalizer.close();
     }
 
@@ -163,7 +167,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 try {
                     memTable.set(new ConcurrentSkipListMap<>(PersistentDao::compare));
                     memTable.setIsFlushing(true);
-                    diskStorage.save(path, memTable.getTable().values());
+                    diskStorage.save(path, memTable.getFlushingTable().values());
                     memTable.setIsFlushing(false);
                 } catch (IOException e) {
                     throw new RuntimeException(e);
