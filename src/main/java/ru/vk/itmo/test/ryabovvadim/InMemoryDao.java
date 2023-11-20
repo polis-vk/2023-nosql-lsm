@@ -201,29 +201,28 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void updateSSTables(boolean isStartup) throws IOException {
-        if (existsPath()) {
-            Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                    if (FileUtils.hasExtension(file, DATA_FILE_EXT)) {
-                        String fileName = FileUtils.extractFileName(file, DATA_FILE_EXT);
-                        if (NumberUtils.isInteger(fileName)) {
-                            ssTables.add(new SSTable(
-                                    config.basePath(),
-                                    Long.parseLong(fileName),
-                                    arena
-                            ));
-                            return FileVisitResult.CONTINUE;
-                        }
+        Files.walkFileTree(config.basePath(), Set.of(), 1, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                boolean shouldDelete = true;
+                if (FileUtils.hasExtension(file, DATA_FILE_EXT)) {
+                    String fileName = FileUtils.extractFileName(file, DATA_FILE_EXT);
+                    if (NumberUtils.isInteger(fileName)) {
+                        ssTables.add(new SSTable(
+                                config.basePath(),
+                                Long.parseLong(fileName),
+                                arena
+                        ));
+                        shouldDelete = false;
                     }
-
-                    if (isStartup) {
-                        Files.deleteIfExists(file);
-                    }
-                    return FileVisitResult.CONTINUE;
                 }
-            });
-        }
+
+                if (isStartup && shouldDelete) {
+                    Files.deleteIfExists(file);
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
     }
 
     private long saveEntries(Iterable<Entry<MemorySegment>> entries) throws IOException {
