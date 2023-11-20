@@ -9,7 +9,7 @@ import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class Memory {
+public class SSTable {
     private final Comparator<MemorySegment> comparator = PersistentDao::compare;
 
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);

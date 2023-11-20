@@ -10,7 +10,6 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Iterator;
 import java.util.concurrent.ExecutorService;
@@ -20,26 +19,26 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private StorageState storageState;
+    private final StorageState storageState;
     private final Arena arena;
     private final DiskStorage diskStorage;
-    private final Path dataPath;
-    private final Path compactTempPath;
-    private final long flushThresholdBytes;
+    private final ConfigWrapper config;
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     public PersistentDao(Config config) throws IOException {
-        this.dataPath = config.basePath().resolve("data");
-        this.compactTempPath = config.basePath().resolve("compact_temp");
-        Files.createDirectories(dataPath);
-        Files.deleteIfExists(compactTempPath);
+        this.config = new ConfigWrapper(
+                config.flushThresholdBytes(),
+                config.basePath().resolve("data"),
+                config.basePath().resolve("compact_temp")
+        );
+
+        Files.createDirectories(this.config.getDataPath());
+        Files.deleteIfExists(this.config.getCompactTempPath());
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(dataPath, arena));
-        this.flushThresholdBytes = config.flushThresholdBytes();
-
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(this.config.getDataPath(), arena));
         this.storageState = StorageState.initStorageState();
     }
 
@@ -68,7 +67,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (storageState.getActiveSSTable().getStorageSize() >= flushThresholdBytes && storageState.getFlushingSSTable() != null) {
+        if (storageState.getActiveSSTable().getStorageSize() >= config.getFlushThresholdBytes()
+                && storageState.getFlushingSSTable() != null
+        ) {
             throw new IllegalStateException("SSTable is full. Wait until flush.");
         }
 
@@ -80,7 +81,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         try {
-            if (storageState.getActiveSSTable().getStorageSize() >= flushThresholdBytes) {
+            if (storageState.getActiveSSTable().getStorageSize() >= config.getFlushThresholdBytes()) {
                 flush();
             }
         } catch (IOException e) {
@@ -146,7 +147,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             flush();
             executor.shutdown();
-            executor.awaitTermination(1, TimeUnit.MINUTES);
+            executor.awaitTermination(5, TimeUnit.MINUTES);
         } catch (InterruptedException e) {
             throw new IllegalStateException(e);
         } finally {
@@ -155,16 +156,15 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 flushToDisk();
             }
             arena.close();
-            storageState = null;
         }
     }
 
     private void flushToDisk() {
         try {
             Iterable<Entry<MemorySegment>> valuesToFlush = () -> storageState.getFlushingSSTable().getAll();
-            String filename = DiskStorage.save(dataPath, valuesToFlush);
-            storageState = new StorageState(storageState.getActiveSSTable(), null);
-            diskStorage.addSegment(dataPath, filename, arena);
+            String filename = DiskStorage.save(config.getDataPath(), valuesToFlush);
+            storageState.removeFlushingSSTable();
+            diskStorage.addSegment(config.getDataPath(), filename, arena);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -174,10 +174,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             Iterable<Entry<MemorySegment>> compactValues = () -> diskStorage.rangeFromDisk(null, null);
             if (compactValues.iterator().hasNext()) {
-                Files.createDirectories(compactTempPath);
-                DiskStorage.save(compactTempPath, compactValues);
-                DiskStorage.deleteObsoleteData(dataPath);
-                Files.move(compactTempPath, dataPath, StandardCopyOption.ATOMIC_MOVE);
+                Files.createDirectories(config.getCompactTempPath());
+                DiskStorage.save(config.getCompactTempPath(), compactValues);
+                DiskStorage.deleteObsoleteData(config.getDataPath());
+                Files.move(config.getCompactTempPath(), config.getDataPath(), StandardCopyOption.ATOMIC_MOVE);
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
