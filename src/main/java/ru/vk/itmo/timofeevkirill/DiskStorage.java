@@ -24,9 +24,10 @@ import java.util.NoSuchElementException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 
-public class DiskStorage {
+import static ru.vk.itmo.timofeevkirill.DiskStorageUtils.*;
 
-    public static final String SSTABLE_PREFIX = "sstable_";
+public class DiskStorage {
+    private final static String SSTABLE_PREFIX = DiskStorageUtils.SSTABLE_PREFIX;
     private final List<MemorySegment> segmentList = new CopyOnWriteArrayList<>();
 
     public DiskStorage(List<MemorySegment> segmentList) {
@@ -43,7 +44,7 @@ public class DiskStorage {
         }
         iterators.addAll(addIterators);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, InMemoryDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, Dao::compare)) {
             @Override
             protected boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;
@@ -53,8 +54,8 @@ public class DiskStorage {
 
     public void saveNextSSTable(Path storagePath, Iterable<Entry<MemorySegment>> iterable, Arena arena)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(INDEX_TMP_FILE);
+        final Path indexFile = storagePath.resolve(INDEX_FILE);
 
         try {
             Files.createFile(indexFile);
@@ -62,7 +63,6 @@ public class DiskStorage {
             // it is ok, actually it is normal state
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        System.out.println("Existed files " + existedFiles.size());
         String newFileName = SSTABLE_PREFIX + existedFiles.size();
 
         long dataSize = 0;
@@ -144,8 +144,9 @@ public class DiskStorage {
 
         Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
 
-        if (arena.scope().isAlive())
+        if (arena.scope().isAlive()) {
             openNewSSTable(storagePath.resolve(newFileName), arena);
+        }
     }
 
     public void openNewSSTable(Path file, Arena arena) {
@@ -157,8 +158,8 @@ public class DiskStorage {
                     arena
             );
             segmentList.add(fileSegment);
-        } catch (Exception e) {
-            throw new RuntimeException("openNewSSTable", e);
+        } catch (IOException e) {
+            throw new IllegalStateException("Error open after flush", e);
         }
     }
 
@@ -166,7 +167,8 @@ public class DiskStorage {
             throws IOException {
 
         List<Path> toDelete;
-        try (Stream<Path> stream = Files.find(storagePath, 1, (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
+        try (Stream<Path> stream = Files.find(storagePath, 1,
+                (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
             toDelete = stream.toList();
         }
 
@@ -247,63 +249,13 @@ public class DiskStorage {
         finalizeCompaction(storagePath, toDelete);
     }
 
-    private static void finalizeCompaction(Path storagePath, List<Path> toDelete) throws IOException {
-        if (toDelete.isEmpty())
-            try (Stream<Path> stream = Files.find(storagePath, 1, (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
-                stream.forEach(p -> {
-                    try {
-                        Files.delete(p);
-                    } catch (IOException e) {
-                        throw new UncheckedIOException(e);
-                    }
-                });
-            }
-        else
-            toDelete.forEach(p -> {
-                try {
-                    Files.delete(p);
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            });
-
-        Path compactionFile = compactionFile(storagePath);
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
-
-        Files.deleteIfExists(indexFile);
-        Files.deleteIfExists(indexTmp);
-
-        boolean noData = Files.size(compactionFile) == 0;
-
-        Files.write(
-                indexTmp,
-                noData ? Collections.emptyList() : Collections.singleton(SSTABLE_PREFIX + "0"),
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
-        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
-        if (noData) {
-            Files.delete(compactionFile);
-        } else {
-            Files.move(compactionFile, storagePath.resolve(SSTABLE_PREFIX + "0"), StandardCopyOption.ATOMIC_MOVE);
-        }
-    }
-
-    private static Path compactionFile(Path storagePath) {
-        return storagePath.resolve("compaction");
-    }
-
-
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         if (Files.exists(compactionFile(storagePath))) {
             finalizeCompaction(storagePath, Collections.emptyList());
         }
 
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(INDEX_TMP_FILE);
+        Path indexFile = storagePath.resolve(INDEX_FILE);
 
         if (!Files.exists(indexFile)) {
             if (Files.exists(indexTmp)) {
@@ -330,116 +282,4 @@ public class DiskStorage {
 
         return result;
     }
-
-    private static long indexOf(MemorySegment segment, MemorySegment key) {
-        long recordsCount = recordsCount(segment);
-
-        long left = 0;
-        long right = recordsCount - 1;
-        while (left <= right) {
-            long mid = (left + right) >>> 1;
-
-            long startOfKey = startOfKey(segment, mid);
-            long endOfKey = endOfKey(segment, mid);
-            long mismatch = MemorySegment.mismatch(segment, startOfKey, endOfKey, key, 0, key.byteSize());
-            if (mismatch == -1) {
-                return mid;
-            }
-
-            if (mismatch == key.byteSize()) {
-                right = mid - 1;
-                continue;
-            }
-
-            if (mismatch == endOfKey - startOfKey) {
-                left = mid + 1;
-                continue;
-            }
-
-            int b1 = Byte.toUnsignedInt(segment.get(ValueLayout.JAVA_BYTE, startOfKey + mismatch));
-            int b2 = Byte.toUnsignedInt(key.get(ValueLayout.JAVA_BYTE, mismatch));
-            if (b1 > b2) {
-                right = mid - 1;
-            } else {
-                left = mid + 1;
-            }
-        }
-
-        return tombstone(left);
-    }
-
-    private static long recordsCount(MemorySegment segment) {
-        long indexSize = indexSize(segment);
-        return indexSize / Long.BYTES / 2;
-    }
-
-    private static long indexSize(MemorySegment segment) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
-    }
-
-    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
-        long recordsCount = recordsCount(page);
-
-        return new Iterator<>() {
-            long index = recordIndexFrom;
-
-            @Override
-            public boolean hasNext() {
-                return index < recordIndexTo;
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                if (!hasNext()) {
-                    throw new NoSuchElementException();
-                }
-                MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
-                long startOfValue = startOfValue(page, index);
-                MemorySegment value =
-                        startOfValue < 0
-                                ? null
-                                : slice(page, startOfValue, endOfValue(page, index, recordsCount));
-                index++;
-                return new BaseEntry<>(key, value);
-            }
-        };
-    }
-
-    private static MemorySegment slice(MemorySegment page, long start, long end) {
-        return page.asSlice(start, end - start);
-    }
-
-    private static long startOfKey(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
-    }
-
-    private static long endOfKey(MemorySegment segment, long recordIndex) {
-        return normalizedStartOfValue(segment, recordIndex);
-    }
-
-    private static long normalizedStartOfValue(MemorySegment segment, long recordIndex) {
-        return normalize(startOfValue(segment, recordIndex));
-    }
-
-    private static long startOfValue(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
-    }
-
-    private static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
-        if (recordIndex < recordsCount - 1) {
-            return startOfKey(segment, recordIndex + 1);
-        }
-        return segment.byteSize();
-    }
-
-    private static long tombstone(long offset) {
-        return 1L << 63 | offset;
-    }
-
-    private static long normalize(long value) {
-        return value & ~(1L << 63);
-    }
-
 }

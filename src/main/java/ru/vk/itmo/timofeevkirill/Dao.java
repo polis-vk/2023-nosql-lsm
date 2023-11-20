@@ -1,7 +1,6 @@
 package ru.vk.itmo.timofeevkirill;
 
 import ru.vk.itmo.Config;
-import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
@@ -25,9 +24,9 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class Dao implements ru.vk.itmo.Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final Comparator<MemorySegment> comparator = InMemoryDao::compare;
+    private final Comparator<MemorySegment> comparator = Dao::compare;
     private NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
@@ -38,10 +37,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private NavigableMap<MemorySegment, Entry<MemorySegment>> storageBuffer = new ConcurrentSkipListMap<>(comparator);
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
-    private Future<?> flushTask = null;
-    private Future<?> compactionTask = null;
+    private Future<?> flushTask;
+    private Future<?> compactionTask;
 
-    public InMemoryDao(Config config) throws IOException {
+    public Dao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
         this.flushThresholdBytes = config.flushThresholdBytes();
         Files.createDirectories(path);
@@ -95,7 +94,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         if (!(flushTask == null || flushTask.isDone()) && storageBytesSize.get() >= flushThresholdBytes) {
-            throw new RuntimeException("Previous flush has not yet ended");
+            throw new IllegalStateException("Previous flush has not yet ended");
         }
 
         lock.readLock().lock();
@@ -107,21 +106,20 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 valueSize = entry.value().byteSize();
             }
             Entry<MemorySegment> prev = storage.put(entry.key(), entry);
-            if (prev != null) {
-                storageBytesSize.addAndGet(valueSize);
-            } else {
+            if (prev == null) {
                 storageBytesSize.addAndGet(entry.key().byteSize() + valueSize);
+            } else {
+                storageBytesSize.addAndGet(valueSize);
             }
         } finally {
             lock.readLock().unlock();
         }
 
-
         if (storageBytesSize.get() >= flushThresholdBytes) {
             try {
                 flush();
             } catch (IOException e) {
-                throw new RuntimeException("Auto flush exception");
+                throw new IllegalStateException("Auto flush exception", e);
             }
         }
     }
@@ -168,7 +166,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             try {
                 DiskStorage.compact(path, this::all);
             } catch (IOException e) {
-                throw new RuntimeException("Can not compact");
+                throw new IllegalStateException("Can not compact", e);
             }
         });
     }
@@ -193,7 +191,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 diskStorage.saveNextSSTable(path, storageBuffer.values(), arena);
                 storageBuffer = null;
             } catch (IOException e) {
-                throw new RuntimeException("Can not flush", e);
+                throw new IllegalStateException("Can not flush", e);
             }
         });
     }
@@ -207,8 +205,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (flushTask != null && !flushTask.isDone()) {
                 flushTask.get();
             }
-        } catch (InterruptedException | ExecutionException e) {
-            throw new RuntimeException("Dao can not be stopped gracefully", e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("Dao can not be stopped gracefully", e);
         }
         executorService.close();
 
