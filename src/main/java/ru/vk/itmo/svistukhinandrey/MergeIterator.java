@@ -10,6 +10,7 @@ public class MergeIterator<T> implements Iterator<T> {
 
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
+    private PeekIterator<T> nextIterator;
 
     private static class PeekIterator<T> implements Iterator<T> {
 
@@ -35,9 +36,9 @@ public class MergeIterator<T> implements Iterator<T> {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
-            T peek = peek();
+            T peeked = peek();
             this.peek = null;
-            return peek;
+            return peeked;
         }
 
         private T peek() {
@@ -50,8 +51,6 @@ public class MergeIterator<T> implements Iterator<T> {
             return peek;
         }
     }
-
-    PeekIterator<T> nextIterator;
 
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
@@ -126,7 +125,7 @@ public class MergeIterator<T> implements Iterator<T> {
     }
 
     protected boolean shouldSkip(T t) {
-        return false;
+        return t == null;
     }
 
     @Override

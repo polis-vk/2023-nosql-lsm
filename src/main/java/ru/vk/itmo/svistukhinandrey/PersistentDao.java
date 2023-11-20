@@ -147,9 +147,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             flush();
             executor.shutdown();
-            executor.awaitTermination(5, TimeUnit.MINUTES);
-        } catch (InterruptedException e) {
-            throw new IllegalStateException(e);
+            try {
+                executor.awaitTermination(5, TimeUnit.MINUTES);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         } finally {
             if (storageState.isReadyForFlush()) {
                 storageState.prepareStorageForFlush();
