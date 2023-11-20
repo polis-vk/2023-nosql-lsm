@@ -21,13 +21,15 @@ public class DiskStorage {
 
     public Iterator<Entry<MemorySegment>> range(
             Iterator<Entry<MemorySegment>> firstIterator,
+            Iterator<Entry<MemorySegment>> secondIterator,
             MemorySegment from,
             MemorySegment to) {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 2);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
         iterators.add(firstIterator);
+        iterators.add(secondIterator);
 
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, ChernyshevDao::compare)) {
             @Override

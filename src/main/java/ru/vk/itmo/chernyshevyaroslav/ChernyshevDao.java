@@ -11,7 +11,6 @@ import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
-//import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -26,16 +25,46 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path path;
     private final long flushThresholdBytes;
     private long size = 0;
-    private final AtomicBoolean isThresholdReached = new AtomicBoolean(false);
+    //private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private final Memory memory = new Memory();
+    private final AtomicBoolean isBackgroundFlushingInProgress = new AtomicBoolean(false);
 
     private static class Memory {
-        private static final NavigableMap<MemorySegment, Entry<MemorySegment>> storage =
-                new ConcurrentSkipListMap<>(ChernyshevDao::compare);
-        //private static final NavigableMap<MemorySegment, Entry<MemorySegment>> storageDouble =
-        //        new ConcurrentSkipListMap<>(ChernyshevDao::compare);
 
-        private static NavigableMap<MemorySegment, Entry<MemorySegment>> getStorage() {
-            return storage;
+        Memory() {
+
+        }
+
+        private int flushes = 0;
+        private final NavigableMap<MemorySegment, Entry<MemorySegment>> storageActual =
+                new ConcurrentSkipListMap<>(ChernyshevDao::compare);
+        private final NavigableMap<MemorySegment, Entry<MemorySegment>> storageReserve =
+                new ConcurrentSkipListMap<>(ChernyshevDao::compare);
+
+        private NavigableMap<MemorySegment, Entry<MemorySegment>> getActualMemory() {
+            if (flushes == 0) {
+                return this.storageActual;
+            }
+            else {
+                return this.storageReserve;
+            }
+        }
+
+        private NavigableMap<MemorySegment, Entry<MemorySegment>> getReserveMemory() {
+            if (flushes == 1) {
+                return this.storageActual;
+            }
+            else {
+                return this.storageReserve;
+            }
+        }
+
+        private void put(Entry<MemorySegment> entry) {
+            storageActual.put(entry.key(), entry);
+        }
+
+        private void changeStorage() {
+            flushes = (flushes + 1) % 2;
         }
     }
 
@@ -69,33 +98,55 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return diskStorage.range(getInMemory(from, to), from, to);
+        return diskStorage.range(getInActualMemory(from, to), getInReserveMemory(from, to), from, to);
     }
 
-    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
+    private Iterator<Entry<MemorySegment>> getInActualMemory(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            return Memory.getStorage().values().iterator();
+            return memory.getActualMemory().values().iterator();
         }
         if (from == null) {
-            return Memory.getStorage().headMap(to).values().iterator();
+            return memory.getActualMemory().headMap(to).values().iterator();
         }
         if (to == null) {
-            return Memory.getStorage().tailMap(from).values().iterator();
+            return memory.getActualMemory().tailMap(from).values().iterator();
         }
-        return Memory.getStorage().subMap(from, to).values().iterator();
+        return memory.getActualMemory().subMap(from, to).values().iterator();
+    }
+
+    private Iterator<Entry<MemorySegment>> getInReserveMemory(MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return memory.getReserveMemory().values().iterator();
+        }
+        if (from == null) {
+            return memory.getReserveMemory().headMap(to).values().iterator();
+        }
+        if (to == null) {
+            return memory.getReserveMemory().tailMap(from).values().iterator();
+        }
+        return memory.getReserveMemory().subMap(from, to).values().iterator();
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> entry = Memory.getStorage().get(key);
+        Entry<MemorySegment> entry = memory.getActualMemory().get(key);
         if (entry != null) {
             if (entry.value() == null) {
                 return null;
             }
             return entry;
         }
+        else {
+            entry = memory.getReserveMemory().get(key);
+            if (entry != null) {
+                if (entry.value() == null) {
+                    return null;
+                }
+                return entry;
+            }
+        }
 
-        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), Collections.emptyIterator(), key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -120,8 +171,14 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void flush() throws IOException {
-        if (!Memory.getStorage().isEmpty()) {
-            FileUtils.save(path, Memory.getStorage().values(), false);
+        if (!memory.getActualMemory().isEmpty()) {
+            FileUtils.save(path, memory.getActualMemory().values(), false);
+        }
+    }
+
+    public void flushReserve() throws IOException {
+        if (!memory.getReserveMemory().isEmpty()) {
+            FileUtils.save(path, memory.getReserveMemory().values(), false);
         }
     }
 
@@ -136,27 +193,31 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         long entrySize = entry.key().byteSize() * 2 + (entry.value() != null ? entry.value().byteSize() : 0);
-        if (size + entrySize > flushThresholdBytes) {
-            if (isThresholdReached.get()) {
-                throw new RuntimeException("flushThresholdBytes reached; Automatic flush is in progress");
-            } else {
-                isThresholdReached.set(true);
-                size += entrySize;
-                try {
-                    new Thread(() -> {
-                        try {
-                            flush();
-                            Memory.getStorage().clear();
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-                    }).start();
-                } finally {
-                    isThresholdReached.set(false);
+        synchronized (this) {
+            if (size + entrySize > flushThresholdBytes) {
+                if (isBackgroundFlushingInProgress.get()) {
+                    throw new RuntimeException("flushThresholdBytes reached; Automatic flush is in progress");
+                } else {
+                    isBackgroundFlushingInProgress.set(true);
+                    try {
+                        new Thread(() -> {
+                            try {
+                                memory.changeStorage();
+                                flushReserve();
+                                memory.getReserveMemory().clear();
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }).start();
+                    } finally {
+                        isBackgroundFlushingInProgress.set(false);
+                    }
                 }
             }
+            else {
+                size += entrySize;
+            }
         }
-
-        Memory.storage.put(entry.key(), entry);
+        memory.put(entry);
     }
 }
