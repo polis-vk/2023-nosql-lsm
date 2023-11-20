@@ -66,6 +66,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return next;
         }
         return null;
+
     }
 
     @Override
