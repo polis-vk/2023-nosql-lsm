@@ -64,9 +64,6 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         for (final SSTable ssTable : storage) {
             if (ssTable.tryOpen()) {
                 try (ssTable) {
-                    if (!ssTable.isAlive().get()) {
-                        continue;
-                    }
                     final long offset = SSTableUtil.binarySearch(key, ssTable, comparator);
                     if (offset >= 0) {
                         return SSTableUtil.readBlock(ssTable, offset);
