@@ -15,7 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -29,12 +29,21 @@ public class DiskStorage {
         this.segmentList = segmentList;
     }
 
-    public Iterator<Entry<MemorySegment>> all(Collection<Entry<MemorySegment>> storage) {
-        return range(storage.iterator(), null, null);
+    public void addSegment(Path storagePath, String fileName, Arena arena) throws IOException {
+        Path file = storagePath.resolve(fileName);
+        try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            MemorySegment fileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    Files.size(file),
+                    arena
+            );
+            this.segmentList.add(fileSegment);
+        }
     }
 
     public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
+            StorageState storageState,
             MemorySegment from,
             MemorySegment to
     ) {
@@ -42,17 +51,41 @@ public class DiskStorage {
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
-        iterators.add(firstIterator);
+
+        if (storageState.getFlushingSSTable() != null) {
+            iterators.add(storageState.getFlushingSSTable().get(from, to));
+        }
+        iterators.add(storageState.getActiveSSTable().get(from, to));
+        iterators.add(Collections.emptyIterator());
 
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
             @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+            protected boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;
             }
         };
     }
 
-    public static void save(
+    public Iterator<Entry<MemorySegment>> rangeFromDisk(
+            MemorySegment from,
+            MemorySegment to
+    ) {
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        for (MemorySegment memorySegment : segmentList) {
+            iterators.add(iterator(memorySegment, from, to));
+        }
+
+        iterators.add(Collections.emptyIterator());
+
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
+            @Override
+            protected boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry) {
+                return memorySegmentEntry.value() == null;
+            }
+        };
+    }
+
+    public static String save(
             Path storagePath,
             Iterable<Entry<MemorySegment>> iterable
     ) throws IOException {
@@ -150,8 +183,10 @@ public class DiskStorage {
         );
 
         Files.delete(indexTmp);
+        return newFileName;
     }
 
+    // нужно загружать все SS таблицы
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         Path indexTmp = storagePath.resolve("index.tmp");
         Path indexFile = storagePath.resolve("index.idx");
