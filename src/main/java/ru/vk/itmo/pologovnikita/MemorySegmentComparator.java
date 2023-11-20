@@ -17,9 +17,8 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
         if (offset == o2.byteSize()) {
             return 1;
         }
-        return Byte.compare(
-                o1.get(ValueLayout.JAVA_BYTE, offset),
-                o2.get(ValueLayout.JAVA_BYTE, offset)
-        );
+        byte b1 = o1.get(ValueLayout.JAVA_BYTE, offset);
+        byte b2 = o2.get(ValueLayout.JAVA_BYTE, offset);
+        return Byte.compare(b1, b2);
     }
 }
