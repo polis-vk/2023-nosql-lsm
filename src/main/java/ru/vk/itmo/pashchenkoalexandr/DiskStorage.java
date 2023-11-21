@@ -33,15 +33,35 @@ public class DiskStorage {
     }
 
     public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
+            List<Iterator<Entry<MemorySegment>>> firstIterators,
             MemorySegment from,
             MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
-        iterators.add(firstIterator);
+        iterators.addAll(firstIterators);
 
+        if (iterators.isEmpty()) {
+            return new EmptyIterator<>();
+        }
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PaschenkoDao::compare)) {
+            @Override
+            protected boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry) {
+                return memorySegmentEntry.value() == null;
+            }
+        };
+    }
+    public Iterator<Entry<MemorySegment>> range(
+            MemorySegment from,
+            MemorySegment to) {
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        for (MemorySegment memorySegment : segmentList) {
+            iterators.add(iterator(memorySegment, from, to));
+        }
+        if (iterators.isEmpty()) {
+            return new EmptyIterator<>();
+        }
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PaschenkoDao::compare)) {
             @Override
             protected boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry) {
