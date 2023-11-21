@@ -197,6 +197,10 @@ public class BaseTest {
         void run(int taskIndex) throws Exception;
     }
 
+    public interface ErrorableTask<E extends Exception> {
+        void run() throws E;
+    }
+
     public void checkInterrupted() {
         if (Thread.interrupted()) {
             throw new RuntimeException(new InterruptedException());
