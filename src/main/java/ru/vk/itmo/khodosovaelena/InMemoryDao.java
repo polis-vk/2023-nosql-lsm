@@ -1,56 +1,119 @@
 package ru.vk.itmo.khodosovaelena;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentEntries
-            = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
 
-    @Override
-    public Entry<MemorySegment> get(MemorySegment key) {
-        return memorySegmentEntries.get(key);
+    private final Comparator<MemorySegment> comparator = InMemoryDao::compare;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private final Arena arena;
+    private final DiskStorage diskStorage;
+    private final Path path;
+
+    public InMemoryDao(Config config) throws IOException {
+        this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
+
+        arena = Arena.ofShared();
+
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+    }
+
+    static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
+        long mismatch = memorySegment1.mismatch(memorySegment2);
+        if (mismatch == -1) {
+            return 0;
+        }
+
+        if (mismatch == memorySegment1.byteSize()) {
+            return -1;
+        }
+
+        if (mismatch == memorySegment2.byteSize()) {
+            return 1;
+        }
+        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
+        return Byte.compare(b1, b2);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        return diskStorage.range(getInMemory(from, to), from, to);
+    }
+
+    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            return memorySegmentEntries.values().iterator();
+            return storage.values().iterator();
         }
         if (from == null) {
-            return memorySegmentEntries.headMap(to).values().iterator();
+            return storage.headMap(to).values().iterator();
         }
         if (to == null) {
-            return memorySegmentEntries.tailMap(from).values().iterator();
+            return storage.tailMap(from).values().iterator();
         }
-        return memorySegmentEntries.subMap(from, to).values().iterator();
+        return storage.subMap(from, to).values().iterator();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        memorySegmentEntries.put(entry.key(), entry);
+        storage.put(entry.key(), entry);
     }
 
-    public static class MemorySegmentComparator implements Comparator<MemorySegment> {
-        @Override
-        public int compare(MemorySegment segment1, MemorySegment segment2) {
-            long offset = segment1.mismatch(segment2);
-            if (offset == -1) {
-                return 0;
-            } else if (offset == segment2.byteSize()) {
-                return 1;
-            } else if (offset == segment1.byteSize()) {
-                return -1;
+    @Override
+    public Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> entry = storage.get(key);
+        if (entry != null) {
+            if (entry.value() == null) {
+                return null;
             }
-            return Byte.compare(segment1.get(ValueLayout.JAVA_BYTE, offset),
-                    segment2.get(ValueLayout.JAVA_BYTE, offset));
+            return entry;
+        }
+
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+
+        if (!iterator.hasNext()) {
+            return null;
+        }
+        Entry<MemorySegment> next = iterator.next();
+        if (compare(next.key(), key) == 0) {
+            return next;
+        }
+        return null;
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (!arena.scope().isAlive()) {
+            return;
+        }
+
+        arena.close();
+
+        if (!storage.isEmpty()) {
+            DiskStorage.save(path, storage.values());
+        }
+    }
+
+    @Override
+    public void compact() throws IOException {
+        final Iterable<Entry<MemorySegment>> iterableStorage = () -> get(null, null);
+        if (iterableStorage.iterator().hasNext()) {
+            diskStorage.compact(path, iterableStorage);
         }
     }
 }

@@ -42,8 +42,8 @@ public @interface DaoTest {
     int stage();
 
     /**
-     * 0 - no max stage, test will be executed id stage <= factory stage
-     * n > 0 - test will be executed if n <= factory stage
+     * 0 - no max stage, test will be executed if stage <= factory stage
+     * n > 0 - test will be executed if stage <= factory stage >= maxStage
      */
     int maxStage() default 0;
 
@@ -179,9 +179,8 @@ public @interface DaoTest {
                 if (factories.isEmpty()) {
                     throw new IllegalStateException("No DaoFactory declared under ru.vk.itmo.test.<username> package");
                 }
-                int daoState = factories.get(0).getAnnotation(DaoFactory.class).stage();
-
-                if (minStage > daoState || (maxStage > 0 && maxStage < daoState)) {
+                int daoStage = factories.get(0).getAnnotation(DaoFactory.class).stage();
+                if (minStage > daoStage || (maxStage > 0 && maxStage < daoStage)) {
                     return ConditionEvaluationResult.disabled("Implementation is not ready");
                 }
                 return ConditionEvaluationResult.enabled("Implementation is ready");
