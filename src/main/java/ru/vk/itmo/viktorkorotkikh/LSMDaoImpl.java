@@ -109,7 +109,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 flushingMemTable.set(memTable1);
                 return new MemTable(flushThresholdBytes);
             });
-            Future<?> unused = runFlushInBackground();
+            runFlushInBackground();
         }
     }
 
@@ -142,7 +142,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
             ssTables.set(newSSTables);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new CompactionException(e);
         }
     }
 
@@ -166,7 +166,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 flushingMemTable.set(new MemTable(-1));
                 isFlushing.set(false);
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                throw new FlushingException(e);
             }
         });
     }
@@ -190,7 +190,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             LOG.log(Level.SEVERE, String.format("InterruptedException: %s", e));
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
-            throw new RuntimeException(e.getCause());
+            throw new BackgroundExecutionException(e.getCause());
         }
     }
 
