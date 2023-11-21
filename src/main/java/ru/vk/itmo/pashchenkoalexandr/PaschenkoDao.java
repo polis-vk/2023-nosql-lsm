@@ -134,22 +134,18 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void doFlush() throws IOException {
-        long start = System.nanoTime();
-        System.out.println(new Timestamp(System.currentTimeMillis()) + " Start flush");
         compactionLock.writeLock().lock();
         try {
             if (toFlush == null) {
                 return;
             }
             if (!toFlush.getStorage().isEmpty()) {
-                System.out.println("Flush size " + toFlush.getStorage().values().size());
                 DiskStorage.saveNextSSTable(path, toFlush.getStorage().values());
             }
             this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
             toFlush = null;
         } finally {
             compactionLock.writeLock().unlock();
-            System.out.println("Flush Total time: " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
         }
     }
 
@@ -193,15 +189,12 @@ public class PaschenkoDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         compactionFuture = compactionExecutor.submit(() -> {
             try {
-                long start = System.nanoTime();
-                System.out.println(new Timestamp(System.currentTimeMillis()) + " Start compact");
                 compactionLock.writeLock().lock();
                 try {
                     DiskStorage.compact(path, () -> diskStorage.range(null, null));
                     this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
                 } finally {
                     compactionLock.writeLock().unlock();
-                    System.out.println("Compact Total time: " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
                 }
             } catch (IOException e) {
                 throw new UncheckedIOException(e);

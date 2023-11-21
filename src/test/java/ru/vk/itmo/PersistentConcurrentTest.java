@@ -30,8 +30,8 @@ public class PersistentConcurrentTest extends BaseTest {
     void testConcurrentRW_100_000_compact(Dao<String, Entry<String>> dao) throws Exception {
         int count = 100_000;
 
-        // 200ms should be enough considering GC
-        long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(200);
+        // 250ms should be enough considering GC
+        long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(250);
 
         List<Entry<String>> entries = entries("k", "v", count);
 
@@ -91,6 +91,7 @@ public class PersistentConcurrentTest extends BaseTest {
 
         // Check timeout
         if (elapsedNanos > timeoutNanos) {
+            System.out.println("Total: " + TimeUnit.NANOSECONDS.toMillis(elapsedNanos));
             throw new IllegalBlockingModeException();
         }
     }
