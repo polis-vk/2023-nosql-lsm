@@ -27,8 +27,8 @@ public class Environment {
     private final List<MemorySegment> mainSegmentList;
     private final List<MemorySegment> secondarySegmentList;
 
-    private Path mainDir;
-    private Path secondaryDir;
+    private final Path mainDir;
+    private final Path secondaryDir;
 
     private final Path storagePath;
 
@@ -199,6 +199,9 @@ public class Environment {
     }
 
     public void compact() throws IOException {
+        if (mainSegmentList.size() < 2) {
+            return;
+        }
         IterableDisk iterable = new IterableDisk(this, Range.DISK);
         DiskStorage.compact(iterable, storagePath, mainDir, secondaryDir, mainSegmentList.size());
     }
