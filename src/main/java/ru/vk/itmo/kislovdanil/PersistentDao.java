@@ -24,6 +24,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
@@ -44,6 +45,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     private final AtomicLong nextId = new AtomicLong();
     private final ExecutorService commonExecutorService = Executors.newSingleThreadExecutor();
     private final AtomicLong memTableByteSize = new AtomicLong(0);
+    // To prevent accumulation of tasks
+    private final AtomicBoolean haveFlushTask = new AtomicBoolean(false);
+    private final AtomicBoolean haveCompactionTask = new AtomicBoolean(false);
 
     private long getMaxTablesId(Iterable<SSTable> tableIterable) {
         long curMaxId = -1;
@@ -150,17 +154,20 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     @Override
     public void flush() {
-        commonExecutorService.execute(
-                () -> {
-                    try {
-                        isFlushing = true;
-                        makeFlush();
-                    } catch (IOException e) {
-                        throw new DBException(e);
-                    } finally {
-                        isFlushing = false;
-                    }
-                });
+        if (haveFlushTask.compareAndSet(false, true)) {
+            commonExecutorService.execute(
+                    () -> {
+                        try {
+                            isFlushing = true;
+                            makeFlush();
+                        } catch (IOException e) {
+                            throw new DBException(e);
+                        } finally {
+                            isFlushing = false;
+                            haveFlushTask.set(false);
+                        }
+                    });
+        }
     }
 
     private void closeExecutorService(ExecutorService executorService) {
@@ -176,8 +183,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     @Override
     public void close() throws IOException {
-        flush();
         closeExecutorService(commonExecutorService);
+        makeFlush();
     }
 
     private void makeCompaction() throws IOException {
@@ -196,14 +203,18 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     @Override
     public void compact() {
-        commonExecutorService.execute(
-                () -> {
-                    try {
-                        makeCompaction();
-                    } catch (IOException e) {
-                        throw new DBException(e);
-                    }
-                });
+        if (haveCompactionTask.compareAndSet(false, true)) {
+            commonExecutorService.execute(
+                    () -> {
+                        try {
+                            makeCompaction();
+                        } catch (IOException e) {
+                            throw new DBException(e);
+                        } finally {
+                            haveCompactionTask.set(false);
+                        }
+                    });
+        }
     }
 
     @Override
