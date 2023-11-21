@@ -4,6 +4,7 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
+import javax.swing.border.EmptyBorder;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -155,6 +156,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public void flush() throws IOException {
+        Environment currEnv;
         readLock.lock();
         try {
             // Могут выполнять несколько потоков.
@@ -164,13 +166,14 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 // Считаем, что уже флашим.
                 return;
             }
+            currEnv = environment;
         } finally {
             readLock.unlock();
         }
 
         executor.execute(() -> {
             try {
-                environment.flush();
+                currEnv.flush();
                 isFlushing.set(false);
             } catch (IOException e) {
                 throw new RuntimeException(e);

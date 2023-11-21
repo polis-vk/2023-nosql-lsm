@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Timeout;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
-import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;

@@ -6,18 +6,18 @@ import java.lang.foreign.MemorySegment;
 import java.util.Collections;
 import java.util.Iterator;
 
-public class IterableStorage implements Iterable<Entry<MemorySegment>> {
-    DiskStorage diskStorage;
+public class IterableDisk implements Iterable<Entry<MemorySegment>> {
+    Environment environment;
     Range range;
 
-    IterableStorage(DiskStorage diskStorage, Range range) {
-        this.diskStorage = diskStorage;
+    IterableDisk(Environment environment, Range range) {
+        this.environment = environment;
         this.range = range;
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> iterator() {
-        return diskStorage.range(
+        return environment.range(
                 Collections.emptyIterator(),
                 Collections.emptyIterator(),
                 null,
