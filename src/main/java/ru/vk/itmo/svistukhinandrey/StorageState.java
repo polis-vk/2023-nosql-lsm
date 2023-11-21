@@ -21,12 +21,12 @@ public class StorageState {
         return flushingSSTable == null && !activeSSTable.getStorage().isEmpty();
     }
 
-    public void prepareStorageForFlush() {
+    public synchronized void prepareStorageForFlush() {
         this.flushingSSTable = activeSSTable;
         this.activeSSTable = new SSTable();
     }
 
-    public void removeFlushingSSTable() {
+    public synchronized void removeFlushingSSTable() {
         this.flushingSSTable = null;
     }
 

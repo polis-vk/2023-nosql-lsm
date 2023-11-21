@@ -113,7 +113,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public synchronized void compact() {
+    public void compact() {
         if (!arena.scope().isAlive()) {
             throw new IllegalStateException("DAO is closed.");
         }
@@ -122,7 +122,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public synchronized void flush() throws IOException {
+    public void flush() throws IOException {
         if (!storageState.isReadyForFlush()) {
             return;
         }
