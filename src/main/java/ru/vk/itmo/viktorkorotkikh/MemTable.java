@@ -8,8 +8,6 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -18,9 +16,9 @@ public class MemTable {
 
     private final long flushThresholdBytes;
 
-    private final AtomicLong memTableByteSize = new AtomicLong();
+    private long memTableByteSize = 0L;
 
-    private final AtomicInteger memTableEntriesSize = new AtomicInteger();
+    private int memTableEntriesSize = 0;
 
     private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
@@ -64,30 +62,35 @@ public class MemTable {
     public boolean upsert(Entry<MemorySegment> entry) {
         readWriteLock.writeLock().lock();
         try {
-            if (memTableByteSize.get() >= flushThresholdBytes) {
+            if (memTableByteSize >= flushThresholdBytes) {
                 throw new LSMDaoOutOfMemoryException();
             }
             Entry<MemorySegment> previous = storage.put(entry.key(), entry);
             if (previous == null) {
-                memTableEntriesSize.addAndGet(1);
+                memTableEntriesSize += 1;
             } else { // entry already was in memTable, so we need to substructure subtract size of previous entry
-                memTableByteSize.addAndGet(-Utils.getEntrySize(previous));
+                memTableByteSize -= Utils.getEntrySize(previous);
             }
-            memTableByteSize.addAndGet(Utils.getEntrySize(entry));
-            return memTableByteSize.get() >= flushThresholdBytes;
+            memTableByteSize += Utils.getEntrySize(entry);
+            return memTableByteSize >= flushThresholdBytes;
         } finally {
             readWriteLock.writeLock().unlock();
         }
     }
 
     public boolean isEmpty() {
-        return memTableByteSize.compareAndSet(0, 0);
+        readWriteLock.readLock().lock();
+        try {
+            return memTableByteSize == 0;
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     public int getEntriesSize() {
         readWriteLock.readLock().lock();
         try {
-            return memTableEntriesSize.get();
+            return memTableEntriesSize;
         } finally {
             readWriteLock.readLock().unlock();
         }
@@ -96,7 +99,7 @@ public class MemTable {
     public long getByteSize() {
         readWriteLock.readLock().lock();
         try {
-            return memTableByteSize.get();
+            return memTableByteSize;
         } finally {
             readWriteLock.readLock().unlock();
         }
