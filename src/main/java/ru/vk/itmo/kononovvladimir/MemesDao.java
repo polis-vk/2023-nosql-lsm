@@ -27,19 +27,16 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final DiskStorage diskStorage;
     private final Path path;
     private final Path indexFile;
-    private final Path indexTmp;
     static final String firstSslName = "0.txt";
     static final String dirData = "data";
     static final String indexFileName = "index.idx";
-    static final String indexTempFileName = "index.tmp";
 
     public MemesDao(Config config) throws IOException {
         this.path = config.basePath().resolve(dirData);
-        indexFile = path.resolve(indexFileName);
-        indexTmp = path.resolve(indexTempFileName);
+        this.indexFile = path.resolve(indexFileName);
         Files.createDirectories(path);
 
-        arena = Arena.ofShared();
+        this.arena = Arena.ofShared();
 
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
