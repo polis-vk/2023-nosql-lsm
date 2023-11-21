@@ -14,6 +14,8 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemorySegment>> {
     private long tableSize;
@@ -21,10 +23,10 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     private final MemorySegment tableSegment;
     private final MemorySegment indexSegment;
     public int id;
-    public boolean closed;
+    public AtomicBoolean closed = new AtomicBoolean(false);
+    public AtomicBoolean inCompaction = new AtomicBoolean(false);
     public final Path tablePath;
     public final Path indexPath;
-    private final Arena arena;
 
     private static class SSTableCreationException extends RuntimeException {
         public SSTableCreationException(Throwable cause) {
@@ -45,8 +47,6 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     }
 
     BinarySearchSSTable(Path path, Arena arena) {
-        this.closed = false;
-        this.arena = arena;
         this.id = Integer.parseInt(path.getFileName().toString().substring(8));
         tablePath = path;
         indexPath = Paths.get(path.toAbsolutePath() + "_index");
@@ -75,7 +75,13 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
 
     public static BinarySearchSSTable writeSSTable(Collection<Entry<MemorySegment>> entries, Path path, int id, Arena arena) {
         Path sstPath = Path.of(path.toAbsolutePath() + "/sstable_" + id);
-        Path sstIndexPath = Path.of(path.toAbsolutePath() + "/sstable_" + id + "_index");
+        Path tempSSTPath = Path.of(
+                path.toAbsolutePath() + "/tmp-sstable" + ThreadLocalRandom.current().nextInt(0, 1_000_000)
+        );
+        Path indexPath = Path.of(path.toAbsolutePath() + "/sstable_" + id + "_index");
+        Path tempIndexPath = Path.of(
+                path.toAbsolutePath() + "/tmp-index" + ThreadLocalRandom.current().nextInt(0, 1_000_000)
+        );
         MemorySegment tableSegment;
         MemorySegment indexSegment;
         long dataSize = 0;
@@ -89,7 +95,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
             indexSize += Long.BYTES * 2;
         }
         try (var fileChannel = FileChannel.open(
-                sstPath,
+                tempSSTPath,
                 StandardOpenOption.READ,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE,
@@ -101,7 +107,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
         }
 
         try (var fileChannel = FileChannel.open(
-                sstIndexPath,
+                tempIndexPath,
                 StandardOpenOption.READ,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.WRITE,
@@ -112,8 +118,18 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
             throw new SSTableRWException(e);
         }
         writeEntries(entries, tableSegment, indexSegment);
-        arena.close();
-        return sstPath;
+        try {
+            Files.move(tempIndexPath, indexPath);
+        } catch (IOException e) {
+            throw new SSTableCreationException(e);
+        }
+
+        try {
+            Files.move(tempSSTPath, sstPath);
+        } catch (IOException e) {
+            throw new SSTableCreationException(e);
+        }
+        return new BinarySearchSSTable(sstPath, arena);
     }
 
     private static void writeEntries(
