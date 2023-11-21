@@ -37,20 +37,20 @@ public class SSTable implements Comparable<SSTable> {
         this.tableId = tableId;
         this.ssTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
-        Path summaryFilePath = ssTablePath.resolve(SUMMARY_FILENAME);
-        Path indexFilePath = ssTablePath.resolve(INDEX_FILENAME);
-        Path dataFilePath = ssTablePath.resolve(DATA_FILENAME);
+        Path summaryFilePath = this.ssTablePath.resolve(SUMMARY_FILENAME);
+        Path indexFilePath = this.ssTablePath.resolve(INDEX_FILENAME);
+        Path dataFilePath = this.ssTablePath.resolve(DATA_FILENAME);
         if (rewrite) {
             write(entriesContainer, summaryFilePath, indexFilePath, dataFilePath);
         } else {
             readOld(summaryFilePath, indexFilePath, dataFilePath);
         }
 
-        summaryFile = summaryFile.asReadOnly();
-        indexFile = indexFile.asReadOnly();
-        dataFile = dataFile.asReadOnly();
+        this.summaryFile = this.summaryFile.asReadOnly();
+        this.indexFile = this.indexFile.asReadOnly();
+        this.dataFile = this.dataFile.asReadOnly();
 
-        size = (summaryFile.byteSize() / Metadata.SIZE);
+        this.size = (this.summaryFile.byteSize() / Metadata.SIZE);
     }
 
     private void readOld(Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
