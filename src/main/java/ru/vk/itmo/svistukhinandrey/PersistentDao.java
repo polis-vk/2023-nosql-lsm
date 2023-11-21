@@ -24,7 +24,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final DiskStorage diskStorage;
     private final ConfigWrapper config;
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService compactExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService flushExecutor = Executors.newSingleThreadExecutor();
+
 
     public PersistentDao(Config config) throws IOException {
         this.config = new ConfigWrapper(
@@ -73,13 +75,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new IllegalStateException("SSTable is full. Wait until flush.");
         }
 
-        lock.writeLock().lock();
-        try {
-            storageState.getActiveSSTable().upsert(entry);
-        } finally {
-            lock.writeLock().unlock();
-        }
-
+        storageState.getActiveSSTable().upsert(entry);
         try {
             if (storageState.getActiveSSTable().getStorageSize() >= config.getFlushThresholdBytes()) {
                 flush();
@@ -118,7 +114,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new IllegalStateException("DAO is closed.");
         }
 
-        executor.execute(this::compactOnDisk);
+        compactExecutor.execute(this::compactOnDisk);
     }
 
     @Override
@@ -128,7 +124,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         storageState.prepareStorageForFlush();
-        executor.execute(() -> {
+        flushExecutor.execute(() -> {
             lock.writeLock().lock();
             try {
                 flushToDisk();
@@ -146,9 +142,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         try {
             flush();
-            executor.shutdown();
+            compactExecutor.shutdown();
+            flushExecutor.shutdown();
             try {
-                executor.awaitTermination(5, TimeUnit.MINUTES);
+                compactExecutor.awaitTermination(5, TimeUnit.MINUTES);
+                flushExecutor.awaitTermination(5, TimeUnit.MINUTES);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
