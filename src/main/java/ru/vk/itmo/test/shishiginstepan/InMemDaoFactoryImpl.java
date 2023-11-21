@@ -21,7 +21,7 @@ public class InMemDaoFactoryImpl implements DaoFactory.Factory<MemorySegment, En
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new InMemDaoImpl(config.basePath());
+        return new InMemDaoImpl(config.basePath(), config.flushThresholdBytes());
     }
 
     @Override
