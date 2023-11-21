@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
 
     private final MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
@@ -63,8 +63,18 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
+    public void compact() throws IOException {
+        storage.compact(this);
+    }
+
+    @Override
     public void close() throws IOException {
         storage.save(map.values());
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> iterator() {
+        return all();
     }
 
     private Iterator<Entry<MemorySegment>> getMemoryIterator(MemorySegment from, MemorySegment to) {
