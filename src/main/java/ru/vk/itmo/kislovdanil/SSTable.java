@@ -17,13 +17,13 @@ import java.util.Comparator;
 public class SSTable implements Comparable<SSTable> {
     // Contains offset and size for every key and every value in index file
     private MemorySegment summaryFile;
-    private final String summaryFilename = "summary";
+    private static final String summaryFilename = "summary";
     // Contains keys
     private MemorySegment indexFile;
-    private final String indexFilename = "index";
+    private static final String indexFilename = "index";
     // Contains values
     private MemorySegment dataFile;
-    private final String dataFilename = "data";
+    private static final String dataFilename = "data";
     private final Comparator<MemorySegment> memSegComp;
     private final Arena filesArena = Arena.ofAuto();
     private final long tableId;
