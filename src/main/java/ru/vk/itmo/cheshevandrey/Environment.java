@@ -38,13 +38,12 @@ public class Environment {
 
     public Environment(
             ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> table,
-            long bytes,
             Path storagePath,
             Arena arena
     ) throws IOException {
-        this.memTable = table;
-        this.flushingTable = new ConcurrentSkipListMap<>(Tools::compare);
-        this.memTableBytes = new AtomicLong(bytes);
+        this.memTable = new ConcurrentSkipListMap<>(Tools::compare);
+        this.flushingTable = table;
+        this.memTableBytes = new AtomicLong(0);
 
         this.storagePath = storagePath;
 

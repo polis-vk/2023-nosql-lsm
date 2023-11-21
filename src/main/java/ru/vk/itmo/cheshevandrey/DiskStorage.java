@@ -135,7 +135,7 @@ public class DiskStorage {
         // Во время флаша был вызван компакт и изменена основная директория =>
         // => перемещаем в зарезервированный файл "1" новой основной директории.
         String dirAfterSave = readWorkDir(storagePath);
-        if (dirBeforeSave.equals(dirAfterSave)) {
+        if (!dirBeforeSave.equals(dirAfterSave)) {
             Files.move(
                     newFilePath,
                     storagePath.resolve(dirAfterSave).resolve("1"),

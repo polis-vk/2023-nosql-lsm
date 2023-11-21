@@ -48,7 +48,6 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena = Arena.ofShared();
         this.environment = new Environment(
                 new ConcurrentSkipListMap<>(Tools::compare),
-                0,
                 config.basePath(),
                 arena
         );
@@ -155,7 +154,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      * После выполнения создаем новое окружение.</pre>
      */
     @Override
-    public void flush() throws IOException {
+    public synchronized void flush() throws IOException {
         Environment currEnv;
         readLock.lock();
         try {
@@ -184,7 +183,6 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             this.environment = new Environment(
                     environment.getTable(),
-                    environment.getBytes(),
                     config.basePath(),
                     arena
             );
