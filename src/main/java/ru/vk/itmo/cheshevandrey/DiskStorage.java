@@ -145,7 +145,7 @@ public class DiskStorage {
         // Если после этого обновления индекса был начат компакт без этого файла,
         // то он не будет потерян при зачистке, а будет найден и перемещен после компакта.
         else {
-            updateIndex(files, indexFilePath);
+            updateIndex(files, dir);
         }
     }
 
