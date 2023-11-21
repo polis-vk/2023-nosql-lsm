@@ -109,7 +109,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 flushingMemTable.set(memTable1);
                 return new MemTable(flushThresholdBytes);
             });
-            runFlushInBackground();
+            Future<?> unusedFuture = runFlushInBackground();
         }
     }
 
@@ -183,14 +183,20 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         flushingMemTable.set(new MemTable(flushThresholdBytes));
     }
 
-    private void await(Future<?> future) {
+    private void await(Future<?> future) throws IOException {
         try {
             future.get();
         } catch (InterruptedException e) {
             LOG.log(Level.SEVERE, String.format("InterruptedException: %s", e));
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
-            throw new BackgroundExecutionException(e.getCause());
+            try {
+                throw e.getCause();
+            } catch (RuntimeException | IOException r) {
+                throw r;
+            } catch (Throwable t) {
+                throw new BackgroundExecutionException(t);
+            }
         }
     }
 
