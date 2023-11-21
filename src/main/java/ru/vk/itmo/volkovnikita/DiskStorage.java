@@ -198,7 +198,9 @@ public class DiskStorage {
         Utils.completeCompaction(storagePath, filesToDelete);
     }
 
-    private static void populateFileSegment(MemorySegment fileSegment, Iterable<Entry<MemorySegment>> iterable, long indexSize) {
+    private static void populateFileSegment(MemorySegment fileSegment,
+                                            Iterable<Entry<MemorySegment>> iterable,
+                                            long indexSize) {
         long dataOffset = indexSize;
         int indexOffset = 0;
         for (Entry<MemorySegment> entry : iterable) {

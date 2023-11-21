@@ -9,7 +9,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Collections;
 import java.util.Iterator;
@@ -17,6 +16,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.stream.Stream;
 
+import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
 
 public class Utils {
     public static final String SSTABLE_PREFIX = "sstable_";
@@ -43,34 +43,39 @@ public class Utils {
         boolean isCompactionFileEmpty = Files.size(compactionResultFile) == 0;
 
         writeIndexFile(temporaryIndexFile, isCompactionFileEmpty);
-        Files.move(temporaryIndexFile, permanentIndexFile, StandardCopyOption.ATOMIC_MOVE);
+        Files.move(temporaryIndexFile, permanentIndexFile, ATOMIC_MOVE);
 
         if (isCompactionFileEmpty) {
             Files.delete(compactionResultFile);
         } else {
-            Files.move(compactionResultFile, directoryPath.resolve(Utils.SSTABLE_PREFIX + "0"), StandardCopyOption.ATOMIC_MOVE);
+            Files.move(compactionResultFile, directoryPath.resolve(Utils.SSTABLE_PREFIX + "0"), ATOMIC_MOVE);
         }
     }
 
     private static void deleteSSTableFiles(Path path) throws IOException {
         try (Stream<Path> stableFiles = Files.find(path, 1,
-                (filePath, attrs) -> filePath.getFileName().toString().startsWith(Utils.SSTABLE_PREFIX))) {
+                (filePath, _) -> filePath.getFileName().toString().startsWith(Utils.SSTABLE_PREFIX))) {
             stableFiles.forEach(FileDeleter::deleteFile);
         }
     }
 
     private static void writeIndexFile(Path indexFile, boolean isEmpty) throws IOException {
-        List<String> content = isEmpty ? Collections.emptyList() : Collections.singletonList(Utils.SSTABLE_PREFIX + "0");
+        List<String> file = isEmpty ? Collections.emptyList() : Collections.singletonList(Utils.SSTABLE_PREFIX + "0");
         Files.write(
                 indexFile,
-                content,
+                file,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
     }
 
+
     private static class FileDeleter {
+        private FileDeleter() {
+
+        }
+
         static void deleteFile(Path file) {
             try {
                 Files.delete(file);
