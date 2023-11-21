@@ -22,6 +22,11 @@ import java.util.NoSuchElementException;
 
 public class DiskStorage {
 
+    private static final long BYTE_SIZE_2_LONGS = 2 * Long.BYTES;
+
+    final static String INDEX_FILE_NAME = "index.idx";
+    final static String INDEX_TEMP_FILE_NAME = "index.tmp";
+
     private final List<MemorySegment> segmentList;
 
     public DiskStorage(List<MemorySegment> segmentList) {
@@ -46,16 +51,8 @@ public class DiskStorage {
         };
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable, Path indexTmp, Path indexFile)
+    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable, Path whereToSave)
             throws IOException {
-        try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
-        }
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-
-        String newFileName = String.valueOf(existedFiles.size());
 
         long dataSize = 0;
         long count = 0;
@@ -67,11 +64,11 @@ public class DiskStorage {
             }
             count++;
         }
-        long indexSize = count * 2 * Long.BYTES;
+        long indexSize = count * BYTE_SIZE_2_LONGS;
 
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve(newFileName),
+                        storagePath.resolve(whereToSave),
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE
@@ -120,26 +117,11 @@ public class DiskStorage {
                 }
             }
         }
-
-        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-
-        List<String> list = new ArrayList<>(existedFiles.size() + 1);
-        list.addAll(existedFiles);
-        list.add(newFileName);
-        Files.write(
-                indexFile,
-                list,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
-        Files.delete(indexTmp);
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(INDEX_TEMP_FILE_NAME);
+        Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -250,7 +232,7 @@ public class DiskStorage {
     }
 
     private static long startOfKey(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * BYTE_SIZE_2_LONGS);
     }
 
     private static long endOfKey(MemorySegment segment, long recordIndex) {
@@ -262,7 +244,7 @@ public class DiskStorage {
     }
 
     private static long startOfValue(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * BYTE_SIZE_2_LONGS + Long.BYTES);
     }
 
     private static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
@@ -273,7 +255,7 @@ public class DiskStorage {
     }
 
     private static long tombstone(long offset) {
-        return 1L << 63 | offset;
+        return Long.MAX_VALUE | offset;
     }
 
     private static long normalize(long value) {

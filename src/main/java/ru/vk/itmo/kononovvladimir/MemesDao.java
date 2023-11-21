@@ -9,13 +9,8 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NavigableMap;
+import java.nio.file.*;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -27,11 +22,15 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path path;
     final Path indexFile;
     final Path indexTmp;
+    final String FIRST_SSL_NAME = "0.txt";
+    final String DIR_DATA = "data";
+    final String INDEX_FILE_NAME = "index.idx";
+    final String INDEX_TEMP_FILE_NAME = "index.tmp";
 
     public MemesDao(Config config) throws IOException {
-        this.path = config.basePath().resolve("data");
-        indexFile = path.resolve("index.idx");
-        indexTmp = path.resolve("index.tmp");
+        this.path = config.basePath().resolve(DIR_DATA);
+        indexFile = path.resolve(INDEX_FILE_NAME);
+        indexTmp = path.resolve(INDEX_TEMP_FILE_NAME);
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
@@ -84,6 +83,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void compact() throws IOException {
         final Iterator<Entry<MemorySegment>> iterator = get(null, null);
 
+        DiskStorage.save(path, () -> iterator, path.resolve(FIRST_SSL_NAME));
+
         if (Files.exists(indexFile)) {
             List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
             //Вдруг неожиданно пропадет из-за внешних обстоятельств
@@ -95,7 +96,13 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         storage.clear();
 
-        DiskStorage.save(path, () -> iterator, indexTmp, indexFile);
+        Files.write(
+                indexFile,
+                List.of(FIRST_SSL_NAME),
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
     }
 
     @Override
@@ -129,7 +136,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (!storage.isEmpty()) {
-            DiskStorage.save(path, storage.values(), indexTmp, indexFile);
+            DiskStorage.save(path, storage.values(), indexFile);
             //Вдруг вызовется потом повторно метод, а арена жива
             storage.clear();
         }
