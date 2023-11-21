@@ -256,11 +256,11 @@ public class DiskStorage {
     }
 
     private static long tombstone(long offset) {
-        return Long.MAX_VALUE | offset;
+        return  Long.MAX_VALUE | offset;
     }
 
     private static long normalize(long value) {
-        return value & ~(1L << 63);
+        return value & ~(Long.MAX_VALUE);
     }
 
 }
