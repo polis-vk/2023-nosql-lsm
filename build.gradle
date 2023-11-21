@@ -26,7 +26,7 @@ dependencies {
 }
 
 test {
-    maxHeapSize = "64m"
+    maxHeapSize = "128m"
     useJUnitPlatform()
     jvmArgs += ["--enable-preview"]
 }
