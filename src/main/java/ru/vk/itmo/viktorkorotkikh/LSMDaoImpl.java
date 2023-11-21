@@ -183,20 +183,16 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         flushingMemTable.set(new MemTable(flushThresholdBytes));
     }
 
-    private void await(Future<?> future) throws IOException {
+    private void await(Future<?> future) {
         try {
             future.get();
         } catch (InterruptedException e) {
             LOG.log(Level.SEVERE, String.format("InterruptedException: %s", e));
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
-            try {
-                throw e.getCause();
-            } catch (RuntimeException | IOException r) {
-                throw r;
-            } catch (Throwable t) {
-                throw new BackgroundExecutionException(t);
-            }
+            throw new BackgroundExecutionException(
+                    String.format("Exception was occurred when awaiting background job: %s", e.getCause())
+            );
         }
     }
 
