@@ -10,9 +10,8 @@ import java.util.List;
 
 public class GlobalIterator {
 
-    private static final MemorySegmentComparator memorySegmentComparator = new MemorySegmentComparator();
-    private static final PriorityPeekIteratorComparator priorityPeekIteratorComparator =
-        new PriorityPeekIteratorComparator(memorySegmentComparator);
+    private static final PriorityPeekIteratorComparator PRIORITY_PEEK_ITERATOR_COMPARATOR =
+        new PriorityPeekIteratorComparator(new MemorySegmentComparator());
 
     private GlobalIterator() {
     }
@@ -31,7 +30,7 @@ public class GlobalIterator {
                     priorityIterators.add(new DefaultPriorityPeekIterator(iterators.get(i), i));
                 }
 
-                return new MergePriorityPeekIterator(priorityIterators, priorityPeekIteratorComparator);
+                return new MergePriorityPeekIterator(priorityIterators, PRIORITY_PEEK_ITERATOR_COMPARATOR);
             }
         }
     }
