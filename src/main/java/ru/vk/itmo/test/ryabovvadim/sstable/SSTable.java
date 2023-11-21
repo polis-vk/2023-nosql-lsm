@@ -1,4 +1,4 @@
-package ru.vk.itmo.test.ryabovvadim;
+package ru.vk.itmo.test.ryabovvadim.sstable;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
@@ -26,15 +26,13 @@ import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import static java.nio.file.StandardOpenOption.WRITE;
 
 public class SSTable {
-    private final Path parentPath;
     private final long id;
     private final MemorySegment data;
     private final int countRecords;
 
-    public SSTable(Path parentPath, long id, Arena arena) throws IOException {
-        this.parentPath = parentPath;
+    public SSTable(Path path, long id, Arena arena) throws IOException {
         this.id = id;
-        Path dataFile = getDataFilePath();
+        Path dataFile = FileUtils.makePath(path, Long.toString(id), FileUtils.DATA_FILE_EXT);
 
         try (FileChannel dataFileChannel = FileChannel.open(dataFile, READ)) {
             this.data = dataFileChannel.map(MapMode.READ_ONLY, 0, dataFileChannel.size(), arena);
@@ -128,7 +126,7 @@ public class SSTable {
     }
 
     private long getOffset(int index) {
-        return data.get(ValueLayout.JAVA_LONG, index * Long.BYTES);
+        return data.get(ValueLayout.JAVA_LONG, (long) index * Long.BYTES);
     }
 
     private Iterator<Long> getOffsetIterator(int fromIndex, int toIndex) {
@@ -186,7 +184,7 @@ public class SSTable {
 
             int curEntryNumber = 0;
             for (Entry<MemorySegment> entry : entries) {
-                dataSegment.set(ValueLayout.JAVA_LONG, curEntryNumber * Long.BYTES, dataOffset);
+                dataSegment.set(ValueLayout.JAVA_LONG, (long) curEntryNumber * Long.BYTES, dataOffset);
 
                 MemorySegment key = entry.key();
                 MemorySegment value = entry.value();
@@ -219,14 +217,6 @@ public class SSTable {
         Files.move(tmpDataFile, dataFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    public void delete() throws IOException {
-        Files.deleteIfExists(getDataFilePath());
-    }
-
-    private Path getDataFilePath() {
-        return FileUtils.makePath(parentPath, Long.toString(id), FileUtils.DATA_FILE_EXT);
-    }
-
     public long getId() {
         return id;
     }
@@ -251,45 +241,5 @@ public class SSTable {
         }
     }
 
-    private static final class RecordInfo {
-        private final byte meta;
-        private final long keySize;
-        private final long keyOffset;
-        private final long valueSize;
-        private final long valueOffset;
-
-        private RecordInfo(
-                byte meta,
-                long keySize,
-                long keyOffset,
-                long valueSize,
-                long valueOffset
-        ) {
-            this.meta = meta;
-            this.keySize = keySize;
-            this.keyOffset = keyOffset;
-            this.valueSize = valueSize;
-            this.valueOffset = valueOffset;
-        }
-
-        public byte meta() {
-            return meta;
-        }
-
-        public long keySize() {
-            return keySize;
-        }
-
-        public long keyOffset() {
-            return keyOffset;
-        }
-
-        public long valueSize() {
-            return valueSize;
-        }
-
-        public long valueOffset() {
-            return valueOffset;
-        }
-    }
+    private record RecordInfo(byte meta, long keySize, long keyOffset, long valueSize, long valueOffset) { }
 }

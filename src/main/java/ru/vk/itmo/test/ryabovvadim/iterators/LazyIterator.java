@@ -1,6 +1,7 @@
 package ru.vk.itmo.test.ryabovvadim.iterators;
 
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.function.Supplier;
 
 public class LazyIterator<T> implements FutureIterator<T> {
@@ -24,6 +25,10 @@ public class LazyIterator<T> implements FutureIterator<T> {
 
     @Override
     public T next() {
+        if (!hasNext()) {
+            throw new NoSuchElementException();
+        }
+
         if (next != null) {
             T result = next;
             next = null;
@@ -35,6 +40,10 @@ public class LazyIterator<T> implements FutureIterator<T> {
 
     @Override
     public T showNext() {
+        if (!hasNext()) {
+            throw new NoSuchElementException();
+        }
+
         if (next == null) {
             next = next();
         }
