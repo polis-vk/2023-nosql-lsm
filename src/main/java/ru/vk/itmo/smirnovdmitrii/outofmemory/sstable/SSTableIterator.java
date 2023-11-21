@@ -2,6 +2,7 @@ package ru.vk.itmo.smirnovdmitrii.outofmemory.sstable;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.smirnovdmitrii.outofmemory.RangeRequestGroup;
 import ru.vk.itmo.smirnovdmitrii.util.EqualsComparator;
 
 import java.lang.foreign.MemorySegment;
@@ -16,18 +17,21 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private final SSTableStorage storage;
     private final EqualsComparator<MemorySegment> comparator;
     private SSTable ssTable;
+    private final RangeRequestGroup group;
     private Entry<MemorySegment> next;
     private long upperBoundOffset;
     private long offset;
 
     public SSTableIterator(
             final SSTable ssTable,
+            final RangeRequestGroup group,
             final MemorySegment from,
             final MemorySegment to,
             final SSTableStorage ssTableStorage,
             final EqualsComparator<MemorySegment> comparator
     ) {
         this.ssTable = ssTable;
+        this.group = group;
         this.next = new BaseEntry<>(from, null);
         this.upperBound = to;
         this.storage = ssTableStorage;
@@ -92,7 +96,15 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
                     ssTable.close();
                 }
             }
-            ssTable = storage.getCompaction(ssTable);
+            final SSTable newSSTable = storage.getCompaction(ssTable);
+            final boolean registerResult = group.register(newSSTable);
+            group.deregister(ssTable);
+            if (!registerResult) {
+                ssTable = null;
+                next = null;
+                return false;
+            }
+            ssTable = newSSTable;
         }
     }
 
