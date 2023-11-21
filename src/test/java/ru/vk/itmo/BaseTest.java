@@ -158,6 +158,16 @@ public class BaseTest {
         return runInParallel(tasksCount, tasksCount, runnable);
     }
 
+    public AutoCloseable runInParallel(int threadCount, int tasksCount, ParallelTask runnable, Runnable longTask) {
+        ExecutorService service = Executors.newSingleThreadExecutor();
+        executors.add(service);
+        Future<?> submit = service.submit(longTask);
+        return () -> {
+            runInParallel(threadCount, tasksCount, runnable).close();
+            submit.get();
+        };
+    }
+
     public AutoCloseable runInParallel(int threadCount, int tasksCount, ParallelTask runnable) {
         ExecutorService service = Executors.newFixedThreadPool(threadCount);
         executors.add(service);
@@ -185,6 +195,10 @@ public class BaseTest {
 
     public interface ParallelTask {
         void run(int taskIndex) throws Exception;
+    }
+
+    public interface ErrorableTask<E extends Exception> {
+        void run() throws E;
     }
 
     public void checkInterrupted() {
