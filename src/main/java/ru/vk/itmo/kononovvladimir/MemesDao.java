@@ -9,9 +9,15 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.Collections;
 
 public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -20,17 +26,17 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
-    final Path indexFile;
-    final Path indexTmp;
-    final String FIRST_SSL_NAME = "0.txt";
-    final String DIR_DATA = "data";
-    final String INDEX_FILE_NAME = "index.idx";
-    final String INDEX_TEMP_FILE_NAME = "index.tmp";
+    static Path indexFile;
+    static Path indexTmp = null;
+    static final String firstSslName = "0.txt";
+    static final String dirData = "data";
+    static final String indexFileName = "index.idx";
+    static final String indexTempFileName = "index.tmp";
 
     public MemesDao(Config config) throws IOException {
-        this.path = config.basePath().resolve(DIR_DATA);
-        indexFile = path.resolve(INDEX_FILE_NAME);
-        indexTmp = path.resolve(INDEX_TEMP_FILE_NAME);
+        this.path = config.basePath().resolve(dirData);
+        indexFile = path.resolve(indexFileName);
+        indexTmp = path.resolve(indexTempFileName);
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
@@ -83,7 +89,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void compact() throws IOException {
         final Iterator<Entry<MemorySegment>> iterator = get(null, null);
 
-        DiskStorage.save(path, () -> iterator, path.resolve(FIRST_SSL_NAME));
+        DiskStorage.save(path, () -> iterator, path.resolve(firstSslName));
 
         if (Files.exists(indexFile)) {
             List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
@@ -98,7 +104,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         Files.write(
                 indexFile,
-                List.of(FIRST_SSL_NAME),
+                List.of(firstSslName),
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING

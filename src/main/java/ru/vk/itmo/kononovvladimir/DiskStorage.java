@@ -24,8 +24,8 @@ public class DiskStorage {
 
     private static final long BYTE_SIZE_2_LONGS = 2 * Long.BYTES;
 
-    final static String INDEX_FILE_NAME = "index.idx";
-    final static String INDEX_TEMP_FILE_NAME = "index.tmp";
+    static final String INDEX_FILE_NAME = "index.idx";
+    static final String INDEX_TEMP_FILE_NAME = "index.tmp";
 
     private final List<MemorySegment> segmentList;
 
