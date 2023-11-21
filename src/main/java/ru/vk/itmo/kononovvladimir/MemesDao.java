@@ -26,8 +26,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
-    static Path indexFile;
-    static Path indexTmp = null;
+    private final Path indexFile;
+    private final Path indexTmp;
     static final String firstSslName = "0.txt";
     static final String dirData = "data";
     static final String indexFileName = "index.idx";
