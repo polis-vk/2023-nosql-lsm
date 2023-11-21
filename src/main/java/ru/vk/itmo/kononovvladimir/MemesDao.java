@@ -16,8 +16,8 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.Collections;
+import java.util.concurrent.ConcurrentSkipListMap;
 
 public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -27,13 +27,13 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final DiskStorage diskStorage;
     private final Path path;
     private final Path indexFile;
-    static final String firstSslName = "0.txt";
-    static final String dirData = "data";
-    static final String indexFileName = "index.idx";
+    static final String FIRST_TABLE_NAME = "0.txt";
+    static final String DIR_DATA = "data";
+    static final String INDEX_FILE_NAME = "index.idx";
 
     public MemesDao(Config config) throws IOException {
-        this.path = config.basePath().resolve(dirData);
-        this.indexFile = path.resolve(indexFileName);
+        this.path = config.basePath().resolve(DIR_DATA);
+        this.indexFile = path.resolve(INDEX_FILE_NAME);
         Files.createDirectories(path);
 
         this.arena = Arena.ofShared();
@@ -86,7 +86,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void compact() throws IOException {
         final Iterator<Entry<MemorySegment>> iterator = get(null, null);
 
-        DiskStorage.save(path, () -> iterator, path.resolve(firstSslName));
+        DiskStorage.save(path, () -> iterator, path.resolve(FIRST_TABLE_NAME));
 
         if (Files.exists(indexFile)) {
             List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
@@ -101,7 +101,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         Files.write(
                 indexFile,
-                List.of(firstSslName),
+                List.of(FIRST_TABLE_NAME),
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
