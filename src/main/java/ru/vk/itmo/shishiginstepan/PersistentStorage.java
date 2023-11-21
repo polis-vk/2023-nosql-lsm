@@ -26,12 +26,13 @@ public class PersistentStorage {
     }
 
     PersistentStorage(Path basePath) {
+        arena = Arena.ofShared()
         this.basePath = basePath;
         try (var sstablesFiles = Files.list(basePath)) {
             sstablesFiles.filter(
                     x -> !x.getFileName().toString().contains("_index")
             ).map(
-                    path -> new BinarySearchSSTable(path, Arena.ofShared())).forEach(this.sstables::add);
+                    path -> new BinarySearchSSTable(path, arena)).forEach(this.sstables::add);
         } catch (IOException e) {
             Logger.getAnonymousLogger().log(Level.WARNING, "Failed reading SSTABLE (probably deleted)");
         }
@@ -44,6 +45,7 @@ public class PersistentStorage {
         for (var sstable : sstables) {
             sstable.close();
         }
+        arena.close();
     }
 
     public BinarySearchSSTable store(Collection<Entry<MemorySegment>> data) {

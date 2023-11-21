@@ -73,8 +73,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
         }
     }
 
-    public static Path writeSSTable(Collection<Entry<MemorySegment>> entries, Path path, int id) {
-        Arena arena = Arena.ofConfined();
+    public static BinarySearchSSTable writeSSTable(Collection<Entry<MemorySegment>> entries, Path path, int id, Arena arena) {
         Path sstPath = Path.of(path.toAbsolutePath() + "/sstable_" + id);
         Path sstIndexPath = Path.of(path.toAbsolutePath() + "/sstable_" + id + "_index");
         MemorySegment tableSegment;
@@ -263,8 +262,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     }
 
     public void close() {
-        if (closed) throw new ClosedSSTableAccess();
-        arena.close();
-        closed = true;
+        if (closed.get()) throw new ClosedSSTableAccess();
+        closed.compareAndSet(false, true);
     }
 }
