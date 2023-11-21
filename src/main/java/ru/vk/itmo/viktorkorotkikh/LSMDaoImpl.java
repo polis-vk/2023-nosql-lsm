@@ -18,10 +18,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
+
+    private static final Logger LOG = Logger.getLogger(LSMDaoImpl.class.getName());
 
     private final AtomicReference<MemTable> memTable;
 
@@ -40,9 +42,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
 
-    private final ExecutorService compactionExecutor = Executors.newSingleThreadExecutor(r -> new Thread(r, "CompactionBG"));
-
-    private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
+    private final ExecutorService compactionExecutor = Executors.newSingleThreadExecutor();
 
     public LSMDaoImpl(Path storagePath, long flushThresholdBytes) {
         this.memTable = new AtomicReference<>(new MemTable(flushThresholdBytes));
@@ -97,15 +97,10 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         AtomicBoolean overflow = new AtomicBoolean(false);
-        readWriteLock.writeLock().lock();
-        try {
-            memTable.updateAndGet(memTable1 -> {
-                overflow.set(memTable1.upsert(entry));
-                return memTable1;
-            });
-        } finally {
-            readWriteLock.writeLock().unlock();
-        }
+        memTable.updateAndGet(memTable1 -> {
+            overflow.set(memTable1.upsert(entry));
+            return memTable1;
+        });
         if (overflow.get()) { // bg flush
             if (isFlushing.getAndSet(true)) {
                 throw new TooManyFlushesException();
@@ -156,15 +151,11 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (isFlushing.getAndSet(true)) {
             return;
         }
-        readWriteLock.writeLock().lock();
-        try {
-            memTable.updateAndGet(memTable1 -> {
-                flushingMemTable.set(memTable1);
-                return new MemTable(flushThresholdBytes);
-            });
-        } finally {
-            readWriteLock.writeLock().unlock();
-        }
+
+        memTable.updateAndGet(memTable1 -> {
+            flushingMemTable.set(memTable1);
+            return new MemTable(flushThresholdBytes);
+        });
         await(runFlushInBackground());
     }
 
@@ -196,7 +187,8 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             future.get();
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            LOG.log(Level.SEVERE, STR. "InterruptedException: \{ e }" );
+            Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
             throw new RuntimeException(e.getCause());
         }
@@ -221,7 +213,8 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
         } catch (InterruptedException e) {
-            throw new IllegalStateException(e);
+            LOG.log(Level.SEVERE, STR. "InterruptedException: \{ e }" );
+            Thread.currentThread().interrupt();
         }
         SSTable.save(memTable.get(), ssTablesIndex.getAndIncrement(), storagePath);
     }
