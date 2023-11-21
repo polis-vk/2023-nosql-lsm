@@ -101,11 +101,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     @Override
     public void compact() throws IOException {
-        flush();
         if (!tables.isEmpty()) {
             updateId();
             SSTable compactedTable = new SSTable(config.basePath(), comparator, lastTimestamp,
                     this, true);
+            flush();
             for (SSTable table : tables) {
                 table.deleteFromDisk();
             }
