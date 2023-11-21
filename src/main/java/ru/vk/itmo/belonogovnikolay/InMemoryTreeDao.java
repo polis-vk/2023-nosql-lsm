@@ -37,7 +37,9 @@ public class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySegment>>
     public void compact() throws IOException {
         DiskStorage.compact(path, () -> diskStorage.range(getInMemory(null, null), null, null));
 
-        arena.close();
+        if (this.arena.scope().isAlive()) {
+            arena.close();
+        }
         storage = new ConcurrentSkipListMap<>(comparator);
     }
 

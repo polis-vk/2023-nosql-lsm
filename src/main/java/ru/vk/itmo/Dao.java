@@ -9,7 +9,7 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
     /**
      * Returns ordered iterator of entries with keys between from (inclusive) and to (exclusive).
      * @param from lower bound of range (inclusive)
-     * @param to   upper bound of range (exclusive)
+     * @param to upper bound of range (exclusive)
      * @return entries [from;to)
      */
     Iterator<E> get(D from, D to);

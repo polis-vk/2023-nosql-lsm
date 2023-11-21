@@ -181,7 +181,7 @@ public class DiskStorage {
         long recordsCount = DiskStorageHelper.recordsCount(page);
 
         return new Iterator<>() {
-            long index = recordIndexFrom;
+            private long index = recordIndexFrom;
 
             @Override
             public boolean hasNext() {
