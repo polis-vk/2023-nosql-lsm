@@ -105,7 +105,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
             updateId();
             SSTable compactedTable = new SSTable(config.basePath(), comparator, lastTimestamp,
                     this, true);
-            flush();
+            storage.clear();
             for (SSTable table : tables) {
                 table.deleteFromDisk();
             }
