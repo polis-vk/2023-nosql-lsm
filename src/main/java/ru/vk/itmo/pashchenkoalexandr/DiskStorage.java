@@ -229,7 +229,7 @@ public class DiskStorage {
                      Files.find(
                              storagePath,
                              1,
-                             (path, _) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
+                             (path, ignored) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
             stream.forEach(p -> {
                 try {
                     Files.delete(p);
