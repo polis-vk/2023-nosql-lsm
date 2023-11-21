@@ -13,12 +13,14 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -46,6 +48,10 @@ public final class SSTable {
         this.hasNoTombstones = hasNoTombstones;
     }
 
+    public int getIndex() {
+        return index;
+    }
+
     private static Comparator<Path> ssTablePathComparator() {
         return (p1, p2) -> {
             String p1String = p1.getFileName().toString();
@@ -60,7 +66,7 @@ public final class SSTable {
         };
     }
 
-    public static List<SSTable> load(Arena arena, Path basePath) throws IOException {
+    public static Deque<SSTable> load(Arena arena, Path basePath, AtomicInteger ssTablesIndex) throws IOException {
         List<Path> ssTablePaths;
         try (Stream<Path> paths = Files.walk(basePath, 1)) {
             ssTablePaths = paths.filter(Files::isRegularFile)
@@ -68,7 +74,7 @@ public final class SSTable {
                     .sorted(ssTablePathComparator())
                     .collect(Collectors.toList());
         } catch (NoSuchFileException e) {
-            return new ArrayList<>();
+            return new ConcurrentLinkedDeque<>();
         }
         if (checkIfCompactedExists(basePath)) {
             deleteOldSSTables(ssTablePaths);
@@ -78,11 +84,12 @@ public final class SSTable {
                     basePath
             );
         }
-        List<SSTable> ssTables = new ArrayList<>(ssTablePaths.size());
+        ConcurrentLinkedDeque<SSTable> ssTables = new ConcurrentLinkedDeque<>();
         for (int i = 0; i < ssTablePaths.size(); i++) {
             Path ssTablePath = ssTablePaths.get(i);
             ssTables.add(loadOne(arena, ssTablePath, i));
         }
+        ssTablesIndex.set(ssTablePaths.size());
         return ssTables;
     }
 
@@ -103,8 +110,9 @@ public final class SSTable {
         return loadOne(arena, ssTablePath, index);
     }
 
-    public static boolean isCompacted(List<SSTable> ssTables) {
-        return ssTables.isEmpty() || (ssTables.size() == 1 && ssTables.getFirst().hasNoTombstones);
+    public static boolean isCompacted(Deque<SSTable> ssTables) {
+        return ssTables.isEmpty()
+                || (ssTables.size() == 1 && ssTables.peek() != null && ssTables.peek().hasNoTombstones);
     }
 
     public SSTableIterator iterator(MemorySegment from, MemorySegment to) {
@@ -126,20 +134,22 @@ public final class SSTable {
         return new SSTableIterator(fromPosition, toPosition);
     }
 
-    public static void save(Collection<Entry<MemorySegment>> entries, int fileIndex, Path basePath) throws IOException {
-        if (entries.isEmpty()) return;
+    public static List<SSTable.SSTableIterator> ssTableIterators(
+            Deque<SSTable> ssTables,
+            MemorySegment from,
+            MemorySegment to
+    ) {
+        return ssTables.stream().map(ssTable -> ssTable.iterator(from, to)).toList();
+    }
+
+    public static void save(MemTable memTable, int fileIndex, Path basePath) throws IOException {
+        if (memTable.isEmpty()) return;
         Path tmpSSTable = basePath.resolve(FILE_NAME + fileIndex + FILE_EXTENSION + TMP_FILE_EXTENSION);
 
         Files.deleteIfExists(tmpSSTable);
         Files.createFile(tmpSSTable);
 
-        long entriesDataSize = 0;
-
-        for (Entry<MemorySegment> entry : entries) {
-            entriesDataSize += Utils.getEntrySize(entry);
-        }
-
-        save(entries::iterator, entries.size(), entriesDataSize, tmpSSTable);
+        save(memTable.values()::iterator, memTable.getEntriesSize(), memTable.getSize(), tmpSSTable);
         Files.move(
                 tmpSSTable,
                 basePath.resolve(FILE_NAME + fileIndex + FILE_EXTENSION),
@@ -234,6 +244,9 @@ public final class SSTable {
         Files.createFile(tmpSSTable);
         EntriesMetadata entriesMetadata = data.get().countEntities();
         Path compacted = save(data, entriesMetadata.count(), entriesMetadata.entriesDataSize(), tmpSSTable);
+        if (!Files.exists(compacted)) {
+            return compacted;
+        }
         return Files.move(compacted, getCompactedFilePath(basePath), StandardCopyOption.ATOMIC_MOVE);
     }
 
@@ -241,11 +254,11 @@ public final class SSTable {
         return basePath.resolve(FILE_NAME + "_compacted_" + FILE_EXTENSION);
     }
 
-    public static List<SSTable> replaceSSTablesWithCompacted(
+    public static Deque<SSTable> replaceSSTablesWithCompacted(
             Arena arena,
             Path compactedSSTable,
             Path basePath,
-            List<SSTable> oldSSTables
+            Deque<SSTable> oldSSTables
     ) throws IOException {
         deleteOldSSTables(basePath, oldSSTables);
         return replaceSSTablesWithCompactedInternal(
@@ -255,7 +268,7 @@ public final class SSTable {
         );
     }
 
-    private static void deleteOldSSTables(Path basePath, List<SSTable> oldSSTables) throws IOException {
+    private static void deleteOldSSTables(Path basePath, Deque<SSTable> oldSSTables) throws IOException {
         for (SSTable oldSSTable : oldSSTables) {
             Files.deleteIfExists(basePath.resolve(FILE_NAME + oldSSTable.index + FILE_EXTENSION));
         }
@@ -267,20 +280,20 @@ public final class SSTable {
         }
     }
 
-    private static List<SSTable> replaceSSTablesWithCompactedInternal(
+    private static ConcurrentLinkedDeque<SSTable> replaceSSTablesWithCompactedInternal(
             Arena arena,
             Path compactedSSTable,
             Path basePath
     ) throws IOException {
         if (!Files.exists(compactedSSTable)) {
-            return new ArrayList<>(0);
+            return new ConcurrentLinkedDeque<>();
         }
         Path newSSTable = Files.move(
                 compactedSSTable,
                 basePath.resolve(FILE_NAME + 0 + FILE_EXTENSION),
                 StandardCopyOption.ATOMIC_MOVE
         );
-        List<SSTable> newSSTables = new ArrayList<>(1);
+        ConcurrentLinkedDeque<SSTable> newSSTables = new ConcurrentLinkedDeque<>();
         newSSTables.add(loadOne(arena, newSSTable, 0));
         return newSSTables;
     }
@@ -409,8 +422,8 @@ public final class SSTable {
     }
 
     public final class SSTableIterator extends LSMPointerIterator {
-        private long fromPosition;
-        private final long toPosition;
+        public long fromPosition;
+        public final long toPosition;
 
         private SSTableIterator(long fromPosition, long toPosition) {
             this.fromPosition = fromPosition;
