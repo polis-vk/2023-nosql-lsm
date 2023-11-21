@@ -10,6 +10,8 @@ import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MemTable {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage;
@@ -19,6 +21,8 @@ public class MemTable {
     private final AtomicLong memTableByteSize = new AtomicLong();
 
     private final AtomicInteger memTableEntriesSize = new AtomicInteger();
+
+    private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
     public MemTable(long flushThresholdBytes) {
         this.flushThresholdBytes = flushThresholdBytes;
@@ -58,17 +62,22 @@ public class MemTable {
     }
 
     public boolean upsert(Entry<MemorySegment> entry) {
-        if (memTableByteSize.get() >= flushThresholdBytes) {
-            throw new LSMDaoOutOfMemoryException();
+        readWriteLock.writeLock().lock();
+        try {
+            if (memTableByteSize.get() >= flushThresholdBytes) {
+                throw new LSMDaoOutOfMemoryException();
+            }
+            Entry<MemorySegment> previous = storage.put(entry.key(), entry);
+            if (previous == null) {
+                memTableEntriesSize.addAndGet(1);
+            } else { // entry already was in memTable, so we need to substructure subtract size of previous entry
+                memTableByteSize.addAndGet(-Utils.getEntrySize(previous));
+            }
+            memTableByteSize.addAndGet(Utils.getEntrySize(entry));
+            return memTableByteSize.get() >= flushThresholdBytes;
+        } finally {
+            readWriteLock.writeLock().unlock();
         }
-        Entry<MemorySegment> previous = storage.put(entry.key(), entry);
-        if (previous != null) {
-            memTableByteSize.addAndGet(-Utils.getEntrySize(previous));
-        } else {
-            memTableEntriesSize.addAndGet(1);
-        }
-        memTableByteSize.addAndGet(Utils.getEntrySize(entry));
-        return memTableByteSize.get() >= flushThresholdBytes;
     }
 
     public boolean isEmpty() {
@@ -76,11 +85,21 @@ public class MemTable {
     }
 
     public int getEntriesSize() {
-        return memTableEntriesSize.get();
+        readWriteLock.readLock().lock();
+        try {
+            return memTableEntriesSize.get();
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
-    public long getSize() {
-        return memTableByteSize.get();
+    public long getByteSize() {
+        readWriteLock.readLock().lock();
+        try {
+            return memTableByteSize.get();
+        } finally {
+            readWriteLock.readLock().unlock();
+        }
     }
 
     public static final class MemTableIterator extends LSMPointerIterator {

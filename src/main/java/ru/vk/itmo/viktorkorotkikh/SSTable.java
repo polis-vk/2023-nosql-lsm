@@ -13,7 +13,6 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.Iterator;
@@ -149,7 +148,7 @@ public final class SSTable {
         Files.deleteIfExists(tmpSSTable);
         Files.createFile(tmpSSTable);
 
-        save(memTable.values()::iterator, memTable.getEntriesSize(), memTable.getSize(), tmpSSTable);
+        save(memTable.values()::iterator, memTable.getEntriesSize(), memTable.getByteSize(), tmpSSTable);
         Files.move(
                 tmpSSTable,
                 basePath.resolve(FILE_NAME + fileIndex + FILE_EXTENSION),
