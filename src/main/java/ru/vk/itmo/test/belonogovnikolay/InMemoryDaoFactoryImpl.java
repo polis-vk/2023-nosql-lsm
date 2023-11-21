@@ -11,7 +11,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-@DaoFactory(stage = 2, week = 2)
+@DaoFactory(stage = 2)
 public class InMemoryDaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     /**
      * Creates new instance of Dao.
