@@ -260,7 +260,7 @@ public class DiskStorage {
     }
 
     private static long normalize(long value) {
-        return value & ~(Long.MAX_VALUE);
+        return value & ~ Long.MAX_VALUE;
     }
 
 }
