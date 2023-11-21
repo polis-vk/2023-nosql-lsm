@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -52,6 +53,9 @@ public class DiskStorage {
             }
 
             iterators.addAll(memoryIterators);
+            if (iterators.isEmpty()) {
+                return Collections.emptyIterator();
+            }
 
             return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
                 @Override
@@ -77,65 +81,70 @@ public class DiskStorage {
         final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
 
+        rwLock.writeLock().lock();
         try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
-        }
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-
-        String newFileName = existedFiles.size() + SSTABLE_EXT;
-
-        long dataSize = 0;
-        long count = 0;
-
-        for (Entry<MemorySegment> entry : iterable) {
-            dataSize += entry.key().byteSize();
-
-            if (entry.value() != null) {
-                dataSize += entry.value().byteSize();
+            try {
+                Files.createFile(indexFile);
+            } catch (FileAlreadyExistsException ignored) {
+                // it is ok, actually it is normal state
             }
-            count++;
-        }
-        long indexSize = count * 2 * Long.BYTES;
+            List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        Path tablePath = storagePath.resolve(newFileName);
-        try (
-                FileChannel fileChannel = FileChannel.open(
-                        tablePath,
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.CREATE
-                );
-                Arena writeArena = Arena.ofConfined()
-        ) {
-            MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    indexSize + dataSize,
-                    writeArena
-            );
+            String newFileName = existedFiles.size() + SSTABLE_EXT;
 
-            long dataOffset = indexSize;
-            int indexOffset = 0;
+            long dataSize = 0;
+            long count = 0;
+
             for (Entry<MemorySegment> entry : iterable) {
-                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                MemorySegment.copy(entry.key(), 0, fileSegment, dataOffset, entry.key().byteSize());
-                dataOffset += entry.key().byteSize();
-                indexOffset += Long.BYTES;
+                dataSize += entry.key().byteSize();
 
-                if (entry.value() == null) {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, SsTable.tombstone(dataOffset));
-                } else {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                    MemorySegment.copy(entry.value(), 0, fileSegment, dataOffset, entry.value().byteSize());
-                    dataOffset += entry.value().byteSize();
+                if (entry.value() != null) {
+                    dataSize += entry.value().byteSize();
                 }
-                indexOffset += Long.BYTES;
+                count++;
             }
+            long indexSize = count * 2 * Long.BYTES;
+
+            Path tablePath = storagePath.resolve(newFileName);
+            try (
+                    FileChannel fileChannel = FileChannel.open(
+                            tablePath,
+                            StandardOpenOption.WRITE,
+                            StandardOpenOption.READ,
+                            StandardOpenOption.CREATE
+                    );
+                    Arena writeArena = Arena.ofConfined()
+            ) {
+                MemorySegment fileSegment = fileChannel.map(
+                        FileChannel.MapMode.READ_WRITE,
+                        0,
+                        indexSize + dataSize,
+                        writeArena
+                );
+
+                long dataOffset = indexSize;
+                int indexOffset = 0;
+                for (Entry<MemorySegment> entry : iterable) {
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                    MemorySegment.copy(entry.key(), 0, fileSegment, dataOffset, entry.key().byteSize());
+                    dataOffset += entry.key().byteSize();
+                    indexOffset += Long.BYTES;
+
+                    if (entry.value() == null) {
+                        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, SsTable.tombstone(dataOffset));
+                    } else {
+                        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                        MemorySegment.copy(entry.value(), 0, fileSegment, dataOffset, entry.value().byteSize());
+                        dataOffset += entry.value().byteSize();
+                    }
+                    indexOffset += Long.BYTES;
+                }
+            }
+            updateIndex(indexFile, indexTmp, existedFiles, newFileName);
+            add(new SsTable(tablePath, arena));
+        } finally {
+            rwLock.writeLock().unlock();
         }
-        updateIndex(indexFile, indexTmp, existedFiles, newFileName);
-        add(new SsTable(tablePath, arena));
     }
 
     private static void updateIndex(Path indexFile, Path indexTmp, List<String> existedFiles, String newFileName)
@@ -167,64 +176,70 @@ public class DiskStorage {
 
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
 
-        try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
-        }
-
-        MergeIterator<Entry<MemorySegment>> mergeIterator = getMergeIterator();
-        long dataSize = 0;
-        long count = 0;
-        while (mergeIterator.hasNext()) {
-            count++;
-            Entry<MemorySegment> next = mergeIterator.next();
-            dataSize += next.key().byteSize() + next.value().byteSize();
-        }
-        dataSize += count * Long.BYTES * 2;
-
-        MemorySegment fileSegment;
-        Path tablePath = storagePath.resolve("0" + TMP_EXT);
-        try (
-                FileChannel fileChannel = FileChannel.open(
-                        tablePath,
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.CREATE
-                );
-                Arena writeArena = Arena.ofConfined()
-        ) {
-            fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    dataSize,
-                    writeArena
-            );
-
-            mergeIterator = getMergeIterator();
-            long dataOffset = count * 2 * Long.BYTES;
-            int indexOffset = 0;
-            while (mergeIterator.hasNext()) {
-                Entry<MemorySegment> entry = mergeIterator.next();
-
-                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                MemorySegment.copy(entry.key(), 0, fileSegment, dataOffset, entry.key().byteSize());
-                dataOffset += entry.key().byteSize();
-                indexOffset += Long.BYTES;
-
-                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                MemorySegment.copy(entry.value(), 0, fileSegment, dataOffset, entry.value().byteSize());
-                dataOffset += entry.value().byteSize();
-                indexOffset += Long.BYTES;
-            }
-        }
-
-        updateIndexAndCleanUp(storagePath, indexFile);
-
         rwLock.writeLock().lock();
         try {
-            tableList.clear();
-            tableList.add(new SsTable(tablePath, arena));
+            try {
+                Files.createFile(indexFile);
+            } catch (FileAlreadyExistsException ignored) {
+                // it is ok, actually it is normal state
+            }
+
+            MergeIterator<Entry<MemorySegment>> mergeIterator = getMergeIterator();
+            long dataSize = 0;
+            long count = 0;
+            while (mergeIterator.hasNext()) {
+                count++;
+                Entry<MemorySegment> next = mergeIterator.next();
+                dataSize += next.key().byteSize() + next.value().byteSize();
+            }
+            dataSize += count * Long.BYTES * 2;
+
+            MemorySegment fileSegment;
+            Path tablePath = storagePath.resolve("0" + TMP_EXT);
+            try (
+                    FileChannel fileChannel = FileChannel.open(
+                            tablePath,
+                            StandardOpenOption.WRITE,
+                            StandardOpenOption.READ,
+                            StandardOpenOption.CREATE
+                    );
+                    Arena writeArena = Arena.ofConfined()
+            ) {
+                fileSegment = fileChannel.map(
+                        FileChannel.MapMode.READ_WRITE,
+                        0,
+                        dataSize,
+                        writeArena
+                );
+
+                mergeIterator = getMergeIterator();
+                long dataOffset = count * 2 * Long.BYTES;
+                int indexOffset = 0;
+                while (mergeIterator.hasNext()) {
+                    Entry<MemorySegment> entry = mergeIterator.next();
+
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                    MemorySegment.copy(entry.key(), 0, fileSegment, dataOffset, entry.key().byteSize());
+                    dataOffset += entry.key().byteSize();
+                    indexOffset += Long.BYTES;
+
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                    MemorySegment.copy(entry.value(), 0, fileSegment, dataOffset, entry.value().byteSize());
+                    dataOffset += entry.value().byteSize();
+                    indexOffset += Long.BYTES;
+                }
+            }
+
+            updateIndexAndCleanUp(storagePath, indexFile);
+
+            rwLock.writeLock().lock();
+            try {
+                tableList.clear();
+                tableList.add(new SsTable(storagePath.resolve("0" + SSTABLE_EXT), arena));
+            } finally {
+                rwLock.writeLock().unlock();
+            }
+
         } finally {
             rwLock.writeLock().unlock();
         }

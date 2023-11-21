@@ -64,18 +64,15 @@ public class MemTable {
     public void setIsFlushing(boolean isFlushing) {
         this.isFlushing.set(isFlushing);
     }
+    public boolean getIsFlushing() {
+        return this.isFlushing.get();
+    }
 
     private Entry<MemorySegment> get(
             MemorySegment key,
             AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> storage
     ) {
-        Entry<MemorySegment> entry;
-        entry = storage.get().get(key);
-
-        //            if (entry.value() == null) {
-        //                return null;
-        //            }
-        return entry;
+        return storage.get().get(key);
     }
 
     private Iterator<Entry<MemorySegment>> getInMemory(

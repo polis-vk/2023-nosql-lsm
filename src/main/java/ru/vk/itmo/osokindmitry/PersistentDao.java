@@ -5,6 +5,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -32,7 +33,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private ExecutorService flushExecutor;
     private final ExecutorService finalizer;
     private Future<?> autoFlushing;
-//    private Future<?> flushingTask;
+    //    private Future<?> flushingTask;
     private final AtomicBoolean shuttingDown;
 
     public PersistentDao(Config config) throws IOException {
@@ -118,30 +119,31 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        rwLock.readLock().lock();
+        rwLock.writeLock().lock();
         try {
             if (!memTable.getTable().isEmpty()) {
-//                flushingTask = flushExecutor.submit(new FlushingTask<>());
+                memTable.set(new ConcurrentSkipListMap<>(PersistentDao::compare));
+                memTable.setIsFlushing(true);
                 flushExecutor.execute(new FlushingTask<>());
             }
         } finally {
-            rwLock.readLock().unlock();
+            rwLock.writeLock().unlock();
         }
     }
 
     @Override
     public void compact() {
-        rwLock.readLock().lock();
+        rwLock.writeLock().lock();
         try {
             compactionExecutor.execute(() -> {
                 try {
                     diskStorage.compact(path);
                 } catch (IOException e) {
-                    throw new RuntimeException(e);
+                    throw new UncheckedIOException(e);
                 }
             });
         } finally {
-            rwLock.readLock().unlock();
+            rwLock.writeLock().unlock();
         }
     }
 
@@ -165,12 +167,13 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             super(() -> {
                 rwLock.writeLock().lock();
                 try {
-                    memTable.set(new ConcurrentSkipListMap<>(PersistentDao::compare));
-                    memTable.setIsFlushing(true);
+//                    memTable.set(new ConcurrentSkipListMap<>(PersistentDao::compare));
+//                    memTable.setIsFlushing(true);
                     diskStorage.save(path, memTable.getFlushingTable().values());
                     memTable.setIsFlushing(false);
+
                 } catch (IOException e) {
-                    throw new RuntimeException(e);
+                    throw new UncheckedIOException(e);
                 } finally {
                     rwLock.writeLock().unlock();
                 }
@@ -183,19 +186,20 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         @Override
         public void run() {
+
             while (!shuttingDown.get()) {
-                rwLock.readLock().lock();
+                rwLock.writeLock().lock();
+
                 try {
-                    if (memTable.size() > thresholdBytes) {
-                        flush();
+                    if (memTable.size() > thresholdBytes && !memTable.getIsFlushing()) {
+                        memTable.set(new ConcurrentSkipListMap<>(PersistentDao::compare));
+                        memTable.setIsFlushing(true);
+                        flushExecutor.execute(new FlushingTask<>());
                     }
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
                 } finally {
-                    rwLock.readLock().unlock();
+                    rwLock.writeLock().unlock();
                 }
             }
         }
     }
-
 }
