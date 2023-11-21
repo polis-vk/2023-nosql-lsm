@@ -44,7 +44,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ExecutorService compactionExecutor = Executors.newSingleThreadExecutor();
 
-    private Future<?> flushFuture;
+    private volatile Future<?> flushFuture;
 
     public LSMDaoImpl(Path storagePath, long flushThresholdBytes) {
         this.memTable = new AtomicReference<>(new MemTable(flushThresholdBytes));
