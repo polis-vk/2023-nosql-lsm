@@ -55,14 +55,12 @@ public class DiskStorage {
                 StandardCopyOption.REPLACE_EXISTING
         );
 
-        Path indexPath = mainDir.resolve(INDEX_NAME);
-
         String zeroFile = "0";
         String oneFile = "1";
         List<String> files = new ArrayList<>(2);
         files.add(zeroFile);
         files.add(oneFile);
-        updateIndex(files, indexPath);
+        updateIndex(files, mainDir);
 
         // Удаляем файлы, которые использовались при компакте.
         for (int i = ssTablesCount - 1; i > 1; i--) {
