@@ -17,13 +17,13 @@ import java.util.Comparator;
 public class SSTable implements Comparable<SSTable> {
     // Contains offset and size for every key and every value in index file
     private MemorySegment summaryFile;
-    private static final String summaryFilename = "summary";
+    private static final String SUMMARY_FILENAME = "summary";
     // Contains keys
     private MemorySegment indexFile;
-    private static final String indexFilename = "index";
+    private static final String INDEX_FILENAME = "index";
     // Contains values
     private MemorySegment dataFile;
-    private static final String dataFilename = "data";
+    private static final String DATA_FILENAME = "data";
     private final Comparator<MemorySegment> memSegComp;
     private final Arena filesArena = Arena.ofAuto();
     private final long tableId;
@@ -37,9 +37,9 @@ public class SSTable implements Comparable<SSTable> {
         this.tableId = tableId;
         this.ssTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
-        Path summaryFilePath = ssTablePath.resolve(summaryFilename);
-        Path indexFilePath = ssTablePath.resolve(indexFilename);
-        Path dataFilePath = ssTablePath.resolve(dataFilename);
+        Path summaryFilePath = ssTablePath.resolve(SUMMARY_FILENAME);
+        Path indexFilePath = ssTablePath.resolve(INDEX_FILENAME);
+        Path dataFilePath = ssTablePath.resolve(DATA_FILENAME);
         if (rewrite) {
             write(entriesContainer, summaryFilePath, indexFilePath, dataFilePath);
         } else {
@@ -134,9 +134,9 @@ public class SSTable implements Comparable<SSTable> {
 
     // Deletes all SSTable files from disk. Don't use object after invocation of this method!
     public void deleteFromDisk() throws IOException {
-        Files.delete(ssTablePath.resolve(summaryFilename));
-        Files.delete(ssTablePath.resolve(indexFilename));
-        Files.delete(ssTablePath.resolve(dataFilename));
+        Files.delete(ssTablePath.resolve(SUMMARY_FILENAME));
+        Files.delete(ssTablePath.resolve(INDEX_FILENAME));
+        Files.delete(ssTablePath.resolve(DATA_FILENAME));
         Files.delete(ssTablePath);
     }
 
