@@ -73,11 +73,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new IllegalStateException("SSTable is full. Wait until flush.");
         }
 
-        lock.readLock().lock();
+        lock.writeLock().lock();
         try {
             storageState.getActiveSSTable().upsert(entry);
         } finally {
-            lock.readLock().unlock();
+            lock.writeLock().unlock();
         }
 
         try {

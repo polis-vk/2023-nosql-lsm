@@ -186,7 +186,6 @@ public class DiskStorage {
         return newFileName;
     }
 
-    // нужно загружать все SS таблицы
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         Path indexTmp = storagePath.resolve("index.tmp");
         Path indexFile = storagePath.resolve("index.idx");
