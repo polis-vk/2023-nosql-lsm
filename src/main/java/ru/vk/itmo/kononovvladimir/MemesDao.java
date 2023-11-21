@@ -7,21 +7,20 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
-import java.util.Collections;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final Comparator<MemorySegment> comparator = MemesDao::compare;
+    private final Comparator<MemorySegment> comparator = new MemoryComparator();
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
@@ -39,24 +38,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.arena = Arena.ofShared();
 
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
-    }
-
-    static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
-        long mismatch = memorySegment1.mismatch(memorySegment2);
-        if (mismatch == -1) {
-            return 0;
-        }
-
-        if (mismatch == memorySegment1.byteSize()) {
-            return -1;
-        }
-
-        if (mismatch == memorySegment2.byteSize()) {
-            return 1;
-        }
-        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
-        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
-        return Byte.compare(b1, b2);
     }
 
     @Override
@@ -124,7 +105,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
         Entry<MemorySegment> next = iterator.next();
-        if (compare(next.key(), key) == 0) {
+        if (comparator.compare(next.key(), key) == 0) {
             return next;
         }
         return null;

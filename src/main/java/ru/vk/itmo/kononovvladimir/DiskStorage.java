@@ -22,6 +22,7 @@ import java.util.NoSuchElementException;
 
 public class DiskStorage {
 
+    private final Comparator<MemorySegment> comparator = new MemoryComparator();
     private static final long BYTE_SIZE_2_LONGS = 2 * Long.BYTES;
 
     static final String INDEX_FILE_NAME = "index.idx";
@@ -43,7 +44,7 @@ public class DiskStorage {
         }
         iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, MemesDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, comparator)) {
             @Override
             protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry == null || memorySegmentEntry.value() == null;
