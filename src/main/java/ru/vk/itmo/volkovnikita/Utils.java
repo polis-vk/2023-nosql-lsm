@@ -54,7 +54,7 @@ public class Utils {
 
     private static void deleteSSTableFiles(Path path) throws IOException {
         try (Stream<Path> stableFiles = Files.find(path, 1,
-                (filePath, _) -> filePath.getFileName().toString().startsWith(Utils.SSTABLE_PREFIX))) {
+                (filePath, attributes) -> filePath.getFileName().toString().startsWith(Utils.SSTABLE_PREFIX))) {
             stableFiles.forEach(FileDeleter::deleteFile);
         }
     }
@@ -72,6 +72,7 @@ public class Utils {
 
 
     private static class FileDeleter {
+
         private FileDeleter() {
 
         }
