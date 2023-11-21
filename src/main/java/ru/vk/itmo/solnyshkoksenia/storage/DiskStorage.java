@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -169,16 +170,26 @@ public class DiskStorage {
             Files.delete(storagePath.resolve(file));
         }
 
-        Files.move(tmpFile, storagePath.resolve("0"), StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING);
+        final Path indexTmp = storagePath.resolve("indexTmp");
+        Files.deleteIfExists(indexTmp);
+
+        boolean noData = Files.size(tmpFile) == 0;
 
         Files.write(
-                indexFile,
-                List.of("0"),
+                indexTmp,
+                noData ? Collections.emptyList() : List.of("0"),
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
+
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
+        if (noData) {
+            Files.delete(tmpFile);
+        } else {
+            Files.move(tmpFile, storagePath.resolve("0"), StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
