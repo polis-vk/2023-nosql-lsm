@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -46,6 +47,11 @@ public class Compaction {
     }
 
     public Iterator<Entry<MemorySegment>> range(MemorySegment from, MemorySegment to) {
+        List<Iterator<Entry<MemorySegment>>> fileIterators = getFileIterators(from, to);
+        if (fileIterators.isEmpty()) {
+            return Collections.emptyIterator();
+        }
+
         return new MergeIterator<>(
                 getFileIterators(from, to),
                 Comparator.comparing(Entry::key, MemorySegmentDao::compare),
