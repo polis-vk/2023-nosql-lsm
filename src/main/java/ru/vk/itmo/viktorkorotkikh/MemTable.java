@@ -16,9 +16,9 @@ public class MemTable {
 
     private final long flushThresholdBytes;
 
-    private long memTableByteSize = 0L;
+    private long memTableByteSize;
 
-    private int memTableEntriesSize = 0;
+    private int memTableEntriesSize;
 
     private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 

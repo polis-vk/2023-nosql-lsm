@@ -44,6 +44,8 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ExecutorService compactionExecutor = Executors.newSingleThreadExecutor();
 
+    private Future<?> flushFuture;
+
     public LSMDaoImpl(Path storagePath, long flushThresholdBytes) {
         this.memTable = new AtomicReference<>(new MemTable(flushThresholdBytes));
         this.flushingMemTable = new AtomicReference<>(new MemTable(-1));
@@ -109,7 +111,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 flushingMemTable.set(memTable1);
                 return new MemTable(flushThresholdBytes);
             });
-            Future<?> unusedFuture = runFlushInBackground();
+            flushFuture = runFlushInBackground();
         }
     }
 
@@ -190,9 +192,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             LOG.log(Level.SEVERE, String.format("InterruptedException: %s", e));
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
-            throw new BackgroundExecutionException(
-                    String.format("Exception was occurred when awaiting background job: %s", e.getCause())
-            );
+            throw new BackgroundExecutionException(e);
         }
     }
 
@@ -204,6 +204,9 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         bgExecutor.shutdown();
         compactionExecutor.shutdown();
         try {
+            if (flushFuture != null) {
+                await(flushFuture);
+            }
             for (; ; ) {
                 if (bgExecutor.awaitTermination(10, TimeUnit.MINUTES)) {
                     break;
