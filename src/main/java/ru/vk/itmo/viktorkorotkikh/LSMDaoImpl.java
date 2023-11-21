@@ -187,7 +187,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             future.get();
         } catch (InterruptedException e) {
-            LOG.log(Level.SEVERE, STR. "InterruptedException: \{ e }" );
+            LOG.log(Level.SEVERE, String.format("InterruptedException: %s", e));
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
             throw new RuntimeException(e.getCause());
@@ -213,7 +213,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
         } catch (InterruptedException e) {
-            LOG.log(Level.SEVERE, STR. "InterruptedException: \{ e }" );
+            LOG.log(Level.SEVERE, String.format("InterruptedException: %s", e));
             Thread.currentThread().interrupt();
         }
         SSTable.save(memTable.get(), ssTablesIndex.getAndIncrement(), storagePath);
