@@ -91,7 +91,10 @@ public class FileWriterManager {
         MemorySegment.copy(entry.key(), 0, tableMemorySegment, tableFileOffset, keyLength);
         tableFileOffset += keyLength;
 
-        if (entry.value() != null) {
+        if (entry.value() == null) {
+            tableMemorySegment.set(ValueLayout.JAVA_INT_UNALIGNED, tableFileOffset, -1);
+            tableFileOffset += Integer.BYTES;
+        } else {
             int valueLength = (int) entry.value().byteSize();
 
             tableMemorySegment.set(ValueLayout.JAVA_INT_UNALIGNED, tableFileOffset, valueLength);
@@ -99,9 +102,6 @@ public class FileWriterManager {
 
             MemorySegment.copy(entry.value(), 0, tableMemorySegment, tableFileOffset, valueLength);
             tableFileOffset += valueLength;
-        } else {
-            tableMemorySegment.set(ValueLayout.JAVA_INT_UNALIGNED, tableFileOffset, -1);
-            tableFileOffset += Integer.BYTES;
         }
 
         return tableFileOffset;

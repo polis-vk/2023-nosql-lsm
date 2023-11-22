@@ -35,6 +35,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
     public Storage() {
+        // Default constructor
     }
 
     public Storage(Config config) {
@@ -46,7 +47,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (isClosed.get()) {
-            throw new RuntimeException("Unable to get: close operation performed.");
+            throw new IllegalStateException("Unable to get: close operation performed.");
         }
 
         ArrayList<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
@@ -70,7 +71,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         if (isClosed.get()) {
-            throw new RuntimeException("Unable to get: close operation performed.");
+            throw new IllegalStateException("Unable to get: close operation performed.");
         }
 
         Entry<MemorySegment> result = state.dataStorage.get(key);
@@ -89,7 +90,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         if (isClosed.get()) {
-            throw new RuntimeException("Unable to upsert: close operation performed.");
+            throw new IllegalStateException("Unable to upsert: close operation performed.");
         }
 
         if (entry == null || entry.key() == null) {
@@ -101,7 +102,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         if (state.getDataStorageByteSize() + delta > flushThresholdBytes) {
             if (!state.flushingDataStorage.isEmpty()) {
-                throw new RuntimeException("Unable to flush: another background flush performing.");
+                throw new IllegalStateException("Unable to flush: another background flush performing.");
             }
             flush();
         } else {
@@ -119,7 +120,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() {
         if (isClosed.get()) {
-            throw new RuntimeException("Unable to flush: close operation performed.");
+            throw new IllegalStateException("Unable to flush: close operation performed.");
         }
 
         if (state.dataStorage.isEmpty() || !state.flushingDataStorage.isEmpty()) {
@@ -132,7 +133,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void compact() {
         if (isClosed.get()) {
-            throw new RuntimeException("Unable to compact: close operation performed.");
+            throw new IllegalStateException("Unable to compact: close operation performed.");
         }
 
         performCompact();
@@ -184,8 +185,10 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (taskResult != null && !taskResult.isDone()) {
                 try {
                     taskResult.get();
-                } catch (ExecutionException | InterruptedException e) {
-                    throw new RuntimeException("Current thread was interrupted.", e);
+                } catch (ExecutionException e) {
+                    throw new IllegalStateException("Current thread execution error occurred.", e);
+                } catch (InterruptedException e) {
+                    throw new IllegalStateException("Current thread was interrupted.", e);
                 }
             }
         }
