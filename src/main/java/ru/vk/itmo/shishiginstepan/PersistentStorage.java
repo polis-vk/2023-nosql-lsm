@@ -21,7 +21,7 @@ import java.util.logging.Logger;
 public class PersistentStorage {
     private final Path basePath;
     private final NavigableSet<BinarySearchSSTable> sstables = new ConcurrentSkipListSet<>(
-            Comparator.comparingInt(o -> o.id)
+            Comparator.comparingInt(o -> - o.id)
     );
     private final AtomicInteger lastSSTableId;
 
@@ -56,14 +56,14 @@ public class PersistentStorage {
      * Гарантирует что при успешном завершении записи на диск, SSTable с переданными в метод данными
      * сразу будет доступен для чтения в PersistentStorage.
      **/
-    public void store(Collection<Entry<MemorySegment>> data) {
+    public void store(Iterable<Entry<MemorySegment>> data) {
         int nextSStableID = this.lastSSTableId.incrementAndGet();
         BinarySearchSSTable newSSTable = BinarySearchSSTable.writeSSTable(data, basePath, nextSStableID, arena);
         this.sstables.add(newSSTable);
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-        for (BinarySearchSSTable sstable : this.sstables.reversed()) {
+        for (BinarySearchSSTable sstable : this.sstables) {
             if (sstable.closed.get()) continue;
             Entry<MemorySegment> ssTableResult = sstable.get(key);
             if (ssTableResult != null) {
@@ -86,7 +86,7 @@ public class PersistentStorage {
             MemorySegment to
     ) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(sstables.size() + 1);
-        for (var sstable : sstables.reversed()) {
+        for (var sstable : sstables) {
             if (sstable.closed.get()) continue;
             iterators.add(sstable.scan(from, to));
         }
@@ -95,10 +95,9 @@ public class PersistentStorage {
 
     private List<BinarySearchSSTable> getCompactableTables() {
         List<BinarySearchSSTable> res = new ArrayList<>(sstables.size());
-        for (var sstable : sstables.reversed()) {
+        for (var sstable : sstables) {
             if (sstable.closed.get()) continue;
-            if (sstable.inCompaction.compareAndSet(false, true)) continue;
-            res.add(sstable);
+            if (sstable.inCompaction.compareAndSet(false, true)) res.add(sstable);
         }
         return res;
     }
