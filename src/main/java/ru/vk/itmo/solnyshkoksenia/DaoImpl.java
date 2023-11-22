@@ -39,60 +39,60 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        State state = this.state.checkAndGet();
+        State curState = this.state.checkAndGet();
         List<Iterator<Entry<MemorySegment>>> iterators = List.of(
-                state.getInMemory(state.flushingStorage, from, to),
-                state.getInMemory(state.storage, from, to)
+                curState.getInMemory(curState.flushingStorage, from, to),
+                curState.getInMemory(curState.storage, from, to)
         );
 
         Iterator<Entry<MemorySegment>> iterator = new MergeIterator<>(iterators,
                 (e1, e2) -> comparator.compare(e1.key(), e2.key()));
-        return state.diskStorage.range(iterator, from, to);
+        return curState.diskStorage.range(iterator, from, to);
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        State state = this.state.checkAndGet();
+        State curState = this.state.checkAndGet();
 
         lock.readLock().lock();
         try {
-            state.putInMemory(entry);
+            curState.putInMemory(entry);
         } finally {
             lock.readLock().unlock();
         }
 
-        if (state.isOverflowed()) {
+        if (curState.isOverflowed()) {
             try {
                 autoFlush();
             } catch (IOException e) {
-                throw new RuntimeException("Memory storage overflowed. Cannot flush: " + e.getMessage());
+                throw new DaoException("Memory storage overflowed. Cannot flush: " + e.getMessage());
             }
         }
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        State state = this.state.checkAndGet();
-        return state.get(key, comparator);
+        State curState = this.state.checkAndGet();
+        return curState.get(key, comparator);
     }
 
     @Override
     public void flush() throws IOException {
-        State state = this.state.checkAndGet();
-        if (state.storage.isEmpty() || state.isFlushing()) {
+        State curState = this.state.checkAndGet();
+        if (curState.storage.isEmpty() || curState.isFlushing()) {
             return;
         }
         autoFlush();
     }
 
     private void autoFlush() throws IOException {
-        State state = this.state.checkAndGet();
+        State curState = this.state.checkAndGet();
         lock.writeLock().lock();
         try {
-            if (state.isFlushing()) {
+            if (curState.isFlushing()) {
                 throw new IOException();
             }
-            this.state = state.moveStorage();
+            this.state = curState.moveStorage();
         } finally {
             lock.writeLock().unlock();
         }
@@ -101,21 +101,21 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void tryFlush() {
-        State state = this.state.checkAndGet();
+        State curState = this.state.checkAndGet();
         try {
-            state.flush();
-
-            lock.writeLock().lock();
-            try {
-                this.state = new State(state.config, state.storage, new ConcurrentSkipListMap<>(comparator),
-                        new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
-            } catch (IOException e) {
-                throw new RuntimeException("Cannot recover storage on disk");
-            } finally {
-                lock.writeLock().unlock();
-            }
+            curState.flush();
         } catch (IOException e) {
-            throw new RuntimeException("Flush failed: " + e.getMessage());
+            throw new DaoException("Flush failed: " + e.getMessage());
+        }
+
+        lock.writeLock().lock();
+        try {
+            this.state = new State(curState.config, curState.storage, new ConcurrentSkipListMap<>(comparator),
+                    new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
+        } catch (IOException e) {
+            throw new DaoException("Cannot recover storage on disk");
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 
@@ -124,25 +124,26 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             executor.submit(this::tryCompact).get();
         } catch (InterruptedException e) {
-            throw new RuntimeException("Compaction failed. Thread interrupted: " + e.getMessage());
+            throw new DaoException("Compaction failed. Thread interrupted: " + e.getMessage());
         } catch (ExecutionException e) {
-            throw new RuntimeException("Compaction failed: " + e.getMessage());
+            throw new DaoException("Compaction failed: " + e.getMessage());
         }
     }
 
     private Object tryCompact() {
-        State state = this.state.checkAndGet();
+        State curState = this.state.checkAndGet();
         try {
-            state.diskStorage.compact();
+            curState.diskStorage.compact();
         } catch (IOException e) {
-            throw new RuntimeException("Cannot compact: " + e.getMessage());
+            throw new DaoException("Cannot compact: " + e.getMessage());
         }
 
         lock.writeLock().lock();
         try {
-            this.state = new State(state.config, state.storage, state.flushingStorage, new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
+            this.state = new State(curState.config, curState.storage, curState.flushingStorage,
+                    new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
         } catch (IOException e) {
-            throw new RuntimeException("Cannot recover storage on disk after compaction: " + e.getMessage());
+            throw new DaoException("Cannot recover storage on disk after compaction: " + e.getMessage());
         } finally {
             lock.writeLock().unlock();
         }
@@ -152,19 +153,19 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void close() throws IOException {
-        State state = this.state;
-        if (state.isClosed() || !arena.scope().isAlive()) {
+        State curState = this.state;
+        if (curState.isClosed() || !arena.scope().isAlive()) {
             return;
         }
 
-        if (!state.storage.isEmpty()) {
-            state.save();
+        if (!curState.storage.isEmpty()) {
+            curState.save();
         }
 
         executor.shutdown();
         executor.close();
         arena.close();
 
-        this.state = state.close();
+        this.state = curState.close();
     }
 }

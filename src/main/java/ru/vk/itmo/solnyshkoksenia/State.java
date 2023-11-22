@@ -64,7 +64,7 @@ public class State {
 
     public State checkAndGet() {
         if (isClosed.get()) {
-            throw new RuntimeException("Dao is already closed");
+            throw new DaoException("Dao is already closed");
         }
         return this;
     }
