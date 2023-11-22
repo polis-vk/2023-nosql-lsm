@@ -28,8 +28,8 @@ public class DiskStorage {
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
-        iterators.add(firstIterator);
         iterators.add(secondIterator);
+        iterators.add(firstIterator);
 
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, ChernyshevDao::compare)) {
             @Override

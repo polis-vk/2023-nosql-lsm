@@ -12,8 +12,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -24,7 +30,9 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final DiskStorage diskStorage;
     private final Path path;
     private final long flushThresholdBytes;
-    private long size = 0;
+    private final ExecutorService executor = Executors.newSingleThreadExecutor(e ->
+            new Thread(e, "Background thread"));
+    private final List<Future<?>> backgroundResults = new CopyOnWriteArrayList<>();
     //private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final Memory memory = new Memory();
     private final AtomicBoolean isBackgroundFlushingInProgress = new AtomicBoolean(false);
@@ -36,36 +44,38 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         }
 
-        private int flushes = 0;
-        private final NavigableMap<MemorySegment, Entry<MemorySegment>> storageActual =
+        private long size = 0;
+
+        private int isReserveStorage = 0;
+        private final NavigableMap<MemorySegment, Entry<MemorySegment>> storageFirst =
                 new ConcurrentSkipListMap<>(ChernyshevDao::compare);
-        private final NavigableMap<MemorySegment, Entry<MemorySegment>> storageReserve =
+        private final NavigableMap<MemorySegment, Entry<MemorySegment>> storageSecond =
                 new ConcurrentSkipListMap<>(ChernyshevDao::compare);
 
         private NavigableMap<MemorySegment, Entry<MemorySegment>> getActualMemory() {
-            if (flushes == 0) {
-                return this.storageActual;
+            if (isReserveStorage == 0) {
+                return this.storageFirst;
             }
             else {
-                return this.storageReserve;
+                return this.storageSecond;
             }
         }
 
         private NavigableMap<MemorySegment, Entry<MemorySegment>> getReserveMemory() {
-            if (flushes == 1) {
-                return this.storageActual;
+            if (isReserveStorage == 1) {
+                return this.storageFirst;
             }
             else {
-                return this.storageReserve;
+                return this.storageSecond;
             }
         }
 
         private void put(Entry<MemorySegment> entry) {
-            storageActual.put(entry.key(), entry);
+            storageFirst.put(entry.key(), entry);
         }
 
         private void changeStorage() {
-            flushes = (flushes + 1) % 2;
+            isReserveStorage = (isReserveStorage + 1) % 2;
         }
     }
 
@@ -99,10 +109,16 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        if (isClosed.get()) {
+            throw new RuntimeException("Dao is closed");
+        }
         return diskStorage.range(getInActualMemory(from, to), getInReserveMemory(from, to), from, to);
     }
 
     private Iterator<Entry<MemorySegment>> getInActualMemory(MemorySegment from, MemorySegment to) {
+        if (isClosed.get()) {
+            throw new RuntimeException("Dao is closed");
+        }
         if (from == null && to == null) {
             return memory.getActualMemory().values().iterator();
         }
@@ -116,6 +132,9 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private Iterator<Entry<MemorySegment>> getInReserveMemory(MemorySegment from, MemorySegment to) {
+        if (isClosed.get()) {
+            throw new RuntimeException("Dao is closed");
+        }
         if (from == null && to == null) {
             return memory.getReserveMemory().values().iterator();
         }
@@ -130,6 +149,9 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
+        if (isClosed.get()) {
+            throw new RuntimeException("Dao is closed");
+        }
         Entry<MemorySegment> entry = memory.getActualMemory().get(key);
         if (entry != null) {
             if (entry.value() == null) {
@@ -161,8 +183,8 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void close() throws IOException {
-        if (isClosed.getAndSet(true)) {
-            throw new RuntimeException("Dao is already closed");
+        if (isClosed.get()) {
+            return;
         }
 
         if (!arena.scope().isAlive()) {
@@ -172,55 +194,88 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         flush();
+
+        executor.shutdown();
+        for (Future<?> result : backgroundResults) {
+            if (!result.isDone()) {
+                try {
+                    result.get();
+                } catch (ExecutionException | InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+        backgroundResults.clear();
+        executor.close();
+        isClosed.set(true);
     }
 
     @Override
-    public synchronized void flush() throws IOException {
-        if (!memory.getActualMemory().isEmpty()) {
-            FileUtils.save(path, memory.getActualMemory().values(), false);
+    public void flush() throws IOException {
+        if (isClosed.get()) {
+            throw new RuntimeException("Dao is closed");
+        }
+        if (!memory.getActualMemory().isEmpty() && !isBackgroundFlushingInProgress.get()) {
+            isBackgroundFlushingInProgress.set(true);
+            backgroundResults.add(executor.submit(() -> {
+                FileUtils.save(path, memory.getActualMemory().values(), false);
+                memory.getActualMemory().clear();
+                isBackgroundFlushingInProgress.set(false);
+            }));
         }
     }
 
     public void flushReserve() throws IOException {
+        if (isClosed.get()) {
+            throw new RuntimeException("Dao is closed");
+        }
         if (!memory.getReserveMemory().isEmpty()) {
-            FileUtils.save(path, memory.getReserveMemory().values(), false);
+            backgroundResults.add(executor.submit(() -> {
+                FileUtils.save(path, memory.getReserveMemory().values(), false);
+                memory.getReserveMemory().clear();
+                isBackgroundFlushingInProgress.set(false);
+            }));
         }
     }
 
     @Override
     public void compact() throws IOException {
+        if (isClosed.get()) {
+            throw new RuntimeException("Dao is closed");
+        }
         //flush();
         if (all().hasNext()) {
-            FileUtils.compact(path, this::all);
+            backgroundResults.add(executor.submit(() -> FileUtils.compact(path, this::all)));
         }
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
+        if (isClosed.get()) {
+            throw new RuntimeException("Dao is closed");
+        }
+        if (entry == null || entry.key() == null) {
+            throw new RuntimeException("entry/key is null");
+        }
         long entrySize = entry.key().byteSize() * 2 + (entry.value() != null ? entry.value().byteSize() : 0);
         synchronized (this) {
-            if (size + entrySize > flushThresholdBytes) {
-                if (isBackgroundFlushingInProgress.get()) {
+            if (memory.size + entrySize > flushThresholdBytes) {
+                if (isBackgroundFlushingInProgress.getAndSet(true)) {
                     throw new RuntimeException("flushThresholdBytes reached; Automatic flush is in progress");
                 } else {
-                    isBackgroundFlushingInProgress.set(true);
+                    //isBackgroundFlushingInProgress.set(true);
                     try {
-                        new Thread(() -> {
-                            try {
-                                memory.changeStorage();
+                        memory.changeStorage();
+                        memory.size = 0;
                                 flushReserve();
-                                memory.getReserveMemory().clear();
+
                             } catch (IOException e) {
                                 throw new RuntimeException(e);
-                            }
-                        }).start();
-                    } finally {
-                        isBackgroundFlushingInProgress.set(false);
                     }
                 }
             }
             else {
-                size += entrySize;
+                memory.size += entrySize;
             }
         }
         memory.put(entry);

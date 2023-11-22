@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 public final class FileUtils {
@@ -27,8 +28,7 @@ public final class FileUtils {
         throw new IllegalStateException("Utility class");
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable, boolean isCompaction)
-            throws IOException {
+    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable, boolean isCompaction) {
         final Path indexTmp = storagePath.resolve(INDEX_TMP);
         final Path indexFile = storagePath.resolve(INDEX_IDX);
 
@@ -36,8 +36,15 @@ public final class FileUtils {
             Files.createFile(indexFile);
         } catch (FileAlreadyExistsException ignored) {
             // it is ok, actually it is normal state
+        } catch (IOException e) {
+            throw new UncheckedIOException("parent directory does not exist", e);
         }
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        List<String> existedFiles;
+        try {
+            existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
         String newFileName = isCompaction ? COMPACTION_TMP : String.valueOf(existedFiles.size());
 
@@ -53,74 +60,93 @@ public final class FileUtils {
         }
         long indexSize = count * 2 * Long.BYTES;
 
+        MemorySegment fileSegment;
+        Arena writeArena = Arena.ofConfined();
         try (
                 FileChannel fileChannel = FileChannel.open(
                         storagePath.resolve(newFileName),
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE
-                );
-                Arena writeArena = Arena.ofConfined()
+                )
+
         ) {
-            MemorySegment fileSegment = fileChannel.map(
+            fileSegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
                     indexSize + dataSize,
                     writeArena
             );
+        } catch (IOException e) {
+            throw new RuntimeException("fileSegment IOException");
+        }
+        // index:
+        // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
+        // key0_Start = data start = end of index
+        long dataOffset = indexSize;
+        int indexOffset = 0;
+        Iterator<Entry<MemorySegment>> localIterator = iterable.iterator();
+        for (int i = 0; i < count; i++) {
+            Entry<MemorySegment> entry = localIterator.next();
+            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+            dataOffset += entry.key().byteSize();
+            indexOffset += Long.BYTES;
 
-            // index:
-            // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
-            // key0_Start = data start = end of index
-            long dataOffset = indexSize;
-            int indexOffset = 0;
-            for (Entry<MemorySegment> entry : iterable) {
+            MemorySegment value = entry.value();
+            if (value == null) {
+                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, DiskStorage.tombstone(dataOffset));
+            } else {
                 fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                dataOffset += entry.key().byteSize();
-                indexOffset += Long.BYTES;
-
-                MemorySegment value = entry.value();
-                if (value == null) {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, DiskStorage.tombstone(dataOffset));
-                } else {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                    dataOffset += value.byteSize();
-                }
-                indexOffset += Long.BYTES;
+                dataOffset += value.byteSize();
             }
+            indexOffset += Long.BYTES;
+        }
 
-            // data:
-            // |key0|value0|key1|value1|...
-            dataOffset = indexSize;
-            for (Entry<MemorySegment> entry : iterable) {
-                MemorySegment key = entry.key();
-                MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
-                dataOffset += key.byteSize();
+        // data:
+        // |key0|value0|key1|value1|...
+        dataOffset = indexSize;
+        localIterator = iterable.iterator();
+        for (int i = 0; i < count; i++) {
+            Entry<MemorySegment> entry = localIterator.next();
+            MemorySegment key = entry.key();
+            MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
+            dataOffset += key.byteSize();
 
-                MemorySegment value = entry.value();
-                if (value != null) {
-                    MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
-                    dataOffset += value.byteSize();
-                }
+            MemorySegment value = entry.value();
+            if (value != null) {
+                MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
+                dataOffset += value.byteSize();
             }
         }
 
-        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        try {
+            Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
         if (!isCompaction) {
             list.add(newFileName);
         }
-        Files.write(
-                indexFile,
-                list,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
+        try {
+            Files.write(
+                    indexFile,
+                    list,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING
+            );
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
-        Files.delete(indexTmp);
+        try {
+            Files.delete(indexTmp);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
@@ -154,22 +180,32 @@ public final class FileUtils {
                 result.add(fileSegment);
             }
         }
-
         return result;
     }
 
-    public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
+    public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable) {
         Path indexFile = storagePath.resolve(INDEX_IDX);
 
         try {
             Files.createFile(indexFile);
         } catch (FileAlreadyExistsException ignored) {
             // it is ok, actually it is normal state
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
-        List<String> existingFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        List<String> existingFiles;
+        try {
+            existingFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
 
         if (existingFiles.isEmpty()) {
-            Files.delete(indexFile);
+            try {
+                Files.delete(indexFile);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
             return;
         }
         save(storagePath, iterable, true);
