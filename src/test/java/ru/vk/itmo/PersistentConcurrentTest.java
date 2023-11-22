@@ -1,6 +1,5 @@
 package ru.vk.itmo;
 
-import org.junit.jupiter.api.Timeout;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
