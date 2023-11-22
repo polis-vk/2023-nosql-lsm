@@ -56,6 +56,7 @@ public class CompactManager {
             if (currentItem.value() != null) {
                 tableSize += currentItem.value().byteSize();
             }
+
             storageSize++;
         }
 
