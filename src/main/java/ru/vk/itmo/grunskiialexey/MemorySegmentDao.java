@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -30,6 +31,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     // no necessary
     private final Comparator<MemorySegment> comparator = MemorySegmentDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage2 = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final CompactionService compactionService;
     private final FlushService flushService;
@@ -67,20 +69,29 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     // may get more better query
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return compactionService.range(getInMemory(from, to), from, to);
+        return compactionService.range(getInMemoryIterators(from, to), from, to);
     }
 
-    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
+    private List<Iterator<Entry<MemorySegment>>> getInMemoryIterators(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            return storage.values().iterator();
+            return List.of(storage.values().iterator(), storage2.values().iterator());
         }
         if (from == null) {
-            return storage.headMap(to).values().iterator();
+            return List.of(
+                    storage.headMap(to).values().iterator(),
+                    storage2.headMap(to).values().iterator()
+            );
         }
         if (to == null) {
-            return storage.tailMap(from).values().iterator();
+            return List.of(
+                    storage.tailMap(from).values().iterator(),
+                    storage2.tailMap(from).values().iterator()
+            );
         }
-        return storage.subMap(from, to).values().iterator();
+        return List.of(
+                storage.subMap(from, to).values().iterator(),
+                storage2.subMap(from, to).values().iterator()
+        );
     }
 
     @Override

@@ -29,11 +29,11 @@ public class CompactionService {
     }
 
     public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> inMemoryIterator,
+            List<Iterator<Entry<MemorySegment>>> inMemoryIterators,
             MemorySegment from, MemorySegment to
     ) {
         List<Iterator<Entry<MemorySegment>>> iterators = getFileIterators(from, to);
-        iterators.add(inMemoryIterator);
+        iterators.addAll(inMemoryIterators);
 
         return new MergeIterator<>(
                 iterators,
@@ -56,7 +56,7 @@ public class CompactionService {
     }
 
     private List<Iterator<Entry<MemorySegment>>> getFileIterators(MemorySegment from, MemorySegment to) {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 2);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
