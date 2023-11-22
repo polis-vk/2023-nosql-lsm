@@ -71,10 +71,8 @@ public class Compaction {
         }
 
         final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
-        final long fileName = lastFileNumber.getAndIncrement();
-        // TODO May delete newTmpCompactedFileName
-        final Path newTmpCompactedFileName = storagePath.resolve(fileName + ".tmp");
-        final Path newCompactedFileName = storagePath.resolve(Long.toString(fileName));
+        final long fileNumber = lastFileNumber.getAndIncrement();
+        final Path filePath = storagePath.resolve(Long.toString(fileNumber));
 
         long startValuesOffset = 0;
         long maxOffset = 0;
@@ -87,8 +85,7 @@ public class Compaction {
         maxOffset += startValuesOffset;
 
         try (
-                FileChannel fileChannel = FileChannel.open(
-                        newTmpCompactedFileName,
+                FileChannel fileChannel = FileChannel.open(filePath,
                         StandardOpenOption.WRITE, StandardOpenOption.READ,
                         StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
                 );
@@ -126,13 +123,8 @@ public class Compaction {
             );
         }
 
-        Files.move(
-                newTmpCompactedFileName, newCompactedFileName,
-                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING
-        );
-
         try (Arena writeArena = Arena.ofShared()) {
-            DiskStorage.changeActualFilesInterval(indexFile, writeArena, fileName, fileName + 1);
+            DiskStorage.changeActualFilesInterval(indexFile, writeArena, fileNumber, fileNumber + 1);
         }
     }
 
