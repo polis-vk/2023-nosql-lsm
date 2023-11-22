@@ -15,7 +15,7 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -26,10 +26,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final AtomicLong memoryMapSize = new AtomicLong();
     private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushingMap;
     private final Storage storage;
-
-    // Я использую семафор вместо Lock потому что я хочу делать lock() в одном потоке, а unlock() - в другом
-    // В случае с Lock я получал бы IllegalMonitorStateException
-    private final Semaphore flushLock = new Semaphore(1);
+    private final AtomicBoolean isFlushing = new AtomicBoolean(false);
     private final long flushThresholdBytes;
 
     // readLock - пишем значение
@@ -101,7 +98,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (memoryMapSize.get() <= flushThresholdBytes) {
                 return;
             }
-            if (flushLock.tryAcquire()) {
+            if (isFlushing.compareAndSet(false, true)) {
                 flushingMap = map;
                 renewMap();
                 backgroundFlushQueue.execute(this::backgroundFlush);
@@ -133,7 +130,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         backgroundFlushQueue.execute(() -> {
-            if (flushLock.tryAcquire()) {
+            if (isFlushing.compareAndSet(false, true)) {
                 try {
                     mapUpsertExchangeLock.writeLock().lock();
                     try {
@@ -152,7 +149,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 } finally {
-                    flushLock.release();
+                    isFlushing.set(false);
                 }
             }
         });
@@ -171,7 +168,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         } finally {
-            flushLock.release();
+            isFlushing.set(false);
         }
     }
 
@@ -205,10 +202,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void close() throws IOException {
         backgroundCompactQueue.close();
-        if (!map.isEmpty()) {
-            flush();
-        }
         backgroundFlushQueue.close();
+        if (!map.isEmpty()) {
+            flushingMap = map;
+            writeMapIntoFile(flushingMap);
+            storage.incTotalSStablesAmount();
+        }
         storage.close();
     }
 
