@@ -78,13 +78,13 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
+        long sizeToAdd = entry.key().byteSize();
+        if (entry.value() != null) {
+            sizeToAdd += entry.value().byteSize();
+        }
         mapUpsertExchangeLock.readLock().lock();
         try {
             map.put(entry.key(), entry);
-            long sizeToAdd = entry.key().byteSize();
-            if (entry.value() != null) {
-                sizeToAdd += entry.value().byteSize();
-            }
             memoryMapSize.addAndGet(sizeToAdd);
         } finally {
             mapUpsertExchangeLock.readLock().unlock();
@@ -93,21 +93,18 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (memoryMapSize.get() <= flushThresholdBytes) {
             return;
         }
-        mapUpsertExchangeLock.writeLock().lock();
-        try {
-            if (memoryMapSize.get() <= flushThresholdBytes) {
-                return;
-            }
-            if (isFlushing.compareAndSet(false, true)) {
+        if (isFlushing.compareAndSet(false, true)) {
+            mapUpsertExchangeLock.writeLock().lock();
+            try {
                 flushingMap = map;
                 renewMap();
-                backgroundFlushQueue.execute(this::backgroundFlush);
-            } else {
-                throw new DaoException.DaoMemoryException(
-                        "Upsert happened with no free space and flushing already executing");
+            } finally {
+                mapUpsertExchangeLock.writeLock().unlock();
             }
-        } finally {
-            mapUpsertExchangeLock.writeLock().unlock();
+            backgroundFlushQueue.execute(this::backgroundFlush);
+        } else {
+            throw new DaoException.DaoMemoryException(
+                    "Upsert happened with no free space and flushing already executing");
         }
     }
 
