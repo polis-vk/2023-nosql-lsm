@@ -59,10 +59,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        ssTableManager.uploadDataFromFilesToMemory(memoryTable);
-        ssTableManager.deleteAllFiles();
-        ssTableManager.save(memoryTable.values());
-
+        ssTableManager.compact(() -> get(null, null));
         memoryTable.clear();
     }
 

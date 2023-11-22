@@ -12,16 +12,17 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.stream.Stream;
 
 import static ru.vk.itmo.reshetnikovaleksei.SSTable.DATA_PREFIX;
+import static ru.vk.itmo.reshetnikovaleksei.SSTable.DATA_TMP;
 import static ru.vk.itmo.reshetnikovaleksei.SSTable.INDEX_PREFIX;
+import static ru.vk.itmo.reshetnikovaleksei.SSTable.INDEX_TMP;
 
 public class SSTableManager implements AutoCloseable {
 
@@ -74,16 +75,22 @@ public class SSTableManager implements AutoCloseable {
         return MergeIterator.merge(iterators, MemorySegmentComparator.getInstance());
     }
 
-    public void save(Collection<Entry<MemorySegment>> entries) throws IOException {
+    public void save(Iterable<Entry<MemorySegment>> entries) throws IOException {
+        Path tmpDataPath = basePath.resolve(DATA_TMP);
+        Path tmpIndexPath = basePath.resolve(INDEX_TMP);
+
+        Path dataPath = basePath.resolve(DATA_PREFIX + lastIdx);
+        Path indexPath = basePath.resolve(INDEX_PREFIX + lastIdx);
+
         try (
                 FileChannel dataChannel = FileChannel.open(
-                        basePath.resolve(DATA_PREFIX + lastIdx),
+                        tmpDataPath,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE,
                         StandardOpenOption.WRITE
                 );
                 FileChannel indexChannel = FileChannel.open(
-                        basePath.resolve(INDEX_PREFIX + lastIdx),
+                        tmpIndexPath,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE,
                         StandardOpenOption.WRITE
@@ -130,26 +137,25 @@ public class SSTableManager implements AutoCloseable {
                 }
             }
         }
+
+        moveDataFromTmpToReal(tmpDataPath, dataPath);
+        moveDataFromTmpToReal(tmpIndexPath, indexPath);
     }
 
-    public void uploadDataFromFilesToMemory(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable) {
-        for (SSTable ssTable : ssTables) {
-            Iterator<Entry<MemorySegment>> iterator = ssTable.iterator(null, null);
-            while (iterator.hasNext()) {
-                Entry<MemorySegment> entry = iterator.next();
-                if (!memoryTable.containsKey(entry.key())) {
-                    memoryTable.put(entry.key(), entry);
-                }
-            }
-        }
-    }
+    public void compact(Iterable<Entry<MemorySegment>> entries) throws IOException {
+        Path dataPath = basePath.resolve(DATA_PREFIX + lastIdx);
+        Path indexPath = basePath.resolve(INDEX_PREFIX + lastIdx);
 
-    public void deleteAllFiles() throws IOException {
-        for (SSTable ssTable : ssTables) {
-            ssTable.deleteFiles();
-        }
+        save(entries);
+        deleteAllFiles();
 
-        lastIdx = 0;
+        // lastIdx == 0
+        Path newDataPath = basePath.resolve(DATA_PREFIX + lastIdx);
+        Path newIndexPath = basePath.resolve(INDEX_PREFIX + lastIdx);
+
+        // переименование
+        moveDataFromTmpToReal(dataPath, newDataPath);
+        moveDataFromTmpToReal(indexPath, newIndexPath);
     }
 
     @Override
@@ -158,5 +164,28 @@ public class SSTableManager implements AutoCloseable {
             arena.close();
             isClosed = true;
         }
+    }
+
+    private void moveDataFromTmpToReal(Path tmpFilePath, Path realFilePath) {
+        try {
+            Files.createFile(realFilePath);
+        } catch (IOException e) {
+            // do nothing
+        }
+
+        try {
+            Files.move(tmpFilePath, realFilePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new RuntimeException("Got exception during moving from tmpFilePath: %s to realFilePath: %s"
+                    .formatted(tmpFilePath, realFilePath), e);
+        }
+    }
+
+    private void deleteAllFiles() throws IOException {
+        for (SSTable ssTable : ssTables) {
+            ssTable.deleteFiles();
+        }
+
+        lastIdx = 0;
     }
 }
