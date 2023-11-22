@@ -188,7 +188,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public synchronized void compact() throws IOException {
         executorService.execute(() -> {
             try {
-                DiskStorage.compact(path, this::all);
+                DiskStorage.compact(path, () -> state.diskStorage.range(List.of(), null, null));
             } catch (IOException e) {
                 throw new RuntimeException("Error during compaction", e);
             }
