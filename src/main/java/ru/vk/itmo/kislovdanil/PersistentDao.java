@@ -12,6 +12,7 @@ import ru.vk.itmo.kislovdanil.sstable.SSTable;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
@@ -49,6 +50,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     private final Lock compactionLock = new ReentrantLock();
     // Have to take read while upsert and write while flushing (to prevent data loss)
     private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
+    private final Arena filesArena = Arena.ofShared();
 
     private long getMaxTablesId(Iterable<SSTable> tableIterable) {
         long curMaxId = -1;
@@ -66,7 +68,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         if (ssTablesIds == null) return;
         for (String tableID : ssTablesIds) {
             // SSTable constructor without entries iterator reads table data from disk if it exists
-            tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID)));
+            tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID), filesArena));
         }
         nextId.set(getMaxTablesId(tables) + 1);
         tables.sort(SSTable::compareTo);
@@ -142,7 +144,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
             if (additionalStorage == null) return;
             // SSTable constructor with entries iterator writes MemTable data on disk deleting old data if it exists
             tables.add(new SSTable(config.basePath(), comparator,
-                    getNextId(), additionalStorage.getStorage().values().iterator()));
+                    getNextId(), additionalStorage.getStorage().values().iterator(), filesArena));
             additionalStorage = null;
         } finally {
             compactionLock.unlock();
@@ -184,6 +186,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     @Override
     public void close() throws IOException {
+        if (!filesArena.scope().isAlive()) {
+            return;
+        }
         if (flushFuture != null) {
             try {
                 flushFuture.get();
@@ -193,6 +198,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         }
         flush();
         closeExecutorService(commonExecutorService);
+        filesArena.close();
     }
 
     private void makeCompaction() throws IOException {
@@ -201,13 +207,13 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
             if (tables.size() <= 1) return;
             long compactedTableId = getNextId();
             SSTable compactedTable = new SSTable(config.basePath(), comparator, compactedTableId,
-                    new MergeIterator(tables, comparator));
+                    new MergeIterator(tables, comparator), filesArena);
             List<SSTable> oldTables = tables;
             List<SSTable> newTables = new ArrayList<>();
             newTables.add(compactedTable);
             tables = newTables;
             for (SSTable table : oldTables) {
-                table.deleteFromDisk(compactedTable);
+                table.deleteFromDisk();
             }
         } finally {
             compactionLock.unlock();

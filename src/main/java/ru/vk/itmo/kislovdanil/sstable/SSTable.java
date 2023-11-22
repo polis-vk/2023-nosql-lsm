@@ -16,8 +16,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegment>> {
     // Contains offset and size for every key and every value in index file
@@ -30,7 +28,7 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
     MemorySegment dataFile;
     private static final String DATA_FILENAME = "data";
     final Comparator<MemorySegment> memSegComp;
-    private final Arena filesArena = Arena.ofAuto();
+    private final Arena filesArena;
     private final long tableId;
     private final Path ssTablePath;
 
@@ -38,27 +36,26 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
 
     /* In case deletion while compaction of this table field would link to table with compacted data.
     Necessary for iterators created before compaction. */
-    SSTable compactedTo;
     // Gives a guarantee that SSTable files wouldn't be deleted while reading
-    final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
 
     public long getTableId() {
         return tableId;
     }
 
-    public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId) throws IOException {
-        this(basePath, memSegComp, tableId, null, false);
+    public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId, Arena filesArena) throws IOException {
+        this(basePath, memSegComp, tableId, null, false, filesArena);
     }
 
     public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
-                   Iterator<Entry<MemorySegment>> entriesContainer) throws IOException {
-        this(basePath, memSegComp, tableId, entriesContainer, true);
+                   Iterator<Entry<MemorySegment>> entriesContainer, Arena filesArena) throws IOException {
+        this(basePath, memSegComp, tableId, entriesContainer, true, filesArena);
     }
 
     private SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
-                   Iterator<Entry<MemorySegment>> entriesContainer,
-                   boolean rewrite) throws IOException {
+                    Iterator<Entry<MemorySegment>> entriesContainer,
+                    boolean rewrite, Arena filesArena) throws IOException {
         this.tableId = tableId;
+        this.filesArena = filesArena;
         this.ssTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
         Path summaryFilePath = this.ssTablePath.resolve(SUMMARY_FILENAME);
@@ -162,20 +159,11 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
     }
 
     // Deletes all SSTable files from disk. Don't use object after invocation of this method!
-    public void deleteFromDisk(SSTable compactedTo) throws IOException {
-        readWriteLock.writeLock().lock();
-        try {
-            this.compactedTo = compactedTo;
-            Files.delete(ssTablePath.resolve(SUMMARY_FILENAME));
-            Files.delete(ssTablePath.resolve(INDEX_FILENAME));
-            Files.delete(ssTablePath.resolve(DATA_FILENAME));
-            Files.delete(ssTablePath);
-            summaryFile = null;
-            indexFile = null;
-            dataFile = null;
-        } finally {
-            readWriteLock.writeLock().unlock();
-        }
+    public void deleteFromDisk() throws IOException {
+        Files.delete(ssTablePath.resolve(SUMMARY_FILENAME));
+        Files.delete(ssTablePath.resolve(INDEX_FILENAME));
+        Files.delete(ssTablePath.resolve(DATA_FILENAME));
+        Files.delete(ssTablePath);
     }
 
     Range readRange(MemorySegment segment, long offset) {
@@ -216,17 +204,9 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
     }
 
     public Entry<MemorySegment> find(MemorySegment key) throws IOException {
-        if (compactedTo != null) {
-            return compactedTo.find(key);
-        }
-        readWriteLock.readLock().lock();
-        try {
-            long entryId = findByKeyExact(key);
-            if (entryId == -1) return null;
-            return readEntry(entryId);
-        } finally {
-            readWriteLock.readLock().unlock();
-        }
+        long entryId = findByKeyExact(key);
+        if (entryId == -1) return null;
+        return readEntry(entryId);
     }
 
     public DatabaseIterator getRange(MemorySegment from, MemorySegment to) {
