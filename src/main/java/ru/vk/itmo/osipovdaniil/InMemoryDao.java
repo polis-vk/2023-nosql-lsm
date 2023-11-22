@@ -22,7 +22,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Arena arena;
 
-    private DiskStorage diskStorage;
+    private final DiskStorage diskStorage;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentMap
             = new ConcurrentSkipListMap<>(Utils::compareMemorySegments);
 
@@ -38,13 +38,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public void compact() throws IOException {
-        flush();
-        final Iterable<Entry<MemorySegment>> iterable = () -> get(null, null);
-        if (iterable.iterator().hasNext()) {
-            DiskStorageUtils.deleteAll(path);
-            DiskStorageUtils.save(path, iterable);
-        }
-        diskStorage = new DiskStorage(DiskStorageUtils.loadOrRecover(path, arena));
+        DiskStorageUtils.compact(path, this::all);
     }
 
     /**

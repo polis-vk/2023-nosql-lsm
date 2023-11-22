@@ -10,7 +10,9 @@ import java.util.List;
 
 import static ru.vk.itmo.osipovdaniil.DiskStorageUtils.iterator;
 
+
 public class DiskStorage {
+
     private final List<MemorySegment> segmentList;
 
     public DiskStorage(final List<MemorySegment> segmentList) {
