@@ -8,19 +8,14 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class MemTable {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage;
 
     private final long flushThresholdBytes;
 
-    private long memTableByteSize;
-
-    private int memTableEntriesSize;
-
-    private final ReadWriteLock readWriteLock = new ReentrantReadWriteLock();
+    private final AtomicLong memTableByteSize = new AtomicLong();
 
     public MemTable(long flushThresholdBytes) {
         this.flushThresholdBytes = flushThresholdBytes;
@@ -47,8 +42,8 @@ public class MemTable {
         return storage.subMap(from, to).sequencedValues().iterator();
     }
 
-    public MemTableIterator iterator(MemorySegment from, MemorySegment to) {
-        return new MemTableIterator(storageIterator(from, to));
+    public MemTableIterator iterator(MemorySegment from, MemorySegment to, int priorityReduction) {
+        return new MemTableIterator(storageIterator(from, to), priorityReduction);
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -60,65 +55,43 @@ public class MemTable {
     }
 
     public boolean upsert(Entry<MemorySegment> entry) {
-        readWriteLock.writeLock().lock();
-        try {
-            if (memTableByteSize >= flushThresholdBytes) {
-                throw new LSMDaoOutOfMemoryException();
-            }
-            Entry<MemorySegment> previous = storage.put(entry.key(), entry);
-            if (previous == null) {
-                memTableEntriesSize += 1;
-            } else { // entry already was in memTable, so we need to substructure subtract size of previous entry
-                memTableByteSize -= Utils.getEntrySize(previous);
-            }
-            memTableByteSize += Utils.getEntrySize(entry);
-            return memTableByteSize >= flushThresholdBytes;
-        } finally {
-            readWriteLock.writeLock().unlock();
+        if (memTableByteSize.get() >= flushThresholdBytes) {
+            throw new LSMDaoOutOfMemoryException();
         }
+        Entry<MemorySegment> previous = storage.put(entry.key(), entry);
+        if (previous != null) {
+            // entry already was in memTable, so we need to substructure subtract size of previous entry
+            memTableByteSize.addAndGet(-Utils.getEntrySize(previous));
+        }
+        memTableByteSize.addAndGet(Utils.getEntrySize(entry));
+        return memTableByteSize.get() >= flushThresholdBytes;
     }
 
     public boolean isEmpty() {
-        readWriteLock.readLock().lock();
-        try {
-            return memTableByteSize == 0;
-        } finally {
-            readWriteLock.readLock().unlock();
-        }
-    }
-
-    public int getEntriesSize() {
-        readWriteLock.readLock().lock();
-        try {
-            return memTableEntriesSize;
-        } finally {
-            readWriteLock.readLock().unlock();
-        }
+        return memTableByteSize.compareAndSet(0, 0);
     }
 
     public long getByteSize() {
-        readWriteLock.readLock().lock();
-        try {
-            return memTableByteSize;
-        } finally {
-            readWriteLock.readLock().unlock();
-        }
+        return memTableByteSize.get();
     }
 
     public static final class MemTableIterator extends LSMPointerIterator {
         private final Iterator<Entry<MemorySegment>> iterator;
         private Entry<MemorySegment> current;
 
-        private MemTableIterator(Iterator<Entry<MemorySegment>> storageIterator) {
+        private final int priority;
+
+        private MemTableIterator(Iterator<Entry<MemorySegment>> storageIterator, int priorityReduction) {
             this.iterator = storageIterator;
             if (iterator.hasNext()) {
                 current = iterator.next();
             }
+            this.priority = Integer.MAX_VALUE - priorityReduction;
         }
 
         @Override
         int getPriority() {
-            return Integer.MAX_VALUE;
+            return priority;
         }
 
         @Override

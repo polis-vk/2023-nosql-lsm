@@ -18,6 +18,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -25,11 +27,15 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final Logger LOG = Logger.getLogger(LSMDaoImpl.class.getName());
 
-    private final AtomicReference<MemTable> memTable;
+    private volatile MemTable memTable;
 
-    private final AtomicReference<MemTable> flushingMemTable;
+    private volatile MemTable flushingMemTable;
 
     private final AtomicBoolean isFlushing = new AtomicBoolean(false);
+
+    private volatile Future<?> flushFuture;
+
+    private volatile Future<?> compactionFuture;
 
     private final AtomicReference<Deque<SSTable>> ssTables;
 
@@ -44,11 +50,13 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ExecutorService compactionExecutor = Executors.newSingleThreadExecutor();
 
-    private volatile Future<?> flushFuture;
+    private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
+
+    private final ReadWriteLock compactionLock = new ReentrantReadWriteLock();
 
     public LSMDaoImpl(Path storagePath, long flushThresholdBytes) {
-        this.memTable = new AtomicReference<>(new MemTable(flushThresholdBytes));
-        this.flushingMemTable = new AtomicReference<>(new MemTable(-1));
+        this.memTable = new MemTable(flushThresholdBytes);
+        this.flushingMemTable = new MemTable(-1);
         try {
             this.ssTablesArena = Arena.ofShared();
             this.ssTables = new AtomicReference<>(SSTable.load(ssTablesArena, storagePath, ssTablesIndex));
@@ -68,19 +76,19 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private MergeIterator.MergeIteratorWithTombstoneFilter mergeIterator(MemorySegment from, MemorySegment to) {
         List<SSTable.SSTableIterator> ssTableIterators = SSTable.ssTableIterators(ssTables.get(), from, to);
         return MergeIterator.create(
-                memTable.get().iterator(from, to),
-                flushingMemTable.get().iterator(from, to),
+                memTable.iterator(from, to, 0),
+                flushingMemTable.iterator(from, to, 1),
                 ssTableIterators
         );
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> fromMemTable = memTable.get().get(key);
+        Entry<MemorySegment> fromMemTable = memTable.get(key);
         if (fromMemTable != null) {
             return fromMemTable.value() == null ? null : fromMemTable;
         }
-        Entry<MemorySegment> fromFlushingMemTable = flushingMemTable.get().get(key);
+        Entry<MemorySegment> fromFlushingMemTable = flushingMemTable.get(key);
         if (fromFlushingMemTable != null) {
             return fromFlushingMemTable.value() == null ? null : fromFlushingMemTable;
         }
@@ -98,21 +106,19 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        AtomicBoolean overflow = new AtomicBoolean(false);
-        memTable.updateAndGet(memTable1 -> {
-            overflow.set(memTable1.upsert(entry));
-            return memTable1;
-        });
-        if (overflow.get()) { // bg flush
-            if (isFlushing.getAndSet(true)) {
-                throw new TooManyFlushesException();
+        upsertLock.readLock().lock();
+        try {
+            if (!memTable.upsert(entry)) { // no overflow
+                return;
             }
-            memTable.updateAndGet(memTable1 -> {
-                flushingMemTable.set(memTable1);
-                return new MemTable(flushThresholdBytes);
-            });
-            flushFuture = runFlushInBackground();
+        } finally {
+            upsertLock.readLock().unlock();
         }
+
+        if (isFlushing.getAndSet(true)) {
+            throw new TooManyFlushesException();
+        }
+        flushFuture = runFlushInBackground();
     }
 
     @Override
@@ -121,28 +127,24 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
-        Future<?> compaction = compactionExecutor.submit(this::compactInBackground);
-        await(compaction);
+        compactionFuture = compactionExecutor.submit(this::compactInBackground);
     }
 
     private void compactInBackground() {
         try {
             Deque<SSTable> ssTablesToCompact = ssTables.get();
-            int lastIndex = ssTablesIndex.get();
-            Path compacted = SSTable.compact(
-                    () -> MergeIterator.createThroughSSTables(
-                            SSTable.ssTableIterators(ssTablesToCompact, null, null)
-                    ),
-                    storagePath
-            );
-            Deque<SSTable> newSSTables =
-                    SSTable.replaceSSTablesWithCompacted(ssTablesArena, compacted, storagePath, ssTables.get());
-            ssTablesIndex.compareAndSet(lastIndex, 1);
-            while (lastIndex <= ssTablesIndex.get() - 1) {
-                newSSTables.add(SSTable.loadOneByIndex(ssTablesArena, storagePath, lastIndex));
-                lastIndex++;
+            compactionLock.writeLock().lock();
+            try {
+                SSTable.compact(
+                        () -> MergeIterator.createThroughSSTables(
+                                SSTable.ssTableIterators(ssTablesToCompact, null, null)
+                        ),
+                        storagePath
+                );
+                ssTables.set(SSTable.load(ssTablesArena, storagePath, ssTablesIndex));
+            } finally {
+                compactionLock.writeLock().unlock();
             }
-            ssTables.set(newSSTables);
         } catch (IOException e) {
             throw new CompactionException(e);
         }
@@ -154,19 +156,30 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
-        memTable.updateAndGet(memTable1 -> {
-            flushingMemTable.set(memTable1);
-            return new MemTable(flushThresholdBytes);
-        });
-        await(runFlushInBackground());
+        flushFuture = runFlushInBackground();
+    }
+
+    private void prepareFlush() {
+        upsertLock.writeLock().lock();
+        try {
+            flushingMemTable = memTable;
+            memTable = new MemTable(flushThresholdBytes);
+        } finally {
+            upsertLock.writeLock().unlock();
+        }
     }
 
     private Future<?> runFlushInBackground() {
+        prepareFlush();
         return bgExecutor.submit(() -> {
             try {
-                flush(flushingMemTable, ssTablesIndex.getAndIncrement(), storagePath, ssTablesArena);
-                flushingMemTable.set(new MemTable(-1));
-                isFlushing.set(false);
+                compactionLock.writeLock().lock();
+                try {
+                    flush(flushingMemTable, ssTablesIndex.getAndIncrement(), storagePath, ssTablesArena);
+                    isFlushing.set(false);
+                } finally {
+                    compactionLock.writeLock().lock();
+                }
             } catch (IOException e) {
                 throw new FlushingException(e);
             }
@@ -174,15 +187,22 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void flush(
-            AtomicReference<MemTable> memTable,
+            MemTable memTable,
             int fileIndex,
             Path storagePath,
             Arena ssTablesArena
     ) throws IOException {
-        if (memTable.get().isEmpty()) return;
-        SSTable.save(memTable.get(), fileIndex, storagePath);
-        ssTables.get().add(SSTable.loadOneByIndex(ssTablesArena, storagePath, fileIndex));
-        flushingMemTable.set(new MemTable(flushThresholdBytes));
+        if (memTable.isEmpty()) return;
+        SSTable.save(memTable, fileIndex, storagePath);
+        ssTables.updateAndGet(ssTables1 -> {
+            try {
+                ssTables1.add(SSTable.loadOneByIndex(ssTablesArena, storagePath, fileIndex));
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            return ssTables1;
+        });
+        flushingMemTable = new MemTable(-1);
     }
 
     private void await(Future<?> future) {
@@ -198,29 +218,24 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        if (ssTablesArena.scope().isAlive()) {
-            ssTablesArena.close();
-        }
         bgExecutor.shutdown();
         compactionExecutor.shutdown();
         try {
             if (flushFuture != null) {
                 await(flushFuture);
             }
-            for (; ; ) {
-                if (bgExecutor.awaitTermination(10, TimeUnit.MINUTES)) {
-                    break;
-                }
+            if (compactionFuture != null) {
+                await(compactionFuture);
             }
-            for (; ; ) {
-                if (compactionExecutor.awaitTermination(10, TimeUnit.MINUTES)) {
-                    break;
-                }
-            }
+            bgExecutor.awaitTermination(1, TimeUnit.SECONDS);
+            compactionExecutor.awaitTermination(1, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             LOG.log(Level.SEVERE, String.format("InterruptedException: %s", e));
             Thread.currentThread().interrupt();
         }
-        SSTable.save(memTable.get(), ssTablesIndex.getAndIncrement(), storagePath);
+        if (ssTablesArena.scope().isAlive()) {
+            ssTablesArena.close();
+        }
+        SSTable.save(memTable, ssTablesIndex.getAndIncrement(), storagePath);
     }
 }
