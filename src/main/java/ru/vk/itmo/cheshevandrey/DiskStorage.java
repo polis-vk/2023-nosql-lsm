@@ -9,7 +9,6 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
 import java.util.*;
-import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class DiskStorage {
@@ -62,9 +61,15 @@ public class DiskStorage {
 
         int ssTablesCountAfterCompact = Files.readAllLines(mainDir.resolve(INDEX_FILE)).size();
 
+        updateIntermediateDir(mainDir, intermediateDir, ssTablesCountBeforeCompact, ssTablesCountAfterCompact);
+
+        mainDirRemoveFiles(mainDir, ssTablesCountAfterCompact);
+    }
+
+    private static void updateIntermediateDir(Path mainDir, Path intermediateDir, int beforeCount, int afterCount) throws IOException {
         // Если файлы были добавлены во время компакта, то переместим их в промежуточную директорию.
         int to = 1;
-        for (int from = ssTablesCountBeforeCompact; from < ssTablesCountAfterCompact; from++) {
+        for (int from = beforeCount; from < afterCount; from++) {
             Files.move(
                     mainDir.resolve(String.valueOf(from)),
                     intermediateDir.resolve(String.valueOf(to++)),
@@ -78,11 +83,9 @@ public class DiskStorage {
         }
         List<String> actualIntermFiles = IntStream.range(0, to).mapToObj(String::valueOf).toList();
         updateIndex(actualIntermFiles, intermediateDir);
-
-        removeFiles(mainDir, ssTablesCountAfterCompact);
     }
 
-    private static void removeFiles(Path path, int count) throws IOException {
+    private static void mainDirRemoveFiles(Path path, int count) throws IOException {
         // Сначала обнуляем index.
         Path indexTmpPath = path.resolve(INDEX_TMP_FILE);
         Files.createFile(indexTmpPath);
