@@ -8,7 +8,10 @@ import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-public class SsTableIterator {
+public final class SsTableIterator {
+
+    private SsTableIterator() {
+    }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = Tools.recordsCount(segment);

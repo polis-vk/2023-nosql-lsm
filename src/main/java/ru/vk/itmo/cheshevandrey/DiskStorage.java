@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-public class DiskStorage {
+public final class DiskStorage {
 
     static final String INDEX_FILE = "index.idx";
 
@@ -35,16 +35,14 @@ public class DiskStorage {
                                Path storagePath,
                                Path mainDir,
                                Path intermediateDir,
-                               Path secondaryDir) throws IOException {
+                               Path secondaryDir,
+                               int ssTablesCount) throws IOException {
         if (!iterable.iterator().hasNext()) {
             return;
         }
 
-        // Изменили рабочую директорию.
-        // Флаш будет осуществляться в другую директорию.
+        // Изменили рабочую директорию. В нее будет осуществляться флаш.
         changeWorkDir(storagePath, secondaryDir);
-
-        int ssTablesCountBeforeCompact = Files.readAllLines(mainDir.resolve(INDEX_FILE)).size();
 
         // Записываем компакшн во временный файл.
         Path compactionTmpPath = storagePath.resolve(COMPACTION_TMP_FILE);
@@ -69,10 +67,8 @@ public class DiskStorage {
         );
 
         int ssTablesCountAfterCompact = Files.readAllLines(mainDir.resolve(INDEX_FILE)).size();
-
-        updateIntermediateDir(mainDir, intermediateDir, ssTablesCountBeforeCompact, ssTablesCountAfterCompact);
-
-        mainDirRemoveFiles(mainDir, ssTablesCountAfterCompact);
+        updateIntermediateDir(mainDir, intermediateDir, ssTablesCount, ssTablesCountAfterCompact);
+        resetMainDir(mainDir, ssTablesCountAfterCompact);
     }
 
     private static void updateIntermediateDir(Path mainDir, Path intermediateDir, int beforeCount, int afterCount) throws IOException {
@@ -94,7 +90,7 @@ public class DiskStorage {
         updateIndex(actualIntermFiles, intermediateDir);
     }
 
-    private static void mainDirRemoveFiles(Path mainDirPath, int count) throws IOException {
+    private static void resetMainDir(Path mainDirPath, int count) throws IOException {
         // Сначала очищаем index.
         Path indexTmpPath = mainDirPath.resolve(INDEX_TMP_FILE);
         Files.createFile(indexTmpPath);

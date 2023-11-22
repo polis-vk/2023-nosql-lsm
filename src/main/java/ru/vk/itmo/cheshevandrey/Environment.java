@@ -20,7 +20,7 @@ import static ru.vk.itmo.cheshevandrey.DiskStorage.INDEX_FILE;
 import static ru.vk.itmo.cheshevandrey.Tools.createDir;
 import static ru.vk.itmo.cheshevandrey.Tools.createFile;
 
-public class Environment {
+public class Environment implements AutoCloseable{
 
     private final List<MemorySegment> mainSegmentList;
     private final List<MemorySegment> intermSegmentList;
@@ -36,15 +36,17 @@ public class Environment {
     private final AtomicLong memTableBytes;
 
     private boolean isCompacted;
+    private int ssTablesCount;
 
     private static final String DIR_0 = "0";
     private static final String DIR_1 = "1";
-    private static final String INTERMEDIATE_SAVE_DIR = "tmp";
+    private static final String INTERMEDIATE_DIR = "tmp";
+
+    private final Arena arena = Arena.ofShared();
 
     public Environment(
             ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> table,
-            Path storagePath,
-            Arena arena
+            Path storagePath
     ) throws IOException {
         this.memTable = new ConcurrentSkipListMap<>(Tools::compare);
         this.flushingTable = table;
@@ -54,7 +56,7 @@ public class Environment {
 
         String workDir = DiskStorage.readWorkDir(storagePath);
         secondaryDir = storagePath.resolve(workDir.equals(DIR_0) ? DIR_1 : workDir);
-        intermediateDir = storagePath.resolve(INTERMEDIATE_SAVE_DIR);
+        intermediateDir = storagePath.resolve(INTERMEDIATE_DIR);
         mainDir = storagePath.resolve(workDir);
 
         createDirsAndFilesIfNeeded();
@@ -79,7 +81,7 @@ public class Environment {
     private List<MemorySegment> loadOrRecover(Path path, Arena arena) throws IOException {
         Path indexFilePath = path.resolve(INDEX_FILE);
         List<String> files = Files.readAllLines(indexFilePath);
-        int ssTablesCount = files.size();
+        ssTablesCount = files.size();
 
         List<MemorySegment> result = new ArrayList<>(ssTablesCount);
         for (int ssTable = 0; ssTable < ssTablesCount; ssTable++) {
@@ -183,7 +185,7 @@ public class Environment {
             return;
         }
         IterableDisk iterable = new IterableDisk(this);
-        DiskStorage.compact(iterable, storagePath, mainDir, intermediateDir, secondaryDir);
+        DiskStorage.compact(iterable, storagePath, mainDir, intermediateDir, secondaryDir, ssTablesCount);
         isCompacted = true;
     }
 
@@ -201,5 +203,10 @@ public class Environment {
 
     public Entry<MemorySegment> getFlushingTableEntry(MemorySegment key) {
         return flushingTable.get(key);
+    }
+
+    @Override
+    public void close() throws Exception {
+        arena.close();
     }
 }

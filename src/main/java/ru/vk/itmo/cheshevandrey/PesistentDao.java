@@ -5,7 +5,6 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -21,7 +20,6 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Config config;
 
-    private final Arena arena;
     private Environment environment;
     private final ExecutorService executor;
 
@@ -44,11 +42,9 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.isCompacting = new AtomicBoolean(false);
 
         this.executor = Executors.newCachedThreadPool();
-        arena = Arena.ofShared();
         this.environment = new Environment(
                 new ConcurrentSkipListMap<>(Tools::compare),
-                config.basePath(),
-                arena
+                config.basePath()
         );
     }
 
@@ -162,8 +158,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private void refreshEnvironment() throws IOException {
         this.environment = new Environment(
                 environment.getTable(),
-                config.basePath(),
-                arena
+                config.basePath()
         );
     }
 
@@ -174,10 +169,5 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         refreshEnvironment();
         environment.flush();
-
-        if (!arena.scope().isAlive()) {
-            return;
-        }
-        arena.close();
     }
 }
