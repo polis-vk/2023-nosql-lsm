@@ -11,7 +11,6 @@ import java.util.concurrent.ConcurrentSkipListMap;
  */
 public class MemTable {
     public ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> storage;
-
     public MemTable(Comparator<MemorySegment> comparator) {
         this.storage = new ConcurrentSkipListMap<>(comparator);
     }
