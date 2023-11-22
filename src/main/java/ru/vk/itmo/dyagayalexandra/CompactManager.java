@@ -1,13 +1,11 @@
 package ru.vk.itmo.dyagayalexandra;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,7 +13,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
 
@@ -51,15 +48,13 @@ public class CompactManager {
         Iterator<Entry<MemorySegment>> iterator =
                 MergedIterator.createMergedIterator(fileManager.createIterators(null, null), entryKeyComparator);
 
-        int storageSize = 0;
+        long storageSize = 0;
         long tableSize = 0;
         while (iterator.hasNext()) {
             Entry<MemorySegment> currentItem = iterator.next();
-            tableSize += Integer.BYTES + currentItem.key().toArray(ValueLayout.JAVA_BYTE).length;
+            tableSize += 2 * Integer.BYTES + currentItem.key().byteSize();
             if (currentItem.value() != null) {
-                tableSize += Integer.BYTES + currentItem.value().toArray(ValueLayout.JAVA_BYTE).length;
-            } else {
-                tableSize += Integer.BYTES;
+                tableSize += currentItem.value().byteSize();
             }
             storageSize++;
         }
@@ -75,17 +70,15 @@ public class CompactManager {
             MemorySegment tableMemorySegment = tableChannel.map(FileChannel.MapMode.READ_WRITE,
                     0, tableSize, arena);
             MemorySegment indexMemorySegment = indexChannel.map(FileChannel.MapMode.READ_WRITE,
-                    0, (long) (storageSize + 1) * Long.BYTES, arena);
+                    0, (storageSize + 1) * Long.BYTES, arena);
+            fileWriterManager.writeStorageSize(indexMemorySegment, storageSize);
             while (iterator.hasNext()) {
                 Entry<MemorySegment> currentItem = iterator.next();
-                Map.Entry<MemorySegment, Entry<MemorySegment>> currentEntry =
-                        Map.entry(currentItem.key(), new BaseEntry<>(currentItem.key(), currentItem.value()));
-                offset = fileWriterManager.writeEntry(tableMemorySegment, tableOffset, currentEntry.getValue());
+                offset = fileWriterManager.writeEntry(tableMemorySegment, tableOffset, currentItem);
                 fileWriterManager.writeIndexes(indexMemorySegment, indexOffset, tableOffset);
                 tableOffset = offset;
                 indexOffset += Long.BYTES;
             }
-            setIndexSize(indexMemorySegment, storageSize);
         }
 
         Files.move(compactedFile, basePath.resolve(MAIN_FILE_NAME), ATOMIC_MOVE);
@@ -162,10 +155,6 @@ public class CompactManager {
         }
 
         return false;
-    }
-
-    private void setIndexSize(MemorySegment indexMemorySegment, long count) {
-        indexMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, count);
     }
 
     private void deleteFiles(List<Path> filePaths) throws IOException {

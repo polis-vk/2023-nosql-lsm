@@ -36,7 +36,7 @@ public class FileWriterManager {
         long tableSize = 0;
 
         Iterator<Entry<MemorySegment>> storageIterator = entryCollection.iterator();
-        int storageSize = 0;
+        long storageSize = 0;
 
         while (storageIterator.hasNext()) {
             Entry<MemorySegment> entry = storageIterator.next();
@@ -59,7 +59,7 @@ public class FileWriterManager {
         try (FileChannel indexChannel = FileChannel.open(indexPath, StandardOpenOption.READ,
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
             indexMemorySegment = indexChannel.map(FileChannel.MapMode.READ_WRITE,
-                    0, (long) (storageSize + 1) * Long.BYTES, arena);
+                    0, (storageSize + 1) * Long.BYTES, arena);
         }
 
         long indexOffset = Long.BYTES;
@@ -111,7 +111,7 @@ public class FileWriterManager {
         indexMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, offset);
     }
 
-    private void writeStorageSize(MemorySegment indexMemorySegment, long storageSize) {
+    void writeStorageSize(MemorySegment indexMemorySegment, long storageSize) {
         indexMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, storageSize);
     }
 
