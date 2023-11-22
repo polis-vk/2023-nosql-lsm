@@ -255,12 +255,14 @@ public class DiskStorage {
         return segment.byteSize();
     }
 
+    //Создает метку на объект, что оно недействительно (преобразуя 11111... через побитовое и)
     private static long tombstone(long offset) {
         return Long.MAX_VALUE | offset;
     }
 
+    //Снимает эту метку (обратное действие)
     private static long normalize(long value) {
-        return value & ~ Long.MAX_VALUE;
+        return value & ~Long.MAX_VALUE;
     }
 
 }
