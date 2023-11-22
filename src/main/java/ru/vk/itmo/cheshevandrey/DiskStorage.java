@@ -30,7 +30,7 @@ public class DiskStorage {
         }
 
         // Изменили рабочую директорию.
-        // После выполнения флаш будет осуществляться в другую директорию.
+        // Флаш будет осуществляться в другую директорию.
         changeWorkDir(storagePath, secondaryDir);
 
         // Записываем компакшн во временный файл.
@@ -54,6 +54,18 @@ public class DiskStorage {
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
+
+        int currCount = Files.readAllLines(mainDir.resolve(INDEX_NAME)).size();
+        // Если выполняется, то в процессе компакта была создана новая sstable,
+        // не в новой директории, а в текущей. Ее необходимо переместить в новую.
+        if (currCount != ssTablesCount) {
+            Files.move(
+                    mainDir.resolve(String.valueOf(currCount - 1)),
+                    secondaryDir.resolve("1"),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+        }
 
         String zeroFile = "0";
         String oneFile = "1";
