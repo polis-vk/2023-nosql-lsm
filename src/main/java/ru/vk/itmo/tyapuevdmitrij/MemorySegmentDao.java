@@ -5,7 +5,6 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -122,25 +121,23 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             currentState.memTable.put(entry.key(), entry);
             return;
         }
+        long entrySize = entry.key().byteSize();
+        entrySize += entry.value() == null ? 0 : entry.value().byteSize();
+        long currentMemoryUsage = currentState.memoryUsage.addAndGet(entrySize);
+        if (currentMemoryUsage > config.flushThresholdBytes()) {
+            if (autoFlushing.get() && currentState.flushMemTable != null) {
+                throw new FilesException("dont upsert - overload");
+            }
+            if (!autoFlushing.getAndSet(true)) {
+                try {
+                    flush();
+                } catch (IOException e) {
+                    throw new FilesException("flash error");
+                }
+            }
+        }
         upsertLock.readLock().lock();
         try {
-            Entry<MemorySegment> entryBySameKey = currentState.memTable.get(entry.key());
-            long entryBySameKeyByteSize = entry.key().byteSize();
-            if (entryBySameKey != null) {
-                entryBySameKeyByteSize = entryBySameKey.value() == null ? 0 : entryBySameKey.value().byteSize();
-            }
-            long entrySize = entry.key().byteSize();
-            entrySize += entry.value() == null ? 0 : entry.value().byteSize();
-            long entrySizeDelta = entrySize - entryBySameKeyByteSize;
-            long currentMemoryUsage = currentState.memoryUsage.addAndGet(entrySizeDelta);
-            if (currentMemoryUsage > config.flushThresholdBytes()) {
-                if (autoFlushing.get() && currentState.flushMemTable != null) {
-                 throw new FilesException("dont upsert - overload");
-                }
-                if (!autoFlushing.getAndSet(true)) {
-                    executor.execute(this::flushing);
-                }
-            }
             this.state.memTable.put(entry.key(), entry);
         } finally {
             upsertLock.readLock().unlock();
@@ -152,21 +149,20 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         if (state.memTable.isEmpty() || state.flushMemTable != null) {
             return;
         }
-        flushing();
+        upsertLock.writeLock().lock();
+        try {
+            state = new State(new ConcurrentSkipListMap<>(MemorySegmentComparator.getMemorySegmentComparator()),
+                    state.memTable,
+                    state.storage);
+        } finally {
+            upsertLock.writeLock().unlock();
+        }
+        executor.execute(this::flushing);
     }
 
     public void flushing() {
-        storageLock.lock();
         try {
-            upsertLock.writeLock().lock();
-            try {
-                state = new State(new ConcurrentSkipListMap<>(MemorySegmentComparator.getMemorySegmentComparator()),
-                        state.memTable,
-                        state.storage);
-            } finally {
-                upsertLock.writeLock().unlock();
-            }
-            if (this.state.flushMemTable.isEmpty()) {
+            if (state.flushMemTable == null) {
                 return;
             }
             state.storage.save(state.flushMemTable.values(), ssTablePath, state.storage);
@@ -180,10 +176,9 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
                 upsertLock.writeLock().unlock();
             }
         } catch (IOException e) {
-            throw new UncheckedIOException(e);
+            throw new FilesException("save error");
         } finally {
             autoFlushing.set(false);
-            storageLock.unlock();
         }
     }
 
@@ -193,33 +188,27 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         if (currentState.storage.ssTablesQuantity <= 1 && currentState.memTable.isEmpty()) {
             return;
         }
-        storageLock.lock();
-        try {
-            executor.execute(() -> {
-                State stateNow = this.state;
-                storageLock.lock();
-                try {
-                    if (!currentState.storage.readArena.scope().isAlive()) {
-                        return;
-                    }
-                    stateNow.storage.storageHelper.saveDataForCompaction(stateNow, ssTablePath);
-                    stateNow.storage.storageHelper.deleteOldSsTables(ssTablePath);
-                    stateNow.storage.storageHelper.renameCompactedSsTable(ssTablePath);
-                    Storage load = new Storage(ssTablePath);
-                    upsertLock.writeLock().lock();
-                    try {
-                        this.state = new State(this.state.memTable, this.state.flushMemTable, load);
-                    } finally {
-                        upsertLock.writeLock().unlock();
-                    }
-                } finally {
-                    storageLock.unlock();
+        executor.execute(() -> {
+            State stateNow = this.state;
+            storageLock.lock();
+            try {
+                if (!currentState.storage.readArena.scope().isAlive()) {
+                    return;
                 }
-            });
-        } finally {
-            storageLock.unlock();
-        }
-
+                stateNow.storage.storageHelper.saveDataForCompaction(stateNow, ssTablePath);
+                stateNow.storage.storageHelper.deleteOldSsTables(ssTablePath);
+                stateNow.storage.storageHelper.renameCompactedSsTable(ssTablePath);
+                Storage load = new Storage(ssTablePath);
+                upsertLock.writeLock().lock();
+                try {
+                    this.state = new State(this.state.memTable, this.state.flushMemTable, load);
+                } finally {
+                    upsertLock.writeLock().unlock();
+                }
+            } finally {
+                storageLock.unlock();
+            }
+        });
     }
 
     @Override
@@ -227,6 +216,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         if (state.storage == null) {
             return;
         }
+        flush();
         executor.shutdown();
         try {
             boolean terminated;
@@ -237,6 +227,5 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             Thread.currentThread().interrupt();
             throw new IllegalStateException(e);
         }
-        flush();
     }
 }
