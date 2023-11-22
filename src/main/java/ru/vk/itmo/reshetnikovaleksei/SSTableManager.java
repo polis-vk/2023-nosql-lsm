@@ -25,16 +25,15 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import static ru.vk.itmo.reshetnikovaleksei.SSTable.COMPACTED_DATA;
-import static ru.vk.itmo.reshetnikovaleksei.SSTable.COMPACTED_INDEX;
-import static ru.vk.itmo.reshetnikovaleksei.SSTable.COMPACTED_PREFIX;
 import static ru.vk.itmo.reshetnikovaleksei.SSTable.DATA_PREFIX;
-import static ru.vk.itmo.reshetnikovaleksei.SSTable.DATA_TMP;
 import static ru.vk.itmo.reshetnikovaleksei.SSTable.INDEX_PREFIX;
-import static ru.vk.itmo.reshetnikovaleksei.SSTable.INDEX_TMP;
-
 
 public class SSTableManager implements Iterable<Entry<MemorySegment>> {
+    private static final String DATA_TMP = "data.tmp";
+    private static final String INDEX_TMP = "index.tmp";
+    private static final String COMPACTED_PREFIX = "compacted-";
+    private static final String COMPACTED_DATA = COMPACTED_PREFIX + "data";
+    private static final String COMPACTED_INDEX = COMPACTED_PREFIX + "index";
     private static final Pattern COMPACTED_PATTERN = Pattern.compile(COMPACTED_PREFIX + "\\d*");
 
     private final Arena arena;

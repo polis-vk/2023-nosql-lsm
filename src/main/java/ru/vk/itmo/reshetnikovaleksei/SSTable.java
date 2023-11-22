@@ -14,12 +14,7 @@ import java.util.Iterator;
 
 public class SSTable {
     public static final String DATA_PREFIX = "data-";
-    public static final String DATA_TMP = "data.tmp";
     public static final String INDEX_PREFIX = "index-";
-    public static final String INDEX_TMP = "index.tmp";
-    public static final String COMPACTED_PREFIX = "compacted-";
-    public static final String COMPACTED_DATA = COMPACTED_PREFIX + "data";
-    public static final String COMPACTED_INDEX = COMPACTED_PREFIX + "index";
 
     private final MemorySegment dataSegment;
     private final MemorySegment indexSegment;

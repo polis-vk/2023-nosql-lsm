@@ -159,7 +159,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 lock.writeLock().unlock();
             }
         } catch (IOException e) {
-            throw new IllegalStateException("Can't flush table");
+            throw new IllegalStateException("Can't flush table", e);
         }
     }
 
