@@ -29,7 +29,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
     private final Lock lock = new ReentrantLock();
     private final long flushThresholdBytes;
-    private volatile State state;
+    private State state;
 
 
     public MemesDao(Config config) throws IOException {
