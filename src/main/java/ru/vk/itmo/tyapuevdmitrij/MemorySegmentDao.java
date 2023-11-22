@@ -132,7 +132,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
                 try {
                     flush();
                 } catch (IOException e) {
-                    throw new FilesException("flash error");
+                    throw new FilesException("flash error", e);
                 }
             }
         }
@@ -176,7 +176,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
                 upsertLock.writeLock().unlock();
             }
         } catch (IOException e) {
-            throw new FilesException("save error");
+            throw new FilesException("save error", e);
         } finally {
             autoFlushing.set(false);
         }
