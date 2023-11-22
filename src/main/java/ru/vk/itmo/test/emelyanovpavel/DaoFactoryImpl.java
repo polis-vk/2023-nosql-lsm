@@ -4,7 +4,6 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.emelyanovpavel.InMemoryDaoImpl;
-import ru.vk.itmo.emelyanovpavel.PersistentDaoImpl;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -13,7 +12,7 @@ import java.lang.foreign.MemorySegment;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-@DaoFactory(stage = 2)
+@DaoFactory(stage = 3)
 public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
@@ -26,7 +25,7 @@ public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<M
         if (config == null || config.basePath() == null) {
             return createDao();
         }
-        return new PersistentDaoImpl(config.basePath());
+        return new InMemoryDaoImpl(config.basePath());
     }
 
     @Override
