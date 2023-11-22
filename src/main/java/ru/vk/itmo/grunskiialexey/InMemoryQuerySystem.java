@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -33,8 +34,15 @@ public class InMemoryQuerySystem {
     private final long flushThresholdBytes;
     private final AtomicBoolean isWorking;
     private final AtomicLong currentByteSize;
+    private final DiskStorage diskStorage;
 
-    public InMemoryQuerySystem(Path flushPath, long flushThresholdBytes, Comparator<MemorySegment> comparator, AtomicLong lastFileNumber) {
+    public InMemoryQuerySystem(
+            Path flushPath,
+            long flushThresholdBytes,
+            Comparator<MemorySegment> comparator,
+            AtomicLong lastFileNumber,
+            DiskStorage diskStorage
+    ) {
         storages.addAll(List.of(new ConcurrentSkipListMap<>(comparator), new ConcurrentSkipListMap<>(comparator)));
 
         this.flushPath = flushPath;
@@ -42,6 +50,7 @@ public class InMemoryQuerySystem {
         this.flushThresholdBytes = flushThresholdBytes;
         this.isWorking = new AtomicBoolean();
         this.currentByteSize = new AtomicLong();
+        this.diskStorage = diskStorage;
     }
 
     public AtomicBoolean isWorking() {
@@ -62,8 +71,7 @@ public class InMemoryQuerySystem {
         return storages.stream().map(map -> map.subMap(from, to).values().iterator()).toList();
     }
 
-    public void flush()
-            throws IOException {
+    public void flush() throws IOException {
         if (storages.get(0).isEmpty() || !isWorking.compareAndSet(false, true)) {
             return;
         }
@@ -141,11 +149,14 @@ public class InMemoryQuerySystem {
 
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
+        diskStorage.addNewList(newFileName);
         try (final Arena writeArena = Arena.ofShared()) {
             changeActualFilesInterval(indexFile, writeArena, interval.left(), newFileName + 1);
         }
 
         Files.delete(indexTmp);
+        Collections.swap(storages, 0, 1);
+        storages.get(1).clear();
         isWorking.set(false);
     }
 

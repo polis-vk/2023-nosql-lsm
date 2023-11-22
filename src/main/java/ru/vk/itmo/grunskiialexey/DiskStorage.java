@@ -15,16 +15,20 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
-public final class DiskStorage {
+public class DiskStorage {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
+    private final ArrayList<MemorySegment> segmentList;
+    private final Path storagePath;
+    private final Arena arena;
 
-    private DiskStorage() {
+    public DiskStorage(Path storagePath, Arena arena) {
+        this.segmentList = new ArrayList<>();
+        this.storagePath = storagePath;
+        this.arena = arena;
     }
 
-    public static List<MemorySegment> loadOrRecover(
-            Path storagePath,
-            Arena arena,
+    public List<MemorySegment> loadOrRecover(
             AtomicLong firstFileNumber,
             AtomicLong lastFileNumber
     ) throws IOException {
@@ -39,16 +43,25 @@ public final class DiskStorage {
         firstFileNumber.set(interval.left());
         lastFileNumber.set(interval.right());
 
-        List<MemorySegment> result = new ArrayList<>((int) (interval.right() - interval.left()));
+        segmentList.ensureCapacity((int) (interval.right() - interval.left()));
         for (long i = interval.left(); i < interval.right(); ++i) {
             Path file = storagePath.resolve(Long.toString(i));
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
                 MemorySegment segment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, Files.size(file), arena);
-                result.add(segment);
+                segmentList.add(segment);
             }
         }
 
-        return result;
+        return segmentList;
+    }
+
+    // TODO synchornized
+    public void addNewList(long fileNumber) throws IOException {
+        Path file = storagePath.resolve(Long.toString(fileNumber));
+        try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            MemorySegment segment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, Files.size(file), arena);
+            segmentList.add(segment);
+        }
     }
 
     static ActualFilesInterval getActualFilesInterval(final Path indexFile, final Arena arena) throws IOException {
@@ -137,8 +150,13 @@ public final class DiskStorage {
     }
 
     // getting first offset of key
+    // TODO do normal
     private static long indexSize(MemorySegment segment) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        try {
+            return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        } catch (IndexOutOfBoundsException e) {
+            return 0L;
+        }
     }
 
     static MemorySegment slice(MemorySegment page, long start, long end) {
