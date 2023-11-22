@@ -74,6 +74,10 @@ public class Storage {
 
     private void finalizeCompaction(Path dataPath, List<String> existedFiles) throws IOException {
         Path compactionTmpFile = getCompactionPath(dataPath);
+        if (Files.size(compactionTmpFile) == 0) {
+            return;
+        }
+
         for (String name : existedFiles) {
             Files.deleteIfExists(dataPath.resolve(name));
         }
