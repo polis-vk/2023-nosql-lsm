@@ -10,11 +10,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.Iterator;
-import java.util.List;
-import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /*
@@ -29,12 +25,9 @@ class which gives to client main things like
  */
 public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     // no necessary
-    private final Comparator<MemorySegment> comparator = MemorySegmentDao::compare;
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage2 = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final CompactionService compactionService;
-    private final FlushService flushService;
+    private final InMemoryQuerySystem inMemoryQuerySystem;
     private final Path path;
 
     public MemorySegmentDao(Config config) throws IOException {
@@ -45,7 +38,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
         final AtomicLong lastFileNumber = new AtomicLong();
         this.compactionService = new CompactionService(DiskStorage.loadOrRecover(path, arena, lastFileNumber), lastFileNumber);
-        this.flushService = new FlushService(path, config.flushThresholdBytes(), lastFileNumber);
+        this.inMemoryQuerySystem = new InMemoryQuerySystem(path, config.flushThresholdBytes(), MemorySegmentDao::compare, lastFileNumber);
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -69,62 +62,18 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     // may get more better query
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return compactionService.range(getInMemoryIterators(from, to), from, to);
-    }
-
-    private List<Iterator<Entry<MemorySegment>>> getInMemoryIterators(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) {
-            return List.of(storage.values().iterator(), storage2.values().iterator());
-        }
-        if (from == null) {
-            return List.of(
-                    storage.headMap(to).values().iterator(),
-                    storage2.headMap(to).values().iterator()
-            );
-        }
-        if (to == null) {
-            return List.of(
-                    storage.tailMap(from).values().iterator(),
-                    storage2.tailMap(from).values().iterator()
-            );
-        }
-        return List.of(
-                storage.subMap(from, to).values().iterator(),
-                storage2.subMap(from, to).values().iterator()
-        );
+        return compactionService.range(inMemoryQuerySystem.getInMemoryIterators(from, to), from, to);
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-//        if (flush.isReachedThreshold(entry) && flush.isWorking().get()) {
-//            try {
-//                Thread.sleep(10);
-//            } catch (InterruptedException e) {
-//                throw new RuntimeException(e);
-//            }
-//        }
-//        if (flush.isReachedThreshold(entry) && flush.isWorking().get()) {
-//            throw new OutOfMemoryError("Can't upsert data in flushing file");
-//        }
-//
-//        if (flush.isReachedThreshold(entry)) {
-//            try {
-//                flush();
-//            } catch (IOException e) {
-//                throw new RuntimeException(e);
-//            }
-//        }
-//
-//        if (flush.isWorking().get() && isUpserting.compareAndSet(false, true)) {
-//            flushStorage.put(entry.key(), entry);
-//            isUpserting.set(false);
-//        }
-        storage.put(entry.key(), entry);
+        inMemoryQuerySystem.upsert(entry);
     }
 
     @Override
+    // :TODO Change it
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> entry = storage.get(key);
+        Entry<MemorySegment> entry = inMemoryQuerySystem.get(key);
         if (entry != null) {
             if (entry.value() == null) {
                 return null;
@@ -146,9 +95,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public void flush() throws IOException {
-        if (!storage.isEmpty()) {
-            flushService.save(storage.values());
-        }
+        inMemoryQuerySystem.flush();
     }
 
     @Override
