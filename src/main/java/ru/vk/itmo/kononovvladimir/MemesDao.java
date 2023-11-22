@@ -106,33 +106,28 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
         state.memoryStorage.put(entry.key(), entry);
+       // long entrySize = calculateSize(entry);
+/*        if (flushThresholdBytes < state.memoryStorageSizeInBytes.get() + entrySize) {
+            // if not flushing throw
 
-
-    }
-
-
-
-    @Override
-    public void flush() throws IOException {
-        memoryLock.writeLock().lock();
-        try {
-            lock.lock();
+            memoryLock.writeLock().lock();
             try {
-                if (!state.memoryStorage.isEmpty()) {
-                    DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
-                }
+                state.memoryStorage.put(entry.key(), entry);
+                state.memoryStorageSizeInBytes.addAndGet(2 * Long.BYTES + entry.key().byteSize() + entry.value().byteSize());
             } finally {
-                lock.unlock();
+                memoryLock.writeLock().unlock();
             }
-        } finally {
-            memoryLock.writeLock().unlock();
-        }
-        state = new State(
-                new ConcurrentSkipListMap<>(comparator),
-                state.flushingMemoryTable,
-                new DiskStorage(DiskStorage.loadOrRecover(path, arena))
-        );
+        }*/
+        //If very big
+
     }
+
+/*    private Long calculateSize(Entry<MemorySegment> entry){
+        return Long.BYTES + entry.key().byteSize() + Long.BYTES
+                + (entry.value() == null ? 0 : entry.key().byteSize());
+    }*/
+
+
 
 /*    private void tryToFlush() {
         try {
