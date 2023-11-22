@@ -63,11 +63,12 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         readLock.lock();
         try {
             currEnv = environment;
-            if (currEnv.getBytes() > config.flushThresholdBytes() && isFlushing.get()) {
-                throw new IllegalStateException("Table is full, flushing in process.");
-            }
         } finally {
             readLock.unlock();
+        }
+
+        if (currEnv.getBytes() > config.flushThresholdBytes() && isFlushing.get()) {
+            throw new IllegalStateException("Table is full, flushing in process.");
         }
 
         if (currEnv.put(entry) <= config.flushThresholdBytes()) {
@@ -132,13 +133,13 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public synchronized void flush() throws IOException {
-//        // Должны гарантировать, что один поток будет выполнять флаш в фоне.
-//        boolean tryToFlush = isFlushing.compareAndSet(false, true);
-//        if (!tryToFlush) {
-//            // Считаем, что уже флашим.
-//            return;
-//        }
+    public void flush() throws IOException {
+        // Должны гарантировать, что один поток будет выполнять флаш в фоне.
+        boolean tryToFlush = isFlushing.compareAndSet(false, true);
+        if (!tryToFlush) {
+            // Считаем, что уже флашим.
+            return;
+        }
 
         writeLock.lock();
         try {
@@ -150,7 +151,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         executor.execute(() -> {
             try {
                 environment.flush();
-//                isFlushing.set(false);
+                isFlushing.set(false);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
