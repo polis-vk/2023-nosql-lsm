@@ -170,6 +170,9 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
             Files.delete(ssTablePath.resolve(INDEX_FILENAME));
             Files.delete(ssTablePath.resolve(DATA_FILENAME));
             Files.delete(ssTablePath);
+            summaryFile = null;
+            indexFile = null;
+            dataFile = null;
         } finally {
             readWriteLock.writeLock().unlock();
         }
