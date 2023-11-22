@@ -52,7 +52,7 @@ class Storage implements Closeable {
 
         // Delete artifacts from unsuccessful compaction
         Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
-        Files.deleteIfExists(storagePath.resolve(SSTABLE_BASE_NAME + COMPACTING_SUFFIX));
+        Files.deleteIfExists(storagePath.resolve(INDEX_BASE_NAME + COMPACTING_SUFFIX));
 
         int totalSSTables = Integer.parseInt(Files.readString(metaFilePath));
         for (int sstableNum = 0; sstableNum < totalSSTables; sstableNum++) {
