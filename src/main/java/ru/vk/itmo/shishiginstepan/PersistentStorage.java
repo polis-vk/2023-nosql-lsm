@@ -49,9 +49,6 @@ public class PersistentStorage {
     }
 
     public void close() {
-        for (var sstable : sstables) {
-            sstable.close();
-        }
         arena.close();
     }
 
