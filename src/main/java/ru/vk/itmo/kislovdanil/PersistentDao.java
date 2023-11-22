@@ -26,8 +26,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
 
@@ -35,7 +33,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     private final Config config;
     private final List<SSTable> tables = new CopyOnWriteArrayList<>();
     private final Comparator<MemorySegment> comparator = new MemSegComparator();
-    private final Lock upsertLock = new ReentrantLock();
     private volatile MemTable memTable = new MemTable(comparator);
 
     // Temporary storage in case of main storage flushing (Read only)
@@ -123,20 +120,21 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         long entryByteSize = getEntryByteSize(entry);
-        upsertLock.lock();
-        try {
-            long newSize = memTableByteSize.addAndGet(entryByteSize);
-            if (newSize - entryByteSize > config.flushThresholdBytes()) {
-                if (isFlushing) {
-                    throw new OverloadException(entry);
-                } else {
-                    flush();
-                    memTableByteSize.set(0);
-                }
+        long tableSize = memTableByteSize.get();
+        while (tableSize > config.flushThresholdBytes()) {
+            if (isFlushing) {
+                throw new OverloadException(entry);
+            } else if (memTableByteSize.compareAndSet(tableSize, 0)) {
+                flush();
+                break;
+            } else {
+                tableSize = memTableByteSize.get();
             }
-            memTable.put(entry);
-        } finally {
-            upsertLock.unlock();
+        }
+        memTableByteSize.addAndGet(entryByteSize);
+        Entry<MemorySegment> previousEntry = memTable.put(entry);
+        if (previousEntry != null) {
+            memTableByteSize.addAndGet(-getEntryByteSize(previousEntry));
         }
     }
 
@@ -148,14 +146,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         additionalStorage = currentMemTable.storage;
         memTable = new MemTable(comparator);
         // Necessary to get snapshot without data loss
-        upsertLock.lock();
-        try {
-            // SSTable constructor with entries iterator writes MemTable data on disk deleting old data if it exists
-            tables.add(new SSTable(config.basePath(), comparator,
-                    getNextId(), additionalStorage.values().iterator()));
-        } finally {
-            upsertLock.unlock();
-        }
+        currentMemTable.waitPuttingThreads();
+        // SSTable constructor with entries iterator writes MemTable data on disk deleting old data if it exists
+        tables.add(new SSTable(config.basePath(), comparator,
+                getNextId(), additionalStorage.values().iterator()));
     }
 
     @Override
