@@ -18,7 +18,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class DiskStorage {
 
@@ -27,11 +27,11 @@ public class DiskStorage {
     private static final String SSTABLE_EXT = ".sstable";
     private static final String TMP_EXT = ".tmp";
     private final Arena arena;
-    private final ReentrantReadWriteLock rwLock;
+    private final ReentrantLock lock;
 
     public DiskStorage(List<Path> ssTablePaths, Arena arena) throws IOException {
         this.arena = arena;
-        this.rwLock = new ReentrantReadWriteLock();
+        this.lock = new ReentrantLock();
         tableList = new ArrayList<>();
         for (Path path : ssTablePaths) {
             tableList.add(new SsTable(path, arena));
@@ -43,7 +43,7 @@ public class DiskStorage {
             MemorySegment from,
             MemorySegment to) {
 
-        rwLock.readLock().lock();
+        lock.lock();
         try {
             List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(tableList.size() + memoryIterators.size());
             for (SsTable ssTable : tableList) {
@@ -64,7 +64,7 @@ public class DiskStorage {
                 }
             };
         } finally {
-            rwLock.readLock().unlock();
+            lock.unlock();
         }
     }
 
@@ -81,7 +81,7 @@ public class DiskStorage {
         final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXT);
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
 
-        rwLock.writeLock().lock();
+        lock.lock();
         try {
             try {
                 Files.createFile(indexFile);
@@ -143,7 +143,7 @@ public class DiskStorage {
             updateIndex(indexFile, indexTmp, existedFiles, newFileName);
             tableList.add(new SsTable(tablePath, arena));
         } finally {
-            rwLock.writeLock().unlock();
+            lock.unlock();
         }
     }
 
@@ -165,18 +165,18 @@ public class DiskStorage {
     }
 
     public void compact(Path storagePath) throws IOException {
-        rwLock.readLock().lock();
+        lock.lock();
         try {
             if (tableList.isEmpty()) {
                 return;
             }
         } finally {
-            rwLock.readLock().unlock();
+            lock.unlock();
         }
 
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + SSTABLE_EXT);
 
-        rwLock.writeLock().lock();
+        lock.lock();
         try {
             try {
                 Files.createFile(indexFile);
@@ -236,7 +236,7 @@ public class DiskStorage {
             tableList.add(new SsTable(storagePath.resolve("0" + SSTABLE_EXT), arena));
 
         } finally {
-            rwLock.writeLock().unlock();
+            lock.unlock();
         }
     }
 
@@ -270,7 +270,7 @@ public class DiskStorage {
     }
 
     private MergeIterator<Entry<MemorySegment>> getMergeIterator() {
-        rwLock.readLock().lock();
+        lock.lock();
         try {
             List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(tableList.size() + 1);
             for (SsTable ssTable : tableList) {
@@ -284,7 +284,7 @@ public class DiskStorage {
                 }
             };
         } finally {
-            rwLock.readLock().unlock();
+            lock.unlock();
         }
     }
 

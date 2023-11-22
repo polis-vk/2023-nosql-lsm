@@ -105,17 +105,17 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public synchronized void upsert(Entry<MemorySegment> entry) throws IllegalStateException {
-        rwLock.writeLock().lock();
+    public void upsert(Entry<MemorySegment> entry) throws IllegalStateException {
+        rwLock.readLock().lock();
         try {
             memTable.put(entry.key(), entry);
         } finally {
-            rwLock.writeLock().unlock();
+            rwLock.readLock().unlock();
         }
     }
 
     @Override
-    public synchronized void flush() throws IOException {
+    public void flush() throws IOException {
         rwLock.writeLock().lock();
         try {
             if (!memTable.getTable().isEmpty()) {
@@ -130,8 +130,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() {
-        // сделать проверку по memtable isFlushing
-        rwLock.writeLock().lock();
+        rwLock.readLock().lock();
         try {
             if (!memTable.getIsFlushing()) {
 
@@ -144,7 +143,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 });
             }
         } finally {
-            rwLock.writeLock().unlock();
+            rwLock.readLock().unlock();
         }
     }
 
@@ -166,14 +165,14 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private class FlushingTask<V> extends FutureTask<V> {
         public FlushingTask() {
             super(() -> {
-                rwLock.writeLock().lock();
+                rwLock.readLock().lock();
                 try {
                     diskStorage.save(path, memTable.getFlushingTable().values());
                     memTable.setIsFlushing(false);
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 } finally {
-                    rwLock.writeLock().unlock();
+                    rwLock.readLock().unlock();
                 }
                 return null;
             });
