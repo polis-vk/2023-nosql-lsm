@@ -165,14 +165,14 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private class FlushingTask<V> extends FutureTask<V> {
         public FlushingTask() {
             super(() -> {
-                rwLock.readLock().lock();
+                rwLock.writeLock().lock();
                 try {
                     diskStorage.save(path, memTable.getFlushingTable().values());
                     memTable.setIsFlushing(false);
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 } finally {
-                    rwLock.readLock().unlock();
+                    rwLock.writeLock().unlock();
                 }
                 return null;
             });
