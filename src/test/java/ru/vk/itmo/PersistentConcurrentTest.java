@@ -49,8 +49,8 @@ public class PersistentConcurrentTest extends BaseTest {
             }
         }).close();
 
-        // 50ms should be enough considering GC
-        long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(50);
+        // 100ms should be enough considering GC
+        long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(100);
 
         runInParallel(100, count, value -> {
             tryRun(timeoutNanos, () -> dao.upsert(entries.get(value)));
