@@ -17,11 +17,9 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -51,7 +49,7 @@ public final class SSTable {
         this.hasNoTombstones = hasNoTombstones;
     }
 
-    public static List<SSTable> load(Arena arena, Path basePath, AtomicInteger ssTablesIndex) throws IOException {
+    public static List<SSTable> load(Arena arena, Path basePath) throws IOException {
         if (checkIfCompactedExists(basePath)) {
             finalizeCompaction(basePath);
         }
@@ -77,7 +75,6 @@ public final class SSTable {
             ssTables.add(loadOne(arena, ssTablePath, i));
         }
 
-        ssTablesIndex.set(existedFiles.size());
         return ssTables;
     }
 
@@ -251,9 +248,6 @@ public final class SSTable {
         Files.deleteIfExists(tmpSSTable);
         Files.createFile(tmpSSTable);
         EntriesMetadata entriesMetadata = data.get().countEntities();
-        if (entriesMetadata.count() == 0) {
-            return; // empty sstables
-        }
         Path compacted = save(data, entriesMetadata.count(), entriesMetadata.entriesDataSize(), tmpSSTable);
         Files.move(compacted, getCompactedFilePath(basePath), StandardCopyOption.ATOMIC_MOVE);
         finalizeCompaction(basePath);

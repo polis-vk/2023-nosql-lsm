@@ -14,7 +14,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -29,8 +28,6 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private volatile Future<?> compactionFuture;
 
     private volatile List<SSTable> ssTables;
-
-    private final AtomicInteger ssTablesIndex = new AtomicInteger(0);
     private Arena ssTablesArena;
 
     private final Path storagePath;
@@ -48,7 +45,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.flushingMemTable = new MemTable(-1);
         try {
             this.ssTablesArena = Arena.ofShared();
-            this.ssTables = SSTable.load(ssTablesArena, storagePath, ssTablesIndex);
+            this.ssTables = SSTable.load(ssTablesArena, storagePath);
         } catch (IOException e) {
             ssTablesArena.close();
             throw new LSMDaoCreationException(e);
@@ -127,7 +124,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                         ),
                         storagePath
                 );
-                ssTables = SSTable.load(ssTablesArena, storagePath, ssTablesIndex);
+                ssTables = SSTable.load(ssTablesArena, storagePath);
             } finally {
                 compactionLock.writeLock().unlock();
             }
@@ -173,7 +170,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             try {
                 compactionLock.writeLock().lock();
                 try {
-                    flush(flushingMemTable, ssTablesIndex.getAndIncrement(), storagePath, ssTablesArena);
+                    flush(flushingMemTable, ssTables.size(), storagePath, ssTablesArena);
                 } finally {
                     compactionLock.writeLock().lock();
                 }
@@ -191,7 +188,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     ) throws IOException {
         if (memTable.isEmpty()) return;
         SSTable.save(memTable, fileIndex, storagePath);
-        ssTables = SSTable.load(ssTablesArena, storagePath, ssTablesIndex);
+        ssTables = SSTable.load(ssTablesArena, storagePath);
         flushingMemTable = new MemTable(-1);
     }
 
@@ -222,6 +219,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (ssTablesArena.scope().isAlive()) {
             ssTablesArena.close();
         }
-        SSTable.save(memTable, ssTablesIndex.getAndIncrement(), storagePath);
+        SSTable.save(memTable, ssTables.size(), storagePath);
+        memTable = new MemTable(-1);
     }
 }
