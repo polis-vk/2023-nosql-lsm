@@ -92,36 +92,41 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (memoryMapSize.get() <= flushThresholdBytes) {
             return;
         }
-        if (isFlushing.compareAndSet(false, true)) {
-            mapUpsertExchangeLock.writeLock().lock();
-            try {
+        mapUpsertExchangeLock.writeLock().lock();
+        try {
+            if (memoryMapSize.get() <= flushThresholdBytes) {
+                return;
+            }
+            if (isFlushing.compareAndSet(false, true)) {
                 flushingMap = map;
                 long size = memoryMapSize.get();
                 renewMap();
                 backgroundQueue.execute(() -> backgroundFlush(size));
-            } finally {
-                mapUpsertExchangeLock.writeLock().unlock();
+            } else {
+                throw new DaoException.DaoMemoryException(
+                        "Upsert happened with no free space and flushing already executing");
             }
-        } else {
-            throw new DaoException.DaoMemoryException(
-                    "Upsert happened with no free space and flushing already executing");
+        } finally {
+            mapUpsertExchangeLock.writeLock().unlock();
         }
     }
 
     @Override
     public void compact() {
-        backgroundQueue.execute(() -> {
-            int totalSStables = storage.getTotalSStables();
-            var iterator = firstNsstablesIterator(totalSStables);
-            if (!iterator.hasNext()) {
-                return;
-            }
-            try {
-                storage.compact(iterator, firstNsstablesIterator(totalSStables), totalSStables);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        });
+        if (!isFlushing.get()) {
+            backgroundQueue.execute(() -> {
+                int totalSStables = storage.getTotalSStables();
+                var iterator = firstNsstablesIterator(totalSStables);
+                if (!iterator.hasNext()) {
+                    return;
+                }
+                try {
+                    storage.compact(iterator, firstNsstablesIterator(totalSStables), totalSStables);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        }
     }
 
     @Override
