@@ -1,21 +1,33 @@
 package ru.vk.itmo.kovalevigor;
 
+import java.io.IOException;
+import java.lang.foreign.MemorySegment;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
+import java.util.SortedMap;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.concurrent.TimeUnit;
+
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import java.io.IOException;
-import java.lang.foreign.MemorySegment;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.logging.Logger;
-
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final SSTableManager ssManager;
-    private final static ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> EMPTY_MAP =
+    private static final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> EMPTY_MAP =
             new ConcurrentSkipListMap<>(SSTable.COMPARATOR);
     private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> flushedStorage;
     private final AtomicLong currentMemoryByteSize;
@@ -23,7 +35,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> currentStorage;
     private final ExecutorService flushService;
     private final ExecutorService compactService;
-    private Future<Void> flushFuture = null;
+    private Future<Void> flushFuture;
 
     public DaoImpl(final Config config) throws IOException {
         ssManager = new SSTableManager(config.basePath());
@@ -82,10 +94,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     public synchronized void upsert(final Entry<MemorySegment> entry) {
         Objects.requireNonNull(entry);
         final long entrySize = getEntrySize(entry);
-        // Падает CompactionTest::overwrite
-//        if (entrySize >= flushThresholdBytes) {
-//            throw new IllegalArgumentException("Too large entry");
-//        }
+
         currentStorage.get().put(entry.key(), entry);
         long lastValue = currentMemoryByteSize.get();
         while (true) {
@@ -155,6 +164,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             } catch (InterruptedException e) {
                 log(e);
+                Thread.currentThread().interrupt();
             }
         }
     }
@@ -173,10 +183,13 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void close() throws IOException {
         try {
-        if (flushFuture != null) {
-            flushFuture.get();
-        }
-        } catch (InterruptedException | ExecutionException e) {
+            if (flushFuture != null) {
+                flushFuture.get();
+            }
+        } catch (InterruptedException e) {
+            log(e);
+            Thread.currentThread().interrupt();
+        } catch(ExecutionException e) {
             log(e);
         }
         flush();
@@ -190,6 +203,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private static void log(Exception e) {
-        Logger.getAnonymousLogger().log(Logger.getAnonymousLogger().getLevel(), e.getMessage());
+        Logger.getAnonymousLogger().log(Level.WARNING, Arrays.toString(e.getStackTrace()));
     }
 }

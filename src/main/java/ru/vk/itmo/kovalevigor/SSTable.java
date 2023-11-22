@@ -1,7 +1,5 @@
 package ru.vk.itmo.kovalevigor;
 
-import ru.vk.itmo.Entry;
-
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -13,13 +11,15 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.SortedMap;
 
+import ru.vk.itmo.Entry;
+
 public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> {
 
     public static final Comparator<MemorySegment> COMPARATOR = UtilsMemorySegment::compare;
     public static final Comparator<Entry<MemorySegment>> ENTRY_COMPARATOR = UtilsMemorySegment::compareEntry;
 
-    private final Path indexPath;
-    private final Path dataPath;
+    private Path indexPath;
+    private Path dataPath;
     private final IndexList indexList;
 
     private SSTable(final Path indexPath, final Path dataPath, final Arena arena) throws IOException {
@@ -117,6 +117,23 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
                 dumper.writeEntry(entry);
             }
         }
+    }
+
+    public void move(
+            final Path path,
+            final String name
+    ) throws IOException {
+        final Path targetDataPath = getDataPath(path, name);
+        final Path targetIndexPath = getIndexPath(path, name);
+        Files.move(dataPath, targetDataPath);
+        try {
+            Files.move(indexPath, targetIndexPath);
+        } catch (IOException e) {
+            Files.move(targetDataPath, dataPath);
+            throw e;
+        }
+        dataPath = targetDataPath;
+        indexPath = targetIndexPath;
     }
 
     public SizeInfo getSizeInfo() {
