@@ -33,14 +33,14 @@ public class DiskStorage {
     }
 
     public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
+            List<Iterator<Entry<MemorySegment>>> firstIterators,
             MemorySegment from,
             MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
-        iterators.add(firstIterator);
+        iterators.addAll(firstIterators);
 
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, MemesDao::compare)) {
             @Override

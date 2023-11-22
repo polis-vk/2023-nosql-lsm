@@ -10,10 +10,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.NavigableMap;
+import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -83,20 +80,26 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return state.diskStorage.range(getInMemory(from, to), from, to);
+        Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(state.memoryStorage, from, to);
+        Iterator<Entry<MemorySegment>> flushIterator = getInMemory(state.flushingMemoryTable, from, to);
+        return state.diskStorage.range(List.of(memoryIterator, flushIterator), from, to);
     }
 
-    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
+    private Iterator<Entry<MemorySegment>> getInMemory(
+            NavigableMap<MemorySegment, Entry<MemorySegment>> storage,
+            MemorySegment from,
+            MemorySegment to
+    ) {
         if (from == null && to == null) {
-            return state.memoryStorage.values().iterator();
+            return storage.values().iterator();
         }
         if (from == null) {
-            return state.memoryStorage.headMap(to).values().iterator();
+            return storage.headMap(to).values().iterator();
         }
         if (to == null) {
-            return state.memoryStorage.tailMap(from).values().iterator();
+            return storage.tailMap(from).values().iterator();
         }
-        return state.memoryStorage.subMap(from, to).values().iterator();
+        return storage.subMap(from, to).values().iterator();
     }
 
     @Override
@@ -136,6 +139,9 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> entry = state.memoryStorage.get(key);
+        if (entry == null) {
+            entry = state.flushingMemoryTable.get(key);
+        }
         if (entry != null) {
             if (entry.value() == null) {
                 return null;
@@ -143,7 +149,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return entry;
         }
 
-        Iterator<Entry<MemorySegment>> iterator = state.diskStorage.range(Collections.emptyIterator(), key, null);
+        Iterator<Entry<MemorySegment>> iterator = state.diskStorage.range(List.of(Collections.emptyIterator()), key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -161,7 +167,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void compact() throws IOException {
+    public synchronized void compact() throws IOException {
         DiskStorage.compact(path, this::all);
     }
 
@@ -219,7 +225,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void close() throws IOException {
+    public synchronized void close() throws IOException {
         if (!arena.scope().isAlive()) {
             return;
         }
