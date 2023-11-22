@@ -31,7 +31,7 @@ public class PersistentConcurrentTest extends BaseTest {
         int count = 100_000;
 
         List<Entry<String>> entries = entries("k", "v", count);
-        long timeoutNanosWarmup = TimeUnit.MILLISECONDS.toNanos(5000);
+        long timeoutNanosWarmup = TimeUnit.MILLISECONDS.toNanos(1000);
         runInParallel(100, count, value -> {
             tryRun(timeoutNanosWarmup, () -> dao.upsert(entries.get(value)));
             tryRun(timeoutNanosWarmup, () -> dao.upsert(entry(keyAt(value), null)));
