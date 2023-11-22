@@ -2,6 +2,7 @@ package ru.vk.itmo.grunskiialexey;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.grunskiialexey.model.ActualFilesInterval;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -130,13 +131,13 @@ public class CompactionService {
         try (final Arena arena = Arena.ofShared()) {
             DiskStorage.deleteFilesAndInMemory(
                     segmentList,
-                    DiskStorage.getActualFilesInterval(indexFile, arena),
+                    new ActualFilesInterval(DiskStorage.getActualFilesInterval(indexFile, arena).left(), fileNumber),
                     storagePath
             );
         }
 
         try (Arena writeArena = Arena.ofShared()) {
-            DiskStorage.changeActualFilesInterval(indexFile, writeArena, fileNumber, fileNumber + 1);
+            DiskStorage.changeActualLeftInterval(indexFile, writeArena, fileNumber);
         }
 
         isWorking.set(false);

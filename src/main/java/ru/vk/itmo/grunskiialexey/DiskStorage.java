@@ -80,6 +80,25 @@ public class DiskStorage {
         return new ActualFilesInterval(left, right);
     }
 
+    static void changeActualLeftInterval(
+            final Path indexFile,
+            final Arena arena,
+            final long left
+    ) throws IOException {
+        try (FileChannel fileChannel = FileChannel.open(indexFile,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        )) {
+            MemorySegment fileSegment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, 2 * Long.BYTES, arena);
+            fileSegment.setAtIndex(ValueLayout.JAVA_LONG_UNALIGNED, 0, left);
+            if (left >= fileSegment.getAtIndex(ValueLayout.JAVA_LONG_UNALIGNED, 1)) {
+                fileSegment.setAtIndex(ValueLayout.JAVA_LONG_UNALIGNED, 1, left + 1);
+            }
+        }
+    }
+
     static void changeActualFilesInterval(
             final Path indexFile,
             final Arena arena,
