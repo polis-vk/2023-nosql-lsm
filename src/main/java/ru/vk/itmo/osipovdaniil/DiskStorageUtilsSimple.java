@@ -4,13 +4,14 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
 
-public class DiskStorageUtilsSimple {
+public final class DiskStorageUtilsSimple {
 
     private static final String INDEX = "index.idx";
     private static final String INDEX_TMP = "index.tmp";
 
     private DiskStorageUtilsSimple() {
     }
+
     public static Path getIndexTmpPath(final Path storagePath) {
         return storagePath.resolve(INDEX_TMP);
     }

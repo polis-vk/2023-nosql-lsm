@@ -5,9 +5,9 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Comparator;
 import java.util.NoSuchElementException;
 
 public class DiskStorage {
@@ -21,10 +21,10 @@ public class DiskStorage {
     static Iterator<Entry<MemorySegment>> iterator(final MemorySegment page,
                                                    final MemorySegment from,
                                                    final MemorySegment to) {
-        long recordIndexFrom = from == null ?
-                0 : DiskStorageUtilsSimple.normalize(DiskStorageUtils.indexOf(page, from));
-        long recordIndexTo = to == null ?
-                DiskStorageUtilsSimple.recordsCount(page) :
+        long recordIndexFrom = from == null
+                ? 0 : DiskStorageUtilsSimple.normalize(DiskStorageUtils.indexOf(page, from));
+        long recordIndexTo = to == null
+                ? DiskStorageUtilsSimple.recordsCount(page) :
                 DiskStorageUtilsSimple.normalize(DiskStorageUtils.indexOf(page, to));
         final long recordsCount = DiskStorageUtilsSimple.recordsCount(page);
         return new Iterator<>() {
