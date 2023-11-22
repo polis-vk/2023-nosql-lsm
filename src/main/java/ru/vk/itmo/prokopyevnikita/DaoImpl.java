@@ -9,11 +9,8 @@ import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -70,38 +67,31 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    @SuppressWarnings("FutureReturnValueIgnored")
     public void upsert(Entry<MemorySegment> entry) {
         State currenState = accessStateAndCloseCheck();
-        boolean flush = false;
-        lock.readLock().lock();
-        try {
-            flush = currenState.memory.put(entry.key(), entry);
-        } finally {
-            lock.readLock().unlock();
-        }
+        boolean flush = currenState.memory.put(entry.key(), entry);
         if (flush) {
             flushInBackground(false);
         }
     }
 
-    private Future<?> flushInBackground(boolean canBeParallel) {
-        lock.writeLock().lock();
-        try {
-            State currenState = accessStateAndCloseCheck();
-            if (currenState.isFlushing()) {
-                if (canBeParallel) {
-                    return CompletableFuture.completedFuture(null);
-                }
-                throw new AlreadyFlushingInBg();
-            }
-            currenState = currenState.prepareForFlush();
-            this.state = currenState;
-        } finally {
-            lock.writeLock().unlock();
-        }
+    private void flushInBackground(boolean canBeParallel) {
 
-        return executorService.submit(() -> {
+        executorService.execute(() -> {
+            lock.writeLock().lock();
+            try {
+                State currenState = accessStateAndCloseCheck();
+                if (currenState.isFlushing()) {
+                    if (canBeParallel) {
+                        return;
+                    }
+                    throw new AlreadyFlushingInBg();
+                }
+                currenState = currenState.prepareForFlush();
+                this.state = currenState;
+            } finally {
+                lock.writeLock().unlock();
+            }
             try {
                 State currenState = accessStateAndCloseCheck();
 
@@ -114,11 +104,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 } finally {
                     lock.writeLock().unlock();
                 }
-                return null;
             } catch (IOException e) {
                 throw new IllegalStateException(e);
             }
         });
+
     }
 
     @Override
@@ -131,20 +121,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             lock.writeLock().unlock();
         }
 
-        // await flush to complete
         if (flush) {
-            Future<?> future = flushInBackground(true);
-            awaitFlushToFinish(future);
-        }
-    }
-
-    private void awaitFlushToFinish(Future<?> future) {
-        try {
-            future.get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (ExecutionException e) {
-            throw new IllegalStateException("flush failed", e);
+            flushInBackground(true);
         }
     }
 
@@ -181,25 +159,30 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
-        Future<?> future = executorService.submit(() -> {
+        executorService.execute(() -> {
             State stateCompaction = accessStateAndCloseCheck();
 
             if (stateCompaction.memory.isEmpty() && stateCompaction.storage.isCompacted()) {
-                return null;
+                return;
             }
 
             // compact only ssTables
-            Storage.compact(config,
-                    () -> new MergeSkipNullValuesIterator(
-                            List.of(
-                                    new OrderedPeekIteratorImpl(0,
-                                            getOnlyFromDisk(null, null)
-                                    )
-                            )
-                    )
-            );
+            Storage storage = null;
+            try {
+                Storage.compact(config,
+                        () -> new MergeSkipNullValuesIterator(
+                                List.of(
+                                        new OrderedPeekIteratorImpl(0,
+                                                getOnlyFromDisk(null, null)
+                                        )
+                                )
+                        )
+                );
+                storage = Storage.load(config);
+            } catch (IOException e) {
+                throw new IllegalStateException();
+            }
 
-            Storage storage = Storage.load(config);
 
             lock.writeLock().lock();
             try {
@@ -207,10 +190,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             } finally {
                 lock.writeLock().unlock();
             }
-            return null;
         });
-
-        awaitFlushToFinish(future);
     }
 
     private State accessStateAndCloseCheck() {
