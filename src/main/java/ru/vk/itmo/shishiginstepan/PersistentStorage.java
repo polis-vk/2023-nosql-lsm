@@ -8,7 +8,6 @@ import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -27,6 +26,8 @@ public class PersistentStorage {
 
     private final Arena arena;
 
+    private static final ThreadLocal<List<BinarySearchSSTable>> tablesToCompact = new ThreadLocal<>();
+    private static final ThreadLocal<List<Iterator<Entry<MemorySegment>>>> iteratorsToCompact = new ThreadLocal<>();
     private static final class CompactionError extends RuntimeException {
         public CompactionError(Exception e) {
             super(e);
@@ -57,8 +58,12 @@ public class PersistentStorage {
      * сразу будет доступен для чтения в PersistentStorage.
      **/
     public void store(Iterable<Entry<MemorySegment>> data) {
-        int nextSStableID = this.lastSSTableId.incrementAndGet();
-        BinarySearchSSTable newSSTable = BinarySearchSSTable.writeSSTable(data, basePath, nextSStableID, arena);
+        BinarySearchSSTable newSSTable = BinarySearchSSTableWriter.writeSSTable(
+                data,
+                basePath,
+                this.lastSSTableId.incrementAndGet(),
+                arena
+        );
         this.sstables.add(newSSTable);
     }
 
@@ -93,30 +98,27 @@ public class PersistentStorage {
         return iterators;
     }
 
-    private List<BinarySearchSSTable> getCompactableTables() {
-        List<BinarySearchSSTable> res = new ArrayList<>(sstables.size());
+    private void setCompactableTables() {
         for (var sstable : sstables) {
             if (sstable.closed.get()) continue;
-            if (sstable.inCompaction.compareAndSet(false, true)) res.add(sstable);
+            if (sstable.inCompaction.compareAndSet(false, true)) tablesToCompact.get().add(sstable);
         }
-        return res;
     }
 
     public void compact() {
-        List<BinarySearchSSTable> tablesToCompact = getCompactableTables();
+        tablesToCompact.set(new ArrayList<>());
+        setCompactableTables();
+        iteratorsToCompact.set(new ArrayList<>());
 
-        List<Entry<MemorySegment>> entries = new ArrayList<>();
-
-        for (var sstable : tablesToCompact) {
-            Iterator<Entry<MemorySegment>> tableEntries = sstable.scan(null, null);
-            while (tableEntries.hasNext()) {
-                entries.add(tableEntries.next());
-            }
+        for (var sstable : tablesToCompact.get()) {
+            iteratorsToCompact.get().add(sstable.scan(null, null));
         }
-        store(entries);
-        for (var sstable : tablesToCompact) {
+        store(() -> new SkipDeletedIterator(new MergeIterator(iteratorsToCompact.get())));
+        for (var sstable : tablesToCompact.get()) {
             compactionClean(sstable);
         }
+        tablesToCompact.remove();
+        iteratorsToCompact.remove();
     }
 
     private void compactionClean(BinarySearchSSTable sstable) {

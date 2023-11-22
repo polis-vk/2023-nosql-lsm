@@ -70,14 +70,14 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.basePath = basePath;
         this.persistentStorage = new PersistentStorage(this.basePath);
         this.memStorageLimit = memStorageLimit;
-        this.executor = Executors.newVirtualThreadPerTaskExecutor();
+        this.executor = Executors.newFixedThreadPool(16);
     }
 
     public InMemDaoImpl() {
         this.basePath = Paths.get("./");
         this.persistentStorage = new PersistentStorage(this.basePath);
         this.memStorageLimit = Runtime.getRuntime().freeMemory();
-        this.executor = Executors.newVirtualThreadPerTaskExecutor();
+        this.executor = Executors.newFixedThreadPool(16);
     }
 
     @Override
@@ -126,10 +126,10 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.memStorageSize.updateAndGet(
                 (size) -> size + (entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()))
         );
-        this.memStorage.get().put(entry.key(), entry);
-        if (this.memStorageSize.get() > this.memStorageLimit) {
+        if (this.memStorageSize.get() >= this.memStorageLimit) {
             flush();
         }
+        this.memStorage.get().put(entry.key(), entry);
     }
 
     @Override
@@ -146,10 +146,10 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 try {
                     if (!this.memStorage.get().isEmpty()) {
                         this.tempStorage.set(this.memStorage.get());
-                        this.persistentStorage.store(this.tempStorage.get().values());
                         this.memStorage.set(new ConcurrentSkipListMap<>(keyComparator));
-                        this.tempStorage.get().clear();
                         this.memStorageSize.set(0);
+                        this.persistentStorage.store(this.tempStorage.get().values());
+                        this.tempStorage.get().clear();
                     }
                 } finally {
                     flushLock.unlock();
