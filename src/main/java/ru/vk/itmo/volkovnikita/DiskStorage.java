@@ -264,7 +264,7 @@ public class DiskStorage {
         ensureIndexFileExists(tempIndexFile, permanentIndexFile);
 
         List<String> existedFiles = Files.readAllLines(permanentIndexFile, StandardCharsets.UTF_8);
-        List<MemorySegment> result = new ArrayList<>(existedFiles.size());
+        List<MemorySegment> segments = new ArrayList<>(existedFiles.size());
         for (String fileName : existedFiles) {
             Path file = pathToStorage.resolve(fileName);
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
@@ -274,11 +274,11 @@ public class DiskStorage {
                         Files.size(file),
                         arena
                 );
-                result.add(fileSegment);
+                segments.add(fileSegment);
             }
         }
 
-        return result;
+        return segments;
     }
 
     private static void ensureIndexFileExists(Path temIndex, Path permanentInd) throws IOException {
