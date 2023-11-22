@@ -9,7 +9,7 @@ public class MemTableEntry implements TableEntry {
     private final MemTable memTable;
 
     public MemTableEntry(Entry<MemorySegment> entry, MemTable memTable) {
-        current = entry;
+        this.current = entry;
         this.memTable = memTable;
     }
 

@@ -24,6 +24,7 @@ class Storage implements Closeable {
     private static final String COMPACTING_SUFFIX = "_compacting";
     private static final String SSTABLE_BASE_NAME = "storage";
     private static final String INDEX_BASE_NAME = "index";
+    public static final String META_FILE_BASE_NAME = "meta";
     private final Path storagePath;
     private final Path metaFilePath;
     private final List<FileChannel> sstableFileChannels = new ArrayList<>();
@@ -35,10 +36,12 @@ class Storage implements Closeable {
         storagePath = config.basePath();
 
         Files.createDirectories(storagePath);
-        metaFilePath = storagePath.resolve("meta");
+        metaFilePath = storagePath.resolve(META_FILE_BASE_NAME);
         if (!Files.exists(metaFilePath)) {
             Files.createFile(metaFilePath);
-            Files.writeString(metaFilePath, "0", StandardOpenOption.WRITE);
+
+            int totalSStables = 0;
+            Files.writeString(metaFilePath, String.valueOf(totalSStables), StandardOpenOption.WRITE);
         }
 
         // Restore consistent state if db was dropped during compaction

@@ -13,6 +13,10 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 
 final class StorageFileWriter {
+
+    public static final ValueLayout.OfInt ENTRY_NUMBER_LAYOUT = ValueLayout.JAVA_INT_UNALIGNED;
+    public static final ValueLayout.OfLong MEMORY_SEGMENT_SIZE_LAYOUT = ValueLayout.JAVA_LONG_UNALIGNED;
+
     private StorageFileWriter() {
     }
 
@@ -117,9 +121,9 @@ final class StorageFileWriter {
                                               int entryNum,
                                               long storageWriteOffset) {
         long offset = indexWriteOffset;
-        mappedIndex.set(ValueLayout.JAVA_INT_UNALIGNED, offset, entryNum);
+        mappedIndex.set(ENTRY_NUMBER_LAYOUT, offset, entryNum);
         offset += Integer.BYTES;
-        mappedIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, storageWriteOffset);
+        mappedIndex.set(MEMORY_SEGMENT_SIZE_LAYOUT, offset, storageWriteOffset);
         offset += Long.BYTES;
         return offset;
     }
@@ -130,11 +134,11 @@ final class StorageFileWriter {
     static long writeMemorySegment(MemorySegment memorySegment, MemorySegment mapped, long writeOffset) {
         long offset = writeOffset;
         if (memorySegment == null) {
-            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
+            mapped.set(MEMORY_SEGMENT_SIZE_LAYOUT, offset, -1);
             offset += Long.BYTES;
         } else {
             long msSize = memorySegment.byteSize();
-            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, msSize);
+            mapped.set(MEMORY_SEGMENT_SIZE_LAYOUT, offset, msSize);
             offset += Long.BYTES;
             MemorySegment.copy(memorySegment, 0, mapped, offset, msSize);
             offset += msSize;

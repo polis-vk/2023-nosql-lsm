@@ -19,7 +19,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Storage storage;
 
     public DaoImpl(Config config) throws IOException {
-        storage = new Storage(config, arena);
+        this.storage = new Storage(config, arena);
     }
 
     @Override
