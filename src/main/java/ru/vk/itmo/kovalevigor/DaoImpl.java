@@ -102,27 +102,15 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         Objects.requireNonNull(entry);
         final long entrySize = getEntrySize(entry);
 
-        // overwrite - прикольный тест
-        if (entrySize >= flushThresholdBytes) {
-            currentStorage.put(entry.key(), entry);
-            return;
-        }
-
-        final Lock writeLock = lock.writeLock();
-        writeLock.lock();
-        try {
-            final long newSize = currentMemoryByteSize + entrySize;
-            if (newSize >= flushThresholdBytes) {
-                if (flushedStorage != EMPTY_MAP) {
-                    throw new IllegalStateException("Limit is reached. U should wait");
-                }
-                flush();
+        final long newSize = currentMemoryByteSize + entrySize;
+        if (newSize >= flushThresholdBytes) {
+            if (!flushedStorage.isEmpty()) {
+                throw new IllegalStateException("Limit is reached. U should wait");
             }
-
-            currentStorage.put(entry.key(), entry);
-        } finally {
-            writeLock.unlock();
+            flush();
         }
+
+        currentStorage.put(entry.key(), entry);
     }
 
     @Override
@@ -156,9 +144,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() {
-        if (flushedStorage != EMPTY_MAP) {
+        if (!flushedStorage.isEmpty()) {
             return;
         }
+
+        final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
+                new ConcurrentSkipListMap<>(SSTable.COMPARATOR);
         final Lock writeLock = lock.writeLock();
         writeLock.lock();
         try {
@@ -168,21 +159,21 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
 
             flushedStorage = currentStorage;
-            currentStorage = new ConcurrentSkipListMap<>(SSTable.COMPARATOR);
-
+            currentStorage = storage;
             currentMemoryByteSize = 0;
-            flushFuture = flushService.submit(() -> {
-                try {
-                    ssManager.write(flushedStorage);
-                } catch (IOException e) {
-                    Logger.getAnonymousLogger().log(Logger.getAnonymousLogger().getLevel(), e.getMessage());
-                } finally {
-                    flushedStorage = EMPTY_MAP;
-                }
-            }, null);
         } finally {
             writeLock.unlock();
         }
+
+        flushFuture = flushService.submit(() -> {
+            try {
+                ssManager.write(flushedStorage);
+            } catch (IOException e) {
+                Logger.getAnonymousLogger().log(Logger.getAnonymousLogger().getLevel(), e.getMessage());
+            } finally {
+                flushedStorage = EMPTY_MAP;
+            }
+        }, null);
     }
 
     private static void awaitShutdown(ExecutorService service) {
