@@ -85,20 +85,20 @@ public class DiskStorage {
         updateIndex(actualIntermFiles, intermediateDir);
     }
 
-    private static void mainDirRemoveFiles(Path path, int count) throws IOException {
-        // Сначала обнуляем index.
-        Path indexTmpPath = path.resolve(INDEX_TMP_FILE);
+    private static void mainDirRemoveFiles(Path mainDirPath, int count) throws IOException {
+        // Сначала очищаем index.
+        Path indexTmpPath = mainDirPath.resolve(INDEX_TMP_FILE);
         Files.createFile(indexTmpPath);
         Files.move(
                 indexTmpPath,
-                path.resolve(INDEX_FILE),
+                mainDirPath.resolve(INDEX_FILE),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
 
         // Потом удаляем файлы.
         for (int i = 0; i < count; i++) {
-            Files.delete(path.resolve(String.valueOf(i)));
+            Files.delete(mainDirPath.resolve(String.valueOf(i)));
         }
     }
 
@@ -133,6 +133,7 @@ public class DiskStorage {
         Files.deleteIfExists(tmpFilePath);
         saveSsTable(tmpFilePath, iterable);
 
+        // Сохраняем в актуальную директорию.
         String dirToSave = readWorkDir(storagePath);
         Path dirToSavePath = storagePath.resolve(dirToSave);
         Path indexFilePath = dirToSavePath.resolve(INDEX_FILE);

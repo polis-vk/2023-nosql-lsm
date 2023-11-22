@@ -114,17 +114,11 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        readLock.lock();
-        try {
-            // Могут выполнять несколько потоков.
-            // Должны гарантировать, что один поток будет выполнять флаш.
-            boolean tryToCompact = isCompacting.compareAndSet(false, true);
-            if (!tryToCompact) {
-                // Считаем, что уже компактим.
-                return;
-            }
-        } finally {
-            readLock.unlock();
+        // Должны гарантировать, что один поток будет выполнять компакт в фоне.
+        boolean tryToCompact = isCompacting.compareAndSet(false, true);
+        if (!tryToCompact) {
+            // Считаем, что уже компактим.
+            return;
         }
 
         executor.execute(() -> {
@@ -139,26 +133,16 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void flush() throws IOException {
-        readLock.lock();
-        try {
-            // Могут выполнять несколько потоков.
-            // Должны гарантировать, что один поток будет выполнять флаш в фоне.
-            boolean tryToFlush = isFlushing.compareAndSet(false, true);
-            if (!tryToFlush) {
-                // Считаем, что уже флашим.
-                return;
-            }
-        } finally {
-            readLock.unlock();
-        }
+//        // Должны гарантировать, что один поток будет выполнять флаш в фоне.
+//        boolean tryToFlush = isFlushing.compareAndSet(false, true);
+//        if (!tryToFlush) {
+//            // Считаем, что уже флашим.
+//            return;
+//        }
 
         writeLock.lock();
         try {
-            this.environment = new Environment(
-                    environment.getTable(),
-                    config.basePath(),
-                    arena
-            );
+            refreshEnvironment();
         } finally {
             writeLock.unlock();
         }
@@ -166,11 +150,19 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         executor.execute(() -> {
             try {
                 environment.flush();
-                isFlushing.set(false);
+//                isFlushing.set(false);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    private void refreshEnvironment() throws IOException {
+        this.environment = new Environment(
+                environment.getTable(),
+                config.basePath(),
+                arena
+        );
     }
 
     @Override
@@ -178,11 +170,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         // Ожидаем выполнения фоновых flush и сompact.
         executor.close();
 
-        this.environment = new Environment(
-                environment.getTable(),
-                config.basePath(),
-                arena
-        );
+        refreshEnvironment();
         environment.flush();
 
         if (!arena.scope().isAlive()) {

@@ -3,7 +3,6 @@ package ru.vk.itmo.cheshevandrey;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.Collections;
 import java.util.Iterator;
 
 public class IterableDisk implements Iterable<Entry<MemorySegment>> {
@@ -15,10 +14,6 @@ public class IterableDisk implements Iterable<Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> iterator() {
-        return environment.range(
-                null,
-                null,
-                Range.DISK
-        );
+        return environment.range(null, null, Range.DISK);
     }
 }

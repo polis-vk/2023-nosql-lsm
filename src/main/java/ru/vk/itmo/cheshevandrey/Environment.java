@@ -26,15 +26,14 @@ public class Environment {
     private final List<MemorySegment> intermSegmentList;
     private final List<MemorySegment> secondarySegmentList;
 
+    private final Path storagePath;
     private final Path mainDir;
     private final Path intermediateDir;
     private final Path secondaryDir;
 
-    private final Path storagePath;
-
-    private ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memTable;
-    private ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> flushingTable;
-    private AtomicLong memTableBytes;
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> memTable;
+    private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> flushingTable;
+    private final AtomicLong memTableBytes;
 
     private boolean isCompacted = false;
 
