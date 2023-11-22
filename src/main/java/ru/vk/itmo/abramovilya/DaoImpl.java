@@ -32,8 +32,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     // readLock - пишем значение
     // writeLock - очищаем map
     private final ReadWriteLock mapUpsertExchangeLock = new ReentrantReadWriteLock();
-    private final ExecutorService backgroundFlushQueue = Executors.newSingleThreadExecutor();
-    private final ExecutorService backgroundCompactQueue = Executors.newSingleThreadExecutor();
+    private final ExecutorService backgroundQueue = Executors.newSingleThreadExecutor();
 
     public DaoImpl(Config config) throws IOException {
         flushThresholdBytes = config.flushThresholdBytes();
@@ -99,7 +98,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 flushingMap = map;
                 long size = memoryMapSize.get();
                 renewMap();
-                backgroundFlushQueue.execute(() -> backgroundFlush(size));
+                backgroundQueue.execute(() -> backgroundFlush(size));
             } finally {
                 mapUpsertExchangeLock.writeLock().unlock();
             }
@@ -111,7 +110,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() {
-        backgroundCompactQueue.execute(() -> {
+        backgroundQueue.execute(() -> {
             int totalSStables = storage.getTotalSStables();
             var iterator = firstNsstablesIterator(totalSStables);
             if (!iterator.hasNext()) {
@@ -128,7 +127,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         if (isFlushing.compareAndSet(false, true)) {
-            backgroundFlushQueue.execute(() -> {
+            backgroundQueue.execute(() -> {
                 long size;
                 try {
                     mapUpsertExchangeLock.writeLock().lock();
@@ -190,8 +189,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        backgroundCompactQueue.close();
-        backgroundFlushQueue.close();
+        backgroundQueue.close();
         if (!map.isEmpty()) {
             flushingMap = map;
             writeMapIntoFile(flushingMap, memoryMapSize.get());
