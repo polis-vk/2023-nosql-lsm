@@ -55,6 +55,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public MemesDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
+
         //this.flushThresholdBytes = config.flushThresholdBytes();
         this.arena = Arena.ofShared();
         this.state = new State(
@@ -62,8 +64,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 null,
                 new DiskStorage(DiskStorage.loadOrRecover(path, arena))
         );
-        Files.createDirectories(path);
-
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -126,6 +126,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
 
+
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> entry = state.memoryStorage.get(key);
@@ -155,9 +156,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        if (!isClosed.compareAndSet(false, true)) {
-            return;
-        }
         if (!arena.scope().isAlive()) {
             return;
         }
