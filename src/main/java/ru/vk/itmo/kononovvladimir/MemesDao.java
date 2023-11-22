@@ -29,7 +29,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
     private final Lock lock = new ReentrantLock();
     private final long flushThresholdBytes;
-    private State state;
+    private volatile State state;
 
 
     public MemesDao(Config config) throws IOException {
@@ -135,7 +135,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             memoryLock.writeLock().lock();
             try {
                 this.state = new State(new ConcurrentSkipListMap<>(comparator), tmpState.memoryStorage, tmpState.diskStorage);
-                tmpState.memoryStorage.put(entry.key(), entry);
+                this.state.memoryStorage.put(entry.key(), entry);
             } finally {
                 memoryLock.writeLock().unlock();
             }
