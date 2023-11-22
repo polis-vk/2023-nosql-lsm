@@ -83,7 +83,7 @@ public class SSTableManager implements Iterable<Entry<MemorySegment>> {
         return MergeIterator.merge(iterators, MemorySegmentComparator.getInstance());
     }
 
-    private void save(Iterable<Entry<MemorySegment>> entries, boolean isCompacting) throws IOException {
+    private void save(Iterable<Entry<MemorySegment>> entries, boolean isCompacting) {
         Path tmpDataPath = basePath.resolve(DATA_TMP);
         Path tmpIndexPath = basePath.resolve(INDEX_TMP);
 
@@ -151,6 +151,8 @@ public class SSTableManager implements Iterable<Entry<MemorySegment>> {
                     dataOffset += entry.value().byteSize();
                 }
             }
+        } catch (IOException e) {
+            throw new IllegalArgumentException(e);
         }
 
         moveDataFromTmpToReal(tmpDataPath, dataPath);
@@ -163,11 +165,11 @@ public class SSTableManager implements Iterable<Entry<MemorySegment>> {
         }
 
         save(entries, false);
-        ssTables.addFirst(new SSTable(basePath, arena, lastIdx.get()));
+        ssTables.add(new SSTable(basePath, arena, lastIdx.get()));
         lastIdx.getAndAdd(1);
     }
 
-    public void compact() throws IOException {
+    public void compact() {
         if (!iterator().hasNext()) {
             return;
         }
@@ -189,11 +191,15 @@ public class SSTableManager implements Iterable<Entry<MemorySegment>> {
         }
         lastIdx.set(0);
 
-        moveDataFromTmpToReal(basePath.resolve(COMPACTED_DATA), basePath.resolve(DATA_PREFIX + lastIdx));
-        moveDataFromTmpToReal(basePath.resolve(COMPACTED_INDEX), basePath.resolve(INDEX_PREFIX + lastIdx));
+        moveDataFromTmpToReal(basePath.resolve(COMPACTED_DATA), basePath.resolve(DATA_PREFIX + 0));
+        moveDataFromTmpToReal(basePath.resolve(COMPACTED_INDEX), basePath.resolve(INDEX_PREFIX + 0));
 
         ssTables.clear();
-        ssTables.add(new SSTable(basePath, arena, lastIdx.get()));
+        try {
+            ssTables.add(new SSTable(basePath, arena, 0));
+        } catch (IOException e) {
+            throw new IllegalArgumentException(e);
+        }
     }
 
     public void close() {
@@ -203,14 +209,20 @@ public class SSTableManager implements Iterable<Entry<MemorySegment>> {
         }
     }
 
-    private void moveDataFromTmpToReal(Path tmpFilePath, Path realFilePath) throws IOException {
+    private void moveDataFromTmpToReal(Path tmpFilePath, Path realFilePath) {
         try {
             Files.createFile(realFilePath);
         } catch (FileAlreadyExistsException ignored) {
             // do nothing
+        } catch (IOException e) {
+            throw new IllegalArgumentException(e);
         }
 
-        Files.move(tmpFilePath, realFilePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        try {
+            Files.move(tmpFilePath, realFilePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new IllegalArgumentException(e);
+        }
     }
 
     @Override

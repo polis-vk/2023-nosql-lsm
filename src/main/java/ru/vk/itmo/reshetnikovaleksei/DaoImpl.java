@@ -108,7 +108,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             lock.writeLock().unlock();
         }
 
-        executor.execute(this::backgroundFlush);
+        backgroundFlush();
     }
 
     @Override
@@ -135,18 +135,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             backgroundFlush();
         }
         state.ssTableManager.close();
-        state = null;
     }
 
     @Override
     public void compact() throws IOException {
-        executor.execute(() -> {
-            try {
-                state.ssTableManager.compact();
-            } catch (IOException e) {
-                throw new IllegalStateException(e);
-            }
-        });
+        executor.execute(() -> state.ssTableManager.compact());
     }
 
     private void backgroundFlush() {
