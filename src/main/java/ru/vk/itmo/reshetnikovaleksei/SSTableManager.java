@@ -144,13 +144,12 @@ public class SSTableManager implements AutoCloseable {
     }
 
     public void compact(Iterable<Entry<MemorySegment>> entries) throws IOException {
+        save(entries);
+
         Path dataPath = basePath.resolve(DATA_PREFIX + lastIdx);
         Path indexPath = basePath.resolve(INDEX_PREFIX + lastIdx);
-
-        save(entries);
         deleteAllFiles();
 
-        // переименование
         moveDataFromTmpToReal(dataPath, basePath.resolve(DATA_PREFIX + lastIdx));
         moveDataFromTmpToReal(indexPath, basePath.resolve(INDEX_PREFIX + lastIdx));
     }
