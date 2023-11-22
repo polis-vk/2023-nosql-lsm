@@ -16,8 +16,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.SortedMap;
-import java.util.concurrent.BlockingDeque;
-import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -27,7 +26,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
 
     private final Path root;
     private final Arena arena;
-    private final BlockingDeque<SSTable> ssTables;
+    private final List<SSTable> ssTables;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final Set<SSTable> deadSSTables;
     private int totalSize;
@@ -40,13 +39,13 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         this.totalSize = ssTables.size();
     }
 
-    private BlockingDeque<SSTable> readTables() throws IOException {
+    private List<SSTable> readTables() throws IOException {
         final List<SSTable> tables = new ArrayList<>();
         SSTable table;
         while ((table = readTable(getFormattedSSTableName(tables.size()))) != null) {
             tables.add(table);
         }
-        return new LinkedBlockingDeque<>(tables.reversed());
+        return new CopyOnWriteArrayList<>(tables.reversed());
     }
 
     private SSTable readTable(final String name) throws IOException {
