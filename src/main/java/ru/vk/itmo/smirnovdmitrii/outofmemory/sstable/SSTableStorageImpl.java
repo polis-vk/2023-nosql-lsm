@@ -20,8 +20,6 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
@@ -33,7 +31,6 @@ import java.util.concurrent.locks.ReentrantLock;
 public class SSTableStorageImpl implements SSTableStorage {
     // Sorted by SSTable priority.
     private final AtomicReference<List<SSTable>> storage = new AtomicReference<>(null);
-    private final ExecutorService deleter = Executors.newSingleThreadExecutor();
     private final Path basePath;
     private final String indexFileName;
     private AtomicLong priorityCounter;
@@ -152,7 +149,7 @@ public class SSTableStorageImpl implements SSTableStorage {
             final Path compactionPath = basePath.resolve(compactionFileName);
             final MemorySegment mappedCompaction = map(compactionPath);
             long minPriority = Long.MAX_VALUE;
-            // Taking minimal priority for reason if we want to compact in the mid in future.
+            // Taking minimal priority for reason if we want to compact in the mid in the future.
             for (final SSTable ssTable : compacted) {
                 minPriority = Math.min(ssTable.priority(), minPriority);
             }
@@ -179,33 +176,17 @@ public class SSTableStorageImpl implements SSTableStorage {
         }
         for (final SSTable ssTable: compacted) {
             ssTable.kill();
+            try {
+                Files.delete(ssTable.path());
+            } catch (final IOException e) {
+                throw new UncheckedIOException(e);
+            }
         }
-        deleter.execute(() -> deleteTask(compacted));
     }
 
     private MemorySegment map(final Path path) throws IOException {
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ)) {
             return channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arena);
-        }
-    }
-
-    private void deleteTask(final List<SSTable> compacted) {
-        int deleted = 0;
-        while (deleted < compacted.size()) {
-            for (int i = 0; i < compacted.size(); i++) {
-                final SSTable ssTable = compacted.get(i);
-                // If still has readers then we can't delete file.
-                if (ssTable == null || ssTable.readers().get() != 0) {
-                    continue;
-                }
-                try {
-                    Files.delete(ssTable.path());
-                } catch (final IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-                compacted.set(i, null);
-                deleted++;
-            }
         }
     }
 
@@ -301,19 +282,9 @@ public class SSTableStorageImpl implements SSTableStorage {
 
     @Override
     public void close() {
-        deleter.close();
         final List<SSTable> currentStorage = storage.get();
-        currentStorage.forEach(SSTable::kill);
-        while (true) {
-            boolean reading = false;
-            for (final SSTable ssTable : currentStorage) {
-                if (ssTable.readers().get() > 0) {
-                    reading = true;
-                }
-            }
-            if (!reading) {
-                break;
-            }
+        for (final SSTable ssTable: currentStorage) {
+            ssTable.kill();
         }
         if (arena.scope().isAlive()) {
             arena.close();

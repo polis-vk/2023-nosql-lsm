@@ -17,6 +17,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private final SSTableStorage storage;
     private final EqualsComparator<MemorySegment> comparator;
     private SSTable ssTable;
+    @SuppressWarnings("UnusedVariable")
     private final RangeRequestGroup group;
     private Entry<MemorySegment> next;
     private long upperBoundOffset;
@@ -30,12 +31,17 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
             final SSTableStorage ssTableStorage,
             final EqualsComparator<MemorySegment> comparator
     ) {
-        this.ssTable = ssTable;
-        this.group = group;
-        this.next = new BaseEntry<>(from, null);
-        this.upperBound = to;
         this.storage = ssTableStorage;
         this.comparator = comparator;
+        this.upperBound = to;
+        this.ssTable = ssTable;
+        this.group = group;
+        if (!group.register(ssTable)) {
+            this.next = null;
+            this.ssTable = null;
+            return;
+        }
+        this.next = new BaseEntry<>(from, null);
         reposition();
         safeNext();
     }
@@ -64,12 +70,10 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
                 next = null;
                 return result;
             }
-            if (ssTable.tryOpen()) {
-                try {
-                    next = SSTableUtil.readBlock(ssTable, offset++);
+            try (OpenedSSTable openedSStable = ssTable.open()) {
+                if (openedSStable != null) {
+                    next = openedSStable.readBlock(offset++);
                     return result;
-                } finally {
-                    ssTable.close();
                 }
             }
             if (reposition()) {
@@ -84,22 +88,19 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
      */
     private boolean reposition() {
         while (true) {
-            if (ssTable.tryOpen()) {
-                try {
+            try (OpenedSSTable openedSSTable = ssTable.open()) {
+                if (openedSSTable != null) {
                     long binarySearchResult = next.key() == null ? 0
-                            : SSTableUtil.binarySearch(next.key(), ssTable, comparator);
-                    upperBoundOffset = upperBound == null ? SSTableUtil.blockCount(ssTable)
-                            : SSTableUtil.upperBound(upperBound, ssTable, comparator);
+                            : openedSSTable.binarySearch(next.key(), comparator);
+                    upperBoundOffset = upperBound == null ? openedSSTable.blockCount()
+                            : openedSSTable.upperBound(upperBound, comparator);
                     offset = SSTableUtil.normalize(binarySearchResult);
                     return binarySearchResult == offset;
-                } finally {
-                    ssTable.close();
                 }
             }
             final SSTable newSSTable = storage.getCompaction(ssTable);
-            final boolean registerResult = group.register(newSSTable);
             group.deregister(ssTable);
-            if (!registerResult) {
+            if (!group.register(newSSTable)) {
                 ssTable = null;
                 next = null;
                 return false;

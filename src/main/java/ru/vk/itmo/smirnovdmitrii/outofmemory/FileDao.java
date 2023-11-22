@@ -1,6 +1,7 @@
 package ru.vk.itmo.smirnovdmitrii.outofmemory;
 
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.OpenedSSTable;
 import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTable;
 import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTableIterator;
 import ru.vk.itmo.smirnovdmitrii.outofmemory.sstable.SSTableStorage;
@@ -62,11 +63,11 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
     public Entry<MemorySegment> get(final MemorySegment key) {
         Objects.requireNonNull(key);
         for (final SSTable ssTable : storage) {
-            if (ssTable.tryOpen()) {
-                try (ssTable) {
-                    final long offset = SSTableUtil.binarySearch(key, ssTable, comparator);
+            try (OpenedSSTable openedSSTable = ssTable.open()) {
+                if (openedSSTable != null) {
+                    final long offset = openedSSTable.binarySearch(key, comparator);
                     if (offset >= 0) {
-                        return SSTableUtil.readBlock(ssTable, offset);
+                        return openedSSTable.readBlock(offset);
                     }
                 }
             }
@@ -170,13 +171,9 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         final List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
         final RangeRequestGroup group = new RangeRequestGroup();
         for (final SSTable ssTable : iterable) {
-            if (ssTable.tryOpen()) {
-                try (ssTable) {
-                    iterators.add(new SSTableIterator(
-                            ssTable, group, from, to, storage, comparator
-                    ));
-                }
-            }
+            iterators.add(new SSTableIterator(
+                    ssTable, group, from, to, storage, comparator
+            ));
         }
         return iterators;
     }
