@@ -4,7 +4,6 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.kislovdanil.exceptions.DBException;
-import ru.vk.itmo.kislovdanil.exceptions.OverloadException;
 import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;
 import ru.vk.itmo.kislovdanil.iterators.MergeIterator;
 import ru.vk.itmo.kislovdanil.sstable.SSTable;
@@ -40,11 +39,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
             new ConcurrentSkipListMap<>(comparator);
 
     // In case of additional table overload while main table is flushing
-    private volatile boolean isFlushing;
 
     private final AtomicLong nextId = new AtomicLong();
     private final ExecutorService commonExecutorService = Executors.newSingleThreadExecutor();
-    private final AtomicLong memTableByteSize = new AtomicLong(0);
     // To prevent accumulation of tasks
     private final AtomicBoolean haveFlushTask = new AtomicBoolean(false);
     private final AtomicBoolean haveCompactionTask = new AtomicBoolean(false);
@@ -109,26 +106,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         return null;
     }
 
-    private long getEntryByteSize(Entry<MemorySegment> entry) {
-        long entryByteSize = entry.key().byteSize();
-        if (entry.value() != null) {
-            entryByteSize += entry.value().byteSize();
-        }
-        return entryByteSize;
-    }
-
     @Override
-    synchronized public void upsert(Entry<MemorySegment> entry) {
-        long entryByteSize = getEntryByteSize(entry);
-        long tableSize = memTableByteSize.addAndGet(entryByteSize);
-        if (tableSize > config.flushThresholdBytes()) {
-            if (isFlushing) {
-                throw new OverloadException(entry);
-            } else {
-                flush();
-                memTableByteSize.set(0);
-            }
-        }
+    public synchronized void upsert(Entry<MemorySegment> entry) {
         memTable.put(entry);
     }
 
@@ -150,12 +129,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
             commonExecutorService.execute(
                     () -> {
                         try {
-                            isFlushing = true;
                             makeFlush();
                         } catch (IOException e) {
                             throw new DBException(e);
                         } finally {
-                            isFlushing = false;
                             haveFlushTask.set(false);
                         }
                     });
