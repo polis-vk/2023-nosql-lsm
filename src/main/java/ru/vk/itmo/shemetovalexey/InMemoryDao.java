@@ -161,6 +161,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
 
                 StorageUtils.save(path, memoryStorage.values());
+                storageSize.set(0);
             } finally {
                 storageLock.unlock();
             }
