@@ -97,7 +97,8 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         if (memTableEntry != null) {
             return Tools.entryToReturn(memTableEntry);
-        } else if (flushingTableEntry != null) {
+        }
+        if (flushingTableEntry != null) {
             return Tools.entryToReturn(flushingTableEntry);
         }
 
@@ -127,7 +128,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 environment.compact();
                 isCompacting.set(false);
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                logger.severe("Compact error.");
             }
         });
     }
@@ -151,10 +152,10 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         executor.execute(() -> {
             try {
                 environment.flush();
-                isFlushing.set(false);
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                logger.severe("Flush error.");
             }
+            isFlushing.set(false);
         });
     }
 

@@ -35,9 +35,11 @@ public class Environment {
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> flushingTable;
     private final AtomicLong memTableBytes;
 
-    private boolean isCompacted = false;
+    private boolean isCompacted;
 
-    static final String INTERMEDIATE_SAVE_DIR = "tmp";
+    private static final String DIR_0 = "0";
+    private static final String DIR_1 = "1";
+    private static final String INTERMEDIATE_SAVE_DIR = "tmp";
 
     public Environment(
             ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> table,
@@ -51,7 +53,7 @@ public class Environment {
         this.storagePath = storagePath;
 
         String workDir = DiskStorage.readWorkDir(storagePath);
-        secondaryDir = storagePath.resolve(workDir.equals("0") ? "1" : workDir);
+        secondaryDir = storagePath.resolve(workDir.equals(DIR_0) ? DIR_1 : workDir);
         intermediateDir = storagePath.resolve(INTERMEDIATE_SAVE_DIR);
         mainDir = storagePath.resolve(workDir);
 

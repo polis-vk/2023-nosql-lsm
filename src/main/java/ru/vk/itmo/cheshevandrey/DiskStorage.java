@@ -7,8 +7,13 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class DiskStorage {
@@ -21,6 +26,10 @@ public class DiskStorage {
     private static final String INDEX_TMP_FILE = "index.tmp";
     private static final String COMPACTION_FILE = "compaction.cmp";
     private static final String COMPACTION_TMP_FILE = "compaction.tmp";
+
+    // To hide the implicit public constructor.
+    private DiskStorage() {
+    }
 
     public static void compact(IterableDisk iterable,
                                Path storagePath,
@@ -79,9 +88,9 @@ public class DiskStorage {
         }
         int intermFilesCount = Files.readAllLines(intermediateDir.resolve(INDEX_FILE)).size();
         for (int i = intermFilesCount - 1; i >= to; i--) {
-            Files.delete(intermediateDir.resolve(String.valueOf(i)));
+            Files.deleteIfExists(intermediateDir.resolve(String.valueOf(i)));
         }
-        List<String> actualIntermFiles = IntStream.range(0, to).mapToObj(String::valueOf).toList();
+        List<String> actualIntermFiles = IntStream.range(0, to).mapToObj(String::valueOf).collect(Collectors.toList());
         updateIndex(actualIntermFiles, intermediateDir);
     }
 
@@ -131,9 +140,10 @@ public class DiskStorage {
 
         Path tmpFilePath = storagePath.resolve(SAVE_TMP_FILE);
         Files.deleteIfExists(tmpFilePath);
+        System.out.println(storagePath);
         saveSsTable(tmpFilePath, iterable);
 
-        // Сохраняем в актуальную директорию.
+        // Переместим в актуальную директорию.
         String dirToSave = readWorkDir(storagePath);
         Path dirToSavePath = storagePath.resolve(dirToSave);
         Path indexFilePath = dirToSavePath.resolve(INDEX_FILE);

@@ -45,7 +45,6 @@ public final class Tools {
         return indexSize / Long.BYTES / 2;
     }
 
-
     static void createFile(Path newFile) throws IOException {
         try {
             Files.createFile(newFile);
