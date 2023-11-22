@@ -175,7 +175,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private void writeMapIntoFile(NavigableMap<MemorySegment, Entry<MemorySegment>> mapToWrite, long size) throws IOException {
+    private void writeMapIntoFile(NavigableMap<MemorySegment, Entry<MemorySegment>> mapToWrite,
+                                  long size) throws IOException {
         if (mapToWrite.isEmpty()) {
             return;
         }
