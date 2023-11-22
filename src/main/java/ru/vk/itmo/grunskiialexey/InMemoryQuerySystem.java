@@ -18,6 +18,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static ru.vk.itmo.grunskiialexey.DiskStorage.changeActualFilesInterval;
@@ -28,12 +29,14 @@ public class InMemoryQuerySystem {
     private static final String NAME_INDEX_FILE = "index.idx";
     private final List<NavigableMap<MemorySegment, Entry<MemorySegment>>> storages = new ArrayList<>(2);
     private final long flushThresholdBytes;
+    private final AtomicBoolean isWorking;
     private final AtomicLong lastFileNumber;
     private final Path flushPath;
 
     public InMemoryQuerySystem(Path flushPath, long flushThresholdBytes, Comparator<MemorySegment> comparator, AtomicLong lastFileNumber) {
         storages.addAll(List.of(new ConcurrentSkipListMap<>(comparator), new ConcurrentSkipListMap<>(comparator)));
 
+        this.isWorking = new AtomicBoolean();
         this.flushPath = flushPath;
         this.flushThresholdBytes = flushThresholdBytes;
         this.lastFileNumber = lastFileNumber;
@@ -55,10 +58,9 @@ public class InMemoryQuerySystem {
 
     public void flush()
             throws IOException {
-        if (storages.get(0).isEmpty()) {
+        if (storages.get(0).isEmpty() || !isWorking.compareAndSet(false, true)) {
             return;
         }
-
 
         final Path indexTmp = flushPath.resolve(NAME_TMP_INDEX_FILE);
         final Path indexFile = flushPath.resolve(NAME_INDEX_FILE);
@@ -138,6 +140,7 @@ public class InMemoryQuerySystem {
         }
 
         Files.delete(indexTmp);
+        isWorking.set(false);
     }
 
     public void upsert(Entry<MemorySegment> entry) {
