@@ -12,9 +12,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -25,15 +27,13 @@ import static ru.vk.itmo.grunskiialexey.DiskStorage.tombstone;
 public class InMemoryQuerySystem {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage;
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage2;
+    private final List<NavigableMap<MemorySegment, Entry<MemorySegment>>> storages = new ArrayList<>(2);
     private final long flushThresholdBytes;
     private final AtomicLong lastFileNumber;
     private final Path flushPath;
 
     public InMemoryQuerySystem(Path flushPath, long flushThresholdBytes, Comparator<MemorySegment> comparator, AtomicLong lastFileNumber) {
-        this.storage = new ConcurrentSkipListMap<>(comparator);
-        this.storage2 = new ConcurrentSkipListMap<>(comparator);
+        storages.addAll(List.of(new ConcurrentSkipListMap<>(comparator), new ConcurrentSkipListMap<>(comparator)));
 
         this.flushPath = flushPath;
         this.flushThresholdBytes = flushThresholdBytes;
@@ -41,30 +41,22 @@ public class InMemoryQuerySystem {
     }
 
     public List<Iterator<Entry<MemorySegment>>> getInMemoryIterators(MemorySegment from, MemorySegment to) {
+        // TODO check that storage.stream.map() - is okey by performance
         if (from == null && to == null) {
-            return List.of(storage.values().iterator(), storage2.values().iterator());
+            return storages.stream().map(map -> map.values().iterator()).toList();
         }
         if (from == null) {
-            return List.of(
-                    storage.headMap(to).values().iterator(),
-                    storage2.headMap(to).values().iterator()
-            );
+            return storages.stream().map(map -> map.headMap(to).values().iterator()).toList();
         }
         if (to == null) {
-            return List.of(
-                    storage.tailMap(from).values().iterator(),
-                    storage2.tailMap(from).values().iterator()
-            );
+            return storages.stream().map(map -> map.tailMap(from).values().iterator()).toList();
         }
-        return List.of(
-                storage.subMap(from, to).values().iterator(),
-                storage2.subMap(from, to).values().iterator()
-        );
+        return storages.stream().map(map -> map.subMap(from, to).values().iterator()).toList();
     }
 
     public void flush()
             throws IOException {
-        if (storage.isEmpty()) {
+        if (storages.get(0).isEmpty()) {
             return;
         }
 
@@ -81,7 +73,8 @@ public class InMemoryQuerySystem {
 
         long dataSize = 0;
         long count = 0;
-        for (Entry<MemorySegment> entry : storage.values()) {
+        // TODO think about it
+        for (Entry<MemorySegment> entry : storages.get(0).values()) {
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
             if (value != null) {
@@ -108,7 +101,7 @@ public class InMemoryQuerySystem {
             // key0_Start = data start = end of index
             long dataOffset = indexSize;
             int indexOffset = 0;
-            for (Entry<MemorySegment> entry : storage.values()) {
+            for (Entry<MemorySegment> entry : storages.get(0).values()) {
                 fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                 dataOffset += entry.key().byteSize();
                 indexOffset += Long.BYTES;
@@ -126,7 +119,7 @@ public class InMemoryQuerySystem {
             // data:
             // |key0|value0|key1|value1|...
             dataOffset = indexSize;
-            for (Entry<MemorySegment> entry : storage.values()) {
+            for (Entry<MemorySegment> entry : storages.get(0).values()) {
                 MemorySegment key = entry.key();
                 MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
                 dataOffset += key.byteSize();
@@ -172,10 +165,10 @@ public class InMemoryQuerySystem {
 //            flushStorage.put(entry.key(), entry);
 //            isUpserting.set(false);
 //        }
-        storage.put(entry.key(), entry);
+        storages.get(0).put(entry.key(), entry);
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-        return storage.get(key);
+        return storages.get(0).get(key);
     }
 }
