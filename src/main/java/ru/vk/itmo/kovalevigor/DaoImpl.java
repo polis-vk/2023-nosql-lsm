@@ -73,8 +73,13 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
         final List<PriorityShiftedIterator<Entry<MemorySegment>>> iterators = new ArrayList<>(3);
-        iterators.add(new MemEntryPriorityIterator(0, getIterator(currentStorage, from, to)));
-        iterators.add(new MemEntryPriorityIterator(1, getIterator(flushedStorage, from, to)));
+        lock.readLock().lock();
+        try {
+            iterators.add(new MemEntryPriorityIterator(0, getIterator(currentStorage, from, to)));
+            iterators.add(new MemEntryPriorityIterator(1, getIterator(flushedStorage, from, to)));
+        } finally {
+            lock.readLock().unlock();
+        }
         try {
             iterators.add(new MemEntryPriorityIterator(2, ssManager.get(from, to)));
         } catch (IOException e) {
@@ -111,10 +116,14 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Entry<MemorySegment> get(final MemorySegment key) {
         Objects.requireNonNull(key);
         Entry<MemorySegment> result;
-
-        result = currentStorage.get(key);
-        if (result == null) {
-            result = flushedStorage.get(key);
+        lock.readLock().lock();
+        try {
+            result = currentStorage.get(key);
+            if (result == null) {
+                result = flushedStorage.get(key);
+            }
+        } finally {
+            lock.readLock().unlock();
         }
 
         if (result != null) {
@@ -139,8 +148,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage =
                 new ConcurrentSkipListMap<>(SSTable.COMPARATOR);
-        final Lock writeLock = lock.writeLock();
-        writeLock.lock();
+        lock.writeLock().lock();
         try {
 
             if (currentStorage.isEmpty()) {
@@ -151,16 +159,27 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             currentStorage = storage;
             currentMemoryByteSize = 0;
         } finally {
-            writeLock.unlock();
+            lock.writeLock().unlock();
         }
 
         flushFuture = flushService.submit(() -> {
+            String name = null;
             try {
-                ssManager.write(flushedStorage);
+                 name = ssManager.write(flushedStorage);
             } catch (IOException e) {
-                Logger.getAnonymousLogger().log(Logger.getAnonymousLogger().getLevel(), e.getMessage());
+                log(e);
             } finally {
-                flushedStorage = EMPTY_MAP;
+                lock.writeLock().lock();
+                try {
+                    if (name != null) {
+                        ssManager.addSSTable(name);
+                    }
+                    flushedStorage = EMPTY_MAP;
+                } catch (IOException e) {
+                    log(e);
+                } finally {
+                    lock.writeLock().unlock();
+                }
             }
         }, null);
     }

@@ -9,16 +9,9 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
-import java.util.SortedMap;
+import java.util.*;
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.LinkedBlockingDeque;
-import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -62,20 +55,22 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         return getFormattedSSTableName(totalSize++);
     }
 
-    public void write(SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
+    public String write(SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
         if (map.isEmpty()) {
-            return;
+            return null;
         }
 
         final String name = getNextSSTableName();
         SSTable.write(map, root, name);
+        return name;
+    }
 
-        final Lock writeLock = lock.writeLock();
-        writeLock.lock();
+    public void addSSTable(final String name) throws IOException {
+        lock.writeLock().lock();
         try {
             ssTables.addFirst(SSTable.create(root, name, arena));
         } finally {
-            writeLock.unlock();
+            lock.writeLock().unlock();
         }
     }
 
@@ -95,34 +90,22 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
 
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) throws IOException {
-        final Lock readLock = lock.readLock();
-        readLock.lock();
-        try {
-            return get(ssTables, from, to);
-        } finally {
-            readLock.unlock();
-        }
+        return get(ssTables, from, to);
     }
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) throws IOException {
-        final Lock readLock = lock.readLock();
-        readLock.lock();
-        try {
-            Entry<MemorySegment> value = null;
-            for (final SSTable ssTable : ssTables) {
-                value = ssTable.get(key);
-                if (value != null) {
-                    if (value.value() == null) {
-                        value = null;
-                    }
-                    break;
+        Entry<MemorySegment> value = null;
+        for (final SSTable ssTable : ssTables) {
+            value = ssTable.get(key);
+            if (value != null) {
+                if (value.value() == null) {
+                    value = null;
                 }
+                break;
             }
-            return value;
-        } finally {
-            readLock.unlock();
         }
+        return value;
     }
 
     private static SizeInfo getTotalInfoSize(final Collection<SSTable> ssTables) {
@@ -190,9 +173,9 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
 
             lock.writeLock().lock();
             try {
-                compactTables.forEach(ignored -> ssTables.pollLast());
-                deadSSTables.addAll(compactTables);
                 ssTables.add(SSTable.create(root, sstableName, arena));
+                ssTables.removeAll(compactTables);
+                deadSSTables.addAll(compactTables);
             } finally {
                 lock.writeLock().unlock();
             }
