@@ -180,9 +180,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 );
                 storage = Storage.load(config);
             } catch (IOException e) {
-                throw new IllegalStateException();
+                throw new IllegalStateException(e);
             }
-
 
             lock.writeLock().lock();
             try {
