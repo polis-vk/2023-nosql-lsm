@@ -11,8 +11,16 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -62,7 +70,8 @@ public class PlyasovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(List.of(getInMemory(currentSSTable, from, to)));
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
+        iterators.addAll(List.of(getInMemory(currentSSTable, from, to)));
         if (isFlushInProgress.get() && flushingSSTable != null) {
             iterators.addFirst(getInMemory(flushingSSTable, from, to));
         }
@@ -70,7 +79,11 @@ public class PlyasovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
 
-    private Iterator<Entry<MemorySegment>> getInMemory(NavigableMap<MemorySegment, Entry<MemorySegment>> storage,MemorySegment from, MemorySegment to) {
+    private Iterator<Entry<MemorySegment>> getInMemory(
+                    NavigableMap<MemorySegment,
+                    Entry<MemorySegment>> storage,
+                    MemorySegment from,
+                    MemorySegment to) {
         if (from == null && to == null) {
             return storage.values().iterator();
         }
@@ -106,7 +119,6 @@ public class PlyasovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         return null;
     }
-
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
@@ -146,7 +158,6 @@ public class PlyasovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return keySize + valueSize;
     }
 
-
     @Override
     public synchronized void flush() throws IOException {
         if (isFlushInProgress.get() || currentSSTable.isEmpty()) {
@@ -175,8 +186,6 @@ public class PlyasovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new UncheckedIOException(e);
         }
     }
-
-
 
     @Override
     public synchronized void compact() {

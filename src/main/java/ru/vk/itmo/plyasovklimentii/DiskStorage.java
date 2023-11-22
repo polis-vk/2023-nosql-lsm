@@ -240,7 +240,6 @@ public class DiskStorage {
                 StandardCopyOption.REPLACE_EXISTING
         );
 
-
         finalizeCompaction(storagePath);
     }
 
@@ -259,7 +258,6 @@ public class DiskStorage {
 
 
     private static void finalizeCompaction(Path storagePath) throws IOException {
-
         Path indexTmp = storagePath.resolve("index.tmp");
         Path indexFile = storagePath.resolve("index.idx");
 
