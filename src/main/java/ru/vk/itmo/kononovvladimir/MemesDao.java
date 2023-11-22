@@ -11,9 +11,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -30,7 +28,9 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Lock lock = new ReentrantLock();
     private final long flushThresholdBytes;
     private volatile State state;
-    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+
+    private Future<?> taskCompact;
 
 
     public MemesDao(Config config) throws IOException {
@@ -185,10 +185,10 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public synchronized void compact() throws IOException {
-        executorService.execute(() -> {
+    public void compact() throws IOException {
+        taskCompact = executorService.submit(() -> {
             try {
-                DiskStorage.compact(path, () -> state.diskStorage.range(List.of(), null, null));
+                DiskStorage.compact(path, this::all);
             } catch (IOException e) {
                 throw new RuntimeException("Error during compaction", e);
             }
@@ -253,6 +253,21 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!arena.scope().isAlive()) {
             return;
         }
+
+        try {
+            if (taskCompact != null && !taskCompact.isDone() && !taskCompact.isCancelled()) {
+                taskCompact.get();
+            }
+            if (taskCompact != null && !taskCompact.isDone()) {
+                taskCompact.get();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("Dao can not be stopped gracefully", e);
+        }
+        executorService.close();
+
         memoryLock.writeLock().lock();
         try {
             lock.lock();
