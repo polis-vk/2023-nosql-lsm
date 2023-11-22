@@ -15,7 +15,6 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -25,7 +24,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final Comparator<MemorySegment> comparator = InMemoryDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memoryStorage =
             new ConcurrentSkipListMap<>(comparator);
-    private final AtomicLong storageSize = new AtomicLong(0);
+    private long storageSize = 0L;
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
@@ -91,7 +90,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void upsert(Entry<MemorySegment> entry) {
         memoryLock.writeLock().lock();
         try {
-            storageSize.addAndGet(entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()));
+            storageSize += entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize());
             memoryStorage.put(entry.key(), entry);
         } finally {
             memoryLock.writeLock().unlock();
@@ -155,12 +154,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             storageLock.lock();
             try {
-                if (storageSize.get() < flushMemorySize) {
+                if (storageSize < flushMemorySize) {
                     return;
                 }
 
                 StorageUtils.save(path, memoryStorage.values());
-                storageSize.set(0);
+                storageSize = 0;
             } finally {
                 storageLock.unlock();
             }
