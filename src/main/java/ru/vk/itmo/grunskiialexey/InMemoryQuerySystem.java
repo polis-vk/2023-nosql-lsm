@@ -32,6 +32,7 @@ public class InMemoryQuerySystem {
     private final AtomicLong lastFileNumber;
     private final long flushThresholdBytes;
     private final AtomicBoolean isWorking;
+    private final AtomicLong currentByteSize;
 
     public InMemoryQuerySystem(Path flushPath, long flushThresholdBytes, Comparator<MemorySegment> comparator, AtomicLong lastFileNumber) {
         storages.addAll(List.of(new ConcurrentSkipListMap<>(comparator), new ConcurrentSkipListMap<>(comparator)));
@@ -40,6 +41,7 @@ public class InMemoryQuerySystem {
         this.lastFileNumber = lastFileNumber;
         this.flushThresholdBytes = flushThresholdBytes;
         this.isWorking = new AtomicBoolean();
+        this.currentByteSize = new AtomicLong();
     }
 
     public AtomicBoolean isWorking() {
@@ -65,6 +67,7 @@ public class InMemoryQuerySystem {
         if (storages.get(0).isEmpty() || !isWorking.compareAndSet(false, true)) {
             return;
         }
+        currentByteSize.set(0);
 
         final Path indexTmp = flushPath.resolve(NAME_TMP_INDEX_FILE);
         final Path indexFile = flushPath.resolve(NAME_INDEX_FILE);
@@ -78,7 +81,6 @@ public class InMemoryQuerySystem {
 
         long dataSize = 0;
         long count = 0;
-        // TODO think about it
         for (Entry<MemorySegment> entry : storages.get(0).values()) {
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
@@ -148,30 +150,29 @@ public class InMemoryQuerySystem {
     }
 
     public void upsert(Entry<MemorySegment> entry) {
-        //        if (flush.isReachedThreshold(entry) && flush.isWorking().get()) {
-//            try {
-//                Thread.sleep(10);
-//            } catch (InterruptedException e) {
-//                throw new RuntimeException(e);
-//            }
-//        }
-//        if (flush.isReachedThreshold(entry) && flush.isWorking().get()) {
-//            throw new OutOfMemoryError("Can't upsert data in flushing file");
-//        }
-//
-//        if (flush.isReachedThreshold(entry)) {
-//            try {
-//                flush();
-//            } catch (IOException e) {
-//                throw new RuntimeException(e);
-//            }
-//        }
-//
-//        if (flush.isWorking().get() && isUpserting.compareAndSet(false, true)) {
-//            flushStorage.put(entry.key(), entry);
-//            isUpserting.set(false);
-//        }
+        if (isWorking.get()) {
+            upsertWhenFlushing(entry);
+        }
+
+        if (currentByteSize.get() > flushThresholdBytes) {
+            try {
+                flush();
+            } catch (IOException e) {
+                // can't flush
+                throw new RuntimeException(e);
+            }
+
+            upsertWhenFlushing(entry);
+        }
         storages.get(0).put(entry.key(), entry);
+    }
+
+    private void upsertWhenFlushing(Entry<MemorySegment> entry) {
+        if (currentByteSize.get() > flushThresholdBytes) {
+            throw new OutOfMemoryError("Can't upsert data while flushing");
+        }
+        currentByteSize.getAndAdd(entrySize(entry));
+        storages.get(1).put(entry.key(), entry);
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -180,5 +181,9 @@ public class InMemoryQuerySystem {
         }
 
         return storages.get(0).get(key);
+    }
+
+    private long entrySize(Entry<MemorySegment> entry) {
+        return entry.key().byteSize() + entry.value().byteSize() + 2 * Long.BYTES;
     }
 }
