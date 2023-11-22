@@ -12,6 +12,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
@@ -46,6 +48,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Lock lock = new ReentrantLock();
     private final long flushThresholdBytes;
     private State state;
+
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
     public MemesDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
@@ -123,7 +127,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             } finally {
                 memoryLock.writeLock().unlock();
             }
-            autoFlush();
+            executorService.execute(this::autoFlush);
             return;
         }
 
@@ -168,7 +172,18 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void compact() throws IOException {
-        DiskStorage.compact(path, this::all);
+        if (isClosed.get()) {
+            //throw
+            return;
+        }
+
+        executorService.execute(() -> {
+            try {
+                DiskStorage.compact(path, this::all);
+            } catch (IOException e) {
+                throw new RuntimeException("Error during compaction", e);
+            }
+        });
     }
 
     @Override
