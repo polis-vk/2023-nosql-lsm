@@ -107,7 +107,6 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
         memtable.flushLock().lock();
         try {
             outMemoryDao.flush(memtable);
-            memtable.clear();
             List<Memtable> expected = newMemtables;
             while (true) {
                 final List<Memtable> removed = new ArrayList<>(expected);
