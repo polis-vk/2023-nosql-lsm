@@ -9,30 +9,18 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class SkipListMemtable implements Memtable {
     public final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
     private final SortedMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
-    private final AtomicLong readerCounter = new AtomicLong(0);
-    private final AtomicBoolean isAlive = new AtomicBoolean(true);
     private final AtomicLong currentSize = new AtomicLong(0);
-
-    @Override
-    public boolean tryOpen() {
-        readerCounter.incrementAndGet();
-        if (!isAlive.get()) {
-            readerCounter.decrementAndGet();
-            return false;
-        }
-        return true;
-    }
-
-    @Override
-    public void close() {
-        readerCounter.decrementAndGet();
-    }
+    private final ReadWriteLock lock = new ReentrantReadWriteLock(false);
+    private final Lock readLock = lock.readLock();
+    private final Lock writeLock = lock.writeLock();
 
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
@@ -50,13 +38,18 @@ public class SkipListMemtable implements Memtable {
     }
 
     @Override
-    public void kill() {
-        isAlive.set(false);
+    public void clear() {
+        storage.clear();
     }
 
     @Override
-    public long writers() {
-        return readerCounter.get();
+    public Lock upsertLock() {
+        return readLock;
+    }
+
+    @Override
+    public Lock flushLock() {
+        return writeLock;
     }
 
     @Override

@@ -14,19 +14,32 @@ public class SSTable extends AbstractSSTable {
         this.mapped = mapped;
     }
 
-    /** // TODO (DOC)
+    /**
+     * After that you can't open SSTable for reading.
      */
     public void kill() {
         mapped = null;
     }
 
-
-    // TODO (DOC)
+    /**
+     * Opens SSTable for reading. Returns null if SSTable was deleted/compacted.
+     * @return Opened representation of current SSTable.
+     */
     public OpenedSSTable open() {
         final MemorySegment segment = mapped;
         if (segment == null) {
             return null;
         }
         return new OpenedSSTable(segment, path, priority);
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        return super.equals(o);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
     }
 }

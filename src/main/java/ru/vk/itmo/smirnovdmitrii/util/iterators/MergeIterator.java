@@ -11,6 +11,8 @@ import java.util.List;
 
 public class MergeIterator<T, E extends Entry<T>> implements Iterator<E> {
     private final EqualsComparator<T> comparator;
+
+    // Not the interface because of siftDown in skip method.
     private final BinaryMinHeap<PeekingIterator<E>> heap;
 
     private MergeIterator(

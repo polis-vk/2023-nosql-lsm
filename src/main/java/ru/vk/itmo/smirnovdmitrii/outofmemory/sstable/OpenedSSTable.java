@@ -9,6 +9,9 @@ import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
 import java.util.Comparator;
 
+/**
+ * Representation of opened SSTable. You can read from opened SSTable.
+ */
 public class OpenedSSTable extends AbstractSSTable implements Closeable {
     private MemorySegment mapped;
 
@@ -70,7 +73,6 @@ public class OpenedSSTable extends AbstractSSTable implements Closeable {
     }
 
     /**
-     * // TODO (DOC)
      * Searching order number in ssTable for block with {@code key} using helping file with ssTable offsets.
      * If there is no block with such key, returns -(insert position + 1).
      * {@code offsets}.
@@ -105,5 +107,15 @@ public class OpenedSSTable extends AbstractSSTable implements Closeable {
     ) {
         final long result = binarySearch(key, comparator);
         return SSTableUtil.normalize(result);
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        return super.equals(o);
+    }
+
+    @Override
+    public int hashCode() {
+        return super.hashCode();
     }
 }

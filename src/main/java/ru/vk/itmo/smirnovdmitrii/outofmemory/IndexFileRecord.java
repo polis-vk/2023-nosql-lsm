@@ -3,6 +3,9 @@ package ru.vk.itmo.smirnovdmitrii.outofmemory;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Representation of index file record/one line of index file.
+ */
 public class IndexFileRecord {
     private final boolean isSSTable;
     private final String name;

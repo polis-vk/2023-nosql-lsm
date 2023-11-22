@@ -21,11 +21,23 @@ public abstract class AbstractSSTable implements Comparable<AbstractSSTable> {
 
     @Override
     public int compareTo(final AbstractSSTable o) {
-        return Long.compare(o.priority, this.priority);
+        final int compareResult = Long.compare(o.priority, this.priority);
+        if (compareResult == 0) {
+            return this.path.compareTo(o.path);
+        }
+        return compareResult;
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+        if (o instanceof AbstractSSTable other) {
+            return this.compareTo(other) == 0;
+        }
+        return false;
     }
 
     @Override
     public int hashCode() {
-        return Long.hashCode(this.priority);
+        return Long.hashCode(priority);
     }
 }

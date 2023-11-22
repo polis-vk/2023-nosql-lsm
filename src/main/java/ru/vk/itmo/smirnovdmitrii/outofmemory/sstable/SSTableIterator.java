@@ -2,7 +2,6 @@ package ru.vk.itmo.smirnovdmitrii.outofmemory.sstable;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.smirnovdmitrii.outofmemory.RangeRequestGroup;
 import ru.vk.itmo.smirnovdmitrii.util.EqualsComparator;
 
 import java.lang.foreign.MemorySegment;
@@ -17,15 +16,12 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private final SSTableStorage storage;
     private final EqualsComparator<MemorySegment> comparator;
     private SSTable ssTable;
-    @SuppressWarnings("UnusedVariable")
-    private final RangeRequestGroup group;
     private Entry<MemorySegment> next;
     private long upperBoundOffset;
     private long offset;
 
     public SSTableIterator(
             final SSTable ssTable,
-            final RangeRequestGroup group,
             final MemorySegment from,
             final MemorySegment to,
             final SSTableStorage ssTableStorage,
@@ -35,12 +31,6 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         this.comparator = comparator;
         this.upperBound = to;
         this.ssTable = ssTable;
-        this.group = group;
-        if (!group.register(ssTable)) {
-            this.next = null;
-            this.ssTable = null;
-            return;
-        }
         this.next = new BaseEntry<>(from, null);
         reposition();
         safeNext();
@@ -98,14 +88,11 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
                     return binarySearchResult == offset;
                 }
             }
-            final SSTable newSSTable = storage.getCompaction(ssTable);
-            group.deregister(ssTable);
-            if (!group.register(newSSTable)) {
-                ssTable = null;
+            ssTable = storage.getCompaction(ssTable);
+            if (ssTable == null) {
                 next = null;
                 return false;
             }
-            ssTable = newSSTable;
         }
     }
 

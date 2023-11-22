@@ -4,11 +4,12 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
+import java.util.concurrent.locks.Lock;
 
 /**
  * Representation of memtable.
  */
-public interface Memtable extends AutoCloseable, Iterable<Entry<MemorySegment>> {
+public interface Memtable extends Iterable<Entry<MemorySegment>> {
 
     long size();
 
@@ -18,13 +19,10 @@ public interface Memtable extends AutoCloseable, Iterable<Entry<MemorySegment>> 
 
     Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to);
 
-    void kill();
+    void clear();
 
-    long writers();
+    Lock upsertLock();
 
-    boolean tryOpen();
-
-    @Override
-    void close();
+    Lock flushLock();
 }
 

@@ -28,7 +28,7 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     ) {
         this.flushThresholdBytes = flushThresholdBytes;
         final List<Memtable> list = new ArrayList<>();
-        list.add(new SkipListMemtable());
+        list.add(newMemtable());
         this.memtables = new AtomicReference<>(list);
         this.outMemoryDao = outMemoryDao;
     }
@@ -57,17 +57,19 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     public void upsert(final Entry<MemorySegment> entry) {
         while (true) {
             final List<Memtable> currentMemtables = memtables.get();
-            final Memtable memtable = currentMemtables.get(0);
-            if (memtable.tryOpen()) {
-                try (memtable) {
+            final Memtable memtable = currentMemtables.getFirst();
+            if (memtable.upsertLock().tryLock()) {
+                try {
                     if (memtable.size() < flushThresholdBytes) {
                         memtable.upsert(entry);
-                        return;
+                        break;
                     }
+                } finally {
+                    memtable.upsertLock().unlock();
                 }
                 executorService.execute(() -> tryFlush(true));
             }
-            // Try again. We get SSTable that was just killed and replaced.
+            // Try again. We get SSTable that will be just replaced.
         }
     }
 
@@ -83,58 +85,57 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     private void tryFlush(final boolean isFull) {
         final List<Memtable> currentMemtables = memtables.get();
         final Memtable memtable = currentMemtables.get(0);
+        // Maybe was already flushed, while task was waiting.
         if (isFull && (memtable.size() < flushThresholdBytes)) {
             return;
         }
+        // Can't create new Memtable because of max count.
         if (currentMemtables.size() == MAX_MEMTABLES) {
             if (isFull) {
                 throw new TooManyUpsertsException("to many upserts.");
             }
             return;
         }
-        final List<Memtable> newMemtables = new ArrayList<>(currentMemtables.size() + 1);
-        newMemtables.add(new SkipListMemtable());
-        newMemtables.addAll(currentMemtables);
-        // Tries to change with CAS. If failed that it doesn't bother us.
-        // It means that it was already flushed from another thread.
-        if (memtables.compareAndSet(currentMemtables, newMemtables)) {
-           flush(memtable);
+        List<Memtable> newMemtables;
+        // Trying to create new memory table.
+        do {
+            newMemtables = new ArrayList<>();
+            newMemtables.add(newMemtable());
+            newMemtables.addAll(currentMemtables);
+        } while (!memtables.compareAndSet(currentMemtables, newMemtables));
+        // Waiting until all upserts finished and flushing it to disk.
+        memtable.flushLock().lock();
+        try {
+            outMemoryDao.flush(memtable);
+            memtable.clear();
+            List<Memtable> expected = newMemtables;
+            while (true) {
+                final List<Memtable> removed = new ArrayList<>(expected);
+                removed.remove(memtable);
+                if (memtables.compareAndSet(expected, removed)) {
+                    break;
+                }
+                expected = memtables.get();
+            }
+        } catch (final IOException e) {
+            throw new UncheckedIOException(e);
+        } finally {
+            memtable.flushLock().unlock();
         }
+    }
+
+    private static Memtable newMemtable() {
+        return new SkipListMemtable();
     }
 
     /**
      * Flushing memtable on disk.
      */
-    private void flush(final Memtable memtable) {
-        // kills memtable, so there is no new writers to memtable
-        memtable.kill();
-        while (true) {
-            // Waiting until there is no writers. It will be fast.
-            if (memtable.writers() == 0) {
-                try {
-                    outMemoryDao.flush(memtable);
-                    // Tries to delete memtable from list with CAS. If failed tries again.
-                    while (true) {
-                        final List<Memtable> prevList = memtables.get();
-                        final List<Memtable> newList = new ArrayList<>(prevList);
-                        newList.remove(memtable);
-                        if (memtables.compareAndSet(prevList, newList)) {
-                            break;
-                        }
-                    }
-                } catch (final IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-                break;
-            }
-        }
-    }
-
     @Override
     public void close() {
         executorService.close();
-        flush(memtables.get().getFirst());
-        memtables.get().clear();
+        tryFlush(false);
+        memtables.set(null);
     }
 
 }

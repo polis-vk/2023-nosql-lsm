@@ -18,6 +18,12 @@ public interface SSTableStorage extends Closeable, Iterable<SSTable> {
      */
     void add(final String ssTableFileName) throws IOException;
 
+    /**
+     * Returns SSTable where provided SSTable was compacted. If there is no such SSTable - returns null.
+     * If SSTable wasn't compacted - could return any SSTable.
+     * @param ssTable compacted SSTable.
+     * @return Compaction for provided SSTable.
+     */
     SSTable getCompaction(final SSTable ssTable);
 
     @Override
