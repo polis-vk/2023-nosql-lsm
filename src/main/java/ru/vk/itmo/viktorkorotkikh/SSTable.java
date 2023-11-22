@@ -137,15 +137,14 @@ public final class SSTable {
     public static void save(MemTable memTable, int fileIndex, Path basePath) throws IOException {
         if (memTable.isEmpty()) return;
 
-        final Path indexTmp = basePath.resolve("index.tmp");
-        final Path indexFile = basePath.resolve("index.idx");
+        final Path indexTmp = basePath.resolve(INDEX_FILE_NAME + TMP_FILE_EXTENSION);
+        final Path indexFile = basePath.resolve(INDEX_FILE_NAME);
 
         try {
             Files.createFile(indexFile);
         } catch (FileAlreadyExistsException ignored) {
             // it is ok, actually it is normal state
         }
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
         Path tmpSSTable = basePath.resolve(FILE_NAME + fileIndex + FILE_EXTENSION + TMP_FILE_EXTENSION);
 
@@ -160,6 +159,7 @@ public final class SSTable {
                 StandardCopyOption.ATOMIC_MOVE
         );
 
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
         list.add(newFileName);
@@ -363,7 +363,11 @@ public final class SSTable {
         if (noData) {
             Files.delete(compactionFile);
         } else {
-            Files.move(compactionFile, storagePath.resolve(FILE_NAME + "0" + FILE_EXTENSION), StandardCopyOption.ATOMIC_MOVE);
+            Files.move(
+                    compactionFile,
+                    storagePath.resolve(FILE_NAME + "0" + FILE_EXTENSION),
+                    StandardCopyOption.ATOMIC_MOVE
+            );
         }
     }
 

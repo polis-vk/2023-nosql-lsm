@@ -17,7 +17,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Level;
@@ -37,7 +36,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private volatile Future<?> compactionFuture;
 
-    private final AtomicReference<Deque<SSTable>> ssTables;
+    private volatile Deque<SSTable> ssTables;
 
     private final AtomicInteger ssTablesIndex = new AtomicInteger(0);
     private Arena ssTablesArena;
@@ -59,7 +58,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.flushingMemTable = new MemTable(-1);
         try {
             this.ssTablesArena = Arena.ofShared();
-            this.ssTables = new AtomicReference<>(SSTable.load(ssTablesArena, storagePath, ssTablesIndex));
+            this.ssTables = SSTable.load(ssTablesArena, storagePath, ssTablesIndex);
         } catch (IOException e) {
             ssTablesArena.close();
             throw new LSMDaoCreationException(e);
@@ -74,7 +73,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private MergeIterator.MergeIteratorWithTombstoneFilter mergeIterator(MemorySegment from, MemorySegment to) {
-        List<SSTable.SSTableIterator> ssTableIterators = SSTable.ssTableIterators(ssTables.get(), from, to);
+        List<SSTable.SSTableIterator> ssTableIterators = SSTable.ssTableIterators(ssTables, from, to);
         return MergeIterator.create(
                 memTable.iterator(from, to, 0),
                 flushingMemTable.iterator(from, to, 1),
@@ -93,7 +92,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return fromFlushingMemTable.value() == null ? null : fromFlushingMemTable;
         }
         // reverse order because last sstable has the highest priority
-        Iterator<SSTable> ssTableIterator = ssTables.get().descendingIterator();
+        Iterator<SSTable> ssTableIterator = ssTables.descendingIterator();
         while (ssTableIterator.hasNext()) {
             SSTable ssTable = ssTableIterator.next();
             Entry<MemorySegment> fromDisk = ssTable.get(key);
@@ -123,7 +122,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        if (SSTable.isCompacted(ssTables.get())) {
+        if (SSTable.isCompacted(ssTables)) {
             return;
         }
 
@@ -132,7 +131,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private void compactInBackground() {
         try {
-            Deque<SSTable> ssTablesToCompact = ssTables.get();
+            Deque<SSTable> ssTablesToCompact = ssTables;
             compactionLock.writeLock().lock();
             try {
                 SSTable.compact(
@@ -141,7 +140,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                         ),
                         storagePath
                 );
-                ssTables.set(SSTable.load(ssTablesArena, storagePath, ssTablesIndex));
+                ssTables = SSTable.load(ssTablesArena, storagePath, ssTablesIndex);
             } finally {
                 compactionLock.writeLock().unlock();
             }
@@ -194,14 +193,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     ) throws IOException {
         if (memTable.isEmpty()) return;
         SSTable.save(memTable, fileIndex, storagePath);
-        ssTables.updateAndGet(ssTables1 -> {
-            try {
-                ssTables1.add(SSTable.loadOneByIndex(ssTablesArena, storagePath, fileIndex));
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-            return ssTables1;
-        });
+        ssTables.add(SSTable.loadOneByIndex(ssTablesArena, storagePath, fileIndex));
         flushingMemTable = new MemTable(-1);
     }
 
