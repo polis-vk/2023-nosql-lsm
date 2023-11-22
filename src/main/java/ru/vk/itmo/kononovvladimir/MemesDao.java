@@ -110,10 +110,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     }
 
-/*    private Long calculateSize(Entry<MemorySegment> entry){
-        return Long.BYTES + entry.key().byteSize() + Long.BYTES
-                + (entry.value() == null ? 0 : entry.key().byteSize());
-    }*/
+
 
     @Override
     public void flush() throws IOException {
