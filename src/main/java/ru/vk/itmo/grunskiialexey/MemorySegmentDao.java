@@ -26,7 +26,6 @@ class which gives to client main things like
 public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     // no necessary
     private final Arena arena;
-    private final DiskStorage diskStorage;
     private final CompactionService compactionService;
     private final InMemoryQuerySystem inMemoryQuerySystem;
     private final Path path;
@@ -39,7 +38,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
         final AtomicLong firstFileNumber = new AtomicLong();
         final AtomicLong lastFileNumber = new AtomicLong();
-        this.diskStorage = new DiskStorage(path, arena);
+        DiskStorage diskStorage = new DiskStorage(path, arena);
         this.compactionService = new CompactionService(
                 diskStorage.loadOrRecover(firstFileNumber, lastFileNumber),
                 firstFileNumber,
