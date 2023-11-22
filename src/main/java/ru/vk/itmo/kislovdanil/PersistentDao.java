@@ -6,6 +6,7 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.kislovdanil.exceptions.DBException;
 import ru.vk.itmo.kislovdanil.exceptions.OverloadException;
 import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;
+import ru.vk.itmo.kislovdanil.iterators.MemTableIterator;
 import ru.vk.itmo.kislovdanil.iterators.MergeIterator;
 import ru.vk.itmo.kislovdanil.sstable.SSTable;
 
@@ -48,7 +49,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     private final Lock compactionLock = new ReentrantLock();
     // Have to take read while upsert and write while flushing (to prevent data loss)
     private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
-
 
     private long getMaxTablesId(Iterable<SSTable> tableIterable) {
         long curMaxId = -1;
@@ -188,7 +188,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
             try {
                 flushFuture.get();
             } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
+                Thread.currentThread().interrupt();
             }
         }
         flush();
@@ -245,41 +245,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
                 return Long.compare(o1.byteSize(), o2.byteSize());
             }
             return Byte.compare(o1.get(ValueLayout.JAVA_BYTE, mismatch), o2.get(ValueLayout.JAVA_BYTE, mismatch));
-        }
-    }
-
-    private static class MemTableIterator implements DatabaseIterator {
-        private final Iterator<Entry<MemorySegment>> innerIter;
-        private final long priority;
-
-        public MemTableIterator(MemorySegment from, MemorySegment to,
-                                MemTable memTable,
-                                long priority) {
-            this.priority = priority;
-            if (from == null && to == null) {
-                innerIter = memTable.getStorage().values().iterator();
-            } else if (from != null && to == null) {
-                innerIter = memTable.getStorage().tailMap(from).values().iterator();
-            } else if (from == null) {
-                innerIter = memTable.getStorage().headMap(to).values().iterator();
-            } else {
-                innerIter = memTable.getStorage().subMap(from, to).values().iterator();
-            }
-        }
-
-        @Override
-        public long getPriority() {
-            return priority;
-        }
-
-        @Override
-        public boolean hasNext() {
-            return innerIter.hasNext();
-        }
-
-        @Override
-        public Entry<MemorySegment> next() {
-            return innerIter.next();
         }
     }
 }
