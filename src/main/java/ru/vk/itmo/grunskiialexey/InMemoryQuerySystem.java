@@ -169,6 +169,7 @@ public class InMemoryQuerySystem {
             try {
                 flush();
             } catch (IOException ignored) {
+                System.err.println("Incorrect state");
             }
         }
     }
