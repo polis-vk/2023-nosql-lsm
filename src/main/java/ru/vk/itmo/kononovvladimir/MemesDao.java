@@ -82,18 +82,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return Byte.compare(b1, b2);
     }
 
-    private State getStateUnderWriteLock() {
-        State tmpState;
-        memoryLock.writeLock().lock();
-        try {
-            tmpState = this.state;
-        } finally {
-            memoryLock.writeLock().unlock();
-        }
-
-        return tmpState;
-    }
-
     private State getStateUnderReadLock() {
         State tmpState;
         memoryLock.readLock().lock();
@@ -200,8 +188,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             //throw
             return;
         }
-        State tmpState = state;
-
         executorService.execute(() -> {
             try {
                 DiskStorage.compact(path, this::all);
