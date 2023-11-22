@@ -78,7 +78,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        long sizeToAdd = entry.key().byteSize();
+        long sizeToAdd = entry.key().byteSize() + 2 * Long.BYTES;
         if (entry.value() != null) {
             sizeToAdd += entry.value().byteSize();
         }
@@ -93,18 +93,22 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (memoryMapSize.get() <= flushThresholdBytes) {
             return;
         }
-        if (isFlushing.compareAndSet(false, true)) {
-            mapUpsertExchangeLock.writeLock().lock();
-            try {
-                flushingMap = map;
-                renewMap();
-            } finally {
-                mapUpsertExchangeLock.writeLock().unlock();
+        mapUpsertExchangeLock.writeLock().lock();
+        try {
+            if (memoryMapSize.get() <= flushThresholdBytes) {
+                return;
             }
-            backgroundFlushQueue.execute(this::backgroundFlush);
-        } else {
-            throw new DaoException.DaoMemoryException(
-                    "Upsert happened with no free space and flushing already executing");
+            if (isFlushing.compareAndSet(false, true)) {
+                flushingMap = map;
+                long size = memoryMapSize.get();
+                renewMap();
+                backgroundFlushQueue.execute(() -> backgroundFlush(size));
+            } else {
+                throw new DaoException.DaoMemoryException(
+                        "Upsert happened with no free space and flushing already executing");
+            }
+        } finally {
+            mapUpsertExchangeLock.writeLock().unlock();
         }
     }
 
@@ -126,8 +130,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        backgroundFlushQueue.execute(() -> {
-            if (isFlushing.compareAndSet(false, true)) {
+        if (isFlushing.compareAndSet(false, true)) {
+            backgroundFlushQueue.execute(() -> {
+                long size;
                 try {
                     mapUpsertExchangeLock.writeLock().lock();
                     try {
@@ -135,11 +140,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                             return;
                         }
                         flushingMap = map;
+                        size = memoryMapSize.get();
                         renewMap();
                     } finally {
                         mapUpsertExchangeLock.writeLock().unlock();
                     }
-                    writeMapIntoFile(flushingMap);
+                    writeMapIntoFile(flushingMap, size);
                     storage.incTotalSStablesAmount();
 
                     flushingMap = null;
@@ -148,8 +154,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 } finally {
                     isFlushing.set(false);
                 }
-            }
-        });
+            });
+        }
     }
 
     private void renewMap() {
@@ -157,9 +163,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         map = new ConcurrentSkipListMap<>(DaoImpl::compareMemorySegments);
     }
 
-    private void backgroundFlush() {
+    private void backgroundFlush(long size) {
         try {
-            writeMapIntoFile(flushingMap);
+            writeMapIntoFile(flushingMap, size);
             storage.incTotalSStablesAmount();
             flushingMap = null;
         } catch (IOException e) {
@@ -169,27 +175,15 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private void writeMapIntoFile(NavigableMap<MemorySegment, Entry<MemorySegment>> mapToWrite) throws IOException {
+    private void writeMapIntoFile(NavigableMap<MemorySegment, Entry<MemorySegment>> mapToWrite, long size) throws IOException {
         if (mapToWrite.isEmpty()) {
             return;
         }
         storage.writeMapIntoFile(
-                mapByteSizeInFile(mapToWrite),
+                size,
                 indexByteSizeInFile(mapToWrite),
                 mapToWrite
         );
-    }
-
-    private long mapByteSizeInFile(NavigableMap<MemorySegment, Entry<MemorySegment>> mapToWrite) {
-        long size = 0;
-        for (var entry : mapToWrite.values()) {
-            size += 2 * Long.BYTES;
-            size += entry.key().byteSize();
-            if (entry.value() != null) {
-                size += entry.value().byteSize();
-            }
-        }
-        return size;
     }
 
     private long indexByteSizeInFile(NavigableMap<MemorySegment, Entry<MemorySegment>> mapToWrite) {
@@ -202,7 +196,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         backgroundFlushQueue.close();
         if (!map.isEmpty()) {
             flushingMap = map;
-            writeMapIntoFile(flushingMap);
+            writeMapIntoFile(flushingMap, memoryMapSize.get());
             storage.incTotalSStablesAmount();
         }
         storage.close();
