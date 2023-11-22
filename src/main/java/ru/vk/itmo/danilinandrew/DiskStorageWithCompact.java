@@ -20,6 +20,9 @@ public class DiskStorageWithCompact {
     private static final String INDEX_FILE = "index.idx";
     private static final String TMP_FILE = "index.tmp";
 
+    private static final String TMP_COMPACTED_FILE = "0tmp";
+    private static final String COMPACTED_FILE = "0";
+
     public DiskStorageWithCompact(DiskStorage diskStorage) {
         this.diskStorage = diskStorage;
     }
@@ -56,16 +59,9 @@ public class DiskStorageWithCompact {
         final Path indexTmp = storagePath.resolve(TMP_FILE);
         final Path indexFile = storagePath.resolve(INDEX_FILE);
 
-        List<String> existedFiles = Files.readAllLines(
-                indexFile,
-                StandardCharsets.UTF_8
-        );
-
-        String newFileName = String.valueOf(existedFiles.size());
-
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve(newFileName),
+                        storagePath.resolve(TMP_COMPACTED_FILE),
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE,
@@ -112,7 +108,7 @@ public class DiskStorageWithCompact {
 
             Files.writeString(
                     indexTmp,
-                    newFileName,
+                    COMPACTED_FILE,
                     StandardOpenOption.WRITE,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING
@@ -121,6 +117,12 @@ public class DiskStorageWithCompact {
             diskStorage.clearStorage(storagePath);
 
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            Files.move(
+                    storagePath.resolve(TMP_COMPACTED_FILE),
+                    storagePath.resolve(COMPACTED_FILE),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
         }
     }
 }

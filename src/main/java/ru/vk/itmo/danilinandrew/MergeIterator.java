@@ -11,7 +11,7 @@ public class MergeIterator<T> implements Iterator<T> {
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
 
-    private PeekIterator<T> peek = null;
+    private PeekIterator<T> peek;
 
     private static class PeekIterator<T> implements Iterator<T> {
 

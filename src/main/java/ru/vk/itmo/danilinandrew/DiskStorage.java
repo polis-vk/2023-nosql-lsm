@@ -26,6 +26,9 @@ public class DiskStorage {
     private static final String INDEX_FILE = "index.idx";
     private static final String TMP_FILE = "index.tmp";
 
+    private static final String TMP_COMPACTED_FILE = "0tmp";
+    private static final String COMPACTED_FILE = "0";
+
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
     }
@@ -151,6 +154,15 @@ public class DiskStorage {
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         Path indexTmp = storagePath.resolve(TMP_FILE);
         Path indexFile = storagePath.resolve(INDEX_FILE);
+
+        if (Files.exists(storagePath.resolve(TMP_COMPACTED_FILE))) {
+            Files.move(
+                    storagePath.resolve(TMP_COMPACTED_FILE),
+                    storagePath.resolve(COMPACTED_FILE),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+        }
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
