@@ -11,16 +11,32 @@ import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.NavigableMap;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable;
-    private final SSTableManager ssTableManager;
+    private final ReadWriteLock lock;
+    private final Config config;
+    private final ExecutorService executor;
+    private final AtomicBoolean isClosed;
+
+    private State state;
 
     public DaoImpl(Config config) throws IOException {
-        this.memoryTable = new ConcurrentSkipListMap<>(MemorySegmentComparator.getInstance());
-        this.ssTableManager = new SSTableManager(config);
+        this.lock = new ReentrantReadWriteLock();
+        this.config = config;
+        this.executor = Executors.newSingleThreadExecutor();
+        this.isClosed = new AtomicBoolean(false);
+
+        this.state = new State(
+                new ConcurrentSkipListMap<>(MemorySegmentComparator.getInstance()),
+                null,
+                new SSTableManager(config)
+        );
     }
 
     @Override
@@ -44,33 +60,116 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        memoryTable.put(entry.key(), entry);
+        if (entry == null || entry.key() == null) {
+            throw new IllegalArgumentException("Attempt to upsert empty entry.");
+        }
+
+        long valueSize = entry.value() == null ? 0 : entry.value().byteSize();
+        long delta = entry.key().byteSize() + valueSize;
+
+        if (state.memoryTableByteSize.get() + delta >= config.flushThresholdBytes()) {
+            if (state.flushingMemoryTable != null) {
+                throw new IllegalArgumentException("Flushing table is not empty");
+            }
+
+            try {
+                flush();
+            } catch (IOException e) {
+                throw new IllegalArgumentException("failed to flush");
+            }
+        }
+
+        lock.readLock().lock();
+        try {
+            state.memoryTable.put(entry.key(), entry);
+            state.memoryTableByteSize.addAndGet((Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize));
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public synchronized void flush() throws IOException {
+        if (state.memoryTable.isEmpty() || state.flushingMemoryTable != null) {
+            return;
+        }
+
+        lock.writeLock().lock();
+        try {
+            state = new State(
+                    new ConcurrentSkipListMap<>(MemorySegmentComparator.getInstance()),
+                    state.memoryTable,
+                    state.ssTableManager
+            );
+        } finally {
+            lock.writeLock().unlock();
+        }
+
+        executor.execute(this::backgroundFlush);
     }
 
     @Override
     public void close() throws IOException {
-        if (!memoryTable.isEmpty()) {
-            ssTableManager.save(memoryTable.values());
-            memoryTable.clear();
+        if (!isClosed.compareAndSet(false, true)) {
+            return;
         }
 
-        ssTableManager.close();
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(1, TimeUnit.HOURS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        if (!state.memoryTable.isEmpty()) {
+            state = new State(
+                    new ConcurrentSkipListMap<>(MemorySegmentComparator.getInstance()),
+                    state.memoryTable,
+                    state.ssTableManager
+            );
+            backgroundFlush();
+        }
+        state.ssTableManager.close();
+        state = null;
     }
 
     @Override
     public void compact() throws IOException {
-        ssTableManager.compact(() -> get(null, null));
-        memoryTable.clear();
+        executor.execute(() -> {
+            try {
+                state.ssTableManager.compact();
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+    }
+
+    private void backgroundFlush() {
+        try {
+            state.ssTableManager.flush(state.flushingMemoryTable.values());
+            lock.writeLock().lock();
+            try {
+                state = new State(state.memoryTable, null, state.ssTableManager);
+            } finally {
+                lock.writeLock().unlock();
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Can't flush table");
+        }
     }
 
     private Iterator<Entry<MemorySegment>> allIterators(MemorySegment from, MemorySegment to) {
+        State currentState = state;
+
         List<PeekingIterator> iterators = new ArrayList<>();
 
-        Iterator<Entry<MemorySegment>> memoryIterator = memoryIterator(from, to);
-        Iterator<Entry<MemorySegment>> filesIterator = ssTableManager.get(from, to);
-
-        iterators.add(new PeekingIterator(memoryIterator, 1));
-        iterators.add(new PeekingIterator(filesIterator, 0));
+        iterators.add(new PeekingIterator(memoryIterator(from, to, currentState.memoryTable), 2));
+        if (currentState.flushingMemoryTable != null) {
+            iterators.add(new PeekingIterator(memoryIterator(from, to, currentState.flushingMemoryTable), 1));
+        }
+        iterators.add(new PeekingIterator(currentState.ssTableManager.get(from, to), 0));
 
         return new PeekingIterator(
                 MergeIterator.merge(
@@ -80,7 +179,9 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         );
     }
 
-    private Iterator<Entry<MemorySegment>> memoryIterator(MemorySegment from, MemorySegment to) {
+    private Iterator<Entry<MemorySegment>> memoryIterator(
+            MemorySegment from, MemorySegment to,NavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable
+    ) {
         if (from == null && to == null) {
             return memoryTable.values().iterator();
         }
@@ -93,5 +194,23 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         return memoryTable.subMap(from, to).values().iterator();
+    }
+
+    private static class State {
+        private final NavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable;
+        private final NavigableMap<MemorySegment, Entry<MemorySegment>> flushingMemoryTable;
+        private final AtomicLong memoryTableByteSize;
+        private final SSTableManager ssTableManager;
+
+        private State(
+                NavigableMap<MemorySegment, Entry<MemorySegment>> memoryTable,
+                NavigableMap<MemorySegment, Entry<MemorySegment>> flushingMemoryTable,
+                SSTableManager ssTableManager
+        ) {
+            this.memoryTable = memoryTable;
+            this.flushingMemoryTable = flushingMemoryTable;
+            this.ssTableManager = ssTableManager;
+            this.memoryTableByteSize = new AtomicLong();
+        }
     }
 }

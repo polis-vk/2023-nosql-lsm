@@ -16,8 +16,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 
 import static ru.vk.itmo.reshetnikovaleksei.SSTable.DATA_PREFIX;
@@ -25,22 +29,20 @@ import static ru.vk.itmo.reshetnikovaleksei.SSTable.DATA_TMP;
 import static ru.vk.itmo.reshetnikovaleksei.SSTable.INDEX_PREFIX;
 import static ru.vk.itmo.reshetnikovaleksei.SSTable.INDEX_TMP;
 
-public class SSTableManager implements AutoCloseable {
+public class SSTableManager {
 
     private final Arena arena;
     private final Path basePath;
     private final List<SSTable> ssTables;
-
-    private int lastIdx;
-    private boolean isClosed;
+    private final AtomicLong lastIdx;
+    private final AtomicBoolean isClosed;
 
     public SSTableManager(Config config) throws IOException {
         this.arena = Arena.ofShared();
         this.basePath = config.basePath();
-        this.ssTables = new ArrayList<>();
-
-        this.lastIdx = 0;
-        this.isClosed = false;
+        this.ssTables = new CopyOnWriteArrayList<>();
+        this.lastIdx = new AtomicLong(0);
+        this.isClosed = new AtomicBoolean(false);
 
         if (!Files.exists(basePath)) {
             return;
@@ -55,7 +57,7 @@ public class SSTableManager implements AutoCloseable {
             try {
                 ssTables.add(new SSTable(basePath, arena, i));
             } catch (IOException e) {
-                lastIdx = i;
+                lastIdx.set(i);
             }
         }
     }
@@ -96,7 +98,7 @@ public class SSTableManager implements AutoCloseable {
                         StandardOpenOption.CREATE,
                         StandardOpenOption.WRITE
                 );
-                Arena writeDataArena = Arena.ofConfined()
+                Arena writeDataArena = Arena.ofShared()
         ) {
             long dataSize = Long.BYTES;
             long indexSize = 0;
@@ -143,8 +145,22 @@ public class SSTableManager implements AutoCloseable {
         moveDataFromTmpToReal(tmpIndexPath, indexPath);
     }
 
-    public void compact(Iterable<Entry<MemorySegment>> entries) throws IOException {
+    public void flush(Collection<Entry<MemorySegment>> entries) throws IOException {
+        if (entries.isEmpty()) {
+            return;
+        }
+
         save(entries);
+        ssTables.addFirst(new SSTable(basePath, arena, lastIdx.get()));
+        lastIdx.getAndAdd(1);
+    }
+
+    public void compact() throws IOException {
+        if (!get(null, null).hasNext()) {
+            return;
+        }
+
+        save(() -> get(null, null));
 
         Path dataPath = basePath.resolve(DATA_PREFIX + lastIdx);
         Path indexPath = basePath.resolve(INDEX_PREFIX + lastIdx);
@@ -152,13 +168,15 @@ public class SSTableManager implements AutoCloseable {
 
         moveDataFromTmpToReal(dataPath, basePath.resolve(DATA_PREFIX + lastIdx));
         moveDataFromTmpToReal(indexPath, basePath.resolve(INDEX_PREFIX + lastIdx));
+
+        ssTables.clear();
+        ssTables.add(new SSTable(basePath, arena, lastIdx.get()));
     }
 
-    @Override
     public void close() {
-        if (!isClosed) {
+        if (!isClosed.get()) {
             arena.close();
-            isClosed = true;
+            isClosed.set(true);
         }
     }
 
@@ -177,6 +195,6 @@ public class SSTableManager implements AutoCloseable {
             ssTable.deleteFiles();
         }
 
-        lastIdx = 0;
+        lastIdx.set(0);
     }
 }
