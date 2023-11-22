@@ -111,7 +111,7 @@ public final class DiskStorageUtils {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING);
         Files.deleteIfExists(indexFile);
-        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE);
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
     }
 
     private static void dump(final Iterable<Entry<MemorySegment>> iterable,
@@ -126,7 +126,7 @@ public final class DiskStorageUtils {
             }
             count++;
         }
-        long indexSize = count * 2 * Long.BYTES;
+        final long indexSize = count * 2 * Long.BYTES;
         try (FileChannel fileChannel = FileChannel.open(
                 newFilePath,
                 StandardOpenOption.WRITE,
