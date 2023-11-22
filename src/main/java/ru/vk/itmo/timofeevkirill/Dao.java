@@ -32,7 +32,8 @@ public class Dao implements ru.vk.itmo.Dao<MemorySegment, Entry<MemorySegment>> 
     private final DiskStorage diskStorage;
     private final Path path;
     private final long flushThresholdBytes;
-    private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private final ExecutorService executorService =
+            Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     private final AtomicLong storageBytesSize = new AtomicLong(0);
     private NavigableMap<MemorySegment, Entry<MemorySegment>> storageBuffer = new ConcurrentSkipListMap<>(comparator);
 
