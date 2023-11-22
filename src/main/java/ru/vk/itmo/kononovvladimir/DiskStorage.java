@@ -23,7 +23,7 @@ import java.util.NoSuchElementException;
 public class DiskStorage {
 
     private final Comparator<MemorySegment> comparator = new MemoryComparator();
-    private static final long BYTE_SIZE_2_LONGS = 2 * Long.BYTES;
+    private static final long KEY_VALUE_SIZES_SIZE = 2 * Long.BYTES;
 
     static final String INDEX_FILE_NAME = "index.idx";
     static final String INDEX_TEMP_FILE_NAME = "index.tmp";
@@ -65,7 +65,7 @@ public class DiskStorage {
             }
             count++;
         }
-        long indexSize = count * BYTE_SIZE_2_LONGS;
+        long indexSize = count * KEY_VALUE_SIZES_SIZE;
 
         try (
                 FileChannel fileChannel = FileChannel.open(
@@ -233,7 +233,7 @@ public class DiskStorage {
     }
 
     private static long startOfKey(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * BYTE_SIZE_2_LONGS);
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * KEY_VALUE_SIZES_SIZE);
     }
 
     private static long endOfKey(MemorySegment segment, long recordIndex) {
@@ -245,7 +245,7 @@ public class DiskStorage {
     }
 
     private static long startOfValue(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * BYTE_SIZE_2_LONGS + Long.BYTES);
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * KEY_VALUE_SIZES_SIZE + Long.BYTES);
     }
 
     private static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
