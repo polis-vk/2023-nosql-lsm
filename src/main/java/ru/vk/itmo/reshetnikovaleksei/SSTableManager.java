@@ -25,7 +25,14 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import static ru.vk.itmo.reshetnikovaleksei.SSTable.*;
+import static ru.vk.itmo.reshetnikovaleksei.SSTable.COMPACTED_DATA;
+import static ru.vk.itmo.reshetnikovaleksei.SSTable.COMPACTED_INDEX;
+import static ru.vk.itmo.reshetnikovaleksei.SSTable.COMPACTED_PREFIX;
+import static ru.vk.itmo.reshetnikovaleksei.SSTable.DATA_PREFIX;
+import static ru.vk.itmo.reshetnikovaleksei.SSTable.DATA_TMP;
+import static ru.vk.itmo.reshetnikovaleksei.SSTable.INDEX_PREFIX;
+import static ru.vk.itmo.reshetnikovaleksei.SSTable.INDEX_TMP;
+
 
 public class SSTableManager implements Iterable<Entry<MemorySegment>> {
     private static final Pattern COMPACTED_PATTERN = Pattern.compile(COMPACTED_PREFIX + "\\d*");
@@ -35,7 +42,6 @@ public class SSTableManager implements Iterable<Entry<MemorySegment>> {
     private final List<SSTable> ssTables;
     private final AtomicLong lastIdx;
     private final AtomicBoolean isClosed;
-
 
     public SSTableManager(Config config) throws IOException {
         this.arena = Arena.ofShared();
@@ -176,11 +182,11 @@ public class SSTableManager implements Iterable<Entry<MemorySegment>> {
                         try {
                             Files.delete(tablePath);
                         } catch (IOException e) {
-                            throw new IllegalStateException("Can't delete file", e);
+                            throw new IllegalArgumentException("Can't delete file", e);
                         }
                     });
         } catch (IOException e) {
-            throw new IllegalStateException("Can't access the directory " + basePath, e);
+            throw new IllegalArgumentException("Can't access the directory " + basePath, e);
         }
         lastIdx.set(0);
 

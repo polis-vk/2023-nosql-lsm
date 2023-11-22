@@ -12,7 +12,10 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -75,7 +78,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             try {
                 flush();
             } catch (IOException e) {
-                throw new IllegalArgumentException("failed to flush");
+                throw new IllegalArgumentException("failed to flush", e);
             }
         }
 
