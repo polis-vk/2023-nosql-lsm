@@ -9,10 +9,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.SortedMap;
+import java.util.*;
 
 public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySegment>>, AutoCloseable {
 
@@ -20,7 +17,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
 
     private final Path root;
     private final Arena arena;
-    private final List<SSTable> ssTables;
+    private final Deque<SSTable> ssTables;
 
     public SSTableManager(final Path root) throws IOException {
         this.root = root;
@@ -28,8 +25,8 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         this.ssTables = readTables();
     }
 
-    private List<SSTable> readTables() throws IOException {
-        final List<SSTable> tables = new ArrayList<>();
+    private Deque<SSTable> readTables() throws IOException {
+        final Deque<SSTable> tables = new ArrayDeque<>();
         SSTable table;
         while ((table = readTable(getNextSSTableName(tables.size()))) != null) {
             tables.add(table);
@@ -49,21 +46,23 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         return SSTABLE_NAME + size;
     }
 
-    public void write(SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
+    public synchronized void write(SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
         if (map.isEmpty()) {
             return;
         }
         final String name = getNextSSTableName();
         SSTable.write(map, root, name);
-        ssTables.add(SSTable.create(root, name, arena));
+        ssTables.addFirst(SSTable.create(root, name, arena));
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) throws IOException {
 
         List<PriorityShiftedIterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
-        for (int i = 0; i < ssTables.size(); i++) {
-            iterators.add(new MemEntryPriorityIterator(i, ssTables.get(i).get(from, to)));
+        int i = 0;
+        for (final SSTable ssTable : ssTables) {
+            iterators.add(new MemEntryPriorityIterator(i, ssTable.get(from, to)));
+            i++;
         }
 
         return new MergeEntryIterator(iterators);
@@ -92,19 +91,13 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         return result;
     }
 
-    public void compact(final SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
+    public synchronized void compact() throws IOException {
         if (ssTables.size() <= 1) {
-            if (map.isEmpty()) {
-                return;
-            } else if (ssTables.isEmpty()) {
-                write(map);
-                return;
-            }
+            return;
         }
         Path tableTmpPath = null;
         Path indexTmpPath = null;
-        final SizeInfo sizes = SSTable.getMapSize(map);
-        sizes.add(getTotalInfoSize());
+        final SizeInfo sizes = getTotalInfoSize();
         try {
             tableTmpPath = Files.createTempFile(null, null);
             indexTmpPath = Files.createTempFile(null, null);
@@ -116,8 +109,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
                     tmpArena
             )) {
                 final Iterator<Entry<MemorySegment>> iterator = new MergeEntryIterator(List.of(
-                        new MemEntryPriorityIterator(0, map.values().iterator()),
-                        new MemEntryPriorityIterator(1, get(null, null))
+                        new MemEntryPriorityIterator(0, get(null, null))
                 ));
                 while (iterator.hasNext()) {
                     final Entry<MemorySegment> entry = iterator.next();
@@ -154,7 +146,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
                 Files.deleteIfExists(dataPath);
                 throw e;
             }
-            ssTables.add(SSTable.create(root, sstableName, arena));
+            ssTables.addFirst(SSTable.create(root, sstableName, arena));
         } finally {
             if (tableTmpPath != null) {
                 Files.deleteIfExists(tableTmpPath);

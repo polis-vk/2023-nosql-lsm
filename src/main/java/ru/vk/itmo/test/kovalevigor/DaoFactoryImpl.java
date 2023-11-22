@@ -12,7 +12,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 4)
+@DaoFactory(stage = 5)
 public class DaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     public static final Charset CHARSET = StandardCharsets.UTF_8;
