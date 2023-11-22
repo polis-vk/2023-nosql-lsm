@@ -40,7 +40,6 @@ public class Storage {
         if (!readArena.scope().isAlive()) {
             return;
         }
-        readArena.close();
         if (!memTableEntries.iterator().hasNext()) {
             return;
         }
