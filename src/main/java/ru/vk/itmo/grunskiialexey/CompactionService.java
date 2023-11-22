@@ -27,11 +27,13 @@ public class CompactionService {
     private final AtomicLong lastFileNumber;
     private final AtomicLong compactFileName;
     private final AtomicBoolean isWorking;
+    private final Arena arena;
 
-    public CompactionService(List<MemorySegment> segmentList, AtomicLong firstFileNumber, AtomicLong lastFileNumber) {
+    public CompactionService(List<MemorySegment> segmentList, AtomicLong firstFileNumber, AtomicLong lastFileNumber, Arena arena) {
         this.segmentList = segmentList;
         this.firstFileNumber = firstFileNumber.get();
         this.lastFileNumber = lastFileNumber;
+        this.arena = arena;
         this.compactFileName = new AtomicLong(-1);
         this.isWorking = new AtomicBoolean();
     }
@@ -101,11 +103,10 @@ public class CompactionService {
                 FileChannel fileChannel = FileChannel.open(filePath,
                         StandardOpenOption.WRITE, StandardOpenOption.READ,
                         StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
-                );
-                Arena writeArena = Arena.ofConfined()
+                )
         ) {
             final MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE, 0, maxOffset, writeArena
+                    FileChannel.MapMode.READ_WRITE, 0, maxOffset, arena
             );
 
             long dataOffset = startValuesOffset;
@@ -128,18 +129,12 @@ public class CompactionService {
         }
 
         // Delete old data
-        try (Arena arena = Arena.ofShared()) {
-            DiskStorage.deleteFilesAndInMemory(
-                    segmentList,
-                    new ActualFilesInterval(DiskStorage.getActualFilesInterval(indexFile, arena).left(), fileNumber),
-                    storagePath
-            );
-        }
-
-        try (Arena writeArena = Arena.ofShared()) {
-            DiskStorage.changeActualLeftInterval(indexFile, writeArena, fileNumber);
-        }
-
+        DiskStorage.deleteFilesAndInMemory(
+                segmentList,
+                new ActualFilesInterval(DiskStorage.getActualFilesInterval(indexFile, arena).left(), fileNumber),
+                storagePath
+        );
+        DiskStorage.changeActualLeftInterval(indexFile, arena, fileNumber);
         isWorking.set(false);
     }
 

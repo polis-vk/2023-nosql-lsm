@@ -42,14 +42,16 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         this.compactionService = new CompactionService(
                 diskStorage.loadOrRecover(firstFileNumber, lastFileNumber),
                 firstFileNumber,
-                lastFileNumber
+                lastFileNumber,
+                arena
         );
         this.inMemoryQuerySystem = new InMemoryQuerySystem(
                 path,
                 config.flushThresholdBytes(),
                 MemorySegmentDao::compare,
                 lastFileNumber,
-                diskStorage
+                diskStorage,
+                arena
         );
     }
 

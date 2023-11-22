@@ -35,19 +35,22 @@ public class InMemoryQuerySystem {
     private final AtomicBoolean isWorking;
     private final AtomicLong currentByteSize;
     private final DiskStorage diskStorage;
+    private final Arena arena;
 
     public InMemoryQuerySystem(
             Path flushPath,
             long flushThresholdBytes,
             Comparator<MemorySegment> comparator,
             AtomicLong lastFileNumber,
-            DiskStorage diskStorage
+            DiskStorage diskStorage,
+            Arena arena
     ) {
         storages.addAll(List.of(new ConcurrentSkipListMap<>(comparator), new ConcurrentSkipListMap<>(comparator)));
 
         this.flushPath = flushPath;
         this.lastFileNumber = lastFileNumber;
         this.flushThresholdBytes = flushThresholdBytes;
+        this.arena = arena;
         this.isWorking = new AtomicBoolean();
         this.currentByteSize = new AtomicLong();
         this.diskStorage = diskStorage;
@@ -80,11 +83,7 @@ public class InMemoryQuerySystem {
         final Path indexTmp = flushPath.resolve(NAME_TMP_INDEX_FILE);
         final Path indexFile = flushPath.resolve(NAME_INDEX_FILE);
 
-        final ActualFilesInterval interval;
-        try (Arena arena = Arena.ofShared()) {
-            interval = DiskStorage.getActualFilesInterval(indexFile, arena);
-        }
-
+        final ActualFilesInterval interval = DiskStorage.getActualFilesInterval(indexFile, arena);
         long newFileName = lastFileNumber.getAndIncrement();
 
         long dataSize = 0;
@@ -104,11 +103,10 @@ public class InMemoryQuerySystem {
                         StandardOpenOption.READ,
                         StandardOpenOption.WRITE,
                         StandardOpenOption.CREATE
-                );
-                Arena writeArena = Arena.ofConfined()
+                )
         ) {
-            MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE, 0, indexSize + dataSize, writeArena
+            MemorySegment fileSegment = fileChannel.map(FileChannel.MapMode.READ_WRITE,
+                    0, indexSize + dataSize, arena
             );
 
             // index:
@@ -150,9 +148,7 @@ public class InMemoryQuerySystem {
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         diskStorage.addNewList(newFileName);
-        try (Arena writeArena = Arena.ofShared()) {
-            changeActualFilesInterval(indexFile, writeArena, interval.left(), newFileName + 1);
-        }
+        changeActualFilesInterval(indexFile, arena, interval.left(), newFileName + 1);
 
         Files.delete(indexTmp);
         Collections.swap(storages, 0, 1);
