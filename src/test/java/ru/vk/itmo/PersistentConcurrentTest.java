@@ -72,9 +72,9 @@ public class PersistentConcurrentTest extends BaseTest {
 
         Dao<String, Entry<String>> dao2 = DaoFactory.Factory.reopen(dao);
         runInParallel(
-            100,
-            count,
-            value -> assertSame(dao2.get(entries.get(value).key()), entries.get(value))).close();
+                100,
+                count,
+                value -> assertSame(dao2.get(entries.get(value).key()), entries.get(value))).close();
     }
 
     private static <E extends Exception> void runAndMeasure(
