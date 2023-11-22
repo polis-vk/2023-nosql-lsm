@@ -106,11 +106,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void upsert(Entry<MemorySegment> entry) throws IllegalStateException {
-        rwLock.readLock().lock();
+        rwLock.writeLock().lock();
         try {
             memTable.put(entry.key(), entry);
         } finally {
-            rwLock.readLock().unlock();
+            rwLock.writeLock().unlock();
         }
     }
 
@@ -146,8 +146,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } finally {
             rwLock.writeLock().unlock();
         }
-
-
     }
 
     @Override
@@ -202,4 +200,5 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
     }
+
 }
