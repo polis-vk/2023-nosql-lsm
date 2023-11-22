@@ -92,7 +92,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (curState.isFlushing()) {
                 throw new IOException();
             }
-            this.state = new State(curState.config, new ConcurrentSkipListMap<>(comparator), curState.storage, curState.diskStorage);
+            this.state = new State(curState.config, new ConcurrentSkipListMap<>(comparator),
+                    curState.storage, curState.diskStorage);
         } finally {
             lock.writeLock().unlock();
         }
