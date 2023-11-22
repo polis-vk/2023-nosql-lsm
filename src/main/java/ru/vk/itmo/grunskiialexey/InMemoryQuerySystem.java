@@ -16,7 +16,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -169,6 +168,10 @@ public class InMemoryQuerySystem {
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
+        if (storages.get(1).containsKey(key)) {
+            return storages.get(1).get(key);
+        }
+
         return storages.get(0).get(key);
     }
 }

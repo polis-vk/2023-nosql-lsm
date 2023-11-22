@@ -71,7 +71,6 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     }
 
     @Override
-    // :TODO Change it
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> entry = inMemoryQuerySystem.get(key);
         if (entry != null) {
