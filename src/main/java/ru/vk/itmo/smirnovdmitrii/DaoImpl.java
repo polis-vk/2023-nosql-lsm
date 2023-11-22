@@ -17,9 +17,6 @@ import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.Objects;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final InMemoryDao<MemorySegment, Entry<MemorySegment>> inMemoryDao;
