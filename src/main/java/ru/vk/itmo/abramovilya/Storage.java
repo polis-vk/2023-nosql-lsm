@@ -25,6 +25,7 @@ class Storage implements Closeable {
     private static final String SSTABLE_BASE_NAME = "storage";
     private static final String INDEX_BASE_NAME = "index";
     public static final String META_FILE_BASE_NAME = "meta";
+    public static final long INDEX_ENTRY_SIZE = (Integer.BYTES + Long.BYTES);
     private final Path storagePath;
     private final Path metaFilePath;
     private final List<FileChannel> sstableFileChannels = new ArrayList<>();
@@ -118,7 +119,7 @@ class Storage implements Closeable {
     static long getKeyStorageOffset(MemorySegment indexMapped, int entryNum) {
         return indexMapped.get(
                 ValueLayout.JAVA_LONG_UNALIGNED,
-                (long) (Integer.BYTES + Long.BYTES) * entryNum + Integer.BYTES
+                INDEX_ENTRY_SIZE * entryNum + Integer.BYTES
         );
     }
 
@@ -127,7 +128,7 @@ class Storage implements Closeable {
                                                        int entryNum) {
         long offsetInStorageFile = indexMapped.get(
                 ValueLayout.JAVA_LONG_UNALIGNED,
-                (long) (Integer.BYTES + Long.BYTES) * entryNum + Integer.BYTES
+                INDEX_ENTRY_SIZE * entryNum + Integer.BYTES
         );
 
         long keySize = sstableMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetInStorageFile);
