@@ -1,16 +1,11 @@
 package ru.vk.itmo.plyasovklimentii;
 
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
-import java.util.PriorityQueue;
+import java.util.*;
 
 public class MergeIterator<T> implements Iterator<T> {
 
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
-    private PeekIterator<T> peek;
 
     private static class PeekIterator<T> implements Iterator<T> {
 
@@ -36,9 +31,9 @@ public class MergeIterator<T> implements Iterator<T> {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
-            T next = peek();
+            T peek = peek();
             this.peek = null;
-            return next;
+            return peek;
         }
 
         private T peek() {
@@ -51,6 +46,8 @@ public class MergeIterator<T> implements Iterator<T> {
             return peek;
         }
     }
+
+    PeekIterator<T> nextIterator;
 
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
@@ -68,54 +65,64 @@ public class MergeIterator<T> implements Iterator<T> {
         }
     }
 
-    PeekIterator<T> peek() {
-        while (peek == null) {
-            peek = priorityQueue.poll();
-            if (peek == null) {
+    private PeekIterator<T> peek() {
+        while (nextIterator == null) {
+            nextIterator = priorityQueue.poll();
+            if (nextIterator == null) {
                 return null;
             }
 
-            removeDuplicates();
-            if (peek.peek() == null || skip(peek.peek())) {
-                processSkipped();
+            skipIteratorsWithSameKey();
+
+            if (nextIterator.peek() == null) {
+                nextIterator = null;
+                continue;
+            }
+
+            if (shouldSkip(nextIterator.peek())) {
+                moveNextAndPutBack(nextIterator);
+                nextIterator = null;
             }
         }
 
-        return peek;
+        return nextIterator;
     }
 
-    private void removeDuplicates() {
+    private void skipIteratorsWithSameKey() {
         while (true) {
             PeekIterator<T> next = priorityQueue.peek();
             if (next == null) {
                 break;
             }
 
-            int compare = comparator.compare(peek.peek(), next.peek());
-            if (compare == 0) {
-                PeekIterator<T> poll = priorityQueue.poll();
-                if (poll != null) {
-                    poll.next();
-                    if (poll.hasNext()) {
-                        priorityQueue.add(poll);
-                    }
-                }
-            } else {
+            if (!skipTheSameKey(next)) {
                 break;
             }
         }
     }
 
-    private void processSkipped() {
-        peek.next();
-        if (peek.hasNext()) {
-            priorityQueue.add(peek);
+    private boolean skipTheSameKey(PeekIterator<T> next) {
+        int compare = comparator.compare(nextIterator.peek(), next.peek());
+        if (compare != 0) {
+            return false;
         }
-        peek = null;
+
+        PeekIterator<T> poll = priorityQueue.poll();
+        if (poll != null) {
+            moveNextAndPutBack(poll);
+        }
+        return true;
     }
 
-    protected boolean skip(T t) {
-        return t == null;
+    private void moveNextAndPutBack(PeekIterator<T> poll) {
+        poll.next();
+        if (poll.hasNext()) {
+            priorityQueue.add(poll);
+        }
+    }
+
+    protected boolean shouldSkip(T t) {
+        return false;
     }
 
     @Override
@@ -125,15 +132,15 @@ public class MergeIterator<T> implements Iterator<T> {
 
     @Override
     public T next() {
-        PeekIterator<T> peekIterator = peek();
-        if (peekIterator == null) {
+        PeekIterator<T> nextIterator = peek();
+        if (nextIterator == null) {
             throw new NoSuchElementException();
         }
-        T next = peekIterator.next();
-        this.peek = null;
-        if (peekIterator.hasNext()) {
-            priorityQueue.add(peekIterator);
+        T nextValue = nextIterator.next();
+        this.nextIterator = null;
+        if (nextIterator.hasNext()) {
+            priorityQueue.add(nextIterator);
         }
-        return next;
+        return nextValue;
     }
 }
