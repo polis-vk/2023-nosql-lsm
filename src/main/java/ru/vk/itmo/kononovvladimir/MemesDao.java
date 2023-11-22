@@ -106,19 +106,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
         state.memoryStorage.put(entry.key(), entry);
-       // long entrySize = calculateSize(entry);
-/*        if (flushThresholdBytes < state.memoryStorageSizeInBytes.get() + entrySize) {
-            // if not flushing throw
 
-            memoryLock.writeLock().lock();
-            try {
-                state.memoryStorage.put(entry.key(), entry);
-                state.memoryStorageSizeInBytes.addAndGet(2 * Long.BYTES + entry.key().byteSize() + entry.value().byteSize());
-            } finally {
-                memoryLock.writeLock().unlock();
-            }
-        }*/
-        //If very big
 
     }
 
