@@ -256,11 +256,16 @@ public class PersistentRangeTest extends BaseTest {
     }
 
     @DaoTest(stage = 4)
-    void diskCemetery(Dao<String, Entry<String>> dao) throws IOException {
+    void diskCemetery(Dao<String, Entry<String>> dao) throws Exception {
         final int entries = 100_000;
 
         for (int entry = 0; entry < entries; entry++) {
             dao.upsert(entry(keyAt(entry), null));
+
+            // Back off after 1K upserts to be able to flush
+            if (entry % 1000 == 0) {
+                Thread.sleep(1);
+            }
         }
 
         assertFalse(dao.all().hasNext());
