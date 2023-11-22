@@ -108,7 +108,13 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             flush();
         }
 
-        currentStorage.put(entry.key(), entry);
+        lock.writeLock().lock();
+        try {
+            currentStorage.put(entry.key(), entry);
+            currentMemoryByteSize += entrySize;
+        } finally {
+            lock.writeLock().unlock();
+        }
     }
 
     @Override
