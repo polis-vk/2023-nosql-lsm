@@ -65,7 +65,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             try {
                 autoFlush();
             } catch (IOException e) {
-                throw new DaoException("Memory storage overflowed. Cannot flush: " + e.getMessage());
+                throw new DaoException("Memory storage overflowed. Cannot flush", e);
             }
         }
     }
@@ -105,7 +105,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             curState.flush();
         } catch (IOException e) {
-            throw new DaoException("Flush failed: " + e.getMessage());
+            throw new DaoException("Flush failed", e);
         }
 
         lock.writeLock().lock();
@@ -113,7 +113,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             this.state = new State(curState.config, curState.storage, new ConcurrentSkipListMap<>(comparator),
                     new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
         } catch (IOException e) {
-            throw new DaoException("Cannot recover storage on disk");
+            throw new DaoException("Cannot recover storage on disk", e);
         } finally {
             lock.writeLock().unlock();
         }
@@ -124,9 +124,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             executor.submit(this::tryCompact).get();
         } catch (InterruptedException e) {
-            throw new DaoException("Compaction failed. Thread interrupted: " + e.getMessage());
+            Thread.currentThread().interrupt();
+            throw new DaoException("Compaction failed. Thread interrupted", e);
         } catch (ExecutionException e) {
-            throw new DaoException("Compaction failed: " + e.getMessage());
+            throw new DaoException("Compaction failed", e);
         }
     }
 
@@ -135,7 +136,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             curState.diskStorage.compact();
         } catch (IOException e) {
-            throw new DaoException("Cannot compact: " + e.getMessage());
+            throw new DaoException("Cannot compact", e);
         }
 
         lock.writeLock().lock();
@@ -143,7 +144,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             this.state = new State(curState.config, curState.storage, curState.flushingStorage,
                     new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
         } catch (IOException e) {
-            throw new DaoException("Cannot recover storage on disk after compaction: " + e.getMessage());
+            throw new DaoException("Cannot recover storage on disk after compaction", e);
         } finally {
             lock.writeLock().unlock();
         }
