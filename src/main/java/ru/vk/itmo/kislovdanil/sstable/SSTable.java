@@ -42,7 +42,8 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
         return tableId;
     }
 
-    public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId, Arena filesArena) throws IOException {
+    public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId, Arena filesArena)
+            throws IOException {
         this(basePath, memSegComp, tableId, null, false, filesArena);
     }
 
