@@ -218,7 +218,11 @@ final class StorageUtils {
     }
 
     private static long indexSize(MemorySegment segment) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        try {
+            return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        } catch (IndexOutOfBoundsException ignore) {
+            return 0L;
+        }
     }
 
     static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {

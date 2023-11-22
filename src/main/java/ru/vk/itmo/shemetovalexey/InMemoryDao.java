@@ -15,21 +15,30 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final Comparator<MemorySegment> comparator = InMemoryDao::compare;
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private static final Comparator<MemorySegment> comparator = InMemoryDao::compare;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memoryStorage =
+            new ConcurrentSkipListMap<>(comparator);
+    private final AtomicLong storageSize = new AtomicLong(0);
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
+    private final long flushMemorySize;
+    private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
+    private final Lock storageLock = new ReentrantLock();
 
     public InMemoryDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
+        this.flushMemorySize = config.flushThresholdBytes();
         Files.createDirectories(path);
-
         arena = Arena.ofShared();
-
         this.diskStorage = new DiskStorage(StorageUtils.loadOrRecover(path, arena));
     }
 
@@ -53,55 +62,111 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return diskStorage.range(getInMemory(from, to), from, to);
+        storageLock.lock();
+        try {
+            return diskStorage.range(getInMemory(from, to), from, to);
+        } finally {
+            storageLock.unlock();
+        }
     }
 
     private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) {
-            return storage.values().iterator();
+        memoryLock.readLock().lock();
+        try {
+            if (from == null && to == null) {
+                return memoryStorage.values().iterator();
+            }
+            if (from == null) {
+                return memoryStorage.headMap(to).values().iterator();
+            }
+            if (to == null) {
+                return memoryStorage.tailMap(from).values().iterator();
+            }
+            return memoryStorage.subMap(from, to).values().iterator();
+        } finally {
+            memoryLock.readLock().unlock();
         }
-        if (from == null) {
-            return storage.headMap(to).values().iterator();
-        }
-        if (to == null) {
-            return storage.tailMap(from).values().iterator();
-        }
-        return storage.subMap(from, to).values().iterator();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        storage.put(entry.key(), entry);
+        memoryLock.writeLock().lock();
+        try {
+            storageSize.addAndGet(entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()));
+            memoryStorage.put(entry.key(), entry);
+        } finally {
+            memoryLock.writeLock().unlock();
+        }
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> entry = storage.get(key);
-        if (entry != null) {
-            if (entry.value() == null) {
+        memoryLock.readLock().lock();
+        try {
+            Entry<MemorySegment> entry = memoryStorage.get(key);
+            if (entry != null) {
+                if (entry.value() == null) {
+                    return null;
+                }
+                return entry;
+            }
+        } finally {
+            memoryLock.readLock().unlock();
+        }
+
+        storageLock.lock();
+        try {
+            Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+
+            if (!iterator.hasNext()) {
                 return null;
             }
-            return entry;
+            Entry<MemorySegment> next = iterator.next();
+            if (compare(next.key(), key) == 0) {
+                return next;
+            }
+        } finally {
+            storageLock.unlock();
         }
 
-        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
-
-        if (!iterator.hasNext()) {
-            return null;
-        }
-        Entry<MemorySegment> next = iterator.next();
-        if (compare(next.key(), key) == 0) {
-            return next;
-        }
         return null;
     }
 
     @Override
     public void compact() throws IOException {
-        if (storage.isEmpty() && diskStorage.getTotalFiles() <= 1) {
-            return;
+        memoryLock.writeLock().lock();
+        try {
+            storageLock.lock();
+            try {
+                if (memoryStorage.isEmpty() && diskStorage.getTotalFiles() <= 1) {
+                    return;
+                }
+                StorageUtils.compact(path, this::all);
+            } finally {
+                storageLock.unlock();
+            }
+        } finally {
+            memoryLock.writeLock().unlock();
         }
-        StorageUtils.compact(path, this::all);
+    }
+
+    @Override
+    public void flush() throws IOException {
+        memoryLock.writeLock().lock();
+        try {
+            storageLock.lock();
+            try {
+                if (storageSize.get() < flushMemorySize) {
+                    return;
+                }
+
+                StorageUtils.save(path, memoryStorage.values());
+            } finally {
+                storageLock.unlock();
+            }
+        } finally {
+            memoryLock.writeLock().unlock();
+        }
     }
 
     @Override
@@ -109,11 +174,19 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!arena.scope().isAlive()) {
             return;
         }
-
-        arena.close();
-
-        if (!storage.isEmpty()) {
-            StorageUtils.save(path, storage.values());
+        memoryLock.writeLock().lock();
+        try {
+            storageLock.lock();
+            try {
+                arena.close();
+                if (!memoryStorage.isEmpty()) {
+                    StorageUtils.save(path, memoryStorage.values());
+                }
+            } finally {
+                storageLock.unlock();
+            }
+        } finally {
+            memoryLock.writeLock().unlock();
         }
     }
 }
