@@ -68,6 +68,14 @@ public class MemTable {
         return this.isFlushing.get();
     }
 
+    public long size() {
+        return storageSize.get();
+    }
+
+    public long getThresholdBytes() {
+        return thresholdBytes;
+    }
+
     private Entry<MemorySegment> get(
             MemorySegment key,
             AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> storage
@@ -101,14 +109,6 @@ public class MemTable {
             throw new IllegalStateException();
         }
         storage.get().put(key, entry);
-    }
-
-    public long size() {
-        return storageSize.get();
-    }
-
-    public long getThresholdBytes() {
-        return thresholdBytes;
     }
 
     private long entrySize(Entry<MemorySegment> entry) {
