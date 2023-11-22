@@ -8,7 +8,6 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -19,15 +18,14 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
-// TODO read class 1:00
 public class Compaction {
     private static final String NAME_INDEX_FILE = "index.idx";
     private final List<MemorySegment> segmentList;
-    private final AtomicInteger lastFileNumber;
+    private final AtomicLong lastFileNumber;
 
-    public Compaction(List<MemorySegment> segmentList, AtomicInteger lastFileNumber) {
+    public Compaction(List<MemorySegment> segmentList, AtomicLong lastFileNumber) {
         this.segmentList = segmentList;
         this.lastFileNumber = lastFileNumber;
     }
@@ -73,9 +71,10 @@ public class Compaction {
         }
 
         final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
-        final String fileName = Integer.toString(MemorySegmentDao.lastFileNumber.getAndIncrement());
+        final long fileName = lastFileNumber.getAndIncrement();
+        // TODO May delete newTmpCompactedFileName
         final Path newTmpCompactedFileName = storagePath.resolve(fileName + ".tmp");
-        final Path newCompactedFileName = storagePath.resolve(fileName);
+        final Path newCompactedFileName = storagePath.resolve(Long.toString(fileName));
 
         long startValuesOffset = 0;
         long maxOffset = 0;
@@ -119,21 +118,22 @@ public class Compaction {
         }
 
         // Delete old data
-        DiskStorage.deleteFilesAndInMemory(
-                segmentList,
-                Files.readAllLines(indexFile, StandardCharsets.UTF_8),
-                storagePath
-        );
+        try (final Arena arena = Arena.ofShared()) {
+            DiskStorage.deleteFilesAndInMemory(
+                    segmentList,
+                    DiskStorage.getActualFilesInterval(indexFile, arena),
+                    storagePath
+            );
+        }
 
         Files.move(
                 newTmpCompactedFileName, newCompactedFileName,
                 StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING
         );
-        Files.write(
-                indexFile,
-                List.of(fileName),
-                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
-        );
+
+        try (Arena writeArena = Arena.ofShared()) {
+            DiskStorage.changeActualFilesInterval(indexFile, writeArena, fileName, fileName + 1);
+        }
     }
 
     private Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {

@@ -1,32 +1,30 @@
 package ru.vk.itmo.grunskiialexey;
 
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.grunskiialexey.model.ActualFilesInterval;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
+import static ru.vk.itmo.grunskiialexey.DiskStorage.changeActualFilesInterval;
 import static ru.vk.itmo.grunskiialexey.DiskStorage.tombstone;
 
 public class Flush {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
     private final long flushThresholdBytes;
-    private final AtomicInteger lastFileNumber;
+    private final AtomicLong lastFileNumber;
     private final Path flushPath;
 
-    public Flush(Path flushPath, long flushThresholdBytes, AtomicInteger lastFileNumber) {
+    public Flush(Path flushPath, long flushThresholdBytes, AtomicLong lastFileNumber) {
         this.flushPath = flushPath;
         this.flushThresholdBytes = flushThresholdBytes;
         this.lastFileNumber = lastFileNumber;
@@ -37,14 +35,12 @@ public class Flush {
         final Path indexTmp = flushPath.resolve(NAME_TMP_INDEX_FILE);
         final Path indexFile = flushPath.resolve(NAME_INDEX_FILE);
 
-        try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
+        final ActualFilesInterval interval;
+        try (final Arena arena = Arena.ofShared()) {
+            interval = DiskStorage.getActualFilesInterval(indexFile, arena);
         }
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        int newFileName = MemorySegmentDao.lastFileNumber.getAndIncrement();
+        long newFileName = lastFileNumber.getAndIncrement();
 
         long dataSize = 0;
         long count = 0;
@@ -59,9 +55,10 @@ public class Flush {
         long indexSize = count * 2 * Long.BYTES;
 
         try (
-                FileChannel fileChannel = FileChannel.open(
-                        flushPath.resolve(Integer.toString(newFileName)),
-                        StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE
+                FileChannel fileChannel = FileChannel.open(flushPath.resolve(Long.toString(newFileName)),
+                        StandardOpenOption.READ,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.CREATE
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
@@ -107,16 +104,10 @@ public class Flush {
 
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-        List<String> list = new ArrayList<>(existedFiles.size() + 1);
-        list.addAll(existedFiles);
-        list.add(Integer.toString(newFileName));
-        Files.write(
-                indexFile,
-                list,
-                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
-        );
+        try (final Arena writeArena = Arena.ofShared()) {
+            changeActualFilesInterval(indexFile, writeArena, interval.left(), newFileName + 1);
+        }
 
         Files.delete(indexTmp);
     }
-
 }

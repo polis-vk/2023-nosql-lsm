@@ -1,22 +1,20 @@
 package ru.vk.itmo.grunskiialexey;
 
-import ru.vk.itmo.Entry;
+import ru.vk.itmo.grunskiialexey.model.ActualFilesInterval;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
-// TODO read class for 1:30
 public final class DiskStorage {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
@@ -24,41 +22,70 @@ public final class DiskStorage {
     private DiskStorage() {
     }
 
-    public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
+    public static List<MemorySegment> loadOrRecover(
+            Path storagePath,
+            Arena arena,
+            AtomicLong lastFileNumber
+    ) throws IOException {
         Path indexTmp = storagePath.resolve(NAME_TMP_INDEX_FILE);
         Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } else {
-            try {
-                Files.createFile(indexFile);
-            } catch (FileAlreadyExistsException ignored) {
-                // it is ok, actually it is normal state
-            }
         }
 
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        List<MemorySegment> result = new ArrayList<>(existedFiles.size());
-        for (String fileName : existedFiles) {
-            Path file = storagePath.resolve(fileName);
+        final ActualFilesInterval interval = getActualFilesInterval(indexFile, arena);
+        lastFileNumber.set(interval.right());
+
+        List<MemorySegment> result = new ArrayList<>((int) (interval.right() - interval.left()));
+        for (long i = interval.left(); i < interval.right(); ++i) {
+            Path file = storagePath.resolve(Long.toString(i));
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-                MemorySegment fileSegment = fileChannel.map(
-                        FileChannel.MapMode.READ_WRITE,
-                        0,
-                        Files.size(file),
-                        arena
-                );
-                result.add(fileSegment);
+                MemorySegment segment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, Files.size(file), arena);
+                result.add(segment);
             }
         }
 
         return result;
     }
 
-    static void deleteFilesAndInMemory(List<MemorySegment> segmentList, List<String> existedFiles, Path storagePath) throws IOException {
-        for (String fileName : existedFiles) {
-            Files.delete(storagePath.resolve(fileName));
+    static ActualFilesInterval getActualFilesInterval(final Path indexFile, final Arena arena) throws IOException {
+        long left;
+        long right;
+        try (FileChannel fileChannel = FileChannel.open(indexFile,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE
+        )) {
+            MemorySegment fileSegment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, 2 * Long.BYTES, arena);
+            left = fileSegment.getAtIndex(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+            right = fileSegment.getAtIndex(ValueLayout.JAVA_LONG_UNALIGNED, 1);
+        }
+
+        return new ActualFilesInterval(left, right);
+    }
+
+    static void changeActualFilesInterval(
+            final Path indexFile,
+            final Arena arena,
+            final long left,
+            final long right
+    ) throws IOException {
+        try (FileChannel fileChannel = FileChannel.open(indexFile,
+                StandardOpenOption.READ,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        )) {
+            MemorySegment fileSegment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, 2 * Long.BYTES, arena);
+            fileSegment.setAtIndex(ValueLayout.JAVA_LONG_UNALIGNED, 0, left);
+            fileSegment.setAtIndex(ValueLayout.JAVA_LONG_UNALIGNED, 1, right);
+        }
+    }
+
+    static void deleteFilesAndInMemory(List<MemorySegment> segmentList, ActualFilesInterval interval, Path storagePath) throws IOException {
+        for (long i = interval.left(); i < interval.right(); ++i) {
+            Files.delete(storagePath.resolve(Long.toString(i)));
         }
         segmentList.clear();
     }

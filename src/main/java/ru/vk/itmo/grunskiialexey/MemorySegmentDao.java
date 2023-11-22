@@ -15,6 +15,7 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /*
 5 minutes for describing class
@@ -31,7 +32,6 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     private final Comparator<MemorySegment> comparator = MemorySegmentDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
-    public static final AtomicInteger lastFileNumber = new AtomicInteger();
     private final Compaction compaction;
     private final Flush flush;
     private final Path path;
@@ -42,7 +42,8 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
         arena = Arena.ofShared();
 
-        this.compaction = new Compaction(DiskStorage.loadOrRecover(path, arena), lastFileNumber);
+        final AtomicLong lastFileNumber = new AtomicLong();
+        this.compaction = new Compaction(DiskStorage.loadOrRecover(path, arena, lastFileNumber), lastFileNumber);
         this.flush = new Flush(path, config.flushThresholdBytes(), lastFileNumber);
     }
 
