@@ -39,8 +39,6 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
 
-    private final ExecutorService compactionExecutor = Executors.newSingleThreadExecutor();
-
     private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
 
     private final ReadWriteLock compactionLock = new ReentrantReadWriteLock();
@@ -116,7 +114,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
-        compactionFuture = compactionExecutor.submit(this::compactInBackground);
+        compactionFuture = bgExecutor.submit(this::compactInBackground);
     }
 
     private void compactInBackground() {
@@ -210,7 +208,6 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void close() throws IOException {
         bgExecutor.shutdown();
-        compactionExecutor.shutdown();
         try {
             if (flushFuture != null) {
                 await(flushFuture);
@@ -219,7 +216,6 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 await(compactionFuture);
             }
             bgExecutor.awaitTermination(1, TimeUnit.SECONDS);
-            compactionExecutor.awaitTermination(1, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
