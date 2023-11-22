@@ -12,10 +12,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemorySegment>> {
 
     private static final int MAX_MEMTABLES = 2;
+    private final AtomicBoolean isFlushing = new AtomicBoolean(false);
     private List<Memtable> memtables;
     private final long flushThresholdBytes;
     private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
@@ -66,7 +68,13 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
                 } finally {
                     memtable.upsertLock().unlock();
                 }
-                executorService.execute(() -> tryFlush(true));
+                if (isFlushing.compareAndSet(false, true)) {
+                    executorService.execute(this::forceFlush);
+                } else {
+                    if (currentMemtables.size() == MAX_MEMTABLES) {
+                        throw new TooManyUpsertsException("out of memory.");
+                    }
+                }
             }
             // Try again. We get SSTable that will be just replaced.
         }
@@ -74,42 +82,33 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
 
     @Override
     public void flush() {
-        executorService.execute(() -> tryFlush(false));
+        if (isFlushing.compareAndSet(false, true)) {
+            executorService.execute(this::forceFlush);
+        }
     }
 
-    /**
-     * Tries to flush memtable. Parameter {@code isFull} true, if we flush because of threshehold,
-     * or false, if it is requested flush.
-     */
-    private void tryFlush(final boolean isFull) {
-        final Memtable memtable = memtables.get(0);
-        // Maybe was already flushed, while task was waiting.
-        if (isFull && (memtable.size() < flushThresholdBytes)) {
-            return;
-        }
-        // Can't create new Memtable because of max count.
-        if (memtables.size() == MAX_MEMTABLES) {
-            if (isFull) {
-                throw new TooManyUpsertsException("to many upserts.");
-            }
-            return;
-        }
-        // Creating new memory table.
-        final List<Memtable> newMemtables = new ArrayList<>();
-        newMemtables.add(newMemtable());
-        newMemtables.addAll(memtables);
-        memtables = newMemtables;
-        // Waiting until all upserts finished and flushing it to disk.
-        memtable.flushLock().lock();
+    private void forceFlush() {
         try {
-            outMemoryDao.flush(memtable);
-            final List<Memtable> removed = new ArrayList<>(memtables);
-            removed.removeLast();
-            memtables = removed;
-        } catch (final IOException e) {
-            throw new UncheckedIOException(e);
+            final Memtable memtable = memtables.get(0);
+            // Creating new memory table.
+            final List<Memtable> newMemtables = new ArrayList<>();
+            newMemtables.add(newMemtable());
+            newMemtables.addAll(memtables);
+            memtables = newMemtables;
+            // Waiting until all upserts finished and flushing it to disk.
+            memtable.flushLock().lock();
+            try {
+                outMemoryDao.flush(memtable);
+                final List<Memtable> removed = new ArrayList<>(memtables);
+                removed.removeLast();
+                memtables = removed;
+            } catch (final IOException e) {
+                throw new UncheckedIOException(e);
+            } finally {
+                memtable.flushLock().unlock();
+            }
         } finally {
-            memtable.flushLock().unlock();
+            isFlushing.set(false);
         }
     }
 
@@ -123,7 +122,7 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     @Override
     public void close() {
         executorService.close();
-        tryFlush(false);
+        forceFlush();
         memtables = null;
     }
 
