@@ -22,10 +22,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegment>> {
     // Contains offset and size for every key and every value in index file
     MemorySegment summaryFile;
+    private final static String SUMMARY_FILENAME = "summary";
     // Contains keys
     MemorySegment indexFile;
+    private final static String INDEX_FILENAME = "index";
     // Contains values
     MemorySegment dataFile;
+    private final static String DATA_FILENAME = "data";
     final Comparator<MemorySegment> memSegComp;
     private final Arena filesArena = Arena.ofAuto();
     private final long tableId;
@@ -58,20 +61,20 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
         this.tableId = tableId;
         this.ssTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
-        Path summaryFilePath = ssTablePath.resolve("summary");
-        Path indexFilePath = ssTablePath.resolve("index");
-        Path dataFilePath = ssTablePath.resolve("data");
+        Path summaryFilePath = this.ssTablePath.resolve(SUMMARY_FILENAME);
+        Path indexFilePath = this.ssTablePath.resolve(INDEX_FILENAME);
+        Path dataFilePath = this.ssTablePath.resolve(DATA_FILENAME);
         if (rewrite) {
             write(entriesContainer, summaryFilePath, indexFilePath, dataFilePath);
         } else {
             readOld(summaryFilePath, indexFilePath, dataFilePath);
         }
 
-        summaryFile = summaryFile.asReadOnly();
-        indexFile = indexFile.asReadOnly();
-        dataFile = dataFile.asReadOnly();
+        this.summaryFile = this.summaryFile.asReadOnly();
+        this.indexFile = this.indexFile.asReadOnly();
+        this.dataFile = this.dataFile.asReadOnly();
 
-        size = (summaryFile.byteSize() / Metadata.SIZE);
+        this.size = (this.summaryFile.byteSize() / Metadata.SIZE);
     }
 
     private void readOld(Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
@@ -163,9 +166,9 @@ public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegmen
         readWriteLock.writeLock().lock();
         try {
             this.compactedTo = compactedTo;
-            Files.delete(ssTablePath.resolve("summary"));
-            Files.delete(ssTablePath.resolve("index"));
-            Files.delete(ssTablePath.resolve("data"));
+            Files.delete(ssTablePath.resolve(SUMMARY_FILENAME));
+            Files.delete(ssTablePath.resolve(INDEX_FILENAME));
+            Files.delete(ssTablePath.resolve(DATA_FILENAME));
             Files.delete(ssTablePath);
         } finally {
             readWriteLock.writeLock().unlock();
