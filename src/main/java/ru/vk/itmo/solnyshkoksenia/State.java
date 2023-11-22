@@ -81,10 +81,6 @@ public class State {
         return !flushingStorage.isEmpty();
     }
 
-    public State moveStorage() {
-        return new State(config, new ConcurrentSkipListMap<>(comparator), storage, diskStorage);
-    }
-
     public void flush() throws IOException {
         if (flushingStorage.isEmpty()) {
             return;
