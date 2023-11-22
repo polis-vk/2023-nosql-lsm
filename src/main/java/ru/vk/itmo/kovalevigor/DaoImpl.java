@@ -117,15 +117,10 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Entry<MemorySegment> get(final MemorySegment key) {
         Objects.requireNonNull(key);
         Entry<MemorySegment> result;
-        final Lock readLock = lock.readLock();
-        readLock.lock();
-        try {
-            result = currentStorage.get(key);
-            if (result == null) {
-                result = flushedStorage.get(key);
-            }
-        } finally {
-            readLock.unlock();
+
+        result = currentStorage.get(key);
+        if (result == null) {
+            result = flushedStorage.get(key);
         }
 
         if (result != null) {

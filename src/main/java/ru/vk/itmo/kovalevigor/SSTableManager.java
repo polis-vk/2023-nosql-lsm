@@ -68,11 +68,11 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         }
 
         final String name = getNextSSTableName();
+        SSTable.write(map, root, name);
 
         final Lock writeLock = lock.writeLock();
         writeLock.lock();
         try {
-            SSTable.write(map, root, name);
             ssTables.addFirst(SSTable.create(root, name, arena));
         } finally {
             writeLock.unlock();
@@ -213,6 +213,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         if (!arena.scope().isAlive()) {
             return;
         }
+        arena.close();
 
         if (!deadSSTables.isEmpty()) {
             for (final SSTable ssTable : deadSSTables) {
@@ -228,6 +229,5 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         deadSSTables.clear();
 
         ssTables.clear();
-        arena.close();
     }
 }
