@@ -20,13 +20,16 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class DiskStorage {
 
+    private static final String DATA_FILE_AFTER_COMPACTION = "0";
     private final List<MemorySegment> segmentList;
 
     public DiskStorage(List<MemorySegment> segmentList) {
-        this.segmentList = segmentList;
+        this.segmentList = new CopyOnWriteArrayList<>();
+        this.segmentList.addAll(segmentList);
     }
 
     public void addSegment(Path storagePath, String fileName, Arena arena) throws IOException {
@@ -40,6 +43,11 @@ public class DiskStorage {
             );
             this.segmentList.add(fileSegment);
         }
+    }
+
+    public void clearSegments(Path storagePath, Arena arena) throws IOException {
+        this.segmentList.clear();
+        addSegment(storagePath, DATA_FILE_AFTER_COMPACTION, arena);
     }
 
     public Iterator<Entry<MemorySegment>> range(
@@ -56,7 +64,6 @@ public class DiskStorage {
             iterators.add(storageState.getFlushingSSTable().get(from, to));
         }
         iterators.add(storageState.getActiveSSTable().get(from, to));
-        iterators.add(Collections.emptyIterator());
 
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
             @Override
@@ -71,11 +78,10 @@ public class DiskStorage {
             MemorySegment to
     ) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        iterators.add(Collections.emptyIterator());
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
-
-        iterators.add(Collections.emptyIterator());
 
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
             @Override
