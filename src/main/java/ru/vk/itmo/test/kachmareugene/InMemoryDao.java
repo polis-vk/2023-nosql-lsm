@@ -6,17 +6,21 @@ import ru.vk.itmo.Entry;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final Comparator<MemorySegment> memorySegmentComparatorImpl = new MemorySegmentComparator();
+    protected final Comparator<MemorySegment> memorySegmentComparatorImpl = new MemorySegmentComparator();
     private final SortedMap<MemorySegment, Entry<MemorySegment>> mp =
             new ConcurrentSkipListMap<>(memorySegmentComparatorImpl);
-
+    protected Config conf;
+    protected AtomicLong byteSize = new AtomicLong(0L);
     protected final SSTablesController controller;
 
     public InMemoryDao() {
@@ -24,6 +28,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     public InMemoryDao(Config conf) {
+        this.conf = conf;
         this.controller = new SSTablesController(conf.basePath(), new MemSegComparatorNull());
     }
 
@@ -41,7 +46,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             dataSlice = mp.subMap(from, to);
         }
 
-        return new SSTableIterator(dataSlice.values().iterator(), controller, from, to);
+        return dataSlice.values().iterator();
     }
 
     @Override
@@ -62,12 +67,27 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         mp.put(entry.key(), entry);
+        if (entry.value() == null) {
+            byteSize.addAndGet(entry.key().byteSize());
+            return;
+        }
+        byteSize.addAndGet(entry.key().byteSize() + entry.value().byteSize());
     }
 
     @Override
     public void close() throws IOException {
+        close(mp);
+        controller.closeArena();
+    }
+
+    @Override
+    public void flush() throws IOException {
+        controller.addFileToLists(close(mp));
+    }
+
+    protected Path close(Map<MemorySegment, Entry<MemorySegment>> table) throws IOException {
         try {
-            controller.dumpIterator(mp.values());
+            return controller.dumpIterator(table.values()).first;
         } finally {
             mp.clear();
         }
@@ -76,7 +96,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     protected void closeMemTable() {
         mp.clear();
     }
-
     protected SortedMap<MemorySegment, Entry<MemorySegment>> getMemTable() {
         return mp;
     }

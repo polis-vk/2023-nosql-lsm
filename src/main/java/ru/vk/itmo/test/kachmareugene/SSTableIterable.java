@@ -11,18 +11,19 @@ public class SSTableIterable implements Iterable<Entry<MemorySegment>> {
     private final SSTablesController controller;
     private final MemorySegment from;
     private final MemorySegment to;
+    private final long small;
 
     public SSTableIterable(Collection<Entry<MemorySegment>> it, SSTablesController controller,
-                           MemorySegment from, MemorySegment to) {
+                           MemorySegment from, MemorySegment to, long l) {
         memTable = it;
         this.controller = controller;
-
+        this.small = l;
         this.from = from;
         this.to = to;
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> iterator() {
-        return new SSTableIterator(memTable.iterator(), controller, from, to);
+        return new SSTableIterator(memTable.iterator(), controller, from, to, small);
     }
 }

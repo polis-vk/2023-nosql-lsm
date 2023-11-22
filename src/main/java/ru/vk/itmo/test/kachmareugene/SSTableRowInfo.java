@@ -25,6 +25,9 @@ public class SSTableRowInfo {
     public long getValueSize() {
         return valueSize;
     }
+    public boolean isValidInfo() {
+        return keyOffset > 0 && valueOffset > 0;
+    }
 
     public long totalShift() {
         return keyOffset + keySize + valueSize;

@@ -16,19 +16,21 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private final SSTablesController controller;
     private final Comparator<MemorySegment> comp = new MemSegComparatorNull();
     private final SortedMap<MemorySegment, SSTableRowInfo> mp = new TreeMap<>(comp);
+
+    private final long smallestNum;
     private final MemorySegment from;
     private final MemorySegment to;
     private Entry<MemorySegment> head;
     private Entry<MemorySegment> keeper;
 
     public SSTableIterator(Iterator<Entry<MemorySegment>> it, SSTablesController controller,
-                           MemorySegment from, MemorySegment to) {
+                           MemorySegment from, MemorySegment to, long smallestNum) {
         memTableIterator = it;
         this.controller = controller;
 
         this.from = from;
         this.to = to;
-
+        this.smallestNum = smallestNum;
         positioningIterator();
     }
 
@@ -55,7 +57,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private void positioningIterator() {
-        List<SSTableRowInfo> rawData = controller.firstGreaterKeys(from);
+        List<SSTableRowInfo> rawData = controller.firstGreaterKeys(from, smallestNum);
 
         for (var info : rawData) {
             insertNew(info);
@@ -67,6 +69,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         if (keeper == null) {
             changeState();
         }
+
         return keeper != null;
     }
 

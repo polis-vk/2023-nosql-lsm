@@ -3,18 +3,16 @@ package ru.vk.itmo.test.kachmareugene;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Stream;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.READ;
@@ -23,8 +21,10 @@ import static ru.vk.itmo.test.kachmareugene.Utils.getValueOrNull;
 
 public class SSTablesController {
     private final Path ssTablesDir;
-    private final List<MemorySegment> ssTables = new ArrayList<>();
-    private final List<Path> ssTablesPaths = new ArrayList<>();
+    // TODO add pair in key
+    public final Map<Path, AtomicInteger> filesLifeStatistics = new ConcurrentHashMap<>();
+    public final AtomicLong maximumFileNum;
+    private final List<Pair<Path, MemorySegment>> ssTables = new CopyOnWriteArrayList<>();
     private static final String SS_TABLE_COMMON_PREF = "ssTable";
     //  index format: (long) keyOffset, (long) keyLen, (long) valueOffset, (long) valueLen
     private static final long ONE_LINE_SIZE = 4 * Long.BYTES;
@@ -35,36 +35,16 @@ public class SSTablesController {
     public SSTablesController(Path dir, Comparator<MemorySegment> com) {
         this.ssTablesDir = dir;
         this.segComp = com;
-
-        ssTablesPaths.addAll(openFiles(dir, SS_TABLE_COMMON_PREF, ssTables));
+        this.maximumFileNum = new AtomicLong(Utils.getMaxNumberOfFile(ssTablesDir, SS_TABLE_COMMON_PREF));
+        ssTables.addAll(Utils.openFiles(dir, SS_TABLE_COMMON_PREF,
+                filesLifeStatistics, arenaForReading));
     }
 
+    // fixme add CAS to add
     public SSTablesController(Comparator<MemorySegment> com) {
         this.ssTablesDir = null;
+        this.maximumFileNum = new AtomicLong(0);
         this.segComp = com;
-    }
-
-    private List<Path> openFiles(Path dir, String fileNamePref, List<MemorySegment> storage) {
-        try {
-            Files.createDirectories(dir);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-        try (Stream<Path> tabels = Files.find(dir, 1,
-                (path, ignore) -> path.getFileName().toString().startsWith(fileNamePref))) {
-            final List<Path> list = new ArrayList<>(tabels.toList());
-            Utils.sortByNames(list, fileNamePref);
-            list.forEach(t -> {
-                try (FileChannel channel = FileChannel.open(t, READ)) {
-                    storage.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arenaForReading));
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            });
-            return list;
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
     }
 
     private boolean greaterThen(long keyOffset, long keySize,
@@ -91,34 +71,56 @@ public class SSTablesController {
     }
 
     //return - List ordered form the latest created sstable to the first.
-    public List<SSTableRowInfo> firstGreaterKeys(MemorySegment key) {
+    public List<SSTableRowInfo> firstGreaterKeys(MemorySegment key, long smallestNum) {
         List<SSTableRowInfo> ans = new ArrayList<>();
 
-        for (int i = ssTables.size() - 1; i >= 0; i--) {
+        var ssTablesCopy = new ArrayList<>(ssTables);
+        Collections.reverse(ssTablesCopy);
+
+        for (var file : ssTablesCopy) {
+            int i = (int) Utils.getNumberFromFileName(file.first, SS_TABLE_COMMON_PREF);
+
+            if (i < smallestNum) {
+                continue;
+            }
+
             long entryIndexesLine = 0;
             if (key != null) {
-                entryIndexesLine = searchKeyInFile(i, ssTables.get(i), key);
-             }
+                entryIndexesLine = searchKeyInFile(i, file.second, key);
+            }
             if (entryIndexesLine < 0) {
                 continue;
             }
             ans.add(createRowInfo(i, entryIndexesLine));
+            filesLifeStatistics.merge(file.first,
+                    new AtomicInteger(1), (old, n) -> new AtomicInteger(old.addAndGet(n.get())));
         }
         return ans;
     }
 
-    private SSTableRowInfo createRowInfo(int ind, final long rowIndex) {
-        long start = ssTables.get(ind).get(ValueLayout.JAVA_LONG_UNALIGNED, rowIndex * ONE_LINE_SIZE + Long.BYTES);
-        long size = ssTables.get(ind).get(ValueLayout.JAVA_LONG_UNALIGNED, rowIndex * ONE_LINE_SIZE + Long.BYTES * 2);
+    private SSTableRowInfo createRowInfo(int realFileIndex, final long rowIndex) {
+        MemorySegment seg = Utils.findMemSegInListOfFiles(ssTables, realFileIndex, SS_TABLE_COMMON_PREF);
 
-        long start1 = ssTables.get(ind).get(ValueLayout.JAVA_LONG_UNALIGNED,rowIndex * ONE_LINE_SIZE + Long.BYTES * 3);
-        long size1 = ssTables.get(ind).get(ValueLayout.JAVA_LONG_UNALIGNED,rowIndex * ONE_LINE_SIZE + Long.BYTES * 4);
-        return new SSTableRowInfo(start, size, start1, size1, ind, rowIndex);
+        if (seg.equals(MemorySegment.NULL)) {
+            return new SSTableRowInfo(-1, -1, -1, -1, realFileIndex, rowIndex);
+        }
+
+        long start = seg.get(ValueLayout.JAVA_LONG_UNALIGNED, rowIndex * ONE_LINE_SIZE + Long.BYTES);
+        long size = seg.get(ValueLayout.JAVA_LONG_UNALIGNED, rowIndex * ONE_LINE_SIZE + Long.BYTES * 2);
+
+        long start1 = seg.get(ValueLayout.JAVA_LONG_UNALIGNED,rowIndex * ONE_LINE_SIZE + Long.BYTES * 3);
+        long size1 = seg.get(ValueLayout.JAVA_LONG_UNALIGNED,rowIndex * ONE_LINE_SIZE + Long.BYTES * 4);
+        return new SSTableRowInfo(start, size, start1, size1, realFileIndex, rowIndex);
     }
 
     public SSTableRowInfo searchInSStables(MemorySegment key) {
-        for (int i = ssTables.size() - 1; i >= 0; i--) {
-            long ind = searchKeyInFile(i, ssTables.get(i), key);
+        var ssTablesCopy = new ArrayList<>(ssTables);
+        Collections.reverse(ssTablesCopy);
+
+        for (var file : ssTablesCopy) {
+            int i = (int) Utils.getNumberFromFileName(file.first, SS_TABLE_COMMON_PREF);
+            long ind = searchKeyInFile(i, file.second, key);
+
             if (ind >= 0) {
                 return createRowInfo(i, ind);
             }
@@ -127,16 +129,17 @@ public class SSTablesController {
     }
 
     public Entry<MemorySegment> getRow(SSTableRowInfo info) {
-        if (info == null) {
+        if (info == null || !info.isValidInfo()) {
             return null;
         }
+        MemorySegment memSeg = Utils.findMemSegInListOfFiles(ssTables, info.ssTableInd, SS_TABLE_COMMON_PREF);
 
-        var key = ssTables.get(info.ssTableInd).asSlice(info.keyOffset, info.keySize);
+        var key = memSeg.asSlice(info.keyOffset, info.keySize);
 
         if (info.isDeletedData()) {
             return new BaseEntry<>(key, null);
         }
-        var value = ssTables.get(info.ssTableInd).asSlice(info.valueOffset, info.getValueSize());
+        var value = memSeg.asSlice(info.valueOffset, info.getValueSize());
 
         return new BaseEntry<>(key, value);
     }
@@ -145,14 +148,19 @@ public class SSTablesController {
      * Ignores deleted values.
      */
     public SSTableRowInfo getNextInfo(SSTableRowInfo info, MemorySegment maxKey) {
-        for (long t = info.rowShift + 1; t < getNumberOfEntries(ssTables.get(info.ssTableInd)); t++) {
+        for (long t = info.rowShift + 1; t < getNumberOfEntries(Utils.findMemSegInListOfFiles(ssTables,
+                info.ssTableInd, SS_TABLE_COMMON_PREF)); t++) {
             var inf = createRowInfo(info.ssTableInd, t);
 
             Entry<MemorySegment> row = getRow(inf);
             if (segComp.compare(row.key(), maxKey) < 0) {
+                if (inf == null) {
+                    decrease(info.ssTableInd);
+                }
                 return inf;
             }
         }
+        decrease(info.ssTableInd);
         return null;
     }
 
@@ -160,14 +168,16 @@ public class SSTablesController {
         return memSeg.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
-    public void dumpIterator(Iterable<Entry<MemorySegment>> iter) throws IOException {
+    public Pair<Path, Long> dumpIterator(Iterable<Entry<MemorySegment>> iter) throws IOException {
         Iterator<Entry<MemorySegment>> iter1 = iter.iterator();
 
         if (ssTablesDir == null || !iter1.hasNext()) {
-            closeArena();
-            return;
+            return new Pair<>(null, null);
         }
-        String suff = String.valueOf(Utils.getMaxNumberOfFile(ssTablesDir, SS_TABLE_COMMON_PREF) + 1);
+
+
+        long curMaxFileNum = maximumFileNum.incrementAndGet();
+        String suff = String.valueOf(curMaxFileNum);
         Set<OpenOption> options = Set.of(WRITE, READ, CREATE);
 
         final Path tmpFile = ssTablesDir.resolve("data.tmp");
@@ -178,7 +188,6 @@ public class SSTablesController {
         } catch (FileAlreadyExistsException ignored) {
             // it is ok, actually it is normal state
         }
-
 
         try (FileChannel ssTableChannel =
                      FileChannel.open(tmpFile, options);
@@ -224,21 +233,36 @@ public class SSTablesController {
             Files.deleteIfExists(targetFile);
 
             Files.move(tmpFile, targetFile, StandardCopyOption.ATOMIC_MOVE);
-
-        } finally {
-            closeArena();
+            return new Pair<>(targetFile, curMaxFileNum);
         }
     }
 
-    private void closeArena() {
+    public void closeArena() {
         if (!isClosedArena) {
             arenaForReading.close();
         }
         isClosedArena = true;
     }
+    public void addFileToLists(Path filePath) {
+        Utils.openMemorySegment(filePath, ssTables,
+                filesLifeStatistics, arenaForReading);
+    }
+    public void tryToDelete() throws IOException {
+        for (var kv : filesLifeStatistics.entrySet()) {
+            // TODO equal zero
+            if (kv.getValue().get() <= 0) {
+                int ind = Utils.getInd(ssTables, kv.getKey());
+                Path toDelete = ssTables.get(ind).first;
+                ssTables.remove(ind);
+                Utils.deleteFile(toDelete);
+            }
+        }
+    }
+    public void decrease(long num) {
+        Utils.decrease(ssTablesDir, filesLifeStatistics, SS_TABLE_COMMON_PREF, num);
+    }
 
-    public void deleteAllOldFiles() throws IOException {
-        closeArena();
-        Utils.deleteFiles(ssTablesPaths);
+    public void decreaseAllSmall(long biggest) {
+        Utils.decreaseAllSmall(ssTablesDir, SS_TABLE_COMMON_PREF, filesLifeStatistics, biggest);
     }
 }
