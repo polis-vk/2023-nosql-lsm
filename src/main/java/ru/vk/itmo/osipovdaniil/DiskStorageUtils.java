@@ -35,26 +35,6 @@ public final class DiskStorageUtils {
         return storagePath.resolve(INDEX);
     }
 
-    public static void deleteAll(final Path storagePath) throws IOException {
-        final Path indexFile = getIndexPath(storagePath);
-        final Path indexTmp = getIndexTmpPath(storagePath);
-        try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
-        }
-        final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        for (String fileName : existedFiles) {
-            try {
-                Files.delete(storagePath.resolve(fileName));
-            } catch (IOException ignored) {
-                // it's ok
-            }
-        }
-        Files.delete(indexFile);
-        Files.deleteIfExists(indexTmp);
-    }
-
     public static List<MemorySegment> loadOrRecover(final Path storagePath, final Arena arena) throws IOException {
         if (Files.exists(compactionFile(storagePath))) {
             finalizeCompaction(storagePath);
