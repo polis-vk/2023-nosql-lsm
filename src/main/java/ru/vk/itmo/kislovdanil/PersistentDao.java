@@ -4,6 +4,7 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.kislovdanil.exceptions.DBException;
+import ru.vk.itmo.kislovdanil.exceptions.OverloadException;
 import ru.vk.itmo.kislovdanil.iterators.DatabaseIterator;
 import ru.vk.itmo.kislovdanil.iterators.MergeIterator;
 import ru.vk.itmo.kislovdanil.sstable.SSTable;
@@ -13,38 +14,41 @@ import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
 
     public static final MemorySegment DELETED_VALUE = null;
     private final Config config;
-    private final List<SSTable> tables = new CopyOnWriteArrayList<>();
+    private volatile List<SSTable> tables = new ArrayList<>();
     private final Comparator<MemorySegment> comparator = new MemSegComparator();
-    private volatile MemTable memTable = new MemTable(comparator);
-
+    private volatile MemTable memTable;
     // Temporary storage in case of main storage flushing (Read only)
-    private volatile NavigableMap<MemorySegment, Entry<MemorySegment>> additionalStorage =
-            new ConcurrentSkipListMap<>(comparator);
-
+    private volatile MemTable additionalStorage;
     // In case of additional table overload while main table is flushing
-
     private final AtomicLong nextId = new AtomicLong();
-    private final ExecutorService commonExecutorService = Executors.newSingleThreadExecutor();
-    // To prevent accumulation of tasks
-    private final AtomicBoolean haveFlushTask = new AtomicBoolean(false);
-    private final AtomicBoolean haveCompactionTask = new AtomicBoolean(false);
+    private final ExecutorService commonExecutorService = Executors.newFixedThreadPool(2);
+    // To prevent parallel flushing
+    private volatile Future<?> compcatFuture;
+    // To make sure that flushing in close() will be started
+    private volatile Future<?> flushFuture;
+    // Have to take before any tables modification
+    private final Lock compactionLock = new ReentrantLock();
+    // Have to take read while upsert and write while flushing (to prevent data loss)
+    private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
+
 
     private long getMaxTablesId(Iterable<SSTable> tableIterable) {
         long curMaxId = -1;
@@ -56,6 +60,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     public PersistentDao(Config config) throws IOException {
         this.config = config;
+        this.memTable = new MemTable(comparator, config.flushThresholdBytes());
         File basePathDirectory = new File(config.basePath().toString());
         String[] ssTablesIds = basePathDirectory.list();
         if (ssTablesIds == null) return;
@@ -73,8 +78,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         for (SSTable table : tables) {
             iterators.add(table.getRange(from, to));
         }
-        iterators.add(new MemTableIterator(from, to, memTable.storage, Long.MAX_VALUE));
-        iterators.add(new MemTableIterator(from, to, additionalStorage, Long.MAX_VALUE - 1));
+        iterators.add(new MemTableIterator(from, to, memTable, Long.MAX_VALUE));
+        if (additionalStorage != null) {
+            iterators.add(new MemTableIterator(from, to, additionalStorage, Long.MAX_VALUE - 1));
+        }
         return new MergeIterator(iterators, comparator);
     }
 
@@ -89,10 +96,12 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> ans = memTable.storage.get(key);
+        Entry<MemorySegment> ans = memTable.getStorage().get(key);
         if (ans != null) return wrapEntryIfDeleted(ans);
-        ans = additionalStorage.get(key);
-        if (ans != null) return wrapEntryIfDeleted(ans);
+        if (additionalStorage != null) {
+            ans = additionalStorage.getStorage().get(key);
+            if (ans != null) return wrapEntryIfDeleted(ans);
+        }
         try {
             for (SSTable table : tables.reversed()) {
                 ans = table.find(key);
@@ -107,35 +116,58 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
     }
 
     @Override
-    public synchronized void upsert(Entry<MemorySegment> entry) {
-        memTable.put(entry);
+    public void upsert(Entry<MemorySegment> entry) {
+        upsertLock.readLock().lock();
+        try {
+            if (memTable.put(entry)) {
+                return;
+            }
+        } finally {
+            upsertLock.readLock().unlock();
+        }
+        flush();
+        upsertLock.readLock().lock();
+        try {
+            if (!memTable.put(entry)) {
+                throw new OverloadException(entry);
+            }
+        } finally {
+            upsertLock.readLock().unlock();
+        }
     }
 
     private void makeFlush() throws IOException {
-        if (memTable.storage.isEmpty()) {
-            return;
+        compactionLock.lock();
+        try {
+            if (additionalStorage == null) return;
+            // SSTable constructor with entries iterator writes MemTable data on disk deleting old data if it exists
+            tables.add(new SSTable(config.basePath(), comparator,
+                    getNextId(), additionalStorage.getStorage().values().iterator()));
+            additionalStorage = null;
+        } finally {
+            compactionLock.unlock();
         }
-        MemTable currentMemTable = memTable;
-        additionalStorage = currentMemTable.storage;
-        memTable = new MemTable(comparator);
-        // SSTable constructor with entries iterator writes MemTable data on disk deleting old data if it exists
-        tables.add(new SSTable(config.basePath(), comparator,
-                getNextId(), additionalStorage.values().iterator()));
     }
 
     @Override
     public void flush() {
-        if (haveFlushTask.compareAndSet(false, true)) {
-            commonExecutorService.execute(
+        upsertLock.writeLock().lock();
+        try {
+            if (additionalStorage != null || memTable.getStorage().isEmpty()) {
+                return;
+            }
+            additionalStorage = memTable;
+            memTable = new MemTable(comparator, config.flushThresholdBytes());
+            flushFuture = commonExecutorService.submit(
                     () -> {
                         try {
                             makeFlush();
                         } catch (IOException e) {
                             throw new DBException(e);
-                        } finally {
-                            haveFlushTask.set(false);
                         }
                     });
+        } finally {
+            upsertLock.writeLock().unlock();
         }
     }
 
@@ -152,38 +184,49 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
 
     @Override
     public void close() throws IOException {
+        if (flushFuture != null) {
+            try {
+                flushFuture.get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        flush();
         closeExecutorService(commonExecutorService);
-        makeFlush();
     }
 
     private void makeCompaction() throws IOException {
-        if (tables.size() <= 1) return;
-        SSTable[] curTables = new SSTable[tables.size()];
-        long compactedTableId = getNextId();
-        tables.toArray(curTables);
-        SSTable compactedTable = new SSTable(config.basePath(), comparator, compactedTableId,
-                new MergeIterator(Arrays.asList(curTables), comparator));
-        tables.add(compactedTable);
-        for (SSTable table : curTables) {
-            tables.remove(table);
-            table.deleteFromDisk(compactedTable);
+        compactionLock.lock();
+        try {
+            if (tables.size() <= 1) return;
+            long compactedTableId = getNextId();
+            SSTable compactedTable = new SSTable(config.basePath(), comparator, compactedTableId,
+                    new MergeIterator(tables, comparator));
+            List<SSTable> oldTables = tables;
+            List<SSTable> newTables = new ArrayList<>();
+            newTables.add(compactedTable);
+            tables = newTables;
+            for (SSTable table : oldTables) {
+                table.deleteFromDisk(compactedTable);
+            }
+        } finally {
+            compactionLock.unlock();
         }
     }
 
     @Override
     public void compact() {
-        if (haveCompactionTask.compareAndSet(false, true)) {
-            commonExecutorService.execute(
-                    () -> {
-                        try {
-                            makeCompaction();
-                        } catch (IOException e) {
-                            throw new DBException(e);
-                        } finally {
-                            haveCompactionTask.set(false);
-                        }
-                    });
+        if (compcatFuture != null && !compcatFuture.isDone()) {
+            compcatFuture.cancel(false);
         }
+        compcatFuture = commonExecutorService.submit(
+                () -> {
+                    try {
+                        makeCompaction();
+                    } catch (IOException e) {
+                        throw new DBException(e);
+                    }
+                });
     }
 
     @Override
@@ -210,17 +253,17 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, 
         private final long priority;
 
         public MemTableIterator(MemorySegment from, MemorySegment to,
-                                NavigableMap<MemorySegment, Entry<MemorySegment>> memTable,
+                                MemTable memTable,
                                 long priority) {
             this.priority = priority;
             if (from == null && to == null) {
-                innerIter = memTable.values().iterator();
+                innerIter = memTable.getStorage().values().iterator();
             } else if (from != null && to == null) {
-                innerIter = memTable.tailMap(from).values().iterator();
+                innerIter = memTable.getStorage().tailMap(from).values().iterator();
             } else if (from == null) {
-                innerIter = memTable.headMap(to).values().iterator();
+                innerIter = memTable.getStorage().headMap(to).values().iterator();
             } else {
-                innerIter = memTable.subMap(from, to).values().iterator();
+                innerIter = memTable.getStorage().subMap(from, to).values().iterator();
             }
         }
 
