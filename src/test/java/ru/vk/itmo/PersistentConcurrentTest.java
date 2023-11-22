@@ -30,11 +30,28 @@ public class PersistentConcurrentTest extends BaseTest {
     void testConcurrentRW_100_000_compact(Dao<String, Entry<String>> dao) throws Exception {
         int count = 100_000;
 
+        List<Entry<String>> entries = entries("k", "v", count);
+        long timeoutNanosWarmup = TimeUnit.MILLISECONDS.toNanos(1000);
+        runInParallel(100, count, value -> {
+            tryRun(timeoutNanosWarmup, () -> dao.upsert(entries.get(value)));
+            tryRun(timeoutNanosWarmup, () -> dao.upsert(entry(keyAt(value), null)));
+            tryRun(timeoutNanosWarmup, () -> dao.upsert(entries.get(value)));
+        }, () -> {
+            for (int i = 0; i < 100; i++) {
+                try {
+                    runAndMeasure(timeoutNanosWarmup, dao::compact);
+                    runAndMeasure(timeoutNanosWarmup, dao::flush);
+
+                    Thread.sleep(30);
+                } catch (IOException | InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }).close();
+
         // 100ms should be enough considering GC
         long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(100);
         long warmupTimeoutNanos = TimeUnit.MILLISECONDS.toNanos(5000);
-
-        List<Entry<String>> entries = entries("k", "v", count);
 
         runInParallel(100, count, value -> {
             tryRun(warmupTimeoutNanos, () -> dao.upsert(entries.get(value)));
