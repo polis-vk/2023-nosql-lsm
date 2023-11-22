@@ -14,7 +14,6 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /*
@@ -32,8 +31,8 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     private final Comparator<MemorySegment> comparator = MemorySegmentDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
-    private final Compaction compaction;
-    private final Flush flush;
+    private final CompactionService compactionService;
+    private final FlushService flushService;
     private final Path path;
 
     public MemorySegmentDao(Config config) throws IOException {
@@ -43,8 +42,8 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         arena = Arena.ofShared();
 
         final AtomicLong lastFileNumber = new AtomicLong();
-        this.compaction = new Compaction(DiskStorage.loadOrRecover(path, arena, lastFileNumber), lastFileNumber);
-        this.flush = new Flush(path, config.flushThresholdBytes(), lastFileNumber);
+        this.compactionService = new CompactionService(DiskStorage.loadOrRecover(path, arena, lastFileNumber), lastFileNumber);
+        this.flushService = new FlushService(path, config.flushThresholdBytes(), lastFileNumber);
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -68,7 +67,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     // may get more better query
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return compaction.range(getInMemory(from, to), from, to);
+        return compactionService.range(getInMemory(from, to), from, to);
     }
 
     private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
@@ -86,6 +85,29 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
+//        if (flush.isReachedThreshold(entry) && flush.isWorking().get()) {
+//            try {
+//                Thread.sleep(10);
+//            } catch (InterruptedException e) {
+//                throw new RuntimeException(e);
+//            }
+//        }
+//        if (flush.isReachedThreshold(entry) && flush.isWorking().get()) {
+//            throw new OutOfMemoryError("Can't upsert data in flushing file");
+//        }
+//
+//        if (flush.isReachedThreshold(entry)) {
+//            try {
+//                flush();
+//            } catch (IOException e) {
+//                throw new RuntimeException(e);
+//            }
+//        }
+//
+//        if (flush.isWorking().get() && isUpserting.compareAndSet(false, true)) {
+//            flushStorage.put(entry.key(), entry);
+//            isUpserting.set(false);
+//        }
         storage.put(entry.key(), entry);
     }
 
@@ -99,7 +121,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             return entry;
         }
 
-        Iterator<Entry<MemorySegment>> iterator = compaction.range(key, null);
+        Iterator<Entry<MemorySegment>> iterator = compactionService.range(key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -114,13 +136,13 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     @Override
     public void flush() throws IOException {
         if (!storage.isEmpty()) {
-            flush.save(storage.values());
+            flushService.save(storage.values());
         }
     }
 
     @Override
     public void compact() throws IOException {
-        compaction.compact(path);
+        compactionService.compact(path);
     }
 
     @Override

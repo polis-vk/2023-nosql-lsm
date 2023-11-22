@@ -8,9 +8,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,12 +18,12 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class Compaction {
+public class CompactionService {
     private static final String NAME_INDEX_FILE = "index.idx";
     private final List<MemorySegment> segmentList;
     private final AtomicLong lastFileNumber;
 
-    public Compaction(List<MemorySegment> segmentList, AtomicLong lastFileNumber) {
+    public CompactionService(List<MemorySegment> segmentList, AtomicLong lastFileNumber) {
         this.segmentList = segmentList;
         this.lastFileNumber = lastFileNumber;
     }

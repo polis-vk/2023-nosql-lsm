@@ -17,14 +17,14 @@ import java.util.concurrent.atomic.AtomicLong;
 import static ru.vk.itmo.grunskiialexey.DiskStorage.changeActualFilesInterval;
 import static ru.vk.itmo.grunskiialexey.DiskStorage.tombstone;
 
-public class Flush {
+public class FlushService {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
     private final long flushThresholdBytes;
     private final AtomicLong lastFileNumber;
     private final Path flushPath;
 
-    public Flush(Path flushPath, long flushThresholdBytes, AtomicLong lastFileNumber) {
+    public FlushService(Path flushPath, long flushThresholdBytes, AtomicLong lastFileNumber) {
         this.flushPath = flushPath;
         this.flushThresholdBytes = flushThresholdBytes;
         this.lastFileNumber = lastFileNumber;
