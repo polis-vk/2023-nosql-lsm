@@ -75,7 +75,8 @@ public final class DiskStorage {
                                               Path intermediateDir,
                                               int beforeCount,
                                               int afterCount) throws IOException {
-        // Если файлы были добавлены во время компакта, то перемещаем их в промежуточную директорию.
+        // Если файлы были добавлены во время компакта в неактуальную директорию,
+        // то перемещаем их в промежуточную директорию.
         int to = 1;
         for (int from = beforeCount; from < afterCount; from++) {
             Files.move(
@@ -141,7 +142,7 @@ public final class DiskStorage {
         Files.deleteIfExists(tmpFilePath);
         saveSsTable(tmpFilePath, iterable);
 
-        // Переместим в актуальную директорию.
+        // Определим актуальную директорию и переместим в нее сохраненный файл.
         String dirToSave = readWorkDir(storagePath);
         Path dirToSavePath = storagePath.resolve(dirToSave);
         Path indexFilePath = dirToSavePath.resolve(INDEX_FILE);

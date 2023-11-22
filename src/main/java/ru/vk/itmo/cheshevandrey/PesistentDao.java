@@ -5,6 +5,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -29,6 +30,8 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final AtomicBoolean isFlushing;
     private final AtomicBoolean isCompacting;
 
+    private final Arena arena = Arena.ofShared();
+
     private static final Logger logger = Logger.getLogger(PesistentDao.class.getName());
 
     public PesistentDao(Config config) throws IOException {
@@ -42,10 +45,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.isCompacting = new AtomicBoolean(false);
 
         this.executor = Executors.newCachedThreadPool();
-        this.environment = new Environment(
-                new ConcurrentSkipListMap<>(Tools::compare),
-                config.basePath()
-        );
+        this.environment = new Environment(new ConcurrentSkipListMap<>(Tools::compare), config.basePath(), arena);
     }
 
     @Override
@@ -140,7 +140,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         writeLock.lock();
         try {
-            this.environment = new Environment(environment.getTable(), config.basePath());
+            this.environment = new Environment(environment.getTable(), config.basePath(), arena);
         } finally {
             writeLock.unlock();
         }
@@ -160,7 +160,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         // Ожидаем выполнения фоновых flush и сompact.
         executor.close();
 
-        this.environment = new Environment(environment.getTable(), config.basePath());
+        this.environment = new Environment(environment.getTable(), config.basePath(), arena);
         environment.flush();
     }
 }

@@ -20,7 +20,7 @@ import static ru.vk.itmo.cheshevandrey.DiskStorage.INDEX_FILE;
 import static ru.vk.itmo.cheshevandrey.Tools.createDir;
 import static ru.vk.itmo.cheshevandrey.Tools.createFile;
 
-public class Environment implements AutoCloseable {
+public class Environment {
 
     private final List<MemorySegment> mainSegmentList;
     private final List<MemorySegment> intermSegmentList;
@@ -42,11 +42,10 @@ public class Environment implements AutoCloseable {
     private static final String DIR_1 = "1";
     private static final String INTERMEDIATE_DIR = "tmp";
 
-    private final Arena arena = Arena.ofShared();
-
     public Environment(
             ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> table,
-            Path storagePath
+            Path storagePath,
+            Arena arena
     ) throws IOException {
         this.memTable = new ConcurrentSkipListMap<>(Tools::compare);
         this.flushingTable = table;
@@ -203,10 +202,5 @@ public class Environment implements AutoCloseable {
 
     public Entry<MemorySegment> getFlushingTableEntry(MemorySegment key) {
         return flushingTable.get(key);
-    }
-
-    @Override
-    public void close() throws Exception {
-        arena.close();
     }
 }
