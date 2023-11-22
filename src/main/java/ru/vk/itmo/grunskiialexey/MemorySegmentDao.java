@@ -11,6 +11,7 @@ import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Iterator;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /*
@@ -36,9 +37,11 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
         arena = Arena.ofShared();
 
+        final AtomicLong firstFileNumber = new AtomicLong();
         final AtomicLong lastFileNumber = new AtomicLong();
         this.compactionService = new CompactionService(
-                DiskStorage.loadOrRecover(path, arena, lastFileNumber),
+                DiskStorage.loadOrRecover(path, arena, firstFileNumber, lastFileNumber),
+                firstFileNumber,
                 lastFileNumber
         );
         this.inMemoryQuerySystem = new InMemoryQuerySystem(

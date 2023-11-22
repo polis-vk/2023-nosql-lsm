@@ -25,6 +25,7 @@ public final class DiskStorage {
     public static List<MemorySegment> loadOrRecover(
             Path storagePath,
             Arena arena,
+            AtomicLong firstFileNumber,
             AtomicLong lastFileNumber
     ) throws IOException {
         Path indexTmp = storagePath.resolve(NAME_TMP_INDEX_FILE);
@@ -35,6 +36,7 @@ public final class DiskStorage {
         }
 
         final ActualFilesInterval interval = getActualFilesInterval(indexFile, arena);
+        firstFileNumber.set(interval.left());
         lastFileNumber.set(interval.right());
 
         List<MemorySegment> result = new ArrayList<>((int) (interval.right() - interval.left()));

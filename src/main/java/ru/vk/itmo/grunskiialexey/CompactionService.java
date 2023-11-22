@@ -22,12 +22,16 @@ import java.util.concurrent.atomic.AtomicLong;
 public class CompactionService {
     private static final String NAME_INDEX_FILE = "index.idx";
     private final List<MemorySegment> segmentList;
+    private final long firstFileNumber;
     private final AtomicLong lastFileNumber;
+    private final AtomicLong compactFileName;
     private final AtomicBoolean isWorking;
 
-    public CompactionService(List<MemorySegment> segmentList, AtomicLong lastFileNumber) {
+    public CompactionService(List<MemorySegment> segmentList, AtomicLong firstFileNumber, AtomicLong lastFileNumber) {
         this.segmentList = segmentList;
+        this.firstFileNumber = firstFileNumber.get();
         this.lastFileNumber = lastFileNumber;
+        this.compactFileName = new AtomicLong(-1);
         this.isWorking = new AtomicBoolean();
     }
 
@@ -64,8 +68,11 @@ public class CompactionService {
 
     private List<Iterator<Entry<MemorySegment>>> getFileIterators(MemorySegment from, MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 2);
-        for (MemorySegment memorySegment : segmentList) {
-            iterators.add(iterator(memorySegment, from, to));
+        for (int i = 0; i < segmentList.size(); ++i) {
+            if (compactFileName.get() - firstFileNumber == i) {
+                continue;
+            }
+            iterators.add(iterator(segmentList.get(i), from, to));
         }
         return iterators;
     }
