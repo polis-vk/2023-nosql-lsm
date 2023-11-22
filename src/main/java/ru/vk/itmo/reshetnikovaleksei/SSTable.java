@@ -8,7 +8,6 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
@@ -18,15 +17,16 @@ public class SSTable {
     public static final String DATA_TMP = "data.tmp";
     public static final String INDEX_PREFIX = "index-";
     public static final String INDEX_TMP = "index.tmp";
+    public static final String COMPACTED_PREFIX = "compacted-";
+    public static final String COMPACTED_DATA = COMPACTED_PREFIX + "data";
+    public static final String COMPACTED_INDEX = COMPACTED_PREFIX + "index";
 
     private final MemorySegment dataSegment;
     private final MemorySegment indexSegment;
-    private final Path dataPath;
-    private final Path indexPath;
 
     public SSTable(Path basePath, Arena arena, long idx) throws IOException {
-        this.dataPath = basePath.resolve(DATA_PREFIX + idx);
-        this.indexPath = basePath.resolve(INDEX_PREFIX + idx);
+        Path dataPath = basePath.resolve(DATA_PREFIX + idx);
+        Path indexPath = basePath.resolve(INDEX_PREFIX + idx);
 
         try (FileChannel dataChannel = FileChannel.open(dataPath, StandardOpenOption.READ)) {
             this.dataSegment = dataChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataChannel.size(), arena);
@@ -46,11 +46,6 @@ public class SSTable {
         }
 
         return new SSTableIterator(indexFrom, to, dataSegment, indexSegment);
-    }
-
-    public void deleteFiles() throws IOException {
-        Files.deleteIfExists(dataPath);
-        Files.deleteIfExists(indexPath);
     }
 
     private long getIndexOffsetByKey(MemorySegment key) {

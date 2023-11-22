@@ -22,20 +22,20 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import static ru.vk.itmo.reshetnikovaleksei.SSTable.DATA_PREFIX;
-import static ru.vk.itmo.reshetnikovaleksei.SSTable.DATA_TMP;
-import static ru.vk.itmo.reshetnikovaleksei.SSTable.INDEX_PREFIX;
-import static ru.vk.itmo.reshetnikovaleksei.SSTable.INDEX_TMP;
+import static ru.vk.itmo.reshetnikovaleksei.SSTable.*;
 
-public class SSTableManager {
+public class SSTableManager implements Iterable<Entry<MemorySegment>> {
+    private static final Pattern COMPACTED_PATTERN = Pattern.compile(COMPACTED_PREFIX + "\\d*");
 
     private final Arena arena;
     private final Path basePath;
     private final List<SSTable> ssTables;
     private final AtomicLong lastIdx;
     private final AtomicBoolean isClosed;
+
 
     public SSTableManager(Config config) throws IOException {
         this.arena = Arena.ofShared();
@@ -78,12 +78,19 @@ public class SSTableManager {
         return MergeIterator.merge(iterators, MemorySegmentComparator.getInstance());
     }
 
-    public void save(Iterable<Entry<MemorySegment>> entries) throws IOException {
+    private void save(Iterable<Entry<MemorySegment>> entries, boolean isCompacting) throws IOException {
         Path tmpDataPath = basePath.resolve(DATA_TMP);
         Path tmpIndexPath = basePath.resolve(INDEX_TMP);
 
-        Path dataPath = basePath.resolve(DATA_PREFIX + lastIdx);
-        Path indexPath = basePath.resolve(INDEX_PREFIX + lastIdx);
+        Path dataPath;
+        Path indexPath;
+        if (isCompacting) {
+            dataPath = basePath.resolve(COMPACTED_DATA);
+            indexPath = basePath.resolve(COMPACTED_INDEX);
+        } else {
+            dataPath = basePath.resolve(DATA_PREFIX + lastIdx);
+            indexPath = basePath.resolve(INDEX_PREFIX + lastIdx);
+        }
 
         try (
                 FileChannel dataChannel = FileChannel.open(
@@ -150,24 +157,35 @@ public class SSTableManager {
             return;
         }
 
-        save(entries);
+        save(entries, false);
         ssTables.addFirst(new SSTable(basePath, arena, lastIdx.get()));
         lastIdx.getAndAdd(1);
     }
 
     public void compact() throws IOException {
-        if (!get(null, null).hasNext()) {
+        if (!iterator().hasNext()) {
             return;
         }
 
-        save(() -> get(null, null));
+        save(this, true);
 
-        Path dataPath = basePath.resolve(DATA_PREFIX + lastIdx);
-        Path indexPath = basePath.resolve(INDEX_PREFIX + lastIdx);
-        deleteAllFiles();
+        try (Stream<Path> files = Files.list(basePath)) {
+            files
+                    .filter(path -> !COMPACTED_PATTERN.matcher(path.toString()).find())
+                    .forEach(tablePath -> {
+                        try {
+                            Files.delete(tablePath);
+                        } catch (IOException e) {
+                            throw new IllegalStateException("Can't delete file", e);
+                        }
+                    });
+        } catch (IOException e) {
+            throw new IllegalStateException("Can't access the directory " + basePath, e);
+        }
+        lastIdx.set(0);
 
-        moveDataFromTmpToReal(dataPath, basePath.resolve(DATA_PREFIX + lastIdx));
-        moveDataFromTmpToReal(indexPath, basePath.resolve(INDEX_PREFIX + lastIdx));
+        moveDataFromTmpToReal(basePath.resolve(COMPACTED_DATA), basePath.resolve(DATA_PREFIX + lastIdx));
+        moveDataFromTmpToReal(basePath.resolve(COMPACTED_INDEX), basePath.resolve(INDEX_PREFIX + lastIdx));
 
         ssTables.clear();
         ssTables.add(new SSTable(basePath, arena, lastIdx.get()));
@@ -190,11 +208,8 @@ public class SSTableManager {
         Files.move(tmpFilePath, realFilePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private void deleteAllFiles() throws IOException {
-        for (SSTable ssTable : ssTables) {
-            ssTable.deleteFiles();
-        }
-
-        lastIdx.set(0);
+    @Override
+    public Iterator<Entry<MemorySegment>> iterator() {
+        return get(null, null);
     }
 }
