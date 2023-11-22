@@ -11,7 +11,11 @@ import java.lang.foreign.ValueLayout;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.NavigableMap;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -200,11 +204,11 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        backgroundFlushQueue.close();
         backgroundCompactQueue.close();
         if (!map.isEmpty()) {
             flush();
         }
+        backgroundFlushQueue.close();
         storage.close();
     }
 
