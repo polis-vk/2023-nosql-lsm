@@ -73,14 +73,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
         final List<PriorityShiftedIterator<Entry<MemorySegment>>> iterators = new ArrayList<>(3);
-        final Lock readLock = lock.readLock();
-        readLock.lock();
-        try {
-            iterators.add(new MemEntryPriorityIterator(0, getIterator(currentStorage, from, to)));
-            iterators.add(new MemEntryPriorityIterator(1, getIterator(flushedStorage, from, to)));
-        } finally {
-            readLock.unlock();
-        }
+        iterators.add(new MemEntryPriorityIterator(0, getIterator(currentStorage, from, to)));
+        iterators.add(new MemEntryPriorityIterator(1, getIterator(flushedStorage, from, to)));
         try {
             iterators.add(new MemEntryPriorityIterator(2, ssManager.get(from, to)));
         } catch (IOException e) {
