@@ -109,11 +109,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) throws IllegalStateException {
-        rwLock.writeLock().lock();
+        rwLock.readLock().lock();
         try {
             memTable.put(entry.key(), entry);
         } finally {
-            rwLock.writeLock().unlock();
+            rwLock.readLock().unlock();
         }
     }
 
@@ -167,11 +167,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             super(() -> {
                 rwLock.writeLock().lock();
                 try {
-//                    memTable.set(new ConcurrentSkipListMap<>(PersistentDao::compare));
-//                    memTable.setIsFlushing(true);
                     diskStorage.save(path, memTable.getFlushingTable().values());
                     memTable.setIsFlushing(false);
-
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 } finally {

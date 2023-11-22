@@ -141,7 +141,7 @@ public class DiskStorage {
                 }
             }
             updateIndex(indexFile, indexTmp, existedFiles, newFileName);
-            add(new SsTable(tablePath, arena));
+            tableList.add(new SsTable(tablePath, arena));
         } finally {
             rwLock.writeLock().unlock();
         }
@@ -232,13 +232,8 @@ public class DiskStorage {
 
             updateIndexAndCleanUp(storagePath, indexFile);
 
-            rwLock.writeLock().lock();
-            try {
-                tableList.clear();
-                tableList.add(new SsTable(storagePath.resolve("0" + SSTABLE_EXT), arena));
-            } finally {
-                rwLock.writeLock().unlock();
-            }
+            tableList.clear();
+            tableList.add(new SsTable(storagePath.resolve("0" + SSTABLE_EXT), arena));
 
         } finally {
             rwLock.writeLock().unlock();
@@ -254,8 +249,7 @@ public class DiskStorage {
         Files.move(storagePath.resolve("0" + TMP_EXT), storagePath.resolve("0" + SSTABLE_EXT),
                 StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-        Files.writeString(
-                indexFile,
+        Files.writeString(indexFile,
                 "0" + SSTABLE_EXT,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
@@ -294,12 +288,4 @@ public class DiskStorage {
         }
     }
 
-    private void add(SsTable ssTable) {
-        rwLock.writeLock().lock();
-        try {
-            tableList.add(ssTable);
-        } finally {
-            rwLock.writeLock().unlock();
-        }
-    }
 }

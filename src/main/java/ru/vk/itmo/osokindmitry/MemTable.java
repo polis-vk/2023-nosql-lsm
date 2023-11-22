@@ -18,7 +18,6 @@ public class MemTable {
     private final AtomicBoolean isFlushing;
     private final long thresholdBytes;
 
-
     public MemTable(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage, long thresholdBytes) {
         this.storage = new AtomicReference<>(storage);
         flushingStorage = new AtomicReference<>();
@@ -64,6 +63,7 @@ public class MemTable {
     public void setIsFlushing(boolean isFlushing) {
         this.isFlushing.set(isFlushing);
     }
+
     public boolean getIsFlushing() {
         return this.isFlushing.get();
     }
@@ -114,4 +114,5 @@ public class MemTable {
         }
         return entrySize;
     }
+
 }
