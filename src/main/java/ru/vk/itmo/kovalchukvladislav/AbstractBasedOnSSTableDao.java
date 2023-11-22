@@ -4,29 +4,29 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.kovalchukvladislav.model.DaoIterator;
 import ru.vk.itmo.kovalchukvladislav.model.EntryExtractor;
+import ru.vk.itmo.kovalchukvladislav.model.TableInfo;
 
-import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Objects;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends AbstractInMemoryDao<D, E> {
     //  ===================================
     //  Constants
     //  ===================================
-    private static final ValueLayout.OfLong LONG_LAYOUT = ValueLayout.JAVA_LONG_UNALIGNED;
+    private static final String METADATA_FILENAME = "metadata";
     private static final String OFFSETS_FILENAME_PREFIX = "offsets_";
     private static final String DB_FILENAME_PREFIX = "db_";
 
@@ -37,6 +37,7 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     private final Path basePath;
     private final Arena arena = Arena.ofShared();
     private final EntryExtractor<D, E> extractor;
+    private final SSTableMemorySegmentWriter<D, E> writer;
 
     //  ===================================
     //  Storages
@@ -54,13 +55,12 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
         this.storagesCount = 0;
         this.extractor = extractor;
         this.basePath = Objects.requireNonNull(config.basePath());
-
-        if (!Files.exists(basePath)) {
-            Files.createDirectory(basePath);
-        }
         this.dbMappedSegments = new ArrayList<>();
         this.offsetMappedSegments = new ArrayList<>();
         reloadFilesAndMapToSegment();
+        this.writer = new SSTableMemorySegmentWriter<>(basePath, DB_FILENAME_PREFIX, OFFSETS_FILENAME_PREFIX,
+                METADATA_FILENAME, extractor);
+        logger.setLevel(Level.OFF); // чтобы не засорять вывод в гитхабе, если такое возможно
     }
 
     //  ===================================
@@ -68,22 +68,13 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     //  ===================================
 
     private void reloadFilesAndMapToSegment() throws IOException {
-        logger.info(() -> "Reloading files");
-        File dir = new File(basePath.toString());
-        File[] files = dir.listFiles(it -> it.getName().startsWith(DB_FILENAME_PREFIX));
-        if (files == null) {
-            return;
+        if (!Files.exists(basePath)) {
+            Files.createDirectory(basePath);
         }
-        Arrays.sort(files);
-
-        for (File file : files) {
-            String name = file.getName();
-            int index = name.indexOf(DB_FILENAME_PREFIX);
-            if (index == -1) {
-                continue;
-            }
-            String timestamp = name.substring(index + DB_FILENAME_PREFIX.length());
-            readFileAndMapToSegment(timestamp);
+        logger.info(() -> String.format("Reloading files from %s", basePath));
+        List<String> ssTableIds = getSSTableIds();
+        for (String ssTableId : ssTableIds) {
+            readFileAndMapToSegment(ssTableId);
         }
         logger.info(() -> String.format("Reloaded %d files", storagesCount));
     }
@@ -92,6 +83,7 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
         Path dbPath = basePath.resolve(DB_FILENAME_PREFIX + timestamp);
         Path offsetsPath = basePath.resolve(OFFSETS_FILENAME_PREFIX + timestamp);
         if (!Files.exists(dbPath) || !Files.exists(offsetsPath)) {
+            logger.severe(() -> String.format("File under path %s or %s doesn't exists", dbPath, offsetsPath));
             return;
         }
 
@@ -106,10 +98,29 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
             offsetMappedSegments.add(offsets);
             storagesCount++;
         }
-
         logger.info(() -> String.format("Successfully read files with %s timestamp", timestamp));
     }
 
+    private List<String> getSSTableIds() throws IOException {
+        Path metadataPath = basePath.resolve(METADATA_FILENAME);
+        if (!Files.exists(metadataPath)) {
+            return Collections.emptyList();
+        }
+        return Files.readAllLines(metadataPath, StandardCharsets.UTF_8);
+    }
+
+    private Path[] getAllTablesPath() throws IOException {
+        List<String> ssTableIds = getSSTableIds();
+        int size = ssTableIds.size();
+        Path[] files = new Path[2 * size];
+
+        for (int i = 0; i < size; i++) {
+            String id = ssTableIds.get(i);
+            files[2 * i] = basePath.resolve(DB_FILENAME_PREFIX + id);
+            files[2 * i + 1] = basePath.resolve(OFFSETS_FILENAME_PREFIX + id);
+        }
+        return files;
+    }
 
     //  ===================================
     //  Finding in storage
@@ -151,14 +162,18 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
     }
 
     //  ===================================
-    //  Writing data
+    //  Some utils
     //  ===================================
 
-    private long writeMemoryDAO() throws IOException {
-        return writeData(dao.values().iterator(), dao.size(), getDAOBytesSize());
+    private TableInfo getInMemoryDaoSizeInfo() {
+        long size = 0;
+        for (E entry : dao.values()) {
+            size += extractor.size(entry);
+        }
+        return new TableInfo(dao.size(), size);
     }
 
-    private long writeMemoryAndStorageDAO() throws IOException {
+    private TableInfo getSSTableDaoSizeInfo() {
         Iterator<E> allIterator = all();
         long entriesCount = 0;
         long daoSize = 0;
@@ -168,58 +183,8 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
             entriesCount++;
             daoSize += extractor.size(next);
         }
-        return writeData(all(), entriesCount, daoSize);
-    }
 
-    /**
-     * Returns created files timestamp.
-     */
-    private long writeData(Iterator<E> daoIterator, long entriesCount, long daoSize) throws IOException {
-        long timestamp = System.currentTimeMillis();
-        Path dbPath = basePath.resolve(DB_FILENAME_PREFIX + timestamp);
-        Path offsetsPath = basePath.resolve(OFFSETS_FILENAME_PREFIX + timestamp);
-
-        logger.info(() -> String.format("Writing files with %s timestamp", timestamp));
-
-        OpenOption[] options = new OpenOption[] {
-                StandardOpenOption.READ,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.CREATE
-        };
-
-        try (FileChannel db = FileChannel.open(dbPath, options);
-             FileChannel offsets = FileChannel.open(offsetsPath, options);
-             Arena confinedArena = Arena.ofConfined()) {
-
-            long offsetsSize = entriesCount * Long.BYTES;
-            MemorySegment fileSegment = db.map(FileChannel.MapMode.READ_WRITE, 0, daoSize, confinedArena);
-            MemorySegment offsetsSegment = offsets.map(FileChannel.MapMode.READ_WRITE, 0, offsetsSize, confinedArena);
-
-            int i = 0;
-            long offset = 0;
-            while (daoIterator.hasNext()) {
-                E entry = daoIterator.next();
-                offsetsSegment.setAtIndex(LONG_LAYOUT, i, offset);
-                i += 1;
-                offset = extractor.writeEntry(entry, fileSegment, offset);
-            }
-            fileSegment.load();
-            offsetsSegment.load();
-        }
-
-        logger.info(() -> String.format("Successfully writing with %s timestamp. Entries count %d, daoSize %d",
-                timestamp, entriesCount, daoSize));
-
-        return timestamp;
-    }
-
-    private long getDAOBytesSize() {
-        long size = 0;
-        for (E entry : dao.values()) {
-            size += extractor.size(entry);
-        }
-        return size;
+        return new TableInfo(entriesCount, daoSize);
     }
 
     //  ===================================
@@ -228,10 +193,10 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
 
     @Override
     public synchronized void flush() throws IOException {
-        if (!dao.isEmpty()) {
-            long flushedFileName = writeMemoryDAO();
-            logger.info(() -> String.format("Flushed timestamp is %d", flushedFileName));
+        if (dao.isEmpty()) {
+            return;
         }
+        writer.flush(dao.values().iterator(), getInMemoryDaoSizeInfo());
     }
 
     @Override
@@ -248,28 +213,11 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> extends A
 
     @Override
     public synchronized void compact() throws IOException {
-        long createdFileTimestamp = writeMemoryAndStorageDAO();
-        logger.info(() -> String.format("Compacted timestamp is %d", createdFileTimestamp));
-        deleteFilesExceptWithTimeStamp(String.valueOf(createdFileTimestamp));
-    }
-
-    private void deleteFilesExceptWithTimeStamp(String excludedTimeStamp) throws IOException {
-        File dir = new File(basePath.toString());
-
-        File[] files = dir.listFiles(it -> shouldDelete(it.getName(), excludedTimeStamp));
-        if (files == null) {
-            logger.info(() -> String.format("Not found files to delete, excludedTimeStamp %s", excludedTimeStamp));
+        if (storagesCount <= 1 && dao.isEmpty()) {
             return;
         }
-        Arrays.sort(files);
-        for (File file : files) {
-            Files.delete(file.toPath());
-            logger.info(() -> String.format("Delete %s file", file.getName()));
-        }
-    }
-
-    private boolean shouldDelete(String fileName, String excludedTimeStamp) {
-        return (fileName.startsWith(DB_FILENAME_PREFIX) || fileName.startsWith(OFFSETS_FILENAME_PREFIX))
-                && !fileName.endsWith(excludedTimeStamp);
+        Path[] oldTables = getAllTablesPath();
+        writer.compact(all(), getSSTableDaoSizeInfo());
+        writer.deleteUnusedFiles(oldTables);
     }
 }
