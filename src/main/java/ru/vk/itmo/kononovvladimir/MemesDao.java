@@ -193,7 +193,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public synchronized void flush() throws IOException {
+    public void flush() throws IOException {
         memoryLock.writeLock().lock();
         try {
             if (!state.memoryStorage.isEmpty()) {
@@ -209,7 +209,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 
-    private synchronized void autoFlush() {
+    private void autoFlush() {
         memoryLock.writeLock().lock();
         try {
             this.state = new State(new ConcurrentSkipListMap<>(comparator), state.memoryStorage, state.diskStorage);
