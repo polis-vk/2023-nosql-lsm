@@ -22,7 +22,6 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-
     private static final Comparator<MemorySegment> comparator = InMemoryDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memoryStorage =
             new ConcurrentSkipListMap<>(comparator);
