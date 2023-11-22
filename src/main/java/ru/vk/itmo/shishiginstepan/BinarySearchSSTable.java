@@ -12,9 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.Collection;
 import java.util.Iterator;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemorySegment>> {
@@ -27,12 +25,6 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     public AtomicBoolean inCompaction = new AtomicBoolean(false);
     public final Path tablePath;
     public final Path indexPath;
-
-    private static class SSTableCreationException extends RuntimeException {
-        public SSTableCreationException(Throwable cause) {
-            super(cause);
-        }
-    }
 
     private static class SSTableRWException extends RuntimeException {
         public SSTableRWException(Throwable cause) {
@@ -59,7 +51,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
                 this.indexSize = Files.size(indexPath);
             }
         } catch (IOException e) {
-            throw new SSTableCreationException(e);
+            throw new SSTableRWException(e);
         }
         try (FileChannel fileChannel = FileChannel.open(tablePath, StandardOpenOption.READ)) {
             this.tableSegment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, tableSize, arena);
@@ -70,96 +62,6 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
             this.indexSegment = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, indexSize, arena);
         } catch (IOException e) {
             throw new SSTableRWException(e);
-        }
-    }
-
-    public static BinarySearchSSTable writeSSTable(
-            Collection<Entry<MemorySegment>> entries,
-            Path path,
-            int id,
-            Arena arena
-    ) {
-        Path sstPath = Path.of(path.toAbsolutePath() + "/sstable_" + id);
-        Path tempSSTPath = Path.of(
-                path.toAbsolutePath() + "/tmp-sstable" + ThreadLocalRandom.current().nextInt(0, 1_000_000)
-        );
-        Path indexPath = Path.of(path.toAbsolutePath() + "/sstable_" + id + "_index");
-        Path tempIndexPath = Path.of(
-                path.toAbsolutePath() + "/tmp-index" + ThreadLocalRandom.current().nextInt(0, 1_000_000)
-        );
-        MemorySegment tableSegment;
-        MemorySegment indexSegment;
-        long dataSize = 0;
-        long indexSize = 0;
-        for (var entry : entries) {
-            dataSize += entry.key().byteSize();
-
-            if (entry.value() != null) {
-                dataSize += entry.value().byteSize();
-            }
-            indexSize += Long.BYTES * 2;
-        }
-        try (var fileChannel = FileChannel.open(
-                tempSSTPath,
-                StandardOpenOption.READ,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        )) {
-            tableSegment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, dataSize, arena);
-        } catch (IOException e) {
-            throw new SSTableRWException(e);
-        }
-
-        try (var fileChannel = FileChannel.open(
-                tempIndexPath,
-                StandardOpenOption.READ,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        )) {
-            indexSegment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, indexSize, arena);
-        } catch (IOException e) {
-            throw new SSTableRWException(e);
-        }
-        writeEntries(entries, tableSegment, indexSegment);
-        try {
-            Files.move(tempIndexPath, indexPath);
-        } catch (IOException e) {
-            throw new SSTableCreationException(e);
-        }
-
-        try {
-            Files.move(tempSSTPath, sstPath);
-        } catch (IOException e) {
-            throw new SSTableCreationException(e);
-        }
-        return new BinarySearchSSTable(sstPath, arena);
-    }
-
-    private static void writeEntries(
-            Collection<Entry<MemorySegment>> entries,
-            MemorySegment tableSegment,
-            MemorySegment indexSegment
-    ) {
-        long tableOffset = 0;
-        long indexOffset = 0;
-        for (var entry : entries) {
-            indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tableOffset);
-            indexOffset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
-
-            MemorySegment.copy(entry.key(), 0, tableSegment, tableOffset, entry.key().byteSize());
-            tableOffset += entry.key().byteSize();
-            if (entry.value() == null) {
-                indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(tableOffset));
-                indexOffset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
-                continue;
-            }
-            indexSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tableOffset);
-            indexOffset += ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
-
-            MemorySegment.copy(entry.value(), 0, tableSegment, tableOffset, entry.value().byteSize());
-            tableOffset += entry.value().byteSize();
         }
     }
 
@@ -225,10 +127,6 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
                 startIndex,
                 endIndex
         );
-    }
-
-    private static long tombstone(long offset) {
-        return 1L << 63 | offset;
     }
 
     private static long normalize(long value) {
