@@ -185,7 +185,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void compact() throws IOException {
+    public synchronized void compact() throws IOException {
         executorService.execute(() -> {
             try {
                 DiskStorage.compact(path, this::all);
