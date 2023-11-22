@@ -30,6 +30,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Lock lock = new ReentrantLock();
     private final long flushThresholdBytes;
     private volatile State state;
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
 
     public MemesDao(Config config) throws IOException {
@@ -185,7 +186,13 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        DiskStorage.compact(path, this::all);
+        executorService.execute(() -> {
+            try {
+                DiskStorage.compact(path, this::all);
+            } catch (IOException e) {
+                throw new RuntimeException("Error during compaction", e);
+            }
+        });
     }
 
     @Override
