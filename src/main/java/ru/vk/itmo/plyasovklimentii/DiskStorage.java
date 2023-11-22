@@ -10,8 +10,17 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 
@@ -42,21 +51,17 @@ public class DiskStorage {
         };
     }
 
-
     public void saveNextSSTable(Path storagePath, Iterable<Entry<MemorySegment>> iterable, Arena arena)
             throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
-
         try {
             Files.createFile(indexFile);
         } catch (FileAlreadyExistsException ignored) {
             // it is ok, actually it is normal state
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-
         String newFileName = SSTABLE_PREFIX + existedFiles.size();
-
         long dataSize = 0;
         long count = 0;
         for (Entry<MemorySegment> entry : iterable) {
@@ -68,7 +73,6 @@ public class DiskStorage {
             count++;
         }
         long indexSize = count * 2 * Long.BYTES;
-
         try (
                 FileChannel fileChannel = FileChannel.open(
                         storagePath.resolve(newFileName),
@@ -85,9 +89,6 @@ public class DiskStorage {
                     writeArena
             );
 
-            // index:
-            // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
-            // key0_Start = data start = end of index
             long dataOffset = indexSize;
             int indexOffset = 0;
             for (Entry<MemorySegment> entry : iterable) {
@@ -97,7 +98,7 @@ public class DiskStorage {
 
                 MemorySegment value = entry.value();
                 if (value == null) {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, Utils.tombstone(dataOffset));
                 } else {
                     fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                     dataOffset += value.byteSize();
@@ -105,8 +106,6 @@ public class DiskStorage {
                 indexOffset += Long.BYTES;
             }
 
-            // data:
-            // |key0|value0|key1|value1|...
             dataOffset = indexSize;
             for (Entry<MemorySegment> entry : iterable) {
                 MemorySegment key = entry.key();
@@ -205,7 +204,7 @@ public class DiskStorage {
                     fileSegment.set(
                             ValueLayout.JAVA_LONG_UNALIGNED,
                             indexOffset,
-                            tombstone(dataOffset)
+                            Utils.tombstone(dataOffset)
                     );
                 } else {
                     fileSegment.set(
@@ -257,7 +256,6 @@ public class DiskStorage {
             });
         }
     }
-
 
 
     private static void finalizeCompaction(Path storagePath) throws IOException {
@@ -325,56 +323,10 @@ public class DiskStorage {
         return result;
     }
 
-    private static long indexOf(MemorySegment segment, MemorySegment key) {
-        long recordsCount = recordsCount(segment);
-
-        long left = 0;
-        long right = recordsCount - 1;
-        while (left <= right) {
-            long mid = (left + right) >>> 1;
-
-            long startOfKey = startOfKey(segment, mid);
-            long endOfKey = endOfKey(segment, mid);
-            long mismatch = MemorySegment.mismatch(segment, startOfKey, endOfKey, key, 0, key.byteSize());
-            if (mismatch == -1) {
-                return mid;
-            }
-
-            if (mismatch == key.byteSize()) {
-                right = mid - 1;
-                continue;
-            }
-
-            if (mismatch == endOfKey - startOfKey) {
-                left = mid + 1;
-                continue;
-            }
-
-            int b1 = Byte.toUnsignedInt(segment.get(ValueLayout.JAVA_BYTE, startOfKey + mismatch));
-            int b2 = Byte.toUnsignedInt(key.get(ValueLayout.JAVA_BYTE, mismatch));
-            if (b1 > b2) {
-                right = mid - 1;
-            } else {
-                left = mid + 1;
-            }
-        }
-
-        return tombstone(left);
-    }
-
-    private static long recordsCount(MemorySegment segment) {
-        long indexSize = indexSize(segment);
-        return indexSize / Long.BYTES / 2;
-    }
-
-    private static long indexSize(MemorySegment segment) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
-    }
-
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
-        long recordsCount = recordsCount(page);
+        long recordIndexFrom = from == null ? 0 : Utils.normalize(Utils.indexOf(page, from));
+        long recordIndexTo = to == null ? Utils.recordsCount(page) : Utils.normalize(Utils.indexOf(page, to));
+        long recordsCount = Utils.recordsCount(page);
 
         return new Iterator<>() {
             long index = recordIndexFrom;
@@ -389,51 +341,16 @@ public class DiskStorage {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
-                long startOfValue = startOfValue(page, index);
+                MemorySegment key = Utils.slice(page, Utils.startOfKey(page, index), Utils.endOfKey(page, index));
+                long startOfValue = Utils.startOfValue(page, index);
                 MemorySegment value =
                         startOfValue < 0
                                 ? null
-                                : slice(page, startOfValue, endOfValue(page, index, recordsCount));
+                                : Utils.slice(page, startOfValue, Utils.endOfValue(page, index, recordsCount));
                 index++;
                 return new BaseEntry<>(key, value);
             }
         };
-    }
-
-    private static MemorySegment slice(MemorySegment page, long start, long end) {
-        return page.asSlice(start, end - start);
-    }
-
-    private static long startOfKey(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
-    }
-
-    private static long endOfKey(MemorySegment segment, long recordIndex) {
-        return normalizedStartOfValue(segment, recordIndex);
-    }
-
-    private static long normalizedStartOfValue(MemorySegment segment, long recordIndex) {
-        return normalize(startOfValue(segment, recordIndex));
-    }
-
-    private static long startOfValue(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
-    }
-
-    private static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
-        if (recordIndex < recordsCount - 1) {
-            return startOfKey(segment, recordIndex + 1);
-        }
-        return segment.byteSize();
-    }
-
-    private static long tombstone(long offset) {
-        return 1L << 63 | offset;
-    }
-
-    private static long normalize(long value) {
-        return value & ~(1L << 63);
     }
 
 }
