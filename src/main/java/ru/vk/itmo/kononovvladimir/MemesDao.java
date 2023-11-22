@@ -28,7 +28,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         private final NavigableMap<MemorySegment, Entry<MemorySegment>> memoryStorage;
         private final NavigableMap<MemorySegment, Entry<MemorySegment>> flushingMemoryTable;
-        private final AtomicLong memoryStorageSizeInBytes;
+        private final AtomicLong memoryStorageSizeInBytes = new AtomicLong();
         private final DiskStorage diskStorage;
 
         private State(NavigableMap<MemorySegment, Entry<MemorySegment>> memoryStorage,
@@ -36,13 +36,13 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                       DiskStorage diskStorage) {
             this.memoryStorage = memoryStorage;
             this.flushingMemoryTable = flushingMemoryTable;
-            this.memoryStorageSizeInBytes = new AtomicLong();
+            this.memoryStorageSizeInBytes.getAndSet(memoryStorage.size());
             this.diskStorage = diskStorage;
         }
     }
 
     private final Comparator<MemorySegment> comparator = MemesDao::compare;
-    private final Arena arena;
+    private Arena arena;
     private final Path path;
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
@@ -58,7 +58,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.arena = Arena.ofShared();
         this.state = new State(
                 new ConcurrentSkipListMap<>(comparator),
-                null,
+                new ConcurrentSkipListMap<>(comparator),
                 new DiskStorage(DiskStorage.loadOrRecover(path, arena))
         );
     }
@@ -105,23 +105,33 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             //throw
             return;
         }
-        state.memoryStorage.put(entry.key(), entry);
         long entrySize = calculateSize(entry);
         if (flushThresholdBytes < state.memoryStorageSizeInBytes.get() + entrySize) {
             // if not flushing throw
+            if (!state.flushingMemoryTable.isEmpty()) {
+                //throw
+                return;
+            }
 
             memoryLock.writeLock().lock();
             try {
+                this.state = new State(new ConcurrentSkipListMap<>(comparator), state.memoryStorage, state.diskStorage);
                 state.memoryStorage.put(entry.key(), entry);
-                state.memoryStorageSizeInBytes.addAndGet(2 * Long.BYTES + entry.key().byteSize() + entry.value().byteSize());
             } finally {
                 memoryLock.writeLock().unlock();
             }
+            autoFlush();
+            return;
         }
-        //If very big
 
+        memoryLock.writeLock().lock();
+        try {
+            state.memoryStorage.put(entry.key(), entry);
+            state.memoryStorageSizeInBytes.addAndGet(entrySize);
+        } finally {
+            memoryLock.writeLock().unlock();
+        }
     }
-
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -145,7 +155,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-        private Long calculateSize(Entry<MemorySegment> entry){
+    private Long calculateSize(Entry<MemorySegment> entry) {
         return Long.BYTES + entry.key().byteSize() + Long.BYTES
                 + (entry.value() == null ? 0 : entry.key().byteSize());
     }
@@ -175,6 +185,37 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 state.flushingMemoryTable,
                 new DiskStorage(DiskStorage.loadOrRecover(path, arena))
         );
+    }
+
+    private void autoFlush() {
+        DiskStorage tmpStorage;
+        try {
+            arena.close();
+            this.arena = Arena.ofShared();
+            memoryLock.writeLock().lock();
+            try {
+                lock.lock();
+                try {
+                    if (!state.memoryStorage.isEmpty()) {
+                        DiskStorage.saveNextSSTable(path, state.flushingMemoryTable.values());
+                    }
+                } finally {
+                    lock.unlock();
+                }
+            } finally {
+                memoryLock.writeLock().unlock();
+            }
+            tmpStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+        } catch (IOException e) {
+            throw new RuntimeException("Error during autoFlush", e);
+        }
+
+        memoryLock.writeLock().lock();
+        try {
+            this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), tmpStorage);
+        } finally {
+            memoryLock.writeLock().unlock();
+        }
     }
 
     @Override
