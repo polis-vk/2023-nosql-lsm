@@ -127,7 +127,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             } finally {
                 memoryLock.writeLock().unlock();
             }
-            executorService.execute(this::autoFlush);
+            autoFlush();
             return;
         }
 
