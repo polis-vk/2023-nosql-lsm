@@ -82,10 +82,34 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return Byte.compare(b1, b2);
     }
 
+    private State getStateUnderWriteLock() {
+        State tmpState;
+        memoryLock.writeLock().lock();
+        try {
+            tmpState = this.state;
+        } finally {
+            memoryLock.writeLock().unlock();
+        }
+
+        return tmpState;
+    }
+
+    private State getStateUnderReadLock() {
+        State tmpState;
+        memoryLock.readLock().lock();
+        try {
+            tmpState = this.state;
+        } finally {
+            memoryLock.readLock().unlock();
+        }
+
+        return tmpState;
+    }
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(state.memoryStorage, from, to);
-        Iterator<Entry<MemorySegment>> flushIterator = getInMemory(state.flushingMemoryTable, from, to);
+        State tmpState = getStateUnderReadLock();
+        Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(tmpState.memoryStorage, from, to);
+        Iterator<Entry<MemorySegment>> flushIterator = getInMemory(tmpState.flushingMemoryTable, from, to);
         return state.diskStorage.range(List.of(memoryIterator, flushIterator), from, to);
     }
 
@@ -176,6 +200,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             //throw
             return;
         }
+        State tmpState = state;
 
         executorService.execute(() -> {
             try {
