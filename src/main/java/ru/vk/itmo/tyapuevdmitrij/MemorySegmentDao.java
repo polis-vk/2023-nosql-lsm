@@ -5,6 +5,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -16,7 +17,7 @@ import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -143,24 +144,20 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     }
 
     public void flushing() {
-
-        upsertLock.writeLock().lock();
+        storageLock.lock();
         try {
-            state = new State(new ConcurrentSkipListMap<>(MemorySegmentComparator.getMemorySegmentComparator()),
-                    state.memTable,
-                    state.storage);
-        } finally {
-            upsertLock.writeLock().unlock();
-        }
-        if (this.state.flushMemTable.isEmpty()) {
-            return;
-        }
-        Future<?> submit = executor.submit(() -> {
+            upsertLock.writeLock().lock();
             try {
-                state.storage.save(state.flushMemTable.values(), ssTablePath, state.storage);
-            } catch (IOException e) {
-                throw new FilesException("can not save", e);
+                state = new State(new ConcurrentSkipListMap<>(MemorySegmentComparator.getMemorySegmentComparator()),
+                        state.memTable,
+                        state.storage);
+            } finally {
+                upsertLock.writeLock().unlock();
             }
+            if (this.state.flushMemTable.isEmpty()) {
+                return;
+            }
+            state.storage.save(state.flushMemTable.values(), ssTablePath, state.storage);
             Storage loadFlushed = new Storage(ssTablePath);
             upsertLock.writeLock().lock();
             try {
@@ -169,11 +166,12 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
                         loadFlushed);
             } finally {
                 upsertLock.writeLock().unlock();
-                autoFlushing.set(false);
             }
-        });
-        if (submit.isCancelled()) {
-            throw new FilesException("can not flash");
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } finally {
+            autoFlushing.set(false);
+            storageLock.unlock();
         }
     }
 
@@ -214,7 +212,20 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public synchronized void close() throws IOException {
+        if (state.storage == null) {
+            return;
+        }
         flush();
         executor.close();
+        try {
+            boolean terminated;
+            do {
+                terminated = executor.awaitTermination(1, TimeUnit.HOURS);
+            } while (!terminated);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+
     }
 }
