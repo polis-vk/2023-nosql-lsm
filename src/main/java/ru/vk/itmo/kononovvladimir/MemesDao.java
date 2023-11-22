@@ -184,12 +184,12 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public synchronized void compact() throws IOException {
+    public void compact() throws IOException {
         DiskStorage.compact(path, this::all);
     }
 
     @Override
-    public synchronized void flush() throws IOException {
+    public void flush() throws IOException {
         memoryLock.writeLock().lock();
         try {
             lock.lock();
@@ -197,20 +197,20 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 if (!state.memoryStorage.isEmpty()) {
                     DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
                 }
+                this.state = new State(
+                        new ConcurrentSkipListMap<>(comparator),
+                        state.flushingMemoryTable,
+                        new DiskStorage(DiskStorage.loadOrRecover(path, arena))
+                );
             } finally {
                 lock.unlock();
             }
         } finally {
             memoryLock.writeLock().unlock();
         }
-        this.state = new State(
-                new ConcurrentSkipListMap<>(comparator),
-                state.flushingMemoryTable,
-                new DiskStorage(DiskStorage.loadOrRecover(path, arena))
-        );
     }
 
-    private synchronized void autoFlush() {
+    private void autoFlush() {
         DiskStorage tmpStorage;
         try {
             arena.close();
