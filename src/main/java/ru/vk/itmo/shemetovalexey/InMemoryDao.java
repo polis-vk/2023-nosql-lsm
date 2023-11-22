@@ -15,16 +15,18 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+
     private static final Comparator<MemorySegment> comparator = InMemoryDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memoryStorage =
             new ConcurrentSkipListMap<>(comparator);
-    private long storageSize;
+    private final AtomicLong storageSize = new AtomicLong(0);
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
@@ -37,7 +39,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.flushMemorySize = config.flushThresholdBytes();
         Files.createDirectories(path);
         arena = Arena.ofShared();
-        storageSize = 0L;
         this.diskStorage = new DiskStorage(StorageUtils.loadOrRecover(path, arena));
     }
 
@@ -91,7 +92,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void upsert(Entry<MemorySegment> entry) {
         memoryLock.writeLock().lock();
         try {
-            storageSize += entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize());
+            storageSize.addAndGet(entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()));
             memoryStorage.put(entry.key(), entry);
         } finally {
             memoryLock.writeLock().unlock();
@@ -155,12 +156,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             storageLock.lock();
             try {
-                if (storageSize < flushMemorySize) {
+                if (storageSize.get() < flushMemorySize) {
                     return;
                 }
 
                 StorageUtils.save(path, memoryStorage.values());
-                storageSize = 0;
+                storageSize.set(0);
             } finally {
                 storageLock.unlock();
             }
