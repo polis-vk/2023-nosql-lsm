@@ -14,6 +14,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -28,6 +29,8 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private volatile Future<?> compactionFuture;
 
     private volatile List<SSTable> ssTables;
+
+    private final AtomicInteger ssTablesIndex = new AtomicInteger(0);
     private Arena ssTablesArena;
 
     private final Path storagePath;
@@ -47,7 +50,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.flushingMemTable = new MemTable(-1);
         try {
             this.ssTablesArena = Arena.ofShared();
-            this.ssTables = SSTable.load(ssTablesArena, storagePath);
+            this.ssTables = SSTable.load(ssTablesArena, storagePath, ssTablesIndex);
         } catch (IOException e) {
             ssTablesArena.close();
             throw new LSMDaoCreationException(e);
@@ -126,7 +129,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                         ),
                         storagePath
                 );
-                ssTables = SSTable.load(ssTablesArena, storagePath);
+                ssTables = SSTable.load(ssTablesArena, storagePath, ssTablesIndex);
             } finally {
                 compactionLock.writeLock().unlock();
             }
@@ -150,34 +153,47 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                     throw new TooManyFlushesException();
                 }
             }
+        } finally {
+            upsertLock.writeLock().unlock();
+        }
+        flushFuture = runFlushInBackground();
+    }
+
+    private void prepareFlush() {
+        upsertLock.writeLock().lock();
+        try {
             flushingMemTable = memTable;
             memTable = new MemTable(flushThresholdBytes);
-            flushFuture = bgExecutor.submit(() -> {
-                try {
-                    compactionLock.writeLock().lock();
-                    try {
-                        flush(ssTables.size(), storagePath, ssTablesArena);
-                    } finally {
-                        compactionLock.writeLock().lock();
-                    }
-                } catch (IOException e) {
-                    throw new FlushingException(e);
-                }
-            });
         } finally {
             upsertLock.writeLock().unlock();
         }
     }
 
+    private Future<?> runFlushInBackground() {
+        prepareFlush();
+        return bgExecutor.submit(() -> {
+            try {
+                compactionLock.writeLock().lock();
+                try {
+                    flush(flushingMemTable, ssTablesIndex.getAndIncrement(), storagePath, ssTablesArena);
+                } finally {
+                    compactionLock.writeLock().lock();
+                }
+            } catch (IOException e) {
+                throw new FlushingException(e);
+            }
+        });
+    }
 
     private void flush(
+            MemTable memTable,
             int fileIndex,
             Path storagePath,
             Arena ssTablesArena
     ) throws IOException {
-        if (flushingMemTable.isEmpty()) return;
-        SSTable.save(flushingMemTable, fileIndex, storagePath);
-        ssTables = SSTable.load(ssTablesArena, storagePath);
+        if (memTable.isEmpty()) return;
+        SSTable.save(memTable, fileIndex, storagePath);
+        ssTables = SSTable.load(ssTablesArena, storagePath, ssTablesIndex);
         flushingMemTable = new MemTable(-1);
     }
 
@@ -210,6 +226,6 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (ssTablesArena.scope().isAlive()) {
             ssTablesArena.close();
         }
-        SSTable.save(memTable, ssTables.size(), storagePath);
+        SSTable.save(memTable, ssTablesIndex.getAndIncrement(), storagePath);
     }
 }
