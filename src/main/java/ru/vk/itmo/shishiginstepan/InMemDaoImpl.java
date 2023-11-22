@@ -41,8 +41,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         return Byte.compare(b1, b2);
     };
 
-    private static class MemStorageOverflowException extends RuntimeException {
-    }
+
 
     private final AtomicLong memStorageSize = new AtomicLong(0);
 
@@ -63,6 +62,9 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final PersistentStorage persistentStorage;
     private final Path basePath;
+
+    private static class MemStorageOverflowException extends RuntimeException {
+    }
 
     public InMemDaoImpl(Path basePath, long memStorageLimit) {
         this.basePath = basePath;

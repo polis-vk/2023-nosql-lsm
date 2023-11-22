@@ -55,7 +55,8 @@ public class PersistentStorage {
         arena.close();
     }
 
-    /** Гарантирует что при успешном завершении записи на диск, SSTable с переданными в метод данными
+    /**
+     * Гарантирует что при успешном завершении записи на диск, SSTable с переданными в метод данными
      * сразу будет доступен для чтения в PersistentStorage.
      **/
     public void store(Collection<Entry<MemorySegment>> data) {
@@ -97,7 +98,7 @@ public class PersistentStorage {
 
     private List<BinarySearchSSTable> getCompactableTables() {
         List<BinarySearchSSTable> res = new ArrayList<>(sstables.size());
-        for (var sstable: sstables.reversed()) {
+        for (var sstable : sstables.reversed()) {
             if (sstable.closed.get()) continue;
             if (sstable.inCompaction.compareAndSet(false, true)) continue;
             res.add(sstable);
@@ -110,14 +111,14 @@ public class PersistentStorage {
 
         List<Entry<MemorySegment>> entries = new ArrayList<>();
 
-        for (var sstable: tablesToCompact) {
+        for (var sstable : tablesToCompact) {
             Iterator<Entry<MemorySegment>> tableEntries = sstable.scan(null, null);
             while (tableEntries.hasNext()) {
                 entries.add(tableEntries.next());
             }
         }
         store(entries);
-        for(var sstable: tablesToCompact) {
+        for (var sstable : tablesToCompact) {
             compactionClean(sstable);
         }
     }
