@@ -23,7 +23,7 @@ public class MemTable {
     }
 
     private static NavigableMap<MemorySegment, Entry<MemorySegment>> createNewMemTable() {
-        return new ConcurrentSkipListMap<>(MemorySegmentComparator.INSTANCE);
+        return new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
     }
 
     private Iterator<Entry<MemorySegment>> storageIterator(MemorySegment from, MemorySegment to) {

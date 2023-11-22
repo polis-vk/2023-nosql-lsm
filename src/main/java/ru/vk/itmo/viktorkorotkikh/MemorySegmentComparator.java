@@ -4,12 +4,11 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
-public class MemorySegmentComparator implements Comparator<MemorySegment> {
+public class MemorySegmentComparator {
 
     public static final MemorySegmentComparator INSTANCE = new MemorySegmentComparator();
 
-    @Override
-    public int compare(MemorySegment o1, MemorySegment o2) {
+    public static int compare(MemorySegment o1, MemorySegment o2) {
         // range of 0 (inclusive) up to the size (in bytes) of the smaller memory segment (exclusive).
         long mismatch = o1.mismatch(o2);
         if (mismatch == -1) { // equals
@@ -24,7 +23,9 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
             return 1;
         }
 
-        return o1.get(ValueLayout.JAVA_BYTE, mismatch) - o2.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b1 = o1.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b2 = o1.get(ValueLayout.JAVA_BYTE, mismatch);
+        return Byte.compare(b1, b2);
     }
 
     public int compare(
