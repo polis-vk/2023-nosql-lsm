@@ -10,13 +10,12 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class SSTable {
-    private final Comparator<MemorySegment> comparator = PersistentDao::compare;
-
+    private final Comparator<MemorySegment> comparator = MemorySegmentUtils::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final AtomicLong sizeInBytes = new AtomicLong(0);
 
     public Iterator<Entry<MemorySegment>> getAll() {
-        return storage.sequencedValues().iterator();
+        return storage.values().iterator();
     }
 
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {

@@ -32,7 +32,7 @@ public class DiskStorage {
         this.segmentList.addAll(segmentList);
     }
 
-    public void addSegment(Path storagePath, String fileName, Arena arena) throws IOException {
+    public void mapSSTableAfterFlush(Path storagePath, String fileName, Arena arena) throws IOException {
         Path file = storagePath.resolve(fileName);
         try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
             MemorySegment fileSegment = fileChannel.map(
@@ -45,9 +45,9 @@ public class DiskStorage {
         }
     }
 
-    public void clearSegments(Path storagePath, Arena arena) throws IOException {
+    public void mapSSTableAfterCompaction(Path storagePath, Arena arena) throws IOException {
         this.segmentList.clear();
-        addSegment(storagePath, DATA_FILE_AFTER_COMPACTION, arena);
+        mapSSTableAfterFlush(storagePath, DATA_FILE_AFTER_COMPACTION, arena);
     }
 
     public Iterator<Entry<MemorySegment>> range(
@@ -65,7 +65,7 @@ public class DiskStorage {
         }
         iterators.add(storageState.getActiveSSTable().get(from, to));
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, MemorySegmentUtils::compare)) {
             @Override
             protected boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;
@@ -83,7 +83,7 @@ public class DiskStorage {
             iterators.add(iterator(memorySegment, from, to));
         }
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, MemorySegmentUtils::compare)) {
             @Override
             protected boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;
