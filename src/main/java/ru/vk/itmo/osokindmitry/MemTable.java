@@ -46,10 +46,10 @@ public class MemTable {
 
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(2);
 
-        iterators.add(getInMemory(from, to, storage));
         if (isFlushing.get() && flushingStorage.get() != null) {
             iterators.add(getInMemory(from, to, flushingStorage));
         }
+        iterators.add(getInMemory(from, to, storage));
 
         return iterators;
     }
@@ -105,6 +105,10 @@ public class MemTable {
 
     public long size() {
         return storageSize.get();
+    }
+
+    public long getThresholdBytes() {
+        return thresholdBytes;
     }
 
     private long entrySize(Entry<MemorySegment> entry) {

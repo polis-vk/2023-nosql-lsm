@@ -27,24 +27,21 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
     private final Path path;
     private final DiskStorage diskStorage;
-    private final long thresholdBytes;
     private final ReentrantReadWriteLock rwLock;
     private final ExecutorService compactionExecutor;
     private ExecutorService flushExecutor;
     private final ExecutorService finalizer;
-    private Future<?> autoFlushing;
-    //    private Future<?> flushingTask;
+    private final Future<?> autoFlushing;
     private final AtomicBoolean shuttingDown;
 
     public PersistentDao(Config config) throws IOException {
         path = config.basePath().resolve("data");
         Files.createDirectories(path);
 
-        thresholdBytes = config.flushThresholdBytes();
         arena = Arena.ofShared();
         rwLock = new ReentrantReadWriteLock();
 
-        memTable = new MemTable(new ConcurrentSkipListMap<>(PersistentDao::compare), thresholdBytes);
+        memTable = new MemTable(new ConcurrentSkipListMap<>(PersistentDao::compare), config.flushThresholdBytes());
 
         compactionExecutor = Executors.newSingleThreadExecutor();
         flushExecutor = Executors.newFixedThreadPool(2);
@@ -188,7 +185,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 rwLock.writeLock().lock();
 
                 try {
-                    if (memTable.size() > thresholdBytes && !memTable.getIsFlushing()) {
+                    if (memTable.size() > memTable.getThresholdBytes() && !memTable.getIsFlushing()) {
                         memTable.set(new ConcurrentSkipListMap<>(PersistentDao::compare));
                         memTable.setIsFlushing(true);
                         flushExecutor.execute(new FlushingTask<>());
