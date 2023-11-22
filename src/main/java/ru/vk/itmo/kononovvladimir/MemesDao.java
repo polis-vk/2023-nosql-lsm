@@ -27,7 +27,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static class State {
 
         private final NavigableMap<MemorySegment, Entry<MemorySegment>> memoryStorage;
-        private final NavigableMap<MemorySegment, Entry<MemorySegment>> flushingMemoryTable;
+        //private final NavigableMap<MemorySegment, Entry<MemorySegment>> flushingMemoryTable;
         //private final AtomicLong memoryStorageSizeInBytes;
         private final DiskStorage diskStorage;
 
@@ -35,9 +35,12 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                       NavigableMap<MemorySegment, Entry<MemorySegment>> flushingMemoryTable,
                       DiskStorage diskStorage) {
             this.memoryStorage = memoryStorage;
-            this.flushingMemoryTable = flushingMemoryTable;
-            //this.memoryStorageSizeInBytes = new AtomicLong();
-            this.diskStorage = diskStorage;
+            //this.flushingMemoryTable = flushingMemoryTable;
+            //убрать
+            if (flushingMemoryTable == null || flushingMemoryTable.isEmpty()) {
+                //this.memoryStorageSizeInBytes = new AtomicLong();
+                this.diskStorage = diskStorage;
+            } else this.diskStorage = null;
         }
     }
 
@@ -127,7 +130,27 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 + (entry.value() == null ? 0 : entry.key().byteSize());
     }*/
 
-
+/*    @Override
+    public void flush() throws IOException {
+        memoryLock.writeLock().lock();
+        try {
+            lock.lock();
+            try {
+                if (!state.memoryStorage.isEmpty()) {
+                    DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
+                }
+            } finally {
+                lock.unlock();
+            }
+        } finally {
+            memoryLock.writeLock().unlock();
+        }
+        state = new State(
+                new ConcurrentSkipListMap<>(comparator),
+                state.flushingMemoryTable,
+                new DiskStorage(DiskStorage.loadOrRecover(path, arena))
+        );
+    }*/
 
 /*    private void tryToFlush() {
         try {
