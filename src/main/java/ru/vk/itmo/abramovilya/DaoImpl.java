@@ -11,11 +11,7 @@ import java.lang.foreign.ValueLayout;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -130,36 +126,32 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         });
     }
 
-    // Одновременно может работать только один flush
-    // Если какой-то flush в процессе исполнение и приходит запрос на еще один flush,
-    // мы добавляем эту задачу в очередь и ждем завершения
-    //
-    // Вызов flush блокирует вызывающий его поток
     @Override
     public void flush() throws IOException {
-        try {
-            flushLock.acquire();
-            try {
-                mapUpsertExchangeLock.writeLock().lock();
+        backgroundFlushQueue.execute(() -> {
+            if (flushLock.tryAcquire()) {
                 try {
-                    if (map.isEmpty()) {
-                        return;
+                    mapUpsertExchangeLock.writeLock().lock();
+                    try {
+                        if (map.isEmpty()) {
+                            return;
+                        }
+                        flushingMap = map;
+                        renewMap();
+                    } finally {
+                        mapUpsertExchangeLock.writeLock().unlock();
                     }
-                    flushingMap = map;
-                    renewMap();
-                } finally {
-                    mapUpsertExchangeLock.writeLock().unlock();
-                }
-                writeMapIntoFile(flushingMap);
-                storage.incTotalSStablesAmount();
-            } finally {
-                flushingMap = null;
-                flushLock.release();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    writeMapIntoFile(flushingMap);
+                    storage.incTotalSStablesAmount();
 
+                    flushingMap = null;
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                } finally {
+                    flushLock.release();
+                }
+            }
+        });
     }
 
     private void renewMap() {
