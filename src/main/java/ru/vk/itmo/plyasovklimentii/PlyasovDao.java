@@ -219,7 +219,7 @@ public class PlyasovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 throw new IOException("Executor did not terminate");
             }
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            Thread.currentThread().interrupt();
         } finally {
             if (arena.scope().isAlive()) {
                 arena.close();

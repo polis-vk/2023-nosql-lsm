@@ -18,6 +18,7 @@ import java.util.stream.Stream;
 
 public final class Utils {
     public static final String SSTABLE_PREFIX = "sstable_";
+    
     private Utils() {
         // util
     }
