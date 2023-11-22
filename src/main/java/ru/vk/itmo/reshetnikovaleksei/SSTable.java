@@ -17,7 +17,7 @@ public class SSTable {
     public static final String DATA_PREFIX = "data-";
     public static final String DATA_TMP = "data.tmp";
     public static final String INDEX_PREFIX = "index-";
-    public static final String INDEX_TMP= "index.tmp";
+    public static final String INDEX_TMP = "index.tmp";
 
     private final MemorySegment dataSegment;
     private final MemorySegment indexSegment;

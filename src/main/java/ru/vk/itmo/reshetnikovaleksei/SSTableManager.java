@@ -10,6 +10,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -149,13 +150,9 @@ public class SSTableManager implements AutoCloseable {
         save(entries);
         deleteAllFiles();
 
-        // lastIdx == 0
-        Path newDataPath = basePath.resolve(DATA_PREFIX + lastIdx);
-        Path newIndexPath = basePath.resolve(INDEX_PREFIX + lastIdx);
-
         // переименование
-        moveDataFromTmpToReal(dataPath, newDataPath);
-        moveDataFromTmpToReal(indexPath, newIndexPath);
+        moveDataFromTmpToReal(dataPath, basePath.resolve(DATA_PREFIX + lastIdx));
+        moveDataFromTmpToReal(indexPath, basePath.resolve(INDEX_PREFIX + lastIdx));
     }
 
     @Override
@@ -166,19 +163,14 @@ public class SSTableManager implements AutoCloseable {
         }
     }
 
-    private void moveDataFromTmpToReal(Path tmpFilePath, Path realFilePath) {
+    private void moveDataFromTmpToReal(Path tmpFilePath, Path realFilePath) throws IOException {
         try {
             Files.createFile(realFilePath);
-        } catch (IOException e) {
+        } catch (FileAlreadyExistsException ignored) {
             // do nothing
         }
 
-        try {
-            Files.move(tmpFilePath, realFilePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (IOException e) {
-            throw new RuntimeException("Got exception during moving from tmpFilePath: %s to realFilePath: %s"
-                    .formatted(tmpFilePath, realFilePath), e);
-        }
+        Files.move(tmpFilePath, realFilePath, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
     private void deleteAllFiles() throws IOException {
