@@ -19,6 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Level;
@@ -31,7 +32,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             new ConcurrentSkipListMap<>(SSTable.COMPARATOR);
     private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushedStorage;
     private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> currentStorage;
-    private long currentMemoryByteSize;
+    private final AtomicLong currentMemoryByteSize;
     private final long flushThresholdBytes;
     private final ExecutorService flushService;
     private final ExecutorService compactService;
@@ -45,6 +46,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         flushThresholdBytes = config.flushThresholdBytes();
         flushService = Executors.newSingleThreadExecutor();
         compactService = Executors.newSingleThreadExecutor();
+        currentMemoryByteSize = new AtomicLong();
     }
 
     private static <T> Iterator<T> getValuesIterator(final SortedMap<?, T> map) {
@@ -100,20 +102,19 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         Objects.requireNonNull(entry);
         final long entrySize = getEntrySize(entry);
 
-        final long newSize = currentMemoryByteSize + entrySize;
+        lock.readLock().lock();
+        try {
+            currentStorage.put(entry.key(), entry);
+            currentMemoryByteSize.addAndGet(entrySize);
+        } finally {
+            lock.readLock().unlock();
+        }
+        final long newSize = currentMemoryByteSize.get() + entrySize;
         if (newSize >= flushThresholdBytes) {
             if (!flushedStorage.isEmpty()) {
                 throw new IllegalStateException("Limit is reached. U should wait");
             }
             flush();
-        }
-
-        lock.writeLock().lock();
-        try {
-            currentStorage.put(entry.key(), entry);
-            currentMemoryByteSize += entrySize;
-        } finally {
-            lock.writeLock().unlock();
         }
     }
 
@@ -162,7 +163,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             flushedStorage = currentStorage;
             currentStorage = storage;
-            currentMemoryByteSize = 0;
+            currentMemoryByteSize.set(0);
         } finally {
             lock.writeLock().unlock();
         }
