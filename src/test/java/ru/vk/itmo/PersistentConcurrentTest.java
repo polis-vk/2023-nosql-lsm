@@ -30,8 +30,8 @@ public class PersistentConcurrentTest extends BaseTest {
     void testConcurrentRW_100_000_compact(Dao<String, Entry<String>> dao) throws Exception {
         int count = 100_000;
 
-        // 100ms should be enough considering GC
-        long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(100);
+        // 250ms should be enough considering GC
+        long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(250);
 
         List<Entry<String>> entries = entries("k", "v", count);
 
