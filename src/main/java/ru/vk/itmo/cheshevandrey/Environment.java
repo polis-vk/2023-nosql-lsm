@@ -198,7 +198,7 @@ public class Environment {
     }
 
     public void compact() throws IOException {
-        if (isCompacted) {
+        if (isCompacted || mainSegmentList.size() < 2) {
             return;
         }
         IterableDisk iterable = new IterableDisk(this, Range.DISK);
