@@ -132,7 +132,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void compact() {
         rwLock.readLock().lock();
         try {
-            if (!memTable.getIsFlushing()) {
+            if (memTable.isNotFlushing()) {
 
                 compactionExecutor.execute(() -> {
                     try {
@@ -188,7 +188,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 rwLock.writeLock().lock();
 
                 try {
-                    if (memTable.size() > memTable.getThresholdBytes() && !memTable.getIsFlushing()) {
+                    if (memTable.size() > memTable.getThresholdBytes() && memTable.isNotFlushing()) {
                         memTable.set(new ConcurrentSkipListMap<>(PersistentDao::compare));
                         memTable.setIsFlushing(true);
                         flushExecutor.execute(new FlushingTask<>());

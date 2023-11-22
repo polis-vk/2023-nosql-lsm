@@ -64,8 +64,8 @@ public class MemTable {
         this.isFlushing.set(isFlushing);
     }
 
-    public boolean getIsFlushing() {
-        return this.isFlushing.get();
+    public boolean isNotFlushing() {
+        return !this.isFlushing.get();
     }
 
     public long size() {
