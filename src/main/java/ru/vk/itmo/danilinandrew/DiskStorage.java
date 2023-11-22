@@ -54,7 +54,6 @@ public class DiskStorage {
         for (String fileName : existedFiles) {
             Files.deleteIfExists(storagePath.resolve(fileName));
         }
-        Files.deleteIfExists(storagePath.resolve(TMP_FILE));
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
@@ -135,20 +134,18 @@ public class DiskStorage {
             }
         }
 
-        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
         list.add(newFileName);
         Files.write(
-                indexFile,
+                indexTmp,
                 list,
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
 
-        Files.delete(indexTmp);
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {

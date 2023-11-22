@@ -7,14 +7,16 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
+import java.util.List;
 
 public class DiskStorageWithCompact {
-    DiskStorage diskStorage;
+    private final DiskStorage diskStorage;
     private static final String INDEX_FILE = "index.idx";
     private static final String TMP_FILE = "index.tmp";
 
@@ -51,11 +53,19 @@ public class DiskStorageWithCompact {
         }
         sizeIndexes *= 2 * Long.BYTES;
 
+        final Path indexTmp = storagePath.resolve(TMP_FILE);
         final Path indexFile = storagePath.resolve(INDEX_FILE);
+
+        List<String> existedFiles = Files.readAllLines(
+                indexFile,
+                StandardCharsets.UTF_8
+        );
+
+        String newFileName = String.valueOf(existedFiles.size());
 
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve("tmpfile"),
+                        storagePath.resolve(newFileName),
                         StandardOpenOption.WRITE,
                         StandardOpenOption.READ,
                         StandardOpenOption.CREATE,
@@ -100,28 +110,17 @@ public class DiskStorageWithCompact {
                 }
             }
 
-            diskStorage.clearStorage(storagePath);
-
-            Files.move(
-                    indexFile,
-                    storagePath.resolve(TMP_FILE),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING
-            );
             Files.writeString(
-                    storagePath.resolve(INDEX_FILE),
-                    "0",
+                    indexTmp,
+                    newFileName,
                     StandardOpenOption.WRITE,
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING
             );
-            Files.move(
-                    storagePath.resolve("tmpfile"),
-                    storagePath.resolve("0"),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING
-            );
-            Files.delete(storagePath.resolve(TMP_FILE));
+
+            diskStorage.clearStorage(storagePath);
+
+            Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 }
