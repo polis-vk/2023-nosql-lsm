@@ -54,8 +54,7 @@ public class DiskStorage {
         return segmentList;
     }
 
-    // TODO synchornized
-    public void addNewList(long fileNumber) throws IOException {
+    public synchronized void addNewList(long fileNumber) throws IOException {
         Path file = storagePath.resolve(Long.toString(fileNumber));
         try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
             MemorySegment segment = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, Files.size(file), arena);

@@ -38,10 +38,6 @@ public class CompactionService {
         this.isWorking = new AtomicBoolean();
     }
 
-    public AtomicBoolean isWorking() {
-        return isWorking;
-    }
-
     public Iterator<Entry<MemorySegment>> range(
             List<Iterator<Entry<MemorySegment>>> inMemoryIterators,
             MemorySegment from, MemorySegment to
@@ -156,8 +152,7 @@ public class CompactionService {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                MemorySegment key = DiskStorage.slice(
-                        page,
+                MemorySegment key = DiskStorage.slice(page,
                         DiskStorage.startOfKey(page, index),
                         DiskStorage.endOfKey(page, index)
                 );

@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static ru.vk.itmo.grunskiialexey.DiskStorage.changeActualFilesInterval;
+import static ru.vk.itmo.grunskiialexey.DiskStorage.endOfKey;
 import static ru.vk.itmo.grunskiialexey.DiskStorage.tombstone;
 
 public class InMemoryQuerySystem {
@@ -159,6 +160,7 @@ public class InMemoryQuerySystem {
     public void upsert(Entry<MemorySegment> entry) {
         if (isWorking.get()) {
             upsertWhenFlushing(entry);
+            return;
         }
 
         if (currentByteSize.get() > flushThresholdBytes) {
@@ -170,6 +172,7 @@ public class InMemoryQuerySystem {
 
             upsertWhenFlushing(entry);
         }
+        currentByteSize.getAndAdd(entrySize(entry));
         storages.get(0).put(entry.key(), entry);
     }
 
@@ -190,6 +193,6 @@ public class InMemoryQuerySystem {
     }
 
     private long entrySize(Entry<MemorySegment> entry) {
-        return entry.key().byteSize() + entry.value().byteSize() + 2 * Long.BYTES;
+        return entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()) + 2 * Long.BYTES;
     }
 }
