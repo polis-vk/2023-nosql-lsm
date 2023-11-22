@@ -33,13 +33,4 @@ public class SSTable extends AbstractSSTable {
         return new OpenedSSTable(segment, path, priority);
     }
 
-    @Override
-    public boolean equals(final Object o) {
-        return super.equals(o);
-    }
-
-    @Override
-    public int hashCode() {
-        return super.hashCode();
-    }
 }

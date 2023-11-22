@@ -2,6 +2,7 @@ package ru.vk.itmo.smirnovdmitrii.outofmemory.sstable;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.smirnovdmitrii.outofmemory.RangeRequestGroup;
 import ru.vk.itmo.smirnovdmitrii.util.EqualsComparator;
 
 import java.lang.foreign.MemorySegment;
@@ -14,6 +15,7 @@ import java.util.NoSuchElementException;
 public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private final MemorySegment upperBound;
     private final SSTableStorage storage;
+    private final RangeRequestGroup group;
     private final EqualsComparator<MemorySegment> comparator;
     private SSTable ssTable;
     private Entry<MemorySegment> next;
@@ -22,15 +24,22 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     public SSTableIterator(
             final SSTable ssTable,
+            final RangeRequestGroup group,
             final MemorySegment from,
             final MemorySegment to,
             final SSTableStorage ssTableStorage,
             final EqualsComparator<MemorySegment> comparator
     ) {
         this.storage = ssTableStorage;
+        this.group = group;
         this.comparator = comparator;
         this.upperBound = to;
         this.ssTable = ssTable;
+        if (!group.register(ssTable)) {
+            this.ssTable = null;
+            this.next = null;
+            return;
+        }
         this.next = new BaseEntry<>(from, null);
         reposition();
         safeNext();
@@ -88,11 +97,13 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
                     return binarySearchResult == offset;
                 }
             }
-            ssTable = storage.getCompaction(ssTable);
-            if (ssTable == null) {
+            final SSTable compaction = storage.getCompaction(ssTable);
+            if (compaction == null || !group.register(compaction)) {
+                ssTable = null;
                 next = null;
                 return false;
             }
+            ssTable = compaction;
         }
     }
 

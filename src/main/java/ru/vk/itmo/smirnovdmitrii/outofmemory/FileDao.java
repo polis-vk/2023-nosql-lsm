@@ -169,9 +169,10 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
             final Iterable<SSTable> iterable
     ) {
         final List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
+        final RangeRequestGroup group = new RangeRequestGroup();
         for (final SSTable ssTable : iterable) {
             iterators.add(new SSTableIterator(
-                    ssTable, from, to, storage, comparator
+                    ssTable, group, from, to, storage, comparator
             ));
         }
         return iterators;
@@ -193,9 +194,10 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
         final String compactionFileName = save(() -> {
             final MergeIterator.Builder<MemorySegment, Entry<MemorySegment>> builder
                     = new MergeIterator.Builder<>(comparator);
+            final RangeRequestGroup group = new RangeRequestGroup();
             for (int i = 0; i < ssTables.size(); i++) {
                 builder.addIterator(new WrappedIterator<>(i,
-                        new SSTableIterator(ssTables.get(i), null, null, storage, comparator)));
+                        new SSTableIterator(ssTables.get(i), group, null, null, storage, comparator)));
             }
             return builder.build();
         });
