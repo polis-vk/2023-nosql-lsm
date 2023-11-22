@@ -24,7 +24,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final Comparator<MemorySegment> comparator = InMemoryDao::compare;
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> memoryStorage =
             new ConcurrentSkipListMap<>(comparator);
-    private long storageSize = 0L;
+    private long storageSize;
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
@@ -37,6 +37,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.flushMemorySize = config.flushThresholdBytes();
         Files.createDirectories(path);
         arena = Arena.ofShared();
+        storageSize = 0L;
         this.diskStorage = new DiskStorage(StorageUtils.loadOrRecover(path, arena));
     }
 
