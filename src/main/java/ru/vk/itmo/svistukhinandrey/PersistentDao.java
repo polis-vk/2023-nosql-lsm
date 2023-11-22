@@ -80,7 +80,17 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return entry;
         }
 
-        return diskStorage.getFromDisk(key);
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.rangeFromDisk(key, null);
+
+        if (!iterator.hasNext()) {
+            return null;
+        }
+        Entry<MemorySegment> next = iterator.next();
+        if (MemorySegmentUtils.isSameKey(next.key(), key)) {
+            return next;
+        }
+
+        return null;
     }
 
     @Override
