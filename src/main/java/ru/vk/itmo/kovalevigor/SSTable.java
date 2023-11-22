@@ -1,5 +1,7 @@
 package ru.vk.itmo.kovalevigor;
 
+import ru.vk.itmo.Entry;
+
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -10,8 +12,6 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.SortedMap;
-
-import ru.vk.itmo.Entry;
 
 public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> {
 

@@ -1,5 +1,7 @@
 package ru.vk.itmo.kovalevigor;
 
+import ru.vk.itmo.Entry;
+
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -19,7 +21,6 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import ru.vk.itmo.Entry;
 
 public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySegment>>, AutoCloseable {
 
@@ -57,7 +58,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
         return SSTABLE_NAME + size;
     }
 
-    public synchronized void write(SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
+    public void write(SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
         if (map.isEmpty()) {
             return;
         }
@@ -127,7 +128,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
     }
 
     public synchronized void compact() throws IOException {
-        List<SSTable> compactTables = new ArrayList<>(ssTables);
+        final List<SSTable> compactTables = new ArrayList<>(ssTables);
         if (compactTables.size() <= 1) {
             return;
         }
@@ -166,31 +167,31 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
                 dataChannel.truncate(SStorageDumper.getSize(realSize.keysSize, realSize.valuesSize));
                 indexChannel.truncate(SStorageDumper.getIndexSize(realSize.size));
             }
-        final Lock writeLock = lock.writeLock();
-        writeLock.lock();
-        try {
-            for (SSTable ssTable : compactTables) {
-                ssTable.delete();
-            }
-
-            final String sstableName = getNextSSTableName(Collections.emptyList());
-            final Path dataPath = SSTable.getDataPath(root, sstableName);
-            final Path indexPath = SSTable.getIndexPath(root, sstableName);
-            Files.copy(tableTmpPath, dataPath);
+            final Lock writeLock = lock.writeLock();
+            writeLock.lock();
             try {
-                Files.copy(indexTmpPath, indexPath);
-            } catch (IOException e) {
-                Files.deleteIfExists(dataPath);
-                throw e;
-            }
-                for (int i = 0; i < compactTables.size(); i++) {
-                    ssTables.pollLast();
+                for (SSTable ssTable : compactTables) {
+                    ssTable.delete();
                 }
+
+                final String sstableName = getNextSSTableName(Collections.emptyList());
+                final Path dataPath = SSTable.getDataPath(root, sstableName);
+                final Path indexPath = SSTable.getIndexPath(root, sstableName);
+                Files.copy(tableTmpPath, dataPath);
+                try {
+                    Files.copy(indexTmpPath, indexPath);
+                } catch (IOException e) {
+                    Files.deleteIfExists(dataPath);
+                    throw e;
+                }
+                compactTables.forEach(ignored -> ssTables.pollLast());
+
                 List<SSTable> movedSStables = new ArrayList<>(ssTables);
                 ssTables.clear();
                 ssTables.add(SSTable.create(root, sstableName, arena));
                 for (final SSTable ssTable : movedSStables.reversed()) {
                     ssTable.move(root, getNextSSTableName(ssTables));
+                    ssTables.add(ssTable);
                 }
             } finally {
                 writeLock.unlock();
@@ -206,7 +207,7 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
     }
 
     @Override
-    public synchronized void close() throws IOException {
+    public void close() throws IOException {
 
         if (!arena.scope().isAlive()) {
             return;
