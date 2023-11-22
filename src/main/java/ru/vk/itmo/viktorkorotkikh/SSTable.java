@@ -176,7 +176,6 @@ public final class SSTable {
             Files.deleteIfExists(tmpSSTable);
             return tmpSSTable;
         }
-        MemorySegment mappedSSTableFile;
 
         long entriesDataOffset = METADATA_SIZE + ENTRY_METADATA_SIZE * entriesSize;
 
@@ -187,7 +186,7 @@ public final class SSTable {
                      StandardOpenOption.TRUNCATE_EXISTING
              )
         ) {
-            mappedSSTableFile = channel.map(
+            MemorySegment mappedSSTableFile = channel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0L,
                     entriesDataOffset + entriesDataSize,
