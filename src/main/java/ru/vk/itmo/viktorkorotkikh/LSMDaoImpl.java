@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
@@ -15,15 +16,19 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage;
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> storage;
 
-    private final List<SSTable> ssTables;
+    private List<SSTable> ssTables;
     private Arena ssTablesArena;
 
     private final Path storagePath;
 
+    private static NavigableMap<MemorySegment, Entry<MemorySegment>> createNewMemTable() {
+        return new ConcurrentSkipListMap<>(MemorySegmentComparator.INSTANCE);
+    }
+
     public LSMDaoImpl(Path storagePath) {
-        this.storage = new ConcurrentSkipListMap<>(MemorySegmentComparator.INSTANCE);
+        this.storage = createNewMemTable();
         try {
             this.ssTablesArena = Arena.ofShared();
             this.ssTables = SSTable.load(ssTablesArena, storagePath);
@@ -36,6 +41,10 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        return mergeIterator(from, to);
+    }
+
+    private MergeIterator.MergeIteratorWithTombstoneFilter mergeIterator(MemorySegment from, MemorySegment to) {
         List<SSTable.SSTableIterator> ssTableIterators =
                 ssTables.stream().map(ssTable -> ssTable.iterator(from, to)).toList();
         return MergeIterator.create(lsmPointerIterator(from, to), ssTableIterators);
@@ -67,7 +76,8 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (fromMemTable != null) {
             return fromMemTable.value() == null ? null : fromMemTable;
         }
-        for (int i = ssTables.size() - 1; i >= 0; i--) { // reverse order because last sstable has the highest priority
+        // reverse order because last sstable has the highest priority
+        for (int i = ssTables.size() - 1; i >= 0; i--) {
             SSTable ssTable = ssTables.get(i);
             Entry<MemorySegment> fromDisk = ssTable.get(key);
             if (fromDisk != null) {
@@ -80,6 +90,30 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         storage.put(entry.key(), entry);
+    }
+
+    @Override
+    public void compact() throws IOException {
+        if (storage.isEmpty() && SSTable.isCompacted(ssTables)) {
+            return;
+        }
+        Path compacted = SSTable.compact(() -> this.mergeIterator(null, null), storagePath);
+        ssTables = SSTable.replaceSSTablesWithCompacted(ssTablesArena, compacted, storagePath, ssTables);
+    }
+
+    @Override
+    public void flush() throws IOException {
+        if (storage.isEmpty()) return;
+        SSTable.save(storage.values(), ssTables.size(), storagePath);
+        ssTables = addNewSSTable(SSTable.loadOneByIndex(ssTablesArena, storagePath, ssTables.size()));
+        storage = createNewMemTable();
+    }
+
+    private List<SSTable> addNewSSTable(SSTable newSSTable) {
+        List<SSTable> newSSTables = new ArrayList<>(ssTables.size() + 1);
+        newSSTables.addAll(ssTables);
+        newSSTables.add(newSSTable);
+        return newSSTables;
     }
 
     @Override
@@ -108,12 +142,12 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         @Override
-        protected MemorySegment getPointerSrc() {
+        protected MemorySegment getPointerKeySrc() {
             return current.key();
         }
 
         @Override
-        protected long getPointerSrcOffset() {
+        protected long getPointerKeySrcOffset() {
             return 0;
         }
 
@@ -123,7 +157,20 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         @Override
-        protected long getPointerSrcSize() {
+        void shift() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            current = iterator.hasNext() ? iterator.next() : null;
+        }
+
+        @Override
+        long getPointerSize() {
+            return Utils.getEntrySize(current);
+        }
+
+        @Override
+        protected long getPointerKeySrcSize() {
             return current.key().byteSize();
         }
 
