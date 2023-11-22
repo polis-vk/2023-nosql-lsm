@@ -32,7 +32,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private volatile Future<?> compactionFuture;
 
-    private volatile Deque<SSTable> ssTables;
+    private volatile List<SSTable> ssTables;
 
     private final AtomicInteger ssTablesIndex = new AtomicInteger(0);
     private Arena ssTablesArena;
@@ -87,10 +87,8 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (fromFlushingMemTable != null) {
             return fromFlushingMemTable.value() == null ? null : fromFlushingMemTable;
         }
-        // reverse order because last sstable has the highest priority
-        Iterator<SSTable> ssTableIterator = ssTables.descendingIterator();
-        while (ssTableIterator.hasNext()) {
-            SSTable ssTable = ssTableIterator.next();
+        for (int i = ssTables.size() - 1; i >= 0; i--) { // reverse order because last sstable has the highest priority
+            SSTable ssTable = ssTables.get(i);
             Entry<MemorySegment> fromDisk = ssTable.get(key);
             if (fromDisk != null) {
                 return fromDisk.value() == null ? null : fromDisk;
@@ -127,12 +125,11 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private void compactInBackground() {
         try {
-            Deque<SSTable> ssTablesToCompact = ssTables;
             compactionLock.writeLock().lock();
             try {
                 SSTable.compact(
                         () -> MergeIterator.createThroughSSTables(
-                                SSTable.ssTableIterators(ssTablesToCompact, null, null)
+                                SSTable.ssTableIterators(ssTables, null, null)
                         ),
                         storagePath
                 );
@@ -189,7 +186,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     ) throws IOException {
         if (memTable.isEmpty()) return;
         SSTable.save(memTable, fileIndex, storagePath);
-        ssTables.add(SSTable.loadOneByIndex(ssTablesArena, storagePath, fileIndex));
+        ssTables = SSTable.load(ssTablesArena, storagePath, ssTablesIndex);
         flushingMemTable = new MemTable(-1);
     }
 

@@ -51,11 +51,7 @@ public final class SSTable {
         this.hasNoTombstones = hasNoTombstones;
     }
 
-    public int getIndex() {
-        return index;
-    }
-
-    public static Deque<SSTable> load(Arena arena, Path basePath, AtomicInteger ssTablesIndex) throws IOException {
+    public static List<SSTable> load(Arena arena, Path basePath, AtomicInteger ssTablesIndex) throws IOException {
         if (checkIfCompactedExists(basePath)) {
             finalizeCompaction(basePath);
         }
@@ -75,7 +71,7 @@ public final class SSTable {
         }
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        ConcurrentLinkedDeque<SSTable> ssTables = new ConcurrentLinkedDeque<>();
+        List<SSTable> ssTables = new ArrayList<>(existedFiles.size());
         for (int i = 0; i < existedFiles.size(); i++) {
             Path ssTablePath = basePath.resolve(existedFiles.get(i));
             ssTables.add(loadOne(arena, ssTablePath, i));
@@ -97,14 +93,8 @@ public final class SSTable {
         }
     }
 
-    public static SSTable loadOneByIndex(Arena arena, Path basePath, int index) throws IOException {
-        Path ssTablePath = basePath.resolve(FILE_NAME + index + FILE_EXTENSION);
-        return loadOne(arena, ssTablePath, index);
-    }
-
-    public static boolean isCompacted(Deque<SSTable> ssTables) {
-        return ssTables.isEmpty()
-                || (ssTables.size() == 1 && ssTables.peek() != null && ssTables.peek().hasNoTombstones);
+    public static boolean isCompacted(List<SSTable> ssTables) {
+        return ssTables.isEmpty() || (ssTables.size() == 1 && ssTables.getFirst().hasNoTombstones);
     }
 
     public SSTableIterator iterator(MemorySegment from, MemorySegment to) {
@@ -127,7 +117,7 @@ public final class SSTable {
     }
 
     public static List<SSTable.SSTableIterator> ssTableIterators(
-            Deque<SSTable> ssTables,
+            List<SSTable> ssTables,
             MemorySegment from,
             MemorySegment to
     ) {
@@ -272,44 +262,6 @@ public final class SSTable {
 
     private static Path getCompactedFilePath(Path basePath) {
         return basePath.resolve("_compacted_" + FILE_NAME + FILE_EXTENSION);
-    }
-
-    public static Deque<SSTable> replaceSSTablesWithCompacted(
-            Arena arena,
-            Path compactedSSTable,
-            Path basePath,
-            Deque<SSTable> oldSSTables
-    ) throws IOException {
-        deleteOldSSTables(basePath, oldSSTables);
-        return replaceSSTablesWithCompactedInternal(
-                arena,
-                compactedSSTable,
-                basePath
-        );
-    }
-
-    private static void deleteOldSSTables(Path basePath, Deque<SSTable> oldSSTables) throws IOException {
-        for (SSTable oldSSTable : oldSSTables) {
-            Files.deleteIfExists(basePath.resolve(FILE_NAME + oldSSTable.index + FILE_EXTENSION));
-        }
-    }
-
-    private static ConcurrentLinkedDeque<SSTable> replaceSSTablesWithCompactedInternal(
-            Arena arena,
-            Path compactedSSTable,
-            Path basePath
-    ) throws IOException {
-        if (!Files.exists(compactedSSTable)) {
-            return new ConcurrentLinkedDeque<>();
-        }
-        Path newSSTable = Files.move(
-                compactedSSTable,
-                basePath.resolve(FILE_NAME + 0 + FILE_EXTENSION),
-                StandardCopyOption.ATOMIC_MOVE
-        );
-        ConcurrentLinkedDeque<SSTable> newSSTables = new ConcurrentLinkedDeque<>();
-        newSSTables.add(loadOne(arena, newSSTable, 0));
-        return newSSTables;
     }
 
     private static boolean checkIfCompactedExists(Path basePath) {
@@ -483,8 +435,8 @@ public final class SSTable {
     }
 
     public final class SSTableIterator extends LSMPointerIterator {
-        public long fromPosition;
-        public final long toPosition;
+        private long fromPosition;
+        private final long toPosition;
 
         private SSTableIterator(long fromPosition, long toPosition) {
             this.fromPosition = fromPosition;
