@@ -93,22 +93,19 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (memoryMapSize.get() <= flushThresholdBytes) {
             return;
         }
-        mapUpsertExchangeLock.writeLock().lock();
-        try {
-            if (memoryMapSize.get() <= flushThresholdBytes) {
-                return;
-            }
-            if (isFlushing.compareAndSet(false, true)) {
+        if (isFlushing.compareAndSet(false, true)) {
+            mapUpsertExchangeLock.writeLock().lock();
+            try {
                 flushingMap = map;
                 long size = memoryMapSize.get();
                 renewMap();
                 backgroundFlushQueue.execute(() -> backgroundFlush(size));
-            } else {
-                throw new DaoException.DaoMemoryException(
-                        "Upsert happened with no free space and flushing already executing");
+            } finally {
+                mapUpsertExchangeLock.writeLock().unlock();
             }
-        } finally {
-            mapUpsertExchangeLock.writeLock().unlock();
+        } else {
+            throw new DaoException.DaoMemoryException(
+                    "Upsert happened with no free space and flushing already executing");
         }
     }
 
