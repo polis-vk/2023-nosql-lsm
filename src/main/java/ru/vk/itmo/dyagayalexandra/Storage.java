@@ -188,6 +188,7 @@ public class Storage implements Dao<MemorySegment, Entry<MemorySegment>> {
                 } catch (ExecutionException e) {
                     throw new IllegalStateException("Current thread execution error occurred.", e);
                 } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
                     throw new IllegalStateException("Current thread was interrupted.", e);
                 }
             }
