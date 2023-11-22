@@ -18,9 +18,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -40,6 +40,7 @@ public class PlyasovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final long flushThresholdBytes;
     private final AtomicBoolean isFlushInProgress = new AtomicBoolean(false);
     private final AtomicBoolean isCompactInProgress = new AtomicBoolean(false);
+
     public PlyasovDao(Config config) throws IOException {
         this.flushThresholdBytes = config.flushThresholdBytes();
         this.path = config.basePath().resolve("data");
@@ -77,7 +78,6 @@ public class PlyasovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         return diskStorage.range(iterators, from, to);
     }
-
 
     private Iterator<Entry<MemorySegment>> getInMemory(
                     NavigableMap<MemorySegment,
@@ -196,6 +196,7 @@ public class PlyasovDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         executorService.execute(this::compactOnDisk);
 
     }
+
     private void compactOnDisk() {
         try {
             diskStorage.compact(path, this::all);

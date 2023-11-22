@@ -1,14 +1,11 @@
 package ru.vk.itmo.plyasovklimentii;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.net.URI;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
@@ -17,13 +14,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.stream.Stream;
 
 public class DiskStorage {
 
@@ -243,7 +237,6 @@ public class DiskStorage {
 
         Utils.finalizeCompaction(storagePath);
     }
-
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         if (Files.exists(Utils.compactionFile(storagePath))) {

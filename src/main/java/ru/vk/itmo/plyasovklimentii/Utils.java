@@ -18,9 +18,10 @@ import java.util.stream.Stream;
 
 public final class Utils {
     public static final String SSTABLE_PREFIX = "sstable_";
-    private Utils(){
+    private Utils() {
         // util
     }
+
     static void deleteAllSSTables(Path storagePath) throws IOException {
         try (Stream<Path> stream = Files.find(storagePath, 1,
                 (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
@@ -93,6 +94,7 @@ public final class Utils {
             }
         };
     }
+
     public static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);
 
