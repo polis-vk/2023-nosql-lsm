@@ -14,7 +14,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -24,8 +23,6 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private volatile MemTable memTable;
 
     private volatile MemTable flushingMemTable;
-
-    private final AtomicBoolean isFlushing = new AtomicBoolean(false);
 
     private volatile Future<?> flushFuture;
 
@@ -86,6 +83,10 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (fromFlushingMemTable != null) {
             return fromFlushingMemTable.value() == null ? null : fromFlushingMemTable;
         }
+        return getFromDisk(key);
+    }
+
+    private Entry<MemorySegment> getFromDisk(MemorySegment key) {
         for (int i = ssTables.size() - 1; i >= 0; i--) { // reverse order because last sstable has the highest priority
             SSTable ssTable = ssTables.get(i);
             Entry<MemorySegment> fromDisk = ssTable.get(key);
@@ -106,11 +107,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         } finally {
             upsertLock.readLock().unlock();
         }
-
-        if (isFlushing.getAndSet(true)) {
-            throw new TooManyFlushesException();
-        }
-        flushFuture = runFlushInBackground();
+        tryToFlush(false);
     }
 
     @Override
@@ -143,10 +140,22 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        if (isFlushing.getAndSet(true)) {
-            return;
-        }
+        tryToFlush(true);
+    }
 
+    private void tryToFlush(boolean tolerateToBackgroundFlushing) {
+        upsertLock.writeLock().lock();
+        try {
+            if (!flushingMemTable.isEmpty()) {
+                if (tolerateToBackgroundFlushing) {
+                    return;
+                } else {
+                    throw new TooManyFlushesException();
+                }
+            }
+        } finally {
+            upsertLock.writeLock().unlock();
+        }
         flushFuture = runFlushInBackground();
     }
 
@@ -167,7 +176,6 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 compactionLock.writeLock().lock();
                 try {
                     flush(flushingMemTable, ssTablesIndex.getAndIncrement(), storagePath, ssTablesArena);
-                    isFlushing.set(false);
                 } finally {
                     compactionLock.writeLock().lock();
                 }
