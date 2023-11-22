@@ -23,9 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final InMemoryDao<MemorySegment, Entry<MemorySegment>> inMemoryDao;
-    private final ExecutorService compactionService = Executors.newSingleThreadExecutor();
     private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
-    private final AtomicBoolean isCompacting = new AtomicBoolean(false);
     private final EqualsComparator<MemorySegment> comparator = new MemorySegmentComparator();
 
     public DaoImpl(final Config config) {
@@ -76,23 +74,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() {
-        if (isCompacting.compareAndSet(false, true)) {
-            compactionService.execute(() -> {
-                try {
-                    outMemoryDao.compact();
-                } catch (final IOException e) {
-                    throw new UncheckedIOException(e);
-                } finally {
-                    isCompacting.set(false);
-                }
-            });
-        }
+        outMemoryDao.compact();
     }
 
     @Override
     public void close() throws IOException {
         inMemoryDao.close();
-        compactionService.close();
         outMemoryDao.close();
     }
 }

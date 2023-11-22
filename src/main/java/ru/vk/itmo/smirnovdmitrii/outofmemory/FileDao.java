@@ -28,12 +28,13 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>> {
     private static final String INDEX_FILE_NAME = "index.idx";
     private final MemorySegmentComparator comparator = new MemorySegmentComparator();
     private final SSTableStorage storage;
-
+    private final AtomicBoolean isCompacting = new AtomicBoolean(false);
     private final ExecutorService compactor = Executors.newSingleThreadExecutor();
     private final Path basePath;
 
@@ -183,7 +184,21 @@ public class FileDao implements OutMemoryDao<MemorySegment, Entry<MemorySegment>
     }
 
     @Override
-    public void compact() throws IOException {
+    public void compact() {
+        if (isCompacting.compareAndSet(false, true)) {
+            compactor.execute(() -> {
+                try {
+                    forceCompact();
+                } catch (final IOException e) {
+                    throw new UncheckedIOException(e);
+                } finally {
+                    isCompacting.set(false);
+                }
+            });
+        }
+    }
+
+    private void forceCompact() throws IOException {
         final List<SSTable> ssTables = new ArrayList<>();
         storage.iterator().forEachRemaining(ssTables::add);
         final int size = ssTables.size();
