@@ -16,7 +16,9 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -28,8 +30,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path path;
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
-
-    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
+    private final Lock lock = new ReentrantLock();
     //private final long flushThresholdBytes;
 
     public MemesDao(Config config) throws IOException {
@@ -81,12 +83,12 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         //If very big
-        lock.readLock().lock();
+        memoryLock.writeLock().lock();
         try {
             storage.put(entry.key(), entry);
             //addSize
         } finally {
-            lock.readLock().unlock();
+            memoryLock.writeLock().unlock();
         }
     }
 
@@ -112,13 +114,10 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    private Iterator<Entry<MemorySegment>> getAllInFileStorage(){
-        return diskStorage.range(null, null, null);
-    }
 
     @Override
     public void compact() throws IOException {
-        DiskStorage.compact(path, this::getAllInFileStorage);
+        DiskStorage.compact(path, this::all);
     }
 
     @Override
@@ -129,11 +128,20 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!arena.scope().isAlive()) {
             return;
         }
+        memoryLock.writeLock().lock();
+        try {
+            lock.lock();
+            try {
+                arena.close();
 
-        arena.close();
-
-        if (!storage.isEmpty()) {
-            DiskStorage.saveNextSSTable(path, storage.values());
+                if (!storage.isEmpty()) {
+                    DiskStorage.saveNextSSTable(path, storage.values());
+                }
+            } finally {
+                lock.unlock();
+            }
+        } finally {
+            memoryLock.writeLock().unlock();
         }
     }
 }
