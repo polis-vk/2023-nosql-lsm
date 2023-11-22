@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class DiskStorage {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
-    private final ArrayList<MemorySegment> segmentList;
+    private final List<MemorySegment> segmentList;
     private final Path storagePath;
     private final Arena arena;
 
@@ -43,7 +43,6 @@ public class DiskStorage {
         firstFileNumber.set(interval.left());
         lastFileNumber.set(interval.right());
 
-        segmentList.ensureCapacity((int) (interval.right() - interval.left()));
         for (long i = interval.left(); i < interval.right(); ++i) {
             Path file = storagePath.resolve(Long.toString(i));
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
@@ -117,7 +116,11 @@ public class DiskStorage {
         }
     }
 
-    static void deleteFilesAndInMemory(List<MemorySegment> segmentList, ActualFilesInterval interval, Path storagePath) throws IOException {
+    static void deleteFilesAndInMemory(
+            List<MemorySegment> segmentList,
+            ActualFilesInterval interval,
+            Path storagePath
+    ) throws IOException {
         for (long i = interval.left(); i < interval.right(); ++i) {
             Files.delete(storagePath.resolve(Long.toString(i)));
         }

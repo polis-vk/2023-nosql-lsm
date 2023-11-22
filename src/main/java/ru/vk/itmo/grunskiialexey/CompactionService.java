@@ -128,7 +128,7 @@ public class CompactionService {
         }
 
         // Delete old data
-        try (final Arena arena = Arena.ofShared()) {
+        try (Arena arena = Arena.ofShared()) {
             DiskStorage.deleteFilesAndInMemory(
                     segmentList,
                     new ActualFilesInterval(DiskStorage.getActualFilesInterval(indexFile, arena).left(), fileNumber),

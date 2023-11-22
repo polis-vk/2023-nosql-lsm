@@ -81,7 +81,7 @@ public class InMemoryQuerySystem {
         final Path indexFile = flushPath.resolve(NAME_INDEX_FILE);
 
         final ActualFilesInterval interval;
-        try (final Arena arena = Arena.ofShared()) {
+        try (Arena arena = Arena.ofShared()) {
             interval = DiskStorage.getActualFilesInterval(indexFile, arena);
         }
 
@@ -150,7 +150,7 @@ public class InMemoryQuerySystem {
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         diskStorage.addNewList(newFileName);
-        try (final Arena writeArena = Arena.ofShared()) {
+        try (Arena writeArena = Arena.ofShared()) {
             changeActualFilesInterval(indexFile, writeArena, interval.left(), newFileName + 1);
         }
 
@@ -168,9 +168,8 @@ public class InMemoryQuerySystem {
         if (currentByteSize.get() > flushThresholdBytes) {
             try {
                 flush();
-            } catch (IOException e) {
-                // can't flush
-                throw new RuntimeException(e);
+            } catch (IOException ignored) {
+                return;
             }
 
             upsertWhenFlushing(entry);
