@@ -4,7 +4,6 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
-import javax.swing.border.EmptyBorder;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -51,8 +50,6 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 config.basePath(),
                 arena
         );
-
-        environment.completeCompactIfNeeded();
     }
 
     @Override
@@ -115,13 +112,8 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    /**
-     * <pre>
-     * Компакт выполняется, была добавлена новая SSTable -> return (должны выполнить сразу после инициализации следующего состояния).</pre>
-     */
     @Override
     public void compact() throws IOException {
-        Environment currEnv;
         readLock.lock();
         try {
             // Могут выполнять несколько потоков.
@@ -131,14 +123,13 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 // Считаем, что уже компактим.
                 return;
             }
-            currEnv = environment;
         } finally {
             readLock.unlock();
         }
 
         executor.execute(() -> {
             try {
-                currEnv.compact();
+                environment.compact();
                 isCompacting.set(false);
             } catch (IOException e) {
                 throw new RuntimeException(e);
@@ -146,16 +137,8 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         });
     }
 
-    /**
-     * <pre>
-     * Происходит флаш и на текущий момент таблица непустая ->
-     * return (должны выполнить сразу после инициализации следующего состояния).
-     *
-     * После выполнения создаем новое окружение.</pre>
-     */
     @Override
     public synchronized void flush() throws IOException {
-        Environment currEnv;
         readLock.lock();
         try {
             // Могут выполнять несколько потоков.
@@ -165,19 +148,9 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 // Считаем, что уже флашим.
                 return;
             }
-            currEnv = environment;
         } finally {
             readLock.unlock();
         }
-
-        executor.execute(() -> {
-            try {
-                currEnv.flush();
-                isFlushing.set(false);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        });
 
         writeLock.lock();
         try {
@@ -189,17 +162,28 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } finally {
             writeLock.unlock();
         }
-    }
 
+        executor.execute(() -> {
+            try {
+                environment.flush();
+                isFlushing.set(false);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
 
     @Override
     public void close() throws IOException {
         // Ожидаем выполнения фоновых flush и сompact.
         executor.close();
 
-        if (!environment.getTable().isEmpty()) {
-            environment.flush();
-        }
+        this.environment = new Environment(
+                environment.getTable(),
+                config.basePath(),
+                arena
+        );
+        environment.flush();
 
         if (!arena.scope().isAlive()) {
             return;

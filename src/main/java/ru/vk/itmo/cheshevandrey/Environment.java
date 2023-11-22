@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -17,17 +16,18 @@ import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static ru.vk.itmo.cheshevandrey.DiskStorage.INDEX_NAME;
-import static ru.vk.itmo.cheshevandrey.DiskStorage.updateIndex;
+import static ru.vk.itmo.cheshevandrey.DiskStorage.INDEX_FILE;
 import static ru.vk.itmo.cheshevandrey.Tools.createDir;
 import static ru.vk.itmo.cheshevandrey.Tools.createFile;
 
 public class Environment {
 
     private final List<MemorySegment> mainSegmentList;
+    private final List<MemorySegment> intermSegmentList;
     private final List<MemorySegment> secondarySegmentList;
 
     private final Path mainDir;
+    private final Path intermediateDir;
     private final Path secondaryDir;
 
     private final Path storagePath;
@@ -36,8 +36,9 @@ public class Environment {
     private ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> flushingTable;
     private AtomicLong memTableBytes;
 
-    private int ssTablesCount = 0;
     private boolean isCompacted = false;
+
+    static final String INTERMEDIATE_SAVE_DIR = "tmp";
 
     public Environment(
             ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> table,
@@ -51,58 +52,41 @@ public class Environment {
         this.storagePath = storagePath;
 
         String workDir = DiskStorage.readWorkDir(storagePath);
-        mainDir = storagePath.resolve(workDir);
         secondaryDir = storagePath.resolve(workDir.equals("0") ? "1" : workDir);
+        intermediateDir = storagePath.resolve(INTERMEDIATE_SAVE_DIR);
+        mainDir = storagePath.resolve(workDir);
 
-        // Должны иметь две директории.
-        // В каждой из которых должны обязательно быть файлы "0" и "1".
-        // "0" - используется для копирования скомпакченного из другой директории.
-        // "1" - для копирования сстебла (требуется для разрешения одновременного конфликтного выполнения флаша и компакта)
-        createFilesAndDirsIfNeeded();
+        createDirsAndFilesIfNeeded();
 
         this.secondarySegmentList = loadOrRecover(secondaryDir, arena);
+        this.intermSegmentList = loadOrRecover(intermediateDir, arena);
         this.mainSegmentList = loadOrRecover(mainDir, arena);
     }
 
-    private void createFilesAndDirsIfNeeded() throws IOException {
-        try {
-            Files.createDirectory(storagePath);
-        } catch (FileAlreadyExistsException ignored) {
-            // it's ok.
-        }
+    private void createDirsAndFilesIfNeeded() throws IOException {
+        createDir(storagePath);
 
         createDir(mainDir);
+        createDir(intermediateDir);
         createDir(secondaryDir);
 
-        String zero = "0";
-        String one = "1";
-        createFile(mainDir.resolve(zero));
-        createFile(mainDir.resolve(one));
-        createFile(secondaryDir.resolve(zero));
-        createFile(secondaryDir.resolve(one));
-
-        Path mainIndexPath = mainDir.resolve(INDEX_NAME);
-        Path secondaryIndexPath = secondaryDir.resolve(INDEX_NAME);
-
-        List<String> files = new ArrayList<>(2);
-        files.add(zero);
-        files.add(one);
-        if (!Files.exists(mainIndexPath)) {
-            updateIndex(files, mainDir);
-        }
-        if (!Files.exists(secondaryIndexPath)) {
-            updateIndex(files, secondaryDir);
-        }
+        createFile(mainDir.resolve(INDEX_FILE));
+        createFile(intermediateDir.resolve(INDEX_FILE));
+        createFile(secondaryDir.resolve(INDEX_FILE));
     }
 
     private List<MemorySegment> loadOrRecover(Path path, Arena arena) throws IOException {
-        Path indexFilePath = path.resolve(INDEX_NAME);
+        Path indexFilePath = path.resolve(INDEX_FILE);
         List<String> files = Files.readAllLines(indexFilePath);
-        ssTablesCount = files.size();
+        int ssTablesCount = files.size();
 
         List<MemorySegment> result = new ArrayList<>(ssTablesCount);
         for (int ssTable = 0; ssTable < ssTablesCount; ssTable++) {
             Path file = path.resolve(String.valueOf(ssTable));
+
+            if (!Files.exists(file)) {
+                continue;
+            }
 
             long fileSize = Files.size(file);
             if (fileSize == 0) { // Попали на пустой файл "0" или "1".
@@ -124,20 +108,22 @@ public class Environment {
     }
 
     public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
-            Iterator<Entry<MemorySegment>> secondIterator,
             MemorySegment from,
             MemorySegment to,
             Range range) {
 
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
+
+        if (range == Range.DISK) {
+            addIterators(iterators, intermSegmentList, from, to);
+            addIterators(iterators, mainSegmentList, from, to);
+        }
         if (range == Range.ALL) {
+            addIterators(iterators, intermSegmentList, from, to);
             addIterators(iterators, secondarySegmentList, from, to);
             addIterators(iterators, mainSegmentList, from, to);
-            iterators.add(secondIterator);
-            iterators.add(firstIterator);
-        } else {
-            addIterators(iterators, mainSegmentList, from, to);
+            iterators.add(getInMemory(from, to, false).iterator());
+            iterators.add(getInMemory(from, to, true).iterator());
         }
 
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, Tools::compare)) {
@@ -158,10 +144,7 @@ public class Environment {
     }
 
     public Iterator<Entry<MemorySegment>> range(MemorySegment from, MemorySegment to) {
-        Iterator<Entry<MemorySegment>> memTableIterator = getInMemory(from, to, true).iterator();
-        Iterator<Entry<MemorySegment>> flushingIterator = getInMemory(from, to, false).iterator();
-
-        return range(memTableIterator, flushingIterator, from, to, Range.ALL);
+        return range(from, to, Range.ALL);
     }
 
     private Iterable<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to, Boolean isMemTable) {
@@ -190,24 +173,17 @@ public class Environment {
     }
 
     public void flush() throws IOException {
-        this.flushingTable = memTable;
-        this.memTable = new ConcurrentSkipListMap<>(Tools::compare);
-        this.memTableBytes = new AtomicLong(0);
-
         DiskStorage.save(flushingTable.values(), storagePath);
     }
 
     public void compact() throws IOException {
-        if (isCompacted || mainSegmentList.size() < 2) {
+        int ssTablesToCompactCount = mainSegmentList.size() + intermSegmentList.size();
+        if (isCompacted || ssTablesToCompactCount < 2) {
             return;
         }
-        IterableDisk iterable = new IterableDisk(this, Range.DISK);
-        DiskStorage.compact(iterable, storagePath, mainDir, secondaryDir, ssTablesCount);
+        IterableDisk iterable = new IterableDisk(this);
+        DiskStorage.compact(iterable, storagePath, mainDir, intermediateDir, secondaryDir);
         isCompacted = true;
-    }
-
-    public void completeCompactIfNeeded() throws IOException {
-        DiskStorage.completeCompactIfNeeded();
     }
 
     public ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> getTable() {

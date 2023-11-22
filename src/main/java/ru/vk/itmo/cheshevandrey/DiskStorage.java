@@ -9,22 +9,25 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class DiskStorage {
 
-    private static final String STORAGE_META_NAME = "meta.mt";
-    private static final String STORAGE_META_TMP_NAME = "meta.tmp";
+    static final String INDEX_FILE = "index.idx";
 
-    static final String INDEX_NAME = "index.idx";
-    private static final String INDEX_TMP_NAME = "index.tmp";
-    private static final String COMPACTION_NAME = "compaction.cmp";
-    private static final String COMPACTION_TMP_NAME = "compaction.tmp";
+    private static final String STORAGE_META_FILE = "meta.mt";
+    private static final String STORAGE_META_TMP_FILE = "meta.tmp";
+    private static final String SAVE_TMP_FILE = "save.tmp";
+    private static final String INDEX_TMP_FILE = "index.tmp";
+    private static final String COMPACTION_FILE = "compaction.cmp";
+    private static final String COMPACTION_TMP_FILE = "compaction.tmp";
 
     public static void compact(IterableDisk iterable,
                                Path storagePath,
                                Path mainDir,
-                               Path secondaryDir,
-                               int ssTablesCount) throws IOException {
+                               Path intermediateDir,
+                               Path secondaryDir) throws IOException {
         if (!iterable.iterator().hasNext()) {
             return;
         }
@@ -33,13 +36,15 @@ public class DiskStorage {
         // Флаш будет осуществляться в другую директорию.
         changeWorkDir(storagePath, secondaryDir);
 
+        int ssTablesCountBeforeCompact = Files.readAllLines(mainDir.resolve(INDEX_FILE)).size();
+
         // Записываем компакшн во временный файл.
-        Path compactionTmpPath = storagePath.resolve(COMPACTION_TMP_NAME);
+        Path compactionTmpPath = storagePath.resolve(COMPACTION_TMP_FILE);
         Files.deleteIfExists(compactionTmpPath);
         saveSsTable(compactionTmpPath, iterable);
 
         // Переименовываем временный скомпакченный в актуальный скомпакченный.
-        Path compactionPath = storagePath.resolve(COMPACTION_NAME);
+        Path compactionPath = storagePath.resolve(COMPACTION_FILE);
         Files.move(
                 compactionTmpPath,
                 compactionPath,
@@ -47,61 +52,56 @@ public class DiskStorage {
                 StandardCopyOption.REPLACE_EXISTING
         );
 
-        // Заменяем файл "0" в новой актуальной директории.
+        // Перемещаем скомпакченный файл в промежуточную директорию.
         Files.move(
-                storagePath.resolve(COMPACTION_NAME),
-                secondaryDir.resolve("0"),
+                compactionPath,
+                intermediateDir.resolve("0"),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
 
-        int currCount = Files.readAllLines(mainDir.resolve(INDEX_NAME)).size();
-        // Если выполняется, то в процессе компакта была создана новая sstable,
-        // не в новой директории, а в текущей. Ее необходимо переместить в новую.
-        if (currCount != ssTablesCount) {
+        int ssTablesCountAfterCompact = Files.readAllLines(mainDir.resolve(INDEX_FILE)).size();
+
+        // Если файлы были добавлены во время компакта, то переместим их в промежуточную директорию.
+        int to = 1;
+        for (int from = ssTablesCountBeforeCompact; from < ssTablesCountAfterCompact; from++) {
             Files.move(
-                    mainDir.resolve(String.valueOf(currCount - 1)),
-                    secondaryDir.resolve("1"),
+                    mainDir.resolve(String.valueOf(from)),
+                    intermediateDir.resolve(String.valueOf(to++)),
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING
             );
         }
-
-        String zeroFile = "0";
-        String oneFile = "1";
-        List<String> files = new ArrayList<>(2);
-        files.add(zeroFile);
-        files.add(oneFile);
-        updateIndex(files, mainDir);
-
-        // Удаляем файлы, которые использовались при компакте.
-        for (int i = ssTablesCount - 1; i > 1; i--) {
-            Files.delete(mainDir.resolve(String.valueOf(i)));
+        int intermFilesCount = Files.readAllLines(intermediateDir.resolve(INDEX_FILE)).size();
+        for (int i = intermFilesCount - 1; i >= to; i--) {
+            Files.delete(intermediateDir.resolve(String.valueOf(i)));
         }
+        List<String> actualIntermFiles = IntStream.range(0, to).mapToObj(String::valueOf).toList();
+        updateIndex(actualIntermFiles, intermediateDir);
 
-        // Оставляем два пустых.
-        resetFile(storagePath, mainDir.resolve("0"));
-        resetFile(storagePath, mainDir.resolve("1"));
+        removeFiles(mainDir, ssTablesCountAfterCompact);
     }
 
-    private static void resetFile(Path storagePath, Path fileToReset) throws IOException {
-        Path tmpFile = storagePath.resolve("tmp.tmp");
-        try {
-            Files.createFile(tmpFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it's ok.
-        }
+    private static void removeFiles(Path path, int count) throws IOException {
+        // Сначала обнуляем index.
+        Path indexTmpPath = path.resolve(INDEX_TMP_FILE);
+        Files.createFile(indexTmpPath);
         Files.move(
-                tmpFile,
-                fileToReset,
+                indexTmpPath,
+                path.resolve(INDEX_FILE),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
+
+        // Потом удаляем файлы.
+        for (int i = 0; i < count; i++) {
+            Files.delete(path.resolve(String.valueOf(i)));
+        }
     }
 
     private static void changeWorkDir(Path storagePath, Path newDir) throws IOException {
-        Path metaTmpPath = storagePath.resolve(STORAGE_META_TMP_NAME);
-        Path metaPath = storagePath.resolve(STORAGE_META_NAME);
+        Path metaTmpPath = storagePath.resolve(STORAGE_META_TMP_FILE);
+        Path metaPath = storagePath.resolve(STORAGE_META_FILE);
 
         Files.deleteIfExists(metaTmpPath);
         Files.write(
@@ -121,48 +121,34 @@ public class DiskStorage {
         );
     }
 
-    public static void completeCompactIfNeeded() throws IOException {
-        // -
-    }
-
     public static void save(Iterable<Entry<MemorySegment>> iterable, Path storagePath) throws IOException {
         if (!iterable.iterator().hasNext()) {
             return;
         }
 
-        String dirBeforeSave = readWorkDir(storagePath);
-        Path dir = storagePath.resolve(dirBeforeSave);
+        Path tmpFilePath = storagePath.resolve(SAVE_TMP_FILE);
+        Files.deleteIfExists(tmpFilePath);
+        saveSsTable(tmpFilePath, iterable);
 
-        Path indexFilePath = dir.resolve(INDEX_NAME);
+        String dirToSave = readWorkDir(storagePath);
+        Path dirToSavePath = storagePath.resolve(dirToSave);
+        Path indexFilePath = dirToSavePath.resolve(INDEX_FILE);
         List<String> files = Files.readAllLines(indexFilePath);
         String newFileName = String.valueOf(files.size());
         files.add(newFileName);
 
-        Path newFilePath = dir.resolve(newFileName);
-        Files.deleteIfExists(newFilePath);
-        saveSsTable(newFilePath, iterable);
+        Files.move(
+                tmpFilePath,
+                dirToSavePath.resolve(newFileName),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+        );
 
-        // Во время флаша был вызван компакт и изменена основная директория =>
-        // => перемещаем в зарезервированный файл "1" новой основной директории.
-        String dirAfterSave = readWorkDir(storagePath);
-        if (!dirBeforeSave.equals(dirAfterSave)) {
-            Files.move(
-                    newFilePath,
-                    storagePath.resolve(dirAfterSave).resolve("1"),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING
-            );
-        }
-        // Иначе оставляем в текущей.
-        // Если после этого обновления индекса был начат компакт без этого файла,
-        // то он не будет потерян при зачистке, а будет найден и перемещен после компакта.
-        else {
-            updateIndex(files, dir);
-        }
+        updateIndex(files, dirToSavePath);
     }
 
     static String readWorkDir(Path storagePath) throws IOException {
-        Path metaPath = storagePath.resolve(STORAGE_META_NAME);
+        Path metaPath = storagePath.resolve(STORAGE_META_FILE);
         if (!Files.exists(metaPath)) {
             return "0";
         }
@@ -170,8 +156,8 @@ public class DiskStorage {
     }
 
     static void updateIndex(List<String> files, Path dir) throws IOException {
-        Path indexPath = dir.resolve(INDEX_NAME);
-        Path indexTmpPath = dir.resolve(INDEX_TMP_NAME);
+        Path indexPath = dir.resolve(INDEX_FILE);
+        Path indexTmpPath = dir.resolve(INDEX_TMP_FILE);
 
         // Запишем актуальный набор sstable во временный индексный файл.
         Files.deleteIfExists(indexTmpPath);
