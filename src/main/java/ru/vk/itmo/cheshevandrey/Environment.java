@@ -20,7 +20,7 @@ import static ru.vk.itmo.cheshevandrey.DiskStorage.INDEX_FILE;
 import static ru.vk.itmo.cheshevandrey.Tools.createDir;
 import static ru.vk.itmo.cheshevandrey.Tools.createFile;
 
-public class Environment implements AutoCloseable{
+public class Environment implements AutoCloseable {
 
     private final List<MemorySegment> mainSegmentList;
     private final List<MemorySegment> intermSegmentList;

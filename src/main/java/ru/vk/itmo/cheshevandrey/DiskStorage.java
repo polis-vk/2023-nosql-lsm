@@ -71,8 +71,11 @@ public final class DiskStorage {
         resetMainDir(mainDir, ssTablesCountAfterCompact);
     }
 
-    private static void updateIntermediateDir(Path mainDir, Path intermediateDir, int beforeCount, int afterCount) throws IOException {
-        // Если файлы были добавлены во время компакта, то переместим их в промежуточную директорию.
+    private static void updateIntermediateDir(Path mainDir,
+                                              Path intermediateDir,
+                                              int beforeCount,
+                                              int afterCount) throws IOException {
+        // Если файлы были добавлены во время компакта, то перемещаем их в промежуточную директорию.
         int to = 1;
         for (int from = beforeCount; from < afterCount; from++) {
             Files.move(
@@ -136,7 +139,6 @@ public final class DiskStorage {
 
         Path tmpFilePath = storagePath.resolve(SAVE_TMP_FILE);
         Files.deleteIfExists(tmpFilePath);
-        System.out.println(storagePath);
         saveSsTable(tmpFilePath, iterable);
 
         // Переместим в актуальную директорию.

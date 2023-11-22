@@ -140,7 +140,7 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         writeLock.lock();
         try {
-            refreshEnvironment();
+            this.environment = new Environment(environment.getTable(), config.basePath());
         } finally {
             writeLock.unlock();
         }
@@ -155,19 +155,12 @@ public class PesistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         });
     }
 
-    private void refreshEnvironment() throws IOException {
-        this.environment = new Environment(
-                environment.getTable(),
-                config.basePath()
-        );
-    }
-
     @Override
     public void close() throws IOException {
         // Ожидаем выполнения фоновых flush и сompact.
         executor.close();
 
-        refreshEnvironment();
+        this.environment = new Environment(environment.getTable(), config.basePath());
         environment.flush();
     }
 }
