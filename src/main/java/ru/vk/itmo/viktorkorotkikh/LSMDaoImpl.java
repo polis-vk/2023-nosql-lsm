@@ -19,12 +19,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
-
-    private static final Logger LOG = Logger.getLogger(LSMDaoImpl.class.getName());
 
     private volatile MemTable memTable;
 
@@ -201,7 +197,6 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             future.get();
         } catch (InterruptedException e) {
-            LOG.log(Level.SEVERE, String.format("InterruptedException: %s", e));
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
             throw new BackgroundExecutionException(e);
@@ -222,7 +217,6 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             bgExecutor.awaitTermination(1, TimeUnit.SECONDS);
             compactionExecutor.awaitTermination(1, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
-            LOG.log(Level.SEVERE, String.format("InterruptedException: %s", e));
             Thread.currentThread().interrupt();
         }
         if (ssTablesArena.scope().isAlive()) {
