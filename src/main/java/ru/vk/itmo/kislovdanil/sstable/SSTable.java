@@ -22,13 +22,13 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegment>> {
     // Contains offset and size for every key and every value in index file
     MemorySegment summaryFile;
-    private final static String SUMMARY_FILENAME = "summary";
+    private static final String SUMMARY_FILENAME = "summary";
     // Contains keys
     MemorySegment indexFile;
-    private final static String INDEX_FILENAME = "index";
+    private static final String INDEX_FILENAME = "index";
     // Contains values
     MemorySegment dataFile;
-    private final static String DATA_FILENAME = "data";
+    private static final String DATA_FILENAME = "data";
     final Comparator<MemorySegment> memSegComp;
     private final Arena filesArena = Arena.ofAuto();
     private final long tableId;
