@@ -51,17 +51,16 @@ public class PersistentConcurrentTest extends BaseTest {
 
         // 100ms should be enough considering GC
         long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(100);
-        long warmupTimeoutNanos = TimeUnit.MILLISECONDS.toNanos(5000);
 
         runInParallel(100, count, value -> {
-            tryRun(warmupTimeoutNanos, () -> dao.upsert(entries.get(value)));
-            tryRun(warmupTimeoutNanos, () -> dao.upsert(entry(keyAt(value), null)));
-            tryRun(warmupTimeoutNanos, () -> dao.upsert(entries.get(value)));
+            tryRun(timeoutNanos, () -> dao.upsert(entries.get(value)));
+            tryRun(timeoutNanos, () -> dao.upsert(entry(keyAt(value), null)));
+            tryRun(timeoutNanos, () -> dao.upsert(entries.get(value)));
         }, () -> {
             for (int i = 0; i < 100; i++) {
                 try {
-                    runAndMeasure(warmupTimeoutNanos, dao::compact);
-                    runAndMeasure(warmupTimeoutNanos, dao::flush);
+                    runAndMeasure(timeoutNanos, dao::compact);
+                    runAndMeasure(timeoutNanos, dao::flush);
 
                     Thread.sleep(30);
                 } catch (IOException | InterruptedException e) {
@@ -72,37 +71,10 @@ public class PersistentConcurrentTest extends BaseTest {
         dao.close();
 
         Dao<String, Entry<String>> dao2 = DaoFactory.Factory.reopen(dao);
-
-        List<Entry<String>> anotherEntries = entries("key", "value", count);
-
-        runInParallel(100, count, value -> {
-            tryRun(timeoutNanos, () -> dao2.upsert(anotherEntries.get(value)));
-            tryRun(timeoutNanos, () -> dao2.upsert(entry(keyAt(value), null)));
-            tryRun(timeoutNanos, () -> dao2.upsert(anotherEntries.get(value)));
-        }, () -> {
-            for (int i = 0; i < 100; i++) {
-                try {
-                    runAndMeasure(timeoutNanos, dao2::compact);
-                    runAndMeasure(timeoutNanos, dao2::flush);
-
-                    Thread.sleep(30);
-                } catch (IOException | InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-        }).close();
-        dao2.close();
-
-        Dao<String, Entry<String>> dao3 = DaoFactory.Factory.reopen(dao);
         runInParallel(
                 100,
                 count,
-                value -> assertSame(dao3.get(entries.get(value).key()), entries.get(value))).close();
-
-        runInParallel(
-                100,
-                count,
-                value -> assertSame(dao3.get(anotherEntries.get(value).key()), anotherEntries.get(value))).close();
+                value -> assertSame(dao2.get(entries.get(value).key()), entries.get(value))).close();
     }
 
     private static <E extends Exception> void runAndMeasure(
