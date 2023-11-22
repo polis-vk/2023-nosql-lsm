@@ -29,7 +29,12 @@ public class CompactionService {
     private final AtomicBoolean isWorking;
     private final Arena arena;
 
-    public CompactionService(List<MemorySegment> segmentList, AtomicLong firstFileNumber, AtomicLong lastFileNumber, Arena arena) {
+    public CompactionService(
+            List<MemorySegment> segmentList,
+            AtomicLong firstFileNumber,
+            AtomicLong lastFileNumber,
+            Arena arena
+    ) {
         this.segmentList = segmentList;
         this.firstFileNumber = firstFileNumber.get();
         this.lastFileNumber = lastFileNumber;

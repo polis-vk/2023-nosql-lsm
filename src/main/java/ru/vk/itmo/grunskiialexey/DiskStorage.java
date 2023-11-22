@@ -161,7 +161,7 @@ public class DiskStorage {
             }
         }
 
-        return tombstone(left);
+        return DiskStorage.tombstone(left);
     }
 
     // getting count of records

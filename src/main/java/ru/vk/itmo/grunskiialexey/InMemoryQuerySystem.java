@@ -22,10 +22,6 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static ru.vk.itmo.grunskiialexey.DiskStorage.changeActualFilesInterval;
-import static ru.vk.itmo.grunskiialexey.DiskStorage.endOfKey;
-import static ru.vk.itmo.grunskiialexey.DiskStorage.tombstone;
-
 public class InMemoryQuerySystem {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
@@ -55,10 +51,6 @@ public class InMemoryQuerySystem {
         this.isWorking = new AtomicBoolean();
         this.currentByteSize = new AtomicLong();
         this.diskStorage = diskStorage;
-    }
-
-    public AtomicBoolean isWorking() {
-        return isWorking;
     }
 
     public List<Iterator<Entry<MemorySegment>>> getInMemoryIterators(MemorySegment from, MemorySegment to) {
@@ -122,7 +114,7 @@ public class InMemoryQuerySystem {
 
                 MemorySegment value = entry.value();
                 if (value == null) {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, DiskStorage.tombstone(dataOffset));
                 } else {
                     fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                     dataOffset += value.byteSize();
@@ -149,7 +141,7 @@ public class InMemoryQuerySystem {
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         diskStorage.addNewList(newFileName);
-        changeActualFilesInterval(indexFile, arena, interval.left(), newFileName + 1);
+        DiskStorage.changeActualFilesInterval(indexFile, arena, interval.left(), newFileName + 1);
 
         Files.delete(indexTmp);
         Collections.swap(storages, 0, 1);
@@ -169,7 +161,7 @@ public class InMemoryQuerySystem {
             try {
                 flush();
             } catch (IOException ignored) {
-                System.err.println("Incorrect state");
+                throw new IllegalArgumentException();
             }
         }
     }
