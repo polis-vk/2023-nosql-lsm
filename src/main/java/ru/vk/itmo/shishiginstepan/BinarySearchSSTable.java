@@ -73,7 +73,12 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
         }
     }
 
-    public static BinarySearchSSTable writeSSTable(Collection<Entry<MemorySegment>> entries, Path path, int id, Arena arena) {
+    public static BinarySearchSSTable writeSSTable(
+            Collection<Entry<MemorySegment>> entries,
+            Path path,
+            int id,
+            Arena arena
+    ) {
         Path sstPath = Path.of(path.toAbsolutePath() + "/sstable_" + id);
         Path tempSSTPath = Path.of(
                 path.toAbsolutePath() + "/tmp-sstable" + ThreadLocalRandom.current().nextInt(0, 1_000_000)

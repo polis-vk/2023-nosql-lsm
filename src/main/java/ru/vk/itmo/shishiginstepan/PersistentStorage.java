@@ -54,8 +54,9 @@ public class PersistentStorage {
         }
         arena.close();
     }
+
     /** Гарантирует что при успешном завершении записи на диск, SSTable с переданными в метод данными
-     * сразу будет доступен для чтения в PersistentStorage
+     * сразу будет доступен для чтения в PersistentStorage.
      **/
     public void store(Collection<Entry<MemorySegment>> data) {
         int nextSStableID = this.lastSSTableId.incrementAndGet();

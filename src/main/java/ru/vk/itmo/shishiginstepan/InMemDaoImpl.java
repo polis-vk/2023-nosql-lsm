@@ -41,6 +41,9 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         return Byte.compare(b1, b2);
     };
 
+    private static class MemStorageOverflowException extends RuntimeException {
+    }
+
     private final AtomicLong memStorageSize = new AtomicLong(0);
 
     private final long memStorageLimit;
@@ -112,7 +115,9 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        this.memStorageSize.updateAndGet((size) -> size + (entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize())));
+        this.memStorageSize.updateAndGet(
+                (size) -> size + (entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()))
+        );
         this.memStorage.get().put(entry.key(), entry);
         if (this.memStorageSize.get() > this.memStorageLimit) {
             flush();
@@ -142,7 +147,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                     flushLock.unlock();
                 }
             } else {
-                throw new RuntimeException("flush already in process");
+                throw new MemStorageOverflowException();
             }
         });
     }
