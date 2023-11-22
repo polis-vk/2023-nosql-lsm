@@ -12,12 +12,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemorySegment>> {
 
     private static final int MAX_MEMTABLES = 2;
-    private final AtomicReference<List<Memtable>> memtables;
+    private List<Memtable> memtables;
     private final long flushThresholdBytes;
     private final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao;
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
@@ -29,14 +28,14 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
         this.flushThresholdBytes = flushThresholdBytes;
         final List<Memtable> list = new ArrayList<>();
         list.add(newMemtable());
-        this.memtables = new AtomicReference<>(list);
+        this.memtables = list;
         this.outMemoryDao = outMemoryDao;
     }
 
     @Override
     public List<Iterator<Entry<MemorySegment>>> get(final MemorySegment from, final MemorySegment to) {
         final List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
-        for (final Memtable memtable : memtables.get()) {
+        for (final Memtable memtable : memtables) {
             iterators.add(memtable.get(from, to));
         }
         return iterators;
@@ -44,7 +43,7 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
-        for (final Memtable memtable : memtables.get()) {
+        for (final Memtable memtable : memtables) {
             final Entry<MemorySegment> result = memtable.get(key);
             if (result != null) {
                 return result;
@@ -56,7 +55,7 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     @Override
     public void upsert(final Entry<MemorySegment> entry) {
         while (true) {
-            final List<Memtable> currentMemtables = memtables.get();
+            final List<Memtable> currentMemtables = memtables;
             final Memtable memtable = currentMemtables.getFirst();
             if (memtable.upsertLock().tryLock()) {
                 try {
@@ -83,39 +82,30 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
      * or false, if it is requested flush.
      */
     private void tryFlush(final boolean isFull) {
-        final List<Memtable> currentMemtables = memtables.get();
-        final Memtable memtable = currentMemtables.get(0);
+        final Memtable memtable = memtables.get(0);
         // Maybe was already flushed, while task was waiting.
         if (isFull && (memtable.size() < flushThresholdBytes)) {
             return;
         }
         // Can't create new Memtable because of max count.
-        if (currentMemtables.size() == MAX_MEMTABLES) {
+        if (memtables.size() == MAX_MEMTABLES) {
             if (isFull) {
                 throw new TooManyUpsertsException("to many upserts.");
             }
             return;
         }
-        List<Memtable> newMemtables;
-        // Trying to create new memory table.
-        do {
-            newMemtables = new ArrayList<>();
-            newMemtables.add(newMemtable());
-            newMemtables.addAll(currentMemtables);
-        } while (!memtables.compareAndSet(currentMemtables, newMemtables));
+        // Creating new memory table.
+        final List<Memtable> newMemtables = new ArrayList<>();
+        newMemtables.add(newMemtable());
+        newMemtables.addAll(memtables);
+        memtables = newMemtables;
         // Waiting until all upserts finished and flushing it to disk.
         memtable.flushLock().lock();
         try {
             outMemoryDao.flush(memtable);
-            List<Memtable> expected = newMemtables;
-            while (true) {
-                final List<Memtable> removed = new ArrayList<>(expected);
-                removed.remove(memtable);
-                if (memtables.compareAndSet(expected, removed)) {
-                    break;
-                }
-                expected = memtables.get();
-            }
+            final List<Memtable> removed = new ArrayList<>(memtables);
+            removed.removeLast();
+            memtables = removed;
         } catch (final IOException e) {
             throw new UncheckedIOException(e);
         } finally {
@@ -134,7 +124,7 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
     public void close() {
         executorService.close();
         tryFlush(false);
-        memtables.set(null);
+        memtables = null;
     }
 
 }
