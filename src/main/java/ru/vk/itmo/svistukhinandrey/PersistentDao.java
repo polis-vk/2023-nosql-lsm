@@ -94,12 +94,12 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void compact() {
-        executor.execute(() -> {
-            if (!arena.scope().isAlive()) {
-                return;
-            }
+    public synchronized void compact() {
+        if (!arena.scope().isAlive()) {
+            throw new IllegalStateException("DAO is closed.");
+        }
 
+        executor.execute(() -> {
             try {
                 Iterable<Entry<MemorySegment>> compactValues = () -> diskStorage.rangeFromDisk(null, null);
                 if (compactValues.iterator().hasNext()) {
@@ -117,7 +117,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void flush() throws IOException {
-        if (!arena.scope().isAlive() || !storageState.isReadyForFlush()) {
+        if (!storageState.isReadyForFlush()) {
             return;
         }
 
@@ -133,22 +133,23 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void close() throws IOException {
-        executor.shutdown();
-
-        if (storageState.isReadyForFlush()) {
-            storageState.prepareStorageForFlush();
-            flushToDisk();
+    public synchronized void close() throws IOException {
+        if (!arena.scope().isAlive()) {
+            return;
         }
 
         try {
-            if (!executor.awaitTermination(5, TimeUnit.MINUTES)) {
-                executor.shutdownNow();
+            executor.shutdown();
+            try {
+                executor.awaitTermination(5, TimeUnit.MINUTES);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
-        } catch (InterruptedException ie) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
         } finally {
+            if (storageState.isReadyForFlush()) {
+                storageState.prepareStorageForFlush();
+                flushToDisk();
+            }
             arena.close();
         }
     }
