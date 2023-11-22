@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -63,7 +64,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         if (curState.isOverflowed()) {
             try {
-                autoFlush();
+                flush();
             } catch (IOException e) {
                 throw new DaoException("Memory storage overflowed. Cannot flush", e);
             }
@@ -77,7 +78,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void flush() throws IOException {
+    public synchronized void flush() throws IOException {
         State curState = this.state.checkAndGet();
         if (curState.storage.isEmpty() || curState.isFlushing()) {
             return;
@@ -92,7 +93,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (curState.isFlushing()) {
                 throw new IOException();
             }
-            this.state = curState.moveStorage();
+            this.state = new State(curState.config, new ConcurrentSkipListMap<>(comparator), curState.storage, curState.diskStorage);
         } finally {
             lock.writeLock().unlock();
         }
@@ -103,19 +104,16 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private void tryFlush() {
         State curState = this.state.checkAndGet();
         try {
-            curState.flush();
+            lock.writeLock().lock();
+            try {
+                curState.flush();
+                this.state = new State(curState.config, curState.storage, new ConcurrentSkipListMap<>(comparator),
+                        new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
+            } finally {
+                lock.writeLock().unlock();
+            }
         } catch (IOException e) {
             throw new DaoException("Flush failed", e);
-        }
-
-        lock.writeLock().lock();
-        try {
-            this.state = new State(curState.config, curState.storage, new ConcurrentSkipListMap<>(comparator),
-                    new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
-        } catch (IOException e) {
-            throw new DaoException("Cannot recover storage on disk", e);
-        } finally {
-            lock.writeLock().unlock();
         }
     }
 
@@ -153,7 +151,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public synchronized void close() throws IOException {
+    public void close() throws IOException {
         State curState = this.state;
         if (curState.isClosed() || !arena.scope().isAlive()) {
             return;

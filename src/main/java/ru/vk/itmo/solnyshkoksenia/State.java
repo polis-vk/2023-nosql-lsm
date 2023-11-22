@@ -86,6 +86,9 @@ public class State {
     }
 
     public void flush() throws IOException {
+        if (flushingStorage.isEmpty()) {
+            return;
+        }
         diskStorage.save(flushingStorage.values());
     }
 
