@@ -135,8 +135,8 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void close() {
         this.flush();
-        this.persistentStorage.close();
         executor.close();
+        this.persistentStorage.close();
     }
 
     @Override
