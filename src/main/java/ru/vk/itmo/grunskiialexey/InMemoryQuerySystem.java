@@ -28,18 +28,22 @@ public class InMemoryQuerySystem {
     private static final String NAME_TMP_INDEX_FILE = "index.tmp";
     private static final String NAME_INDEX_FILE = "index.idx";
     private final List<NavigableMap<MemorySegment, Entry<MemorySegment>>> storages = new ArrayList<>(2);
+    private final Path flushPath;
+    private final AtomicLong lastFileNumber;
     private final long flushThresholdBytes;
     private final AtomicBoolean isWorking;
-    private final AtomicLong lastFileNumber;
-    private final Path flushPath;
 
     public InMemoryQuerySystem(Path flushPath, long flushThresholdBytes, Comparator<MemorySegment> comparator, AtomicLong lastFileNumber) {
         storages.addAll(List.of(new ConcurrentSkipListMap<>(comparator), new ConcurrentSkipListMap<>(comparator)));
 
-        this.isWorking = new AtomicBoolean();
         this.flushPath = flushPath;
-        this.flushThresholdBytes = flushThresholdBytes;
         this.lastFileNumber = lastFileNumber;
+        this.flushThresholdBytes = flushThresholdBytes;
+        this.isWorking = new AtomicBoolean();
+    }
+
+    public AtomicBoolean isWorking() {
+        return isWorking;
     }
 
     public List<Iterator<Entry<MemorySegment>>> getInMemoryIterators(MemorySegment from, MemorySegment to) {

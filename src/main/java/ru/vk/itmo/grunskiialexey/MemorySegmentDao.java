@@ -37,8 +37,16 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         arena = Arena.ofShared();
 
         final AtomicLong lastFileNumber = new AtomicLong();
-        this.compactionService = new CompactionService(DiskStorage.loadOrRecover(path, arena, lastFileNumber), lastFileNumber);
-        this.inMemoryQuerySystem = new InMemoryQuerySystem(path, config.flushThresholdBytes(), MemorySegmentDao::compare, lastFileNumber);
+        this.compactionService = new CompactionService(
+                DiskStorage.loadOrRecover(path, arena, lastFileNumber),
+                lastFileNumber
+        );
+        this.inMemoryQuerySystem = new InMemoryQuerySystem(
+                path,
+                config.flushThresholdBytes(),
+                MemorySegmentDao::compare,
+                lastFileNumber
+        );
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {

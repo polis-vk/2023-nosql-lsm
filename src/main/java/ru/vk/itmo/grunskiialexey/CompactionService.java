@@ -16,16 +16,23 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class CompactionService {
     private static final String NAME_INDEX_FILE = "index.idx";
     private final List<MemorySegment> segmentList;
     private final AtomicLong lastFileNumber;
+    private final AtomicBoolean isWorking;
 
     public CompactionService(List<MemorySegment> segmentList, AtomicLong lastFileNumber) {
         this.segmentList = segmentList;
         this.lastFileNumber = lastFileNumber;
+        this.isWorking = new AtomicBoolean();
+    }
+
+    public AtomicBoolean isWorking() {
+        return isWorking;
     }
 
     public Iterator<Entry<MemorySegment>> range(
@@ -64,7 +71,7 @@ public class CompactionService {
     }
 
     public void compact(Path storagePath) throws IOException {
-        if (segmentList.size() <= 1) {
+        if (segmentList.size() <= 1 || !isWorking.compareAndSet(false, true)) {
             return;
         }
 
@@ -124,6 +131,8 @@ public class CompactionService {
         try (Arena writeArena = Arena.ofShared()) {
             DiskStorage.changeActualFilesInterval(indexFile, writeArena, fileNumber, fileNumber + 1);
         }
+
+        isWorking.set(false);
     }
 
     private Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
