@@ -151,27 +151,34 @@ public class InMemoryQuerySystem {
 
     public void upsert(Entry<MemorySegment> entry) {
         if (isWorking.get()) {
+            try {
+                Thread.sleep(2);
+            } catch (InterruptedException e) {
+                return;
+            }
             upsertWhenFlushing(entry);
             return;
         }
 
         long size = entrySize(entry);
         storages.get(0).put(entry.key(), entry);
-        if (currentByteSize.addAndGet(size) > flushThresholdBytes) {
+        if (currentByteSize.get() + size > flushThresholdBytes) {
             try {
                 flush();
             } catch (IOException ignored) {
-                throw new IllegalArgumentException();
+                return;
             }
         }
+        currentByteSize.getAndAdd(size);
     }
 
     private void upsertWhenFlushing(Entry<MemorySegment> entry) {
         long size = entrySize(entry);
         storages.get(1).put(entry.key(), entry);
-        if (currentByteSize.addAndGet(size) > flushThresholdBytes) {
+        if (currentByteSize.get() + size > flushThresholdBytes) {
             throw new OutOfMemoryError("Can't upsert data while flushing");
         }
+        currentByteSize.addAndGet(size);
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
