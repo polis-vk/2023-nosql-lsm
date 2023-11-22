@@ -188,14 +188,13 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
                 throw e;
             }
 
-            final Lock writeLock = lock.writeLock();
-            writeLock.lock();
+            lock.writeLock().lock();
             try {
                 compactTables.forEach(ignored -> ssTables.pollLast());
                 deadSSTables.addAll(compactTables);
                 ssTables.add(SSTable.create(root, sstableName, arena));
             } finally {
-                writeLock.unlock();
+                lock.writeLock().unlock();
             }
         } finally {
             if (tableTmpPath != null) {
