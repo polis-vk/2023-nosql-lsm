@@ -44,9 +44,6 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final AtomicLong memStorageSize = new AtomicLong(0);
 
     private final long memStorageLimit;
-    /**
-     * TODO не забыть читать эту таблицу !!!!!! СДЕЛАТЬ НА АТОМИК РЕФЕРЕНСАХ????
-     */
 
     private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> tempStorage =
             new AtomicReference<>(
@@ -127,7 +124,6 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.flush();
         this.persistentStorage.close();
         executor.close();
-        // дать закончить все операции
     }
 
     @Override
@@ -153,6 +149,6 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() {
-        persistentStorage.compact();
+        executor.execute(persistentStorage::compact);
     }
 }
