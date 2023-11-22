@@ -1,11 +1,97 @@
 package ru.vk.itmo.plyasovklimentii;
 
+import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Entry;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+import java.util.stream.Stream;
 
 public final class Utils {
+    public static final String SSTABLE_PREFIX = "sstable_";
     private Utils(){
         // util
+    }
+    static void deleteAllSSTables(Path storagePath) throws IOException {
+        try (Stream<Path> stream = Files.find(storagePath, 1,
+                (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
+            stream.forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        }
+    }
+
+    static void finalizeCompaction(Path storagePath) throws IOException {
+        Path indexTmp = storagePath.resolve("index.tmp");
+        Path indexFile = storagePath.resolve("index.idx");
+
+        Files.deleteIfExists(indexFile);
+        Files.deleteIfExists(indexTmp);
+
+        Path compactionFile = compactionFile(storagePath);
+        boolean noData = Files.size(compactionFile) == 0;
+
+        Files.write(
+                indexTmp,
+                noData ? Collections.emptyList() : Collections.singleton(SSTABLE_PREFIX + "0"),
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
+        if (noData) {
+            Files.delete(compactionFile);
+        } else {
+            Files.move(compactionFile, storagePath.resolve(SSTABLE_PREFIX + "0"), StandardCopyOption.ATOMIC_MOVE);
+        }
+    }
+
+    static Path compactionFile(Path storagePath) {
+        return storagePath.resolve("compaction");
+    }
+
+    static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
+        long recordIndexFrom = from == null ? 0 : Utils.normalize(Utils.indexOf(page, from));
+        long recordIndexTo = to == null ? Utils.recordsCount(page) : Utils.normalize(Utils.indexOf(page, to));
+        long recordsCount = Utils.recordsCount(page);
+
+        return new Iterator<>() {
+            long index = recordIndexFrom;
+
+            @Override
+            public boolean hasNext() {
+                return index < recordIndexTo;
+            }
+
+            @Override
+            public Entry<MemorySegment> next() {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                MemorySegment key = Utils.slice(page, Utils.startOfKey(page, index), Utils.endOfKey(page, index));
+                long startOfValue = Utils.startOfValue(page, index);
+                MemorySegment value =
+                        startOfValue < 0
+                                ? null
+                                : Utils.slice(page, startOfValue, Utils.endOfValue(page, index, recordsCount));
+                index++;
+                return new BaseEntry<>(key, value);
+            }
+        };
     }
     public static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);

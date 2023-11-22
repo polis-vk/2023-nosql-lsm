@@ -8,6 +8,7 @@ import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.net.URI;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
@@ -26,7 +27,6 @@ import java.util.stream.Stream;
 
 public class DiskStorage {
 
-    public static final String SSTABLE_PREFIX = "sstable_";
     private final List<MemorySegment> segmentList = new CopyOnWriteArrayList<>();
 
     public DiskStorage(List<MemorySegment> segmentList) {
@@ -39,7 +39,7 @@ public class DiskStorage {
             MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
-            iterators.add(iterator(memorySegment, from, to));
+            iterators.add(Utils.iterator(memorySegment, from, to));
         }
         iterators.addAll(addIterators);
 
@@ -61,7 +61,7 @@ public class DiskStorage {
             // it is ok, actually it is normal state
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        String newFileName = SSTABLE_PREFIX + existedFiles.size();
+        String newFileName = Utils.SSTABLE_PREFIX + existedFiles.size();
         long dataSize = 0;
         long count = 0;
         for (Entry<MemorySegment> entry : iterable) {
@@ -136,23 +136,24 @@ public class DiskStorage {
         Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
 
         if (arena.scope().isAlive()) {
-            Path file = storagePath.resolve(newFileName);
-            try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-                MemorySegment fileSegment = fileChannel.map(
-                        FileChannel.MapMode.READ_WRITE,
-                        0,
-                        Files.size(file),
-                        arena
-                );
-                this.segmentList.add(fileSegment);
-            } catch (IOException e) {
-                throw new IllegalStateException("Error open after flush", e);
-            }
+            addSegment(storagePath.resolve(newFileName), arena);
+        }
+    }
+
+    public void addSegment(Path file, Arena arena) throws IOException {
+        try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            MemorySegment fileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    Files.size(file),
+                    arena
+            );
+            this.segmentList.add(fileSegment);
         }
     }
 
     public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {
-        deleteAllSSTables(storagePath);
+        Utils.deleteAllSSTables(storagePath);
         String newFileName = "compaction.tmp";
         Path compactionTmpFile = storagePath.resolve(newFileName);
 
@@ -240,56 +241,13 @@ public class DiskStorage {
                 StandardCopyOption.REPLACE_EXISTING
         );
 
-        finalizeCompaction(storagePath);
+        Utils.finalizeCompaction(storagePath);
     }
 
-    private static void deleteAllSSTables(Path storagePath) throws IOException {
-        try (Stream<Path> stream = Files.find(storagePath, 1,
-                (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
-            stream.forEach(p -> {
-                try {
-                    Files.delete(p);
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            });
-        }
-    }
-
-
-    private static void finalizeCompaction(Path storagePath) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
-
-        Files.deleteIfExists(indexFile);
-        Files.deleteIfExists(indexTmp);
-
-        Path compactionFile = compactionFile(storagePath);
-        boolean noData = Files.size(compactionFile) == 0;
-
-        Files.write(
-                indexTmp,
-                noData ? Collections.emptyList() : Collections.singleton(SSTABLE_PREFIX + "0"),
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
-        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
-        if (noData) {
-            Files.delete(compactionFile);
-        } else {
-            Files.move(compactionFile, storagePath.resolve(SSTABLE_PREFIX + "0"), StandardCopyOption.ATOMIC_MOVE);
-        }
-    }
-
-    private static Path compactionFile(Path storagePath) {
-        return storagePath.resolve("compaction");
-    }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        if (Files.exists(compactionFile(storagePath))) {
-            finalizeCompaction(storagePath);
+        if (Files.exists(Utils.compactionFile(storagePath))) {
+            Utils.finalizeCompaction(storagePath);
         }
 
         Path indexTmp = storagePath.resolve("index.tmp");
@@ -320,35 +278,4 @@ public class DiskStorage {
 
         return result;
     }
-
-    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : Utils.normalize(Utils.indexOf(page, from));
-        long recordIndexTo = to == null ? Utils.recordsCount(page) : Utils.normalize(Utils.indexOf(page, to));
-        long recordsCount = Utils.recordsCount(page);
-
-        return new Iterator<>() {
-            long index = recordIndexFrom;
-
-            @Override
-            public boolean hasNext() {
-                return index < recordIndexTo;
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                if (!hasNext()) {
-                    throw new NoSuchElementException();
-                }
-                MemorySegment key = Utils.slice(page, Utils.startOfKey(page, index), Utils.endOfKey(page, index));
-                long startOfValue = Utils.startOfValue(page, index);
-                MemorySegment value =
-                        startOfValue < 0
-                                ? null
-                                : Utils.slice(page, startOfValue, Utils.endOfValue(page, index, recordsCount));
-                index++;
-                return new BaseEntry<>(key, value);
-            }
-        };
-    }
-
 }
