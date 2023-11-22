@@ -15,6 +15,9 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -23,6 +26,10 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
+
+    private final AtomicBoolean isClosed = new AtomicBoolean(false);
+
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
     //private final long flushThresholdBytes;
 
     public MemesDao(Config config) throws IOException {
@@ -73,7 +80,14 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        storage.put(entry.key(), entry);
+        //If very big
+        lock.readLock().lock();
+        try {
+            storage.put(entry.key(), entry);
+            //addSize
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     @Override
@@ -98,13 +112,20 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
+    private Iterator<Entry<MemorySegment>> getAllInFileStorage(){
+        return diskStorage.range(null, null, null);
+    }
+
     @Override
     public void compact() throws IOException {
-        DiskStorage.compact(path, this::all);
+        DiskStorage.compact(path, this::getAllInFileStorage);
     }
 
     @Override
     public void close() throws IOException {
+        if (!isClosed.compareAndSet(false, true)) {
+            return;
+        }
         if (!arena.scope().isAlive()) {
             return;
         }
