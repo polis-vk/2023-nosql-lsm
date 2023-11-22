@@ -23,11 +23,11 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
-    private final long flushThresholdBytes;
+    //private final long flushThresholdBytes;
 
     public MemesDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
-        this.flushThresholdBytes = config.flushThresholdBytes();
+        //this.flushThresholdBytes = config.flushThresholdBytes();
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
