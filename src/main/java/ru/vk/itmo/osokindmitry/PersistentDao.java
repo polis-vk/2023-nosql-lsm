@@ -105,7 +105,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void upsert(Entry<MemorySegment> entry) throws IllegalStateException {
+    public synchronized void upsert(Entry<MemorySegment> entry) throws IllegalStateException {
         rwLock.readLock().lock();
         try {
             memTable.put(entry.key(), entry);
@@ -115,7 +115,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void flush() throws IOException {
+    public synchronized void flush() throws IOException {
         rwLock.writeLock().lock();
         try {
             if (!memTable.getTable().isEmpty()) {
@@ -130,18 +130,24 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() {
+        // сделать проверку по memtable isFlushing
         rwLock.writeLock().lock();
         try {
-            compactionExecutor.execute(() -> {
-                try {
-                    diskStorage.compact(path);
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            });
+            if (!memTable.getIsFlushing()) {
+
+                compactionExecutor.execute(() -> {
+                    try {
+                        diskStorage.compact(path);
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+                });
+            }
         } finally {
             rwLock.writeLock().unlock();
         }
+
+
     }
 
     @Override
