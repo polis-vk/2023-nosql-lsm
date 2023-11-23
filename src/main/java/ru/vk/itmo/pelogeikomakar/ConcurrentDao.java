@@ -3,10 +3,8 @@ package ru.vk.itmo.pelogeikomakar;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.kobyzhevaleksandr.ApplicationException;
 
 import java.io.IOException;
-import java.io.Reader;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -16,7 +14,6 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -30,24 +27,22 @@ public class ConcurrentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final DiskStorage diskStorage;
     private final Path path;
     private final long flushThresholdBytes;
-    private final AtomicBoolean atomicCompact = new AtomicBoolean(false);
     private final Lock compactLock = new ReentrantLock();
     private final ReadWriteLock flushLock = new ReentrantReadWriteLock();
     private final Lock flushReadLock = flushLock.readLock();
     private final Lock flushWriteLock = flushLock.writeLock();
     private Thread threadFlush;
     private Thread threadCompact;
-    private volatile boolean isClosed;
+    private final AtomicBoolean isClosed = new AtomicBoolean(false);
 
     public ConcurrentDao(Config config) throws IOException {
-        isClosed = false;
         this.path = config.basePath().resolve("data");
         this.flushThresholdBytes = config.flushThresholdBytes();
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena), path , arena);
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -90,7 +85,7 @@ public class ConcurrentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 return entry;
             }
 
-            Iterator<Entry<MemorySegment>> iterator = diskStorage.range(null, key, null);
+            Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
 
             if (!iterator.hasNext()) {
                 return null;
@@ -107,31 +102,33 @@ public class ConcurrentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        flushWriteLock.lock();
-        try {
-            boolean flushStatus = storage.getFlushStatus();
-            if (flushStatus) {
-                long addingSize = entry.key().byteSize() * 2 + (entry.value() == null ? 0: entry.value().byteSize());
-                var entryVal = storage.get(entry.key());
-                if (entryVal != null && entryVal.value() != null) {
-                    addingSize = addingSize - entryVal.value().byteSize();
-                }
-
-                if (storage.byteSize() + addingSize > flushThresholdBytes) {
+        boolean flushStatus = threadFlush != null && threadFlush.isAlive();
+        if (flushStatus) {
+            flushWriteLock.lock();
+            try {
+                if (storage.newIfput(entry.key(), entry) > flushThresholdBytes) {
                     throw new FlushException("Wait until flush ends");
                 }
-                storage.put(entry.key(), entry);
-            } else {
+                storage.put(entry.key(), entry, storage.newIfput(entry.key(), entry));
+            } finally {
+                flushWriteLock.unlock();
+            }
+        } else {
 
-                storage.put(entry.key(), entry);
+            flushWriteLock.lock();
+            try {
+                flushStatus = threadFlush != null && threadFlush.isAlive();
+                storage.put(entry.key(), entry, storage.newIfput(entry.key(), entry));
 
                 long memorySize = storage.byteSize();
-                if (memorySize >= flushThresholdBytes) {
-                    flush(false);
+                if (memorySize >= flushThresholdBytes && !flushStatus) {
+                    flush(flushStatus);
+                } else if (flushStatus) {
+                    throw new FlushException("Wait until flush ends");
                 }
+            } finally {
+                flushWriteLock.unlock();
             }
-        } finally {
-            flushWriteLock.unlock();
         }
     }
 
@@ -139,23 +136,17 @@ public class ConcurrentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void compact() throws IOException {
         compactLock.lock();
         try {
-            if (threadCompact != null && threadCompact.isAlive())
-            {
+            if (threadCompact != null && threadCompact.isAlive()) {
                 return;
             }
-            // returns value right before atomic action so we expect false
-            boolean result = !atomicCompact.compareAndExchangeAcquire(false, true);
-            if (result) {
-                threadCompact = new Thread(() -> {
-                    try {
-                        diskStorage.compact(path);
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    }
-                });
-                threadCompact.start();
-                atomicCompact.set(false);
-            }
+            threadCompact = new Thread(() -> {
+                try {
+                    diskStorage.compact(path, arena);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            threadCompact.start();
         } finally {
             compactLock.unlock();
         }
@@ -163,6 +154,7 @@ public class ConcurrentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     /**
      * method have to be called with {@link #flushWriteLock flushWriteLock.lock()}
+     *
      * @param isFlushing - true if flush has been started. will be set to false after flush ends
      */
     private void flush(boolean isFlushing) {
@@ -170,24 +162,24 @@ public class ConcurrentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
-        var values = storage.values();
-        var atomicName = storage.getAtomicTableName();
-        storage.setFlushStatus(true);
+        var values = storage.prepareFlash();
+        diskStorage.getFlushingValues().setRelease(values);
         threadFlush = new Thread(() -> {
             try {
-                diskStorage.saveNextSSTable(path, values, storage, atomicName, true);
+                diskStorage.saveNextSSTable(path, values, arena);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
         });
-        storage.makeNewStorage();
         threadFlush.start();
     }
+
     @Override
     public void flush() throws IOException {
+        boolean isFlushing = threadFlush != null && threadFlush.isAlive();
         flushWriteLock.lock();
         try {
-            flush(storage.getFlushStatus());
+            flush(isFlushing);
         } finally {
             flushWriteLock.unlock();
         }
@@ -195,22 +187,13 @@ public class ConcurrentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        if (isClosed) {
+        if (!isClosed.compareAndSet(false, true)) {
             return;
         }
         flushWriteLock.lock();
         try {
-            isClosed = true;
             if (!arena.scope().isAlive()) {
                 return;
-            }
-
-            if (threadFlush != null && threadFlush.isAlive()) {
-                try {
-                    threadFlush.join();
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
             }
 
             if (threadCompact != null && threadCompact.isAlive()) {
@@ -221,11 +204,19 @@ public class ConcurrentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
             }
 
+            if (threadFlush != null && threadFlush.isAlive()) {
+                try {
+                    threadFlush.join();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
             arena.close();
 
         } finally {
             if (!storage.isEmpty()) {
-                diskStorage.saveNextSSTable(path, storage.values(), storage, storage.getAtomicTableName(), false);
+                diskStorage.saveNextSSTable(path, storage.prepareFlash(), Arena.ofShared());
             }
             flushWriteLock.unlock();
         }

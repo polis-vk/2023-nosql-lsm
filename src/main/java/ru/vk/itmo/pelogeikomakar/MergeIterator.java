@@ -13,13 +13,14 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     private final PriorityQueue<PeekIterator> priorityQueue;
     private final Comparator<Entry<MemorySegment>> comparator;
+
     private static class PeekIterator implements Iterator<Entry<MemorySegment>> {
 
         public final int id;
-        private final SegmentIterInterface delegate;
+        private final Iterator<Entry<MemorySegment>> delegate;
         private Entry<MemorySegment> peek;
 
-        private PeekIterator(int id, SegmentIterInterface delegate) {
+        private PeekIterator(int id, Iterator<Entry<MemorySegment>> delegate) {
             this.id = id;
             this.delegate = delegate;
         }
@@ -55,7 +56,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     PeekIterator nextIterator;
 
-    public MergeIterator(Collection<SegmentIterInterface> iterators, Comparator<Entry<MemorySegment>> comparator) {
+    public MergeIterator(Collection<Iterator<Entry<MemorySegment>>> iterators, Comparator<Entry<MemorySegment>> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
         priorityQueue = new PriorityQueue<>(
@@ -64,7 +65,7 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
         );
 
         int id = 0;
-        for (SegmentIterInterface iterator : iterators) {
+        for (Iterator<Entry<MemorySegment>> iterator : iterators) {
             if (iterator.hasNext()) {
                 priorityQueue.add(new PeekIterator(id++, iterator));
             }

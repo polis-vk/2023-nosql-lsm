@@ -5,15 +5,11 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class DaoMergeIterator implements Iterator<Entry<MemorySegment>> {
 
-    private final MemorySegmentComparator comparator = new MemorySegmentComparator();
+    private final Comparator<MemorySegment> comparator = ConcurrentDao::compare;
     private final MemorySegment from;
     private final MemorySegment to;
     private final Iterator<Entry<MemorySegment>> hashMapIter;
