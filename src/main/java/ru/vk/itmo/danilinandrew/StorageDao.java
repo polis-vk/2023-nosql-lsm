@@ -11,23 +11,22 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.concurrent.locks.Lock;
 
 public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
@@ -120,10 +119,8 @@ public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             long delta = Utils.getByteSize(entry) - prevByteSize;
             long curByteSizeUsage = memoryState.memoryUsage.addAndGet(delta);
 
-            if (curByteSizeUsage > flushThresholdBytes) {
-                if (!isFlushing.getAndSet(true)) {
-                    flushFuture = executorService.submit(this::flushMemory);
-                }
+            if (curByteSizeUsage > flushThresholdBytes && !isFlushing.getAndSet(true)) {
+                flushFuture = executorService.submit(this::flushMemory);
             }
 
             memoryState.memory.put(entry.key(), entry);
@@ -147,7 +144,7 @@ public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                             this::all
                     );
                 } catch (IOException e) {
-                    throw new IllegalStateException("Failed to compact");
+                    throw new IllegalStateException("Failed to compact", e);
                 }
             });
         } finally {

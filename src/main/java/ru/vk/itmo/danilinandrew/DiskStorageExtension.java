@@ -16,14 +16,18 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.stream.Stream;
 
 import static ru.vk.itmo.danilinandrew.DiskStorage.SSTABLE_PREFIX;
 
-public class DiskStorageExtension {
+public final class DiskStorageExtension {
+
+    private DiskStorageExtension() {
+
+    }
     static void finalizeCompaction(Path storagePath) throws IOException {
         try (Stream<Path> stream =
                      Files.find(

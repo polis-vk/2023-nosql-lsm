@@ -6,7 +6,7 @@ import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.NavigableMap;
 
-public class Utils {
+public final class Utils {
     public static Iterator<Entry<MemorySegment>> getIterFrom(
             NavigableMap<MemorySegment, Entry<MemorySegment>> map,
             MemorySegment from,
@@ -24,7 +24,9 @@ public class Utils {
         return map.subMap(from, to).values().iterator();
     }
 
-    private Utils(){}
+    private Utils(){
+
+    }
 
     public static long getByteSize(Entry<MemorySegment> entry) {
         long valueSize = entry.value() == null ? 0 : entry.value().byteSize();

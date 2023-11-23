@@ -1,17 +1,22 @@
 package ru.vk.itmo.danilinandrew;
 
+import ru.vk.itmo.Entry;
+
+import java.lang.foreign.MemorySegment;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
 
-public class MergeIterator<T> implements Iterator<T> {
+public abstract class MergeIterator<T> implements Iterator<T> {
 
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
 
     private PeekIterator<T> peek;
+
+    protected abstract boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry);
 
     private static class PeekIterator<T> implements Iterator<T> {
 
