@@ -65,6 +65,7 @@ public class PersistentStorage {
                 arena
         );
         this.sstables.add(newSSTable);
+
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -136,6 +137,7 @@ public class PersistentStorage {
     }
 
     private void compactionClean(BinarySearchSSTable sstable) {
+        sstable.close();
         try {
             Files.delete(sstable.indexPath);
             Files.delete(sstable.tablePath);
