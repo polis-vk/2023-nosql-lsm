@@ -85,7 +85,7 @@ public class CompactionService {
         }
 
         final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
-        compactFileName.set(lastFileNumber.getAndIncrement());
+        final long previousFileNumber = compactFileName.getAndSet(lastFileNumber.getAndIncrement());
         final long fileNumber = compactFileName.get();
         final Path filePath = storagePath.resolve(Long.toString(fileNumber));
 
@@ -130,8 +130,7 @@ public class CompactionService {
 
         // Delete old data
         DiskStorage.deleteFilesAndInMemory(
-                segmentList,
-                new ActualFilesInterval(DiskStorage.getActualFilesInterval(indexFile, arena).left(), fileNumber),
+                new ActualFilesInterval(previousFileNumber + 1, fileNumber),
                 storagePath
         );
         DiskStorage.changeActualLeftInterval(indexFile, arena, fileNumber);

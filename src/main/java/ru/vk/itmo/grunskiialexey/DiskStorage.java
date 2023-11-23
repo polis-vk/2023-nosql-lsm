@@ -115,15 +115,10 @@ public class DiskStorage {
         }
     }
 
-    static void deleteFilesAndInMemory(
-            List<MemorySegment> segmentList,
-            ActualFilesInterval interval,
-            Path storagePath
-    ) throws IOException {
+    static void deleteFilesAndInMemory(ActualFilesInterval interval, Path storagePath) throws IOException {
         for (long i = interval.left(); i < interval.right(); ++i) {
             Files.delete(storagePath.resolve(Long.toString(i)));
         }
-        segmentList.clear();
     }
 
     // gets first element >= after key
