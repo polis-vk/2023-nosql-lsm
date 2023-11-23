@@ -5,37 +5,40 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.NavigableMap;
+import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Arena arena;
-    private MemTable memTable;
-    private final DiskStorage diskStorage;
-    private final Path path;
-    private final Config config;
-    private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
-    private final ExecutorService flushingExecutorService = Executors.newSingleThreadExecutor();
-    private final ExecutorService compactExecutorService = Executors.newSingleThreadExecutor();
     private final AtomicBoolean isFlushing = new AtomicBoolean();
+    private final DiskStorage diskStorage;
+    private final Lock storageLock = new ReentrantLock();
+    private final Path path;
+    private final long flushThresholdBytes;
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
+    private MemoryState memoryState = MemoryState.newMemoryState();
+    private Future<?> flushFuture;
+    private Future<?> compactFuture;
 
     public StorageDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
         Files.createDirectories(path);
         arena = Arena.ofShared();
 
-        this.config = config;
-        this.memTable = new MemTable(config.flushThresholdBytes());
+        this.flushThresholdBytes = config.flushThresholdBytes();
         this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
@@ -59,48 +62,20 @@ public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return diskStorage.range(memTable.get(from, to), from, to);
-    }
-
-    @Override
-    public void upsert(Entry<MemorySegment> entry) {
-        upsertLock.writeLock().lock();
-        try {
-            boolean needToFlush = memTable.upsert(entry, isFlushing);
-
-            if (needToFlush) {
-                Future<?> future = flushingExecutorService.submit(() -> {
-                    try {
-                        this.memTable = new MemTable(
-                                this.memTable.getStorage(),
-                                this.memTable.getFlushingStorage(),
-                                config.flushThresholdBytes()
-                        );
-
-                        DiskStorage.saveNextSSTable(
-                                path,
-                                this.memTable.getFlushingStorage().values()
-                        );
-
-                    } catch (IOException e) {
-                        throw new RuntimeException(e);
-                    } finally {
-                        isFlushing.set(false);
-                    }
-                });
-
-                future.get();
-            }
-        } catch (ExecutionException | InterruptedException e) {
-            throw new RuntimeException(e);
-        } finally {
-            upsertLock.writeLock().unlock();
+        MemoryState memory = this.memoryState;
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
+        iterators.add(Utils.getIterFrom(memory.memory, from, to));
+        if (memory.flushing != null && isFlushing.get()) {
+            iterators.add(Utils.getIterFrom(memory.flushing, from, to));
         }
+        return diskStorage.range(iterators, from, to);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> entry = memTable.get(key);
+        MemoryState state = this.memoryState;
+
+        Entry<MemorySegment> entry = state.memory.get(key);
         if (entry != null) {
             if (entry.value() == null) {
                 return null;
@@ -108,15 +83,15 @@ public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return entry;
         }
 
-        if (!memTable.isEmpty()) {
-            entry = memTable.getFlushingStorage().get(key);
+        if (state.flushing != null) {
+            entry = state.flushing.get(key);
             if (entry != null) {
                 return entry;
             }
         }
 
 
-        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(List.of(Collections.emptyIterator()), key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -129,64 +104,162 @@ public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void compact() throws IOException {
-        diskStorage.lockStorage();
+    public void upsert(Entry<MemorySegment> entry) {
+        lock.readLock().lock();
         try {
-            Future<?> future = compactExecutorService.submit(() -> {
-               try {
-                   DiskStorage.compact(path, this::all);
-               } catch (IOException e) {
-                   throw new RuntimeException(e);
-               }
-            });
+            Entry<MemorySegment> prev = memoryState.memory.get(entry.key());
+            long prevByteSize = (prev == null) ? 0 : Utils.getByteSize(prev);
+            long delta = Utils.getByteSize(entry) - prevByteSize;
+            long curByteSizeUsage = memoryState.memoryUsage.addAndGet(delta);
 
-            future.get();
-
-        } catch (ExecutionException e) {
-            try {
-                throw e.getCause();
-            } catch (RuntimeException | IOException | Error r) {
-                throw r;
-            } catch (Throwable t) {
-                throw new RuntimeException(t);
+            if (curByteSizeUsage > flushThresholdBytes) {
+                if (!isFlushing.getAndSet(true)) {
+                    flushFuture = executorService.submit(this::flushMemory);
+                }
             }
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+
+            memoryState.memory.put(entry.key(), entry);
         } finally {
-            diskStorage.unlockStorage();
+            lock.readLock().unlock();
         }
     }
 
     @Override
-    public void close() throws IOException {
-        if (!arena.scope().isAlive()) {
+    public void compact() throws IOException {
+        if (diskStorage == null) {
             return;
         }
 
-        arena.close();
+        storageLock.lock();
+        try {
+            compactFuture = executorService.submit(() -> {
+                try {
+                    DiskStorage.compact(
+                            path,
+                            this::all
+                    );
+                } catch (IOException e) {
+                    throw new IllegalStateException("Failed to compact");
+                }
+            });
+        } finally {
+            storageLock.unlock();
+        }
+    }
 
-        flushingExecutorService.shutdown();
-        compactExecutorService.shutdown();
+    @Override
+    public void flush() throws IOException {
+        flushMemory();
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (diskStorage == null) {
+            return;
+        }
 
         try {
-            boolean flushingTerminated;
-            boolean compactTerminated;
-            do {
-                flushingTerminated = flushingExecutorService.awaitTermination(10, TimeUnit.HOURS);
-            } while (!flushingTerminated);
-
-            do {
-                compactTerminated = compactExecutorService.awaitTermination(10, TimeUnit.HOURS);
-            } while (!compactTerminated);
+            if (compactFuture != null) {
+                compactFuture.get();
+            }
+            if (flushFuture != null) {
+                flushFuture.get();
+            }
         } catch (InterruptedException e) {
-            throw new IllegalStateException();
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("Dao can not be stopped gracefully", e);
+        }
+        executorService.close();
+
+        if (!memoryState.memory.isEmpty()) {
+            diskStorage.saveNextSSTable(path, memoryState.memory.values(), arena);
         }
 
-        if (!memTable.isEmpty()) {
-            DiskStorage.saveNextSSTable(
+        if (!arena.scope().isAlive()) {
+            return;
+        }
+        arena.close();
+    }
+
+    private void flushMemory() {
+        if (memoryState.memory.isEmpty()) {
+            return;
+        }
+
+        if (diskStorage == null) {
+            return;
+        }
+        storageLock.lock();
+        try {
+            lock.writeLock().lock();
+            try {
+                this.memoryState = memoryState.prepareForFlush();
+            } finally {
+                lock.writeLock().unlock();
+            }
+
+            diskStorage.saveNextSSTable(
                     path,
-                    memTable.values()
+                    memoryState.flushing.values(),
+                    arena
+            );
+
+            lock.writeLock().lock();
+            try {
+                this.memoryState = memoryState.afterFlush();
+            } finally {
+                lock.writeLock().unlock();
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } finally {
+            isFlushing.set(false);
+            storageLock.unlock();
+        }
+    }
+
+    private static class MemoryState {
+        final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memory;
+        final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushing;
+        final AtomicLong memoryUsage;
+
+        private MemoryState(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memory,
+                            ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushing) {
+            this.memory = memory;
+            this.flushing = flushing;
+            this.memoryUsage = new AtomicLong();
+        }
+
+        private MemoryState(ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memory,
+                            ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushing,
+                            AtomicLong memoryUsage) {
+            this.memory = memory;
+            this.flushing = flushing;
+            this.memoryUsage = memoryUsage;
+        }
+
+        static MemoryState newMemoryState() {
+            return new MemoryState(
+                    new ConcurrentSkipListMap<>(StorageDao::compare),
+                    new ConcurrentSkipListMap<>(StorageDao::compare)
             );
         }
+
+        MemoryState prepareForFlush() {
+            return new MemoryState(
+                    new ConcurrentSkipListMap<>(StorageDao::compare),
+                    memory,
+                    memoryUsage
+            );
+        }
+
+        MemoryState afterFlush() {
+            return new MemoryState(
+                    memory,
+                    new ConcurrentSkipListMap<>(StorageDao::compare)
+            );
+        }
+
     }
 }

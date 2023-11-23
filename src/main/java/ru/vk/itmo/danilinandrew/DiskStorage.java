@@ -16,7 +16,6 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 
 public class DiskStorage {
@@ -24,20 +23,19 @@ public class DiskStorage {
     public static final String SSTABLE_PREFIX = "sstable_";
     private final List<MemorySegment> segmentList;
 
-    private final ReentrantLock storageLock = new ReentrantLock();
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList = segmentList;
     }
 
     public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
+            List<Iterator<Entry<MemorySegment>>> iters,
             MemorySegment from,
             MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
-        iterators.add(firstIterator);
+        iterators.addAll(iters);
 
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, StorageDao::compare)) {
             @Override
@@ -46,16 +44,11 @@ public class DiskStorage {
             }
         };
     }
-
-    public void lockStorage() {
-        storageLock.lock();
-    }
-
-    public void unlockStorage() {
-        storageLock.unlock();
-    }
-    public static void saveNextSSTable(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
-            throws IOException {
+    public void saveNextSSTable(
+            Path storagePath,
+            Iterable<Entry<MemorySegment>> iterable,
+            Arena arena
+    ) throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
 
@@ -146,6 +139,24 @@ public class DiskStorage {
         Files.deleteIfExists(indexFile);
 
         Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
+
+        if (arena.scope().isAlive()) {
+            openNewSSTable(storagePath.resolve(newFileName), arena);
+        }
+    }
+
+    public void openNewSSTable(Path file, Arena arena) {
+        try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            MemorySegment fileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    Files.size(file),
+                    arena
+            );
+            segmentList.add(fileSegment);
+        } catch (IOException e) {
+            throw new IllegalStateException("Error open after flush", e);
+        }
     }
 
     public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
