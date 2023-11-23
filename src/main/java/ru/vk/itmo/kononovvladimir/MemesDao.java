@@ -31,7 +31,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
     private Future<?> taskCompact;
-    // private Future<?> taskFlush;
+
 
     public MemesDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
@@ -258,9 +258,9 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (taskCompact != null && !taskCompact.isDone() && !taskCompact.isCancelled()) {
                 taskCompact.get();
             }
-/*            if (taskFlush != null && !taskFlush.isDone()) {
-                taskFlush.get();
-            }*/
+            if (taskCompact != null && !taskCompact.isDone()) {
+                taskCompact.get();
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
