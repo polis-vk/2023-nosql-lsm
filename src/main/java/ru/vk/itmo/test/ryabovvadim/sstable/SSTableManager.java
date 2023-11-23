@@ -162,7 +162,7 @@ public class SSTableManager {
                 throw ioEx;
             }
         } catch (InterruptedException ignored) {
-            // Ignored exception
+            Thread.currentThread().interrupt();
         } finally {
             compactWorker.close();
             deleteWorker.close();

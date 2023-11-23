@@ -73,7 +73,7 @@ public class SafeSSTable {
                 }
                 Files.deleteIfExists(deletedFile);
             } catch (InterruptedException ignored) {
-                // Ignored exception
+                Thread.currentThread().interrupt();
             }
         }
     }
