@@ -194,10 +194,10 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-autoFlush();
+        autoFlush();
     }
 
-    private void autoFlush() {
+    private synchronized void autoFlush() {
         if (!(flushTask == null || flushTask.isDone()) || state.memoryStorage.isEmpty()) {
             return;
         }
@@ -211,11 +211,11 @@ autoFlush();
         flushTask = executorService.submit(() -> {
 
             try {
-                if (!state.memoryStorage.isEmpty()) {
+                if (!state.flushingMemoryTable.isEmpty()) {
                     state.diskStorage.saveNextSSTable(path, state.flushingMemoryTable.values(), arena);
                     memoryLock.writeLock().lock();
                     try {
-                        this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), state.diskStorage);
+                        this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), tmpState.diskStorage);
                     } finally {
                         memoryLock.writeLock().unlock();
                     }
@@ -234,7 +234,7 @@ autoFlush();
             if (taskCompact != null && !taskCompact.isDone() && !taskCompact.isCancelled()) {
                 taskCompact.get();
             }
-            if (flushTask != null && !flushTask.isDone()){
+            if (flushTask != null && !flushTask.isDone()) {
                 flushTask.get();
             }
         } catch (InterruptedException e) {
