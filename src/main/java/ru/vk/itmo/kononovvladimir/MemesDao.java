@@ -190,7 +190,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void compact() throws IOException {
-        if (taskIsWorking(taskCompact)) {
+        if (isClosed.get() || taskIsWorking(taskCompact)) {
             return;
         }
         taskCompact = executorService.submit(() -> {
@@ -257,6 +257,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } catch (ExecutionException e) {
             throw new IllegalStateException("Не получилось завершить Dao", e);
         }
+        isClosed.set(true);
         executorService.close();
         State tmpState = stateWriteLock();
         if (!tmpState.memoryStorage.isEmpty()) {
