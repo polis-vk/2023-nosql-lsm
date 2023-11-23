@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.stream.Stream;
 
-public class StorageUtils {
+public final class StorageUtils {
     public static final String SSTABLE_PREFIX = "sstable_";
 
     private StorageUtils() {

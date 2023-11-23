@@ -10,6 +10,8 @@ public class MergeIterator<T> implements Iterator<T> {
 
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
+    PeekIterator<T> nextIterator;
+
 
     private static class PeekIterator<T> implements Iterator<T> {
 
@@ -50,8 +52,6 @@ public class MergeIterator<T> implements Iterator<T> {
             return megaPeek;
         }
     }
-
-    PeekIterator<T> nextIterator;
 
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
