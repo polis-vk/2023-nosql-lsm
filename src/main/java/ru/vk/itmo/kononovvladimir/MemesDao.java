@@ -67,7 +67,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
 
-    private State getStateUnderReadLock() {
+    private State stateReadLock() {
         State tmpState;
         stateLock.readLock().lock();
         try {
@@ -79,7 +79,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return tmpState;
     }
 
-    private State getStateUnderWriteLock() {
+    private State stateWriteLock() {
         State tmpState;
         stateLock.writeLock().lock();
         try {
@@ -94,7 +94,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        State tmpState = getStateUnderReadLock();
+        State tmpState = stateReadLock();
 
         Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(tmpState.memoryStorage, from, to);
         List<Iterator<Entry<MemorySegment>>> merged = new ArrayList<>();
@@ -127,30 +127,26 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return task != null && !task.isDone();
     }
 
+    private Long calculateSize(Entry<MemorySegment> entry) {
+        return entry.key().byteSize()
+                + (entry.value() == null ? 0 : entry.key().byteSize());
+    }
+
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        State tmpState = getStateUnderWriteLock();
+        State tmpState = stateWriteLock();
 
-        //long entrySize = calculateSize(entry);
+        long entrySize = calculateSize(entry);
         memoryLock.readLock().lock();
         try {
-            long valueSize;
-            if (entry.value() == null) {
-                valueSize = Long.BYTES;
-            } else {
-                valueSize = entry.value().byteSize();
-            }
-            Entry<MemorySegment> prev = tmpState.memoryStorage.put(entry.key(), entry);
-            if (prev == null) {
-                tmpState.memoryStorageSizeInBytes.addAndGet(entry.key().byteSize() + valueSize);
-            } else {
-                tmpState.memoryStorageSizeInBytes.addAndGet(valueSize);
-            }
+            tmpState.memoryStorageSizeInBytes.addAndGet(entrySize);
         } finally {
             memoryLock.readLock().unlock();
         }
         if (flushThresholdBytes < tmpState.memoryStorageSizeInBytes.get()) {
-            // if not flushing throw
+            if (taskIsWorking(flushTask)) {
+                throw new IllegalStateException("Flush не поспевает за предыдущим");
+            }
             try {
                 autoFlush();
             } catch (IOException e) {
@@ -161,7 +157,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        State tmpState = getStateUnderReadLock();
+        State tmpState = stateReadLock();
         Entry<MemorySegment> entry = tmpState.memoryStorage.get(key);
         if (entry == null && tmpState.flushingMemoryTable != null) {
             entry = tmpState.flushingMemoryTable.get(key);
@@ -206,7 +202,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private synchronized void autoFlush() throws IOException {
-        State tmpState = getStateUnderWriteLock();
+        State tmpState = stateWriteLock();
         if (isClosed.get() || taskIsWorking(flushTask)) {
             return;
         }
@@ -220,7 +216,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } finally {
             stateLock.writeLock().unlock();
         }
-        State tmpState1 = getStateUnderReadLock();
+        State tmpState1 = stateReadLock();
         flushTask = executorService.submit(() -> {
 
             if (!tmpState1.flushingMemoryTable.isEmpty()) {
@@ -258,7 +254,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new IllegalStateException("Не получилось завершить Dao", e);
         }
         executorService.close();
-        State tmpState = getStateUnderWriteLock();
+        State tmpState = stateWriteLock();
         if (!tmpState.memoryStorage.isEmpty()) {
             tmpState.diskStorage.saveNextSSTable(path, tmpState.memoryStorage.values(), arena);
         }
@@ -267,10 +263,3 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
     }
 }
-
-
-
-/*    private Long calculateSize(Entry<MemorySegment> entry) {
-        return Long.BYTES + entry.key().byteSize() + Long.BYTES
-                + (entry.value() == null ? 0 : entry.key().byteSize());
-    }*/
