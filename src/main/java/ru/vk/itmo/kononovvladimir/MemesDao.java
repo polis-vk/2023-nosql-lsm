@@ -21,7 +21,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Comparator<MemorySegment> comparator = MemesDao::compare;
-    private Arena arena;
+    private final Arena arena;
     private final Path path;
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
@@ -186,6 +186,9 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
+        if (!(taskCompact == null || taskCompact.isDone())) {
+            return;
+        }
         taskCompact = executorService.submit(() -> {
             try {
                 DiskStorage.compact(path, this::all);
@@ -218,6 +221,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void autoFlush() {
+
         DiskStorage tmpStorage;
         try {
             memoryLock.writeLock().lock();
@@ -248,13 +252,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void close() throws IOException {
-
-
         try {
             if (taskCompact != null && !taskCompact.isDone() && !taskCompact.isCancelled()) {
-                taskCompact.get();
-            }
-            if (taskCompact != null && !taskCompact.isDone()) {
                 taskCompact.get();
             }
         } catch (InterruptedException e) {
@@ -263,7 +262,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new IllegalStateException("Dao can not be stopped gracefully", e);
         }
         executorService.close();
-
 
         if (!state.memoryStorage.isEmpty()) {
             DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
