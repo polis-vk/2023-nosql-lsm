@@ -200,7 +200,14 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
     }
 
     private synchronized void performCompact() {
+        if (isClosed) {
+            return;
+        }
+
         Iterator<Entry<MemorySegment>> iterator = new SkipTombstoneIterator(iteratorForCompaction());
+        if (!iterator.hasNext()) {
+            return;
+        }
 
         long sizeForCompaction = 0;
         long entryCount = 0;
@@ -228,8 +235,14 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
 
         isClosed = true;
 
-        ssTablesStorage.write(entries);
-        entries.clear();
+        if (!entries.isEmpty()) {
+            flushingEntries = new ConcurrentSkipListMap<>(entries);
+            entries = new ConcurrentSkipListMap<>(NotOnlyInMemoryDao::comparator);
+            remainingMemory = new AtomicLong(config.flushThresholdBytes());
+            ssTablesStorage.write(flushingEntries);
+            flushingEntries = new ConcurrentSkipListMap<>(NotOnlyInMemoryDao::comparator);
+        }
+
         threadExecutor.shutdown();
     }
 }

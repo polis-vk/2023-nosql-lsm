@@ -17,6 +17,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.AbstractMap;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -118,6 +119,10 @@ public class SSTablesStorage {
 
     //Merge iterator from all sstables in sstable storage
     public Iterator<Entry<MemorySegment>> iteratorsAll(MemorySegment from, MemorySegment to) {
+        if (sstables.isEmpty()) {
+            return Collections.emptyIterator();
+        }
+
         List<PeekingIterator<Entry<MemorySegment>>> result = new ArrayList<>();
 
         int priority = 1;
@@ -265,8 +270,8 @@ public class SSTablesStorage {
         Files.move(path, path.resolveSibling(SSTABLE_NAME + OLDEST_SS_TABLE_INDEX + SSTABLE_EXTENSION),
                 StandardCopyOption.ATOMIC_MOVE);  //renaming with Files more reliable
 
-        sstables.add(memorySegment);
         sstables.removeAll(compacted);
+        sstables.add(memorySegment);
     }
 
     private MemorySegment writeMappedSegment(long size, Arena arena) throws IOException {

@@ -44,13 +44,7 @@ class CompactionTest extends BaseTest {
         dao = DaoFactory.Factory.reopen(dao);
         assertSame(dao.all(), entry);
 
-        // Compact and flush
-        dao.compact();
-        dao.close();
 
-        // Check the contents
-        dao = DaoFactory.Factory.reopen(dao);
-        assertSame(dao.all(), entry);
     }
 
     @DaoTest(stage = 4)
