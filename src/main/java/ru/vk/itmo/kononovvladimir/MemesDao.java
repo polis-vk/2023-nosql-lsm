@@ -137,10 +137,11 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void upsert(Entry<MemorySegment> entry) {
         State tmpState = stateWriteLock();
 
+        Entry<MemorySegment> prev = tmpState.memoryStorage.put(entry.key(), entry);
         long entrySize = calculateSize(entry);
         memoryLock.readLock().lock();
         try {
-            tmpState.memoryStorageSizeInBytes.addAndGet(entrySize);
+            tmpState.memoryStorageSizeInBytes.addAndGet(entrySize - calculateSize(prev));
         } finally {
             memoryLock.readLock().unlock();
         }
