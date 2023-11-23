@@ -63,42 +63,18 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return Byte.compare(b1, b2);
     }
 
-    private State getStateUnderReadLock() {
-        State tmpState;
-        memoryLock.readLock().lock();
-        try {
-            tmpState = this.state;
-        } finally {
-            memoryLock.readLock().unlock();
-        }
-
-        return tmpState;
-    }
-
-    private State getStateUnderWriteLock() {
-        State tmpState;
-        memoryLock.writeLock().lock();
-        try {
-            tmpState = this.state;
-        } finally {
-            memoryLock.writeLock().unlock();
-        }
-
-        return tmpState;
-    }
-
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (isClosed.get()) {
             throw new OutOfMemoryError("f");
         }
 
-        State tmpState = getStateUnderReadLock();
+        //State tmpState = getStateUnderReadLock();
 
-        Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(tmpState.memoryStorage, from, to);
+        Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(state.memoryStorage, from, to);
         Iterator<Entry<MemorySegment>> flushIterator;
         if (!(flushTask == null || flushTask.isDone())) {
-            flushIterator = getInMemory(tmpState.flushingMemoryTable, from, to);
+            flushIterator = getInMemory(state.flushingMemoryTable, from, to);
         } else flushIterator = Collections.emptyIterator();
         return state.diskStorage.range(List.of(memoryIterator, flushIterator), from, to);
     }
@@ -125,7 +101,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (isClosed.get() || (!(flushTask == null || flushTask.isDone()) && state.memoryStorageSizeInBytes.get() >= flushThresholdBytes)) {
             throw new IllegalStateException("Previous flush has not yet ended");
         }
-        State tmpState = getStateUnderWriteLock();
+        //State tmpState = getStateUnderWriteLock();
 
         long entrySize = calculateSize(entry);
         memoryLock.readLock().lock();
@@ -135,7 +111,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } finally {
             memoryLock.readLock().unlock();
         }
-        if (flushThresholdBytes < tmpState.memoryStorageSizeInBytes.get() + entrySize) {
+        if (flushThresholdBytes < state.memoryStorageSizeInBytes.get() + entrySize) {
             // if not flushing throw
             autoFlush();
         }
@@ -145,10 +121,10 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        State tmpState = getStateUnderReadLock();
-        Entry<MemorySegment> entry = tmpState.memoryStorage.get(key);
+        //State tmpState = getStateUnderReadLock();
+        Entry<MemorySegment> entry = state.memoryStorage.get(key);
         if (entry == null) {
-            entry = tmpState.flushingMemoryTable.get(key);
+            entry = state.flushingMemoryTable.get(key);
         }
         if (entry != null) {
             if (entry.value() == null) {
@@ -157,7 +133,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return entry;
         }
 
-        Iterator<Entry<MemorySegment>> iterator = tmpState.diskStorage.range(List.of(Collections.emptyIterator()), key, null);
+        Iterator<Entry<MemorySegment>> iterator = state.diskStorage.range(List.of(Collections.emptyIterator()), key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -194,14 +170,14 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private synchronized void autoFlush() {
-        State tmpState = getStateUnderWriteLock();
+      //  State tmpState = getStateUnderWriteLock();
 
-        if (!(flushTask == null || flushTask.isDone()) || !tmpState.memoryStorage.isEmpty()) {
+        if (!(flushTask == null || flushTask.isDone()) || !state.memoryStorage.isEmpty()) {
             return;
         }
         memoryLock.writeLock().lock();
         try {
-            this.state = new State(new ConcurrentSkipListMap<>(comparator), tmpState.memoryStorage, tmpState.diskStorage);
+            this.state = new State(new ConcurrentSkipListMap<>(comparator), state.memoryStorage, state.diskStorage);
         } finally {
             memoryLock.writeLock().unlock();
         }
