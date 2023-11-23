@@ -39,7 +39,6 @@ public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ExecutorService executorService = Executors.newSingleThreadExecutor();
     private MemoryState memoryState = MemoryState.newMemoryState();
     private Future<?> flushFuture;
-    private Future<?> compactFuture;
 
     public StorageDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
@@ -135,9 +134,11 @@ public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
 
+        Future<?> future;
+
         storageLock.lock();
         try {
-            compactFuture = executorService.submit(() -> {
+            future = executorService.submit(() -> {
                 try {
                     DiskStorage.compact(
                             path,
@@ -149,6 +150,12 @@ public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             });
         } finally {
             storageLock.unlock();
+        }
+
+        try {
+            future.get();
+        } catch (InterruptedException | ExecutionException e) {
+            throw new IllegalStateException(e);
         }
     }
 
@@ -164,9 +171,6 @@ public class StorageDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         try {
-            if (compactFuture != null) {
-                compactFuture.get();
-            }
             if (flushFuture != null) {
                 flushFuture.get();
             }
