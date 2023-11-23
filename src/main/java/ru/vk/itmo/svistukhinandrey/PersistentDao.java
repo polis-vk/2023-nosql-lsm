@@ -34,6 +34,8 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         flushThresholdBytes = config.flushThresholdBytes();
 
         Files.createDirectories(dataPath);
+        Files.deleteIfExists(compactPath);
+
 
         arena = Arena.ofShared();
 
