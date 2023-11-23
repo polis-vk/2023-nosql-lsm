@@ -25,11 +25,11 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final DiskStorage diskStorage;
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
-    private Future<?> compactionTask;
-    private Future<?> flushTask;
     private final Path dataPath;
     private final Path compactPath;
     private final long flushThresholdBytes;
+    private Future<?> compactionTask;
+    private Future<?> flushTask;
 
     public PersistentDao(Config config) throws IOException {
         dataPath = config.basePath().resolve("data");
@@ -84,17 +84,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return entry;
         }
 
-        Iterator<Entry<MemorySegment>> iterator = diskStorage.rangeFromDisk(key, null);
-
-        if (!iterator.hasNext()) {
-            return null;
-        }
-        Entry<MemorySegment> next = iterator.next();
-        if (MemorySegmentUtils.isSameKey(next.key(), key)) {
-            return next;
-        }
-
-        return null;
+        return diskStorage.getFromDisk(key);
     }
 
     @Override
