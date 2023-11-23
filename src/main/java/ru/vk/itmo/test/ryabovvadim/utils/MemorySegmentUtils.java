@@ -8,8 +8,8 @@ public final class MemorySegmentUtils {
 
     public static int compareMemorySegments(MemorySegment left, MemorySegment right) {
         return compareMemorySegments(
-                left, 0, left.byteSize(),
-                right, 0, right.byteSize()
+                left, 0, left == null ? 0 : left.byteSize(),
+                right, 0, right == null ? 0 : right.byteSize()
         );
     }
 

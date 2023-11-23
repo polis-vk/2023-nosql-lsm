@@ -148,7 +148,7 @@ public class SSTable {
         };
     }
 
-    public static void save(
+    public static boolean save(
             Path prefix,
             long id,
             Iterable<Entry<MemorySegment>> entries,
@@ -169,7 +169,7 @@ public class SSTable {
         }
 
         if (countRecords == 0) {
-            return;
+            return false;
         }
 
         Path tmpDataFile = FileUtils.makePath(prefix, Long.toString(id), FileUtils.TMP_FILE_EXT);
@@ -215,6 +215,7 @@ public class SSTable {
 
         Path dataFile = FileUtils.makePath(prefix, Long.toString(id), FileUtils.DATA_FILE_EXT);
         Files.move(tmpDataFile, dataFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        return true;
     }
 
     public long getId() {

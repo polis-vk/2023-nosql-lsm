@@ -8,6 +8,7 @@ import ru.vk.itmo.test.ryabovvadim.iterators.FutureIterator;
 import ru.vk.itmo.test.ryabovvadim.iterators.GatheringIterator;
 import ru.vk.itmo.test.ryabovvadim.iterators.LazyIterator;
 import ru.vk.itmo.test.ryabovvadim.iterators.PriorityIterator;
+import ru.vk.itmo.test.ryabovvadim.memtable.MemoryTable;
 import ru.vk.itmo.test.ryabovvadim.sstable.SSTableManager;
 import ru.vk.itmo.test.ryabovvadim.utils.MemorySegmentUtils;
 
@@ -112,17 +113,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        flush();
         memTable.close();
         ssTableManager.close();
     }
 
     @Override
     public void flush() throws IOException {
-        if (!existsSSTableManager()) {
-            return;
-        }
-
         memTable.flush();
     }
 

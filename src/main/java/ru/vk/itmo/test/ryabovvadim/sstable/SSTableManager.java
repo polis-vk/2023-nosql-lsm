@@ -10,7 +10,6 @@ import ru.vk.itmo.test.ryabovvadim.utils.MemorySegmentUtils;
 import ru.vk.itmo.test.ryabovvadim.utils.NumberUtils;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.FileVisitResult;
@@ -25,17 +24,17 @@ import java.util.List;
 import java.util.NavigableSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DATA_FILE_EXT;
 
 public class SSTableManager {
+    private final Logger log = Logger.getLogger(SSTableManager.class.getName());
+
     private final Arena arena = Arena.ofShared();
     private final Path path;
     private final AtomicLong nextId;
@@ -65,22 +64,39 @@ public class SSTableManager {
     }
 
     public List<FutureIterator<Entry<MemorySegment>>> load(MemorySegment from, MemorySegment to) {
+        return load(from, to, null);
+    }
+
+    public List<FutureIterator<Entry<MemorySegment>>> load(MemorySegment from, MemorySegment to, Long toId) {
         List<FutureIterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
 
-        for (SafeSSTable safeSSTable : safeSSTables) {
+        for (SafeSSTable safeSSTable : safeSSTables.reversed()) {
+            if (toId != null && toId <= safeSSTable.ssTable().getId()) {
+                break;
+            }
+
             FutureIterator<Entry<MemorySegment>> iterator = safeSSTable.findEntries(from, to);
             if (iterator.hasNext()) {
                 iterators.add(iterator);
             }
         }
 
-        return iterators;
+        return iterators.reversed();
     }
 
     public long saveEntries(Iterable<Entry<MemorySegment>> entries) throws IOException {
-        long id = nextId.getAndIncrement();
-        SSTable.save(path, id, entries, arena);
-        safeSSTables.add(new SafeSSTable(new SSTable(path, id, arena)));
+        return saveEntries(entries, null);
+    }
+
+    public synchronized long saveEntries(Iterable<Entry<MemorySegment>> entries, Long reservedId) throws IOException {
+        long id = reservedId == null ? nextId.getAndIncrement() : reservedId;
+        boolean saved = SSTable.save(path, id, entries, arena);
+
+        if (saved) {
+            safeSSTables.add(new SafeSSTable(new SSTable(path, id, arena)));
+        } else {
+            id = -1;
+        }
 
         return id;
     }
@@ -88,36 +104,44 @@ public class SSTableManager {
     public void compact() {
         compactWorker.submit(() -> {
             try {
-                long id = this.saveEntries(this::all);
-                Iterator<SafeSSTable> safeSSTableIterator = safeSSTables.iterator();
+                long prepareId= nextId.getAndIncrement();
+                long id = saveEntries(() -> loadUntil(prepareId), prepareId);
+                if (id >= 0) {
+                    log.log(Level.INFO, "SSTables were compacted, new SSTable[id=%d].".formatted(id));
+                } else {
+                    log.log(Level.INFO, "SSTables were compacted (all entries were deleted).");
+                }
+
+                Iterator<SafeSSTable> safeSSTableIterator = safeSSTables.descendingIterator();
                 while (safeSSTableIterator.hasNext()) {
                     SafeSSTable safeSSTable = safeSSTableIterator.next();
-                    if (safeSSTable.ssTable().getId() != id) {
+                    long curId = safeSSTable.ssTable().getId();
+                    if (curId >= prepareId) {
+                        break;
+                    }
+                    if (curId != id) {
                         safeSSTableIterator.remove();
                         deleteSSTable(safeSSTable);
                     }
                 }
             } catch (IOException e) {
-                throw new UncheckedIOException(e);
+                log.log(Level.WARNING, "Compaction was failed", e);
             }
         });
     }
 
-    private void deleteSSTable(SafeSSTable safeSSTable) throws IOException {
-        Future<Void> deleteTask = deleteWorker.submit(() -> {
-            safeSSTable.delete(path);
-            return null;
-        });
-
-        try {
-            deleteTask.get(1, TimeUnit.SECONDS); // TODO: think about timing
-        } catch (ExecutionException e) {
-            if (e.getCause() instanceof IOException ioEx) {
-                throw ioEx;
+    private void deleteSSTable(SafeSSTable safeSSTable) {
+        deleteWorker.submit(() -> {
+            try {
+                safeSSTable.delete(path);
+            } catch (IOException e) {
+//                log.log(
+//                        Level.WARNING,
+//                        "Deleting SSTable[id=%d] was failed".formatted(safeSSTable.ssTable().getId()),
+//                        e
+//                );
             }
-        } catch (InterruptedException | TimeoutException ignored) {
-            // Ignored exception
-        }
+        });
     }
 
     public void close() {
@@ -126,8 +150,8 @@ public class SSTableManager {
         arena.close();
     }
 
-    private FutureIterator<Entry<MemorySegment>> all() {
-        List<FutureIterator<Entry<MemorySegment>>> loadedIterators = load(null, null);
+    private FutureIterator<Entry<MemorySegment>> loadUntil(long toId) {
+        List<FutureIterator<Entry<MemorySegment>>> loadedIterators = load(null, null, toId);
 
         int priority = 0;
         List<PriorityIterator<Entry<MemorySegment>>> priorityIterators = new ArrayList<>();
