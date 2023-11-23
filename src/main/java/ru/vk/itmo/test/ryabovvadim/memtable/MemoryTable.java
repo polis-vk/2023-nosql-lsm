@@ -13,21 +13,25 @@ import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MemoryTable {
-    private volatile ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable = createMap();
-    private volatile ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushTable = null;
+    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable = createMap();
+    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushTable = null;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final ExecutorService flushWorker = Executors.newSingleThreadExecutor();
     private final SSTableManager ssTableManager;
     private final long flushThresholdBytes;
-    private final AtomicLong usedSpace = new AtomicLong();
+    private long usedSpace = 0;
+    private final AtomicBoolean isFlushing = new AtomicBoolean();
+    private Future<?> flushFuture;
 
     public MemoryTable(SSTableManager ssTableManager, long flushThresholdBytes) {
         this.ssTableManager = ssTableManager;
@@ -130,22 +134,21 @@ public class MemoryTable {
     }
 
     public void upsert(Entry<MemorySegment> entry) {
-        long usedSpaceAfterPut;
         lock.readLock().lock();
         try {
             Entry<MemorySegment> oldEntry = memTable.put(entry.key(), entry);
             long newValueSize = entry.value() == null ? 0 : entry.value().byteSize();
             long oldValueSize = oldEntry == null || oldEntry.value() == null ? 0 : oldEntry.value().byteSize();
 
-            usedSpaceAfterPut = usedSpace.updateAndGet(x -> x + (newValueSize - oldValueSize));
-            if (usedSpaceAfterPut < flushThresholdBytes) {
+            usedSpace += newValueSize - oldValueSize;
+            if (usedSpace < flushThresholdBytes) {
                 return;
             }
         } finally {
             lock.readLock().unlock();
         }
 
-        if (flushTable != null) {
+        if (isFlushing.get()) {
             throw new MemoryTableOutOfMemoryException();
         }
         flush();
@@ -156,12 +159,13 @@ public class MemoryTable {
             return;
         }
 
-        Future<?> flushTask = flushWorker.submit(() -> {
+        flushFuture = flushWorker.submit(() -> {
+            isFlushing.set(true);
             lock.writeLock().lock();
             try {
                 flushTable = memTable;
                 memTable = createMap();
-                usedSpace.set(0);
+                usedSpace = 0;
             } finally {
                 lock.writeLock().unlock();
             }
@@ -172,15 +176,26 @@ public class MemoryTable {
                 // Ignored exception
             } finally {
                 flushTable = null;
+                isFlushing.set(false);
             }
         });
     }
 
-    public void close() {
-        if (!flushWorker.isShutdown()) {
-            flush();
+    public void close() throws IOException {
+        try {
+            if (!flushWorker.isShutdown()) {
+                flush();
+                flushFuture.get();
+            }
+        } catch (InterruptedException ignored) {
+            // Ignored exception
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof IOException ioEx) {
+                throw ioEx;
+            }
+        } finally {
+            flushWorker.close();
         }
-        flushWorker.close();
     }
 
     private boolean existsSSTableManager() {
