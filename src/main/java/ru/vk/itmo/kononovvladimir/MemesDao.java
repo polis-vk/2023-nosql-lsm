@@ -173,7 +173,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void flush() throws IOException {
+    public synchronized void flush() throws IOException {
         autoFlush();
     }
 
@@ -194,14 +194,9 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (!state.flushingMemoryTable.isEmpty()) {
                 try {
                     state.diskStorage.saveNextSSTable(path, state.flushingMemoryTable.values(), arena);
+                    this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), state.diskStorage);
                 } catch (IOException e) {
                     throw new IllegalStateException("Can not flush", e);
-                }
-                memoryLock.writeLock().lock();
-                try {
-                    this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), state.diskStorage);
-                } finally {
-                    memoryLock.writeLock().unlock();
                 }
             }
         });
