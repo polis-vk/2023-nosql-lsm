@@ -24,7 +24,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
     private final long flushThresholdBytes;
-    private volatile State state;
+    private State state;
     private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
     private Future<?> taskCompact;
@@ -62,6 +62,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
         return Byte.compare(b1, b2);
     }
+
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
