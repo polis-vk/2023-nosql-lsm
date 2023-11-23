@@ -17,8 +17,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class MemoryTable {
     private volatile ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable = createMap();
@@ -82,7 +80,10 @@ public class MemoryTable {
 
             @Override
             public boolean hasNext() {
-                return fstIterator.hasNext() || sndIterator.hasNext() || fstEntry != null || sndEntry != null;
+                return fstIterator.hasNext() ||
+                        sndIterator.hasNext() ||
+                        fstEntry != null ||
+                        sndEntry != null;
             }
 
             @Override
@@ -164,7 +165,7 @@ public class MemoryTable {
             }
 
             try {
-                long id = ssTableManager.saveEntries(() -> flushTable.values().iterator());
+                ssTableManager.saveEntries(() -> flushTable.values().iterator());
             } catch (IOException ignored) {
                 // Ignored exception
             } finally {
