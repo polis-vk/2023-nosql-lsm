@@ -47,7 +47,6 @@ public class SSTableManager {
     );
     private final ExecutorService compactWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService deleteWorker = Executors.newVirtualThreadPerTaskExecutor();
-    private final ReentrantLock lock = new ReentrantLock();
     private Future<?> compactionTask = CompletableFuture.completedFuture(null);
     private Future<?> deleteTask = CompletableFuture.completedFuture(null);
 
@@ -96,19 +95,13 @@ public class SSTableManager {
     }
 
     public long saveEntries(Iterable<Entry<MemorySegment>> entries, Long prepareId) throws IOException {
-        long id;
-        lock.lock();
-        try {
-            id = prepareId == null ? nextId.getAndIncrement() : prepareId;
-            boolean saved = SSTable.save(path, id, entries, arena);
+        long id = prepareId == null ? nextId.getAndIncrement() : prepareId;
+        boolean saved = SSTable.save(path, id, entries, arena);
 
-            if (saved) {
-                safeSSTables.add(new SafeSSTable(new SSTable(path, id, arena)));
-            } else {
-                id = -1;
-            }
-        } finally {
-            lock.unlock();
+        if (saved) {
+            safeSSTables.add(new SafeSSTable(new SSTable(path, id, arena)));
+        } else {
+            id = -1;
         }
 
         return id;
