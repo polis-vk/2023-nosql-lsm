@@ -24,6 +24,8 @@ public class Utils {
         return map.subMap(from, to).values().iterator();
     }
 
+    private Utils(){}
+
     public static long getByteSize(Entry<MemorySegment> entry) {
         long valueSize = entry.value() == null ? 0 : entry.value().byteSize();
         return (entry.key().byteSize() + valueSize) * 2L;
