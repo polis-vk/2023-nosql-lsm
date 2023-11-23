@@ -3,30 +3,27 @@ package ru.vk.itmo.test.ryabovvadim.memtable;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.ryabovvadim.exception.MemoryTableOutOfMemoryException;
 import ru.vk.itmo.test.ryabovvadim.sstable.SSTableManager;
+import ru.vk.itmo.test.ryabovvadim.utils.IteratorUtils;
 import ru.vk.itmo.test.ryabovvadim.utils.MemorySegmentUtils;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.util.ArrayList;
 import java.util.Iterator;
-import java.util.List;
+import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public class MemoryTable {
-    private final Logger log = Logger.getLogger(MemoryTable.class.getName());
-
-    private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> refMemoryTable =
-            new AtomicReference<>(createMap());
-    private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> refFlushTable =
-            new AtomicReference<>(createMap());
+    private volatile ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable = createMap();
+    private volatile ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushTable = null;
+    private final ReentrantLock lock = new ReentrantLock();
     private final ExecutorService flushWorker = Executors.newSingleThreadExecutor();
     private final SSTableManager ssTableManager;
     private final long flushThresholdBytes;
@@ -38,29 +35,41 @@ public class MemoryTable {
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-        return refMemoryTable.get().getOrDefault(key, refFlushTable.get().get(key));
+        Entry<MemorySegment> entry = memTable.get(key);
+        if (entry == null) {
+            NavigableMap<MemorySegment, Entry<MemorySegment>> curFlushTable = flushTable;
+            if (curFlushTable != null) {
+                entry = curFlushTable.get(key);
+            }
+        }
+
+        return entry;
     }
 
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         return mergeIterators(
-                getIterator(refMemoryTable, from, to),
-                getIterator(refFlushTable, from, to)
+                getIterator(memTable, from, to),
+                getIterator(flushTable, from, to)
         );
     }
 
     private Iterator<Entry<MemorySegment>> getIterator(
-            AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> table,
+            ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> table,
             MemorySegment from,
             MemorySegment to
     ) {
-        if (from == null && to == null) {
-            return table.get().values().iterator();
-        } else if (from == null) {
-            return table.get().headMap(to).values().iterator();
-        } else if (to == null) {
-            return table.get().tailMap(from).values().iterator();
+        if (table == null) {
+            return IteratorUtils.emptyIterator();
         }
-        return table.get().subMap(from, to).values().iterator();
+
+        if (from == null && to == null) {
+            return table.values().iterator();
+        } else if (from == null) {
+            return table.headMap(to).values().iterator();
+        } else if (to == null) {
+            return table.tailMap(from).values().iterator();
+        }
+        return table.subMap(from, to).values().iterator();
     }
 
     private Iterator<Entry<MemorySegment>> mergeIterators(
@@ -89,21 +98,27 @@ public class MemoryTable {
                     sndEntry = sndIterator.next();
                 }
 
-                int compareResult = MemorySegmentUtils.compareMemorySegments(
-                        fstEntry == null ? null : fstEntry.key(),
-                        sndEntry == null ? null : sndEntry.key()
-                );
                 Entry<MemorySegment> result;
-                if (compareResult < 0 && fstEntry != null) {
-                    result = fstEntry;
-                    fstEntry = null;
-                } else if (compareResult > 0 && sndEntry != null){
+                if (fstEntry == null) {
                     result = sndEntry;
                     sndEntry = null;
-                } else {
+                } else if (sndEntry == null) {
                     result = fstEntry;
                     fstEntry = null;
-                    sndEntry = null;
+                } else {
+                    int compareResult = MemorySegmentUtils.compareMemorySegments(fstEntry.key(), sndEntry.key());
+                    if (compareResult < 0) {
+                        result = fstEntry;
+                        fstEntry = null;
+                    } else if (compareResult == 0) {
+                        result = fstEntry;
+                        fstEntry = null;
+                        sndEntry = null;
+                    } else {
+
+                        result = sndEntry;
+                        sndEntry = null;
+                    }
                 }
 
                 return result;
@@ -112,17 +127,21 @@ public class MemoryTable {
     }
 
     public void upsert(Entry<MemorySegment> entry) {
-        ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable = refMemoryTable.get();
-        Entry<MemorySegment> oldEntry = memTable.get(entry.key());
-        long newValueSize = entry.value() == null ? 0 : entry.value().byteSize();
-        long oldValueSize = oldEntry == null || oldEntry.value() == null ? 0 : oldEntry.value().byteSize();
-        memTable.put(entry.key(), entry);
+        long usedSpaceAfterPut;
+        try {
+            lock.lock();
+            Entry<MemorySegment> oldEntry = memTable.get(entry.key());
+            long newValueSize = entry.value() == null ? 0 : entry.value().byteSize();
+            long oldValueSize = oldEntry == null || oldEntry.value() == null ? 0 : oldEntry.value().byteSize();
+            memTable.put(entry.key(), entry);
 
-        long usedSpaceAfterPut = usedSpace.updateAndGet(x -> x + (newValueSize - oldValueSize));
+            usedSpaceAfterPut = usedSpace.updateAndGet(x -> x + (newValueSize - oldValueSize));
+        } finally {
+            lock.unlock();
+        }
 
         if (usedSpaceAfterPut >= flushThresholdBytes) {
-            if (!refFlushTable.get().isEmpty()) {
-                log.log(Level.WARNING, "Over space.");
+            if (flushTable != null) {
                 throw new MemoryTableOutOfMemoryException();
             }
             flush();
@@ -135,17 +154,21 @@ public class MemoryTable {
         }
 
         flushWorker.submit(() -> {
-            usedSpace.set(0);
-            refFlushTable.set(refMemoryTable.getAndSet(createMap()));
             try {
-                long id = ssTableManager.saveEntries(() -> refFlushTable.get().values().iterator());
-                if (id >= 0) {
-                    log.log(Level.INFO, "Flush was completed, new SSTable[id=%d]".formatted(id));
-                }
-            } catch (IOException e) {
-                log.log(Level.WARNING, "Flush was failed", e);
+                lock.lock();
+                flushTable = memTable;
+                memTable = createMap();
+                usedSpace.set(0);
             } finally {
-                refFlushTable.set(createMap());
+                lock.unlock();
+            }
+
+            try {
+                long id = ssTableManager.saveEntries(() -> flushTable.values().iterator());
+            } catch (IOException ignored) {
+                // Ignored exception
+            } finally {
+                flushTable = null;
             }
         });
     }

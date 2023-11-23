@@ -27,22 +27,22 @@ import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DATA_FILE_EXT;
 
 public class SSTableManager {
-    private final Logger log = Logger.getLogger(SSTableManager.class.getName());
-
     private final Arena arena = Arena.ofShared();
     private final Path path;
-    private final AtomicLong nextId;
+    private AtomicLong nextId;
     private final NavigableSet<SafeSSTable> safeSSTables = new ConcurrentSkipListSet<>(
             Comparator.comparingLong((SafeSSTable table) -> table.ssTable().getId()).reversed()
     );
     private final ExecutorService compactWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService deleteWorker = Executors.newVirtualThreadPerTaskExecutor();
+    private final ReentrantLock lock = new ReentrantLock();
 
     public SSTableManager(Path path) throws IOException {
         this.path = path;
@@ -88,14 +88,20 @@ public class SSTableManager {
         return saveEntries(entries, null);
     }
 
-    public synchronized long saveEntries(Iterable<Entry<MemorySegment>> entries, Long reservedId) throws IOException {
-        long id = reservedId == null ? nextId.getAndIncrement() : reservedId;
-        boolean saved = SSTable.save(path, id, entries, arena);
+    public long saveEntries(Iterable<Entry<MemorySegment>> entries, Long prepareId) throws IOException {
+        long id;
+        try {
+            lock.lock();
+            id = prepareId == null ? nextId.getAndIncrement() : prepareId;
+            boolean saved = SSTable.save(path, id, entries, arena);
 
-        if (saved) {
-            safeSSTables.add(new SafeSSTable(new SSTable(path, id, arena)));
-        } else {
-            id = -1;
+            if (saved) {
+                safeSSTables.add(new SafeSSTable(new SSTable(path, id, arena)));
+            } else {
+                id = -1;
+            }
+        } finally {
+            lock.unlock();
         }
 
         return id;
@@ -104,14 +110,8 @@ public class SSTableManager {
     public void compact() {
         compactWorker.submit(() -> {
             try {
-                long prepareId= nextId.getAndIncrement();
+                long prepareId = nextId.getAndIncrement();
                 long id = saveEntries(() -> loadUntil(prepareId), prepareId);
-                if (id >= 0) {
-                    log.log(Level.INFO, "SSTables were compacted, new SSTable[id=%d].".formatted(id));
-                } else {
-                    log.log(Level.INFO, "SSTables were compacted (all entries were deleted).");
-                }
-
                 Iterator<SafeSSTable> safeSSTableIterator = safeSSTables.descendingIterator();
                 while (safeSSTableIterator.hasNext()) {
                     SafeSSTable safeSSTable = safeSSTableIterator.next();
@@ -124,8 +124,8 @@ public class SSTableManager {
                         deleteSSTable(safeSSTable);
                     }
                 }
-            } catch (IOException e) {
-                log.log(Level.WARNING, "Compaction was failed", e);
+            } catch (IOException ignored) {
+                // Ignored exception
             }
         });
     }
@@ -134,12 +134,8 @@ public class SSTableManager {
         deleteWorker.submit(() -> {
             try {
                 safeSSTable.delete(path);
-            } catch (IOException e) {
-//                log.log(
-//                        Level.WARNING,
-//                        "Deleting SSTable[id=%d] was failed".formatted(safeSSTable.ssTable().getId()),
-//                        e
-//                );
+            } catch (IOException ignored) {
+                // Ignored exception
             }
         });
     }
