@@ -11,17 +11,19 @@ import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DATA_FILE_EXT;
 import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DELETED_FILE_EXT;
 
 public class SafeSSTable {
-    private boolean deleted = false;
+    private AtomicBoolean deleted;
     private final SSTable ssTable;
     private final AtomicInteger countAliveRef = new AtomicInteger();
 
     public SafeSSTable(SSTable ssTable) {
+        this.deleted = new AtomicBoolean();
         this.ssTable = ssTable;
     }
 
@@ -30,11 +32,11 @@ public class SafeSSTable {
     }
 
     public void setDeleted() {
-        this.deleted = true;
+        this.deleted.set(true);
     }
 
     public Entry<MemorySegment> findEntry(MemorySegment key) {
-        if (deleted || incrementRef()) {
+        if (deleted.get() || incrementRef()) {
             return null;
         }
 
@@ -44,7 +46,7 @@ public class SafeSSTable {
     }
 
     public FutureIterator<Entry<MemorySegment>> findEntries(MemorySegment from, MemorySegment to) {
-        if (deleted || incrementRef()) {
+        if (deleted.get() || incrementRef()) {
             return IteratorUtils.emptyFutureIterator();
         }
 

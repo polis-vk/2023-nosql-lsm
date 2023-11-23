@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.NavigableMap;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -82,6 +83,8 @@ public class MemoryTable {
     }
 
     public void upsert(Entry<MemorySegment> entry) {
+        Objects.requireNonNull(entry);
+
         long newSize = getEntrySize(entry);
         long prevSize = 0;
         ChangeableEntryWithLock<MemorySegment> prev = (ChangeableEntryWithLock<MemorySegment>) memTable.get()
