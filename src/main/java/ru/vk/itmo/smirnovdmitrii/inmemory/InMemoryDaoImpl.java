@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -28,9 +29,7 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
             final OutMemoryDao<MemorySegment, Entry<MemorySegment>> outMemoryDao
     ) {
         this.flushThresholdBytes = flushThresholdBytes;
-        final List<Memtable> list = new ArrayList<>();
-        list.add(newMemtable());
-        this.memtables = list;
+        this.memtables = Collections.singletonList(newMemtable());
         this.outMemoryDao = outMemoryDao;
     }
 
@@ -91,17 +90,12 @@ public class InMemoryDaoImpl implements InMemoryDao<MemorySegment, Entry<MemoryS
         try {
             final Memtable memtable = memtables.get(0);
             // Creating new memory table.
-            final List<Memtable> newMemtables = new ArrayList<>();
-            newMemtables.add(newMemtable());
-            newMemtables.addAll(memtables);
-            memtables = newMemtables;
+            memtables = List.of(newMemtable(), memtable);
             // Waiting until all upserts finished and flushing it to disk.
             memtable.flushLock().lock();
             try {
                 outMemoryDao.flush(memtable);
-                final List<Memtable> removed = new ArrayList<>(memtables);
-                removed.removeLast();
-                memtables = removed;
+                memtables = Collections.singletonList(memtables.get(0));
             } catch (final IOException e) {
                 throw new UncheckedIOException(e);
             } finally {
