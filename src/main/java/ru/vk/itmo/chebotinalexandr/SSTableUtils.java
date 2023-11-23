@@ -1,9 +1,11 @@
 package ru.vk.itmo.chebotinalexandr;
 
+import ru.vk.itmo.Entry;
+
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-import static ru.vk.itmo.chebotinalexandr.SSTablesStorage.OFFSET_FOR_SIZE;
+import static ru.vk.itmo.chebotinalexandr.SSTablesStorage.HEADER_OFFSET;
 
 public final class SSTableUtils {
 
@@ -13,7 +15,7 @@ public final class SSTableUtils {
 
     public static long binarySearch(MemorySegment readSegment, MemorySegment key) {
         long low = -1;
-        long high = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, OFFSET_FOR_SIZE);
+        long high = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, HEADER_OFFSET);
 
         while (low < high - 1) {
             long mid = (high - low) / 2 + low;
@@ -49,5 +51,13 @@ public final class SSTableUtils {
         }
 
         return low + 1;
+    }
+
+    public static long entryByteSize(Entry<MemorySegment> entry) {
+        if (entry.value() == null) {
+            return entry.key().byteSize();
+        }
+
+        return entry.key().byteSize() + entry.value().byteSize();
     }
 }
