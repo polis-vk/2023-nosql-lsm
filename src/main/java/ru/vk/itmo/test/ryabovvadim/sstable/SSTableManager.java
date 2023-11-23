@@ -28,8 +28,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DATA_FILE_EXT;
 
@@ -90,8 +88,8 @@ public class SSTableManager {
 
     public long saveEntries(Iterable<Entry<MemorySegment>> entries, Long prepareId) throws IOException {
         long id;
+        lock.lock();
         try {
-            lock.lock();
             id = prepareId == null ? nextId.getAndIncrement() : prepareId;
             boolean saved = SSTable.save(path, id, entries, arena);
 

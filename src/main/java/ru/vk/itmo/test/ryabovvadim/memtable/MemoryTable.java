@@ -129,8 +129,8 @@ public class MemoryTable {
 
     public void upsert(Entry<MemorySegment> entry) {
         long usedSpaceAfterPut;
+        lock.lock();
         try {
-            lock.lock();
             Entry<MemorySegment> oldEntry = memTable.get(entry.key());
             long newValueSize = entry.value() == null ? 0 : entry.value().byteSize();
             long oldValueSize = oldEntry == null || oldEntry.value() == null ? 0 : oldEntry.value().byteSize();
@@ -155,8 +155,8 @@ public class MemoryTable {
         }
 
         flushWorker.submit(() -> {
+            lock.lock();
             try {
-                lock.lock();
                 flushTable = memTable;
                 memTable = createMap();
                 usedSpace.set(0);
