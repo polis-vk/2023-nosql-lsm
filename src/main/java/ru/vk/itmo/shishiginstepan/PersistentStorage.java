@@ -46,7 +46,7 @@ public class PersistentStorage {
             Logger.getAnonymousLogger().log(Level.WARNING, "Failed reading SSTABLE (probably deleted)");
         }
 
-        lastSSTableId = new AtomicInteger(this.sstables.isEmpty() ? 0 : this.sstables.getLast().id);
+        lastSSTableId = new AtomicInteger(this.sstables.isEmpty() ? 0 : this.sstables.getFirst().id);
     }
 
     public void close() {
