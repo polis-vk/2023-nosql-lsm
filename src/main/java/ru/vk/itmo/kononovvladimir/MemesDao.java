@@ -248,9 +248,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void close() throws IOException {
-        if (!arena.scope().isAlive()) {
-            return;
-        }
+
 
         try {
             if (taskCompact != null && !taskCompact.isDone() && !taskCompact.isCancelled()) {
@@ -266,21 +264,14 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         executorService.close();
 
-        memoryLock.writeLock().lock();
-        try {
-            lock.lock();
-            try {
-                arena.close();
 
-                if (!state.memoryStorage.isEmpty()) {
-                    DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
-                }
-            } finally {
-                lock.unlock();
-            }
-        } finally {
-            memoryLock.writeLock().unlock();
+        if (!state.memoryStorage.isEmpty()) {
+            DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
         }
+        if (!arena.scope().isAlive()) {
+            return;
+        }
+        arena.close();
     }
 }
 
