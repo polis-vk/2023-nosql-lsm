@@ -19,7 +19,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Comparator<MemorySegment> comparator = MemesDao::compare;
-    private final Arena arena;
+    private Arena arena;
     private final Path path;
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
@@ -212,13 +212,16 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private void autoFlush() {
         memoryLock.writeLock();
         try {
-            DiskStorage.saveNextSSTable(path, state.flushingMemoryTable.values());
+            arena.close();
+            this.arena = Arena.ofShared();
+            if (!state.memoryStorage.isEmpty()) {
+                DiskStorage.saveNextSSTable(path, state.flushingMemoryTable.values());
+            }
         } catch (IOException e) {
             throw new RuntimeException(e);
         } finally {
             memoryLock.writeLock().unlock();
         }
-        memoryLock.writeLock().lock();
         try {
             DiskStorage tmpStorage;
             try {
@@ -226,7 +229,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
-            this.state = new State(new ConcurrentSkipListMap<>(comparator), new ConcurrentSkipListMap<>(comparator), tmpStorage);
+            memoryLock.writeLock().lock();
+            this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), tmpStorage);
         } finally {
             memoryLock.writeLock().unlock();
         }
