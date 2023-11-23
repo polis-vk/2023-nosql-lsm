@@ -164,8 +164,15 @@ public class DiskStorage {
 
     public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
+        Stream<Path> streamForDelete;
+        try (Stream<Path> streamFiles = Files.find(storagePath, 1,
+                (path, ignored) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
+            streamForDelete = streamFiles;
+        }
+
         String newFileName = "compaction.tmp";
         Path compactionTmpFile = storagePath.resolve(newFileName);
+
 
         long dataSize = 0;
         long count = 0;
@@ -238,21 +245,17 @@ public class DiskStorage {
                 StandardCopyOption.REPLACE_EXISTING
         );
 
-        try (Stream<Path> stream = Files.find(storagePath, 1,
-                (path, ignored) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
-            stream.forEach(p -> {
-                try {
-                    Files.delete(p);
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            });
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        streamForDelete.forEach(p -> {
+            try {
+                Files.delete(p);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
 
 
         finalizeCompaction(storagePath, false);
+
     }
 
     private static void finalizeCompaction(Path storagePath, boolean doDelete) throws IOException {
