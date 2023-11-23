@@ -19,12 +19,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class MemoryTable {
-    private volatile ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable = createMap();
-    private volatile ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushTable = null;
+    private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> memTable =
+            new AtomicReference<>(createMap());
+    private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> flushTable =
+            new AtomicReference<>(null);
     private final Lock lock = new ReentrantLock();
     private final ExecutorService flushWorker = Executors.newSingleThreadExecutor();
     private final SSTableManager ssTableManager;
@@ -38,9 +41,9 @@ public class MemoryTable {
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> entry = memTable.get(key);
+        Entry<MemorySegment> entry = memTable.get().get(key);
         if (entry == null) {
-            NavigableMap<MemorySegment, Entry<MemorySegment>> curFlushTable = flushTable;
+            NavigableMap<MemorySegment, Entry<MemorySegment>> curFlushTable = flushTable.get();
             if (curFlushTable != null) {
                 entry = curFlushTable.get(key);
             }
@@ -51,8 +54,8 @@ public class MemoryTable {
 
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         return new MemoryMergeIterators(
-                getIterator(memTable, from, to),
-                getIterator(flushTable, from, to)
+                getIterator(memTable.get(), from, to),
+                getIterator(flushTable.get(), from, to)
         );
     }
 
@@ -78,7 +81,7 @@ public class MemoryTable {
     public void upsert(Entry<MemorySegment> entry) {
         lock.lock();
         try {
-            Entry<MemorySegment> oldEntry = memTable.put(entry.key(), entry);
+            Entry<MemorySegment> oldEntry = memTable.get().put(entry.key(), entry);
             long newValueSize = getEntrySize(entry);
             long oldValueSize = getEntrySize(oldEntry);
 
@@ -89,7 +92,7 @@ public class MemoryTable {
             lock.unlock();
         }
 
-        if (flushTable != null) {
+        if (flushTable.get() != null) {
             throw new MemoryTableOutOfMemoryException();
         }
         flush();
@@ -108,26 +111,26 @@ public class MemoryTable {
     }
 
     public void flush() {
-        if (!existsSSTableManager() || memTable.isEmpty() || !flushFuture.isDone()) {
+        if (!existsSSTableManager() || memTable.get().isEmpty() || !flushFuture.isDone()) {
             return;
         }
 
         flushFuture = flushWorker.submit(() -> {
             lock.lock();
             try {
-                flushTable = memTable;
-                memTable = createMap();
+                flushTable.set(memTable.get());
+                memTable.set(createMap());
                 usedSpace.set(0);
             } finally {
                 lock.unlock();
             }
 
             try {
-                ssTableManager.saveEntries(() -> flushTable.values().iterator());
+                ssTableManager.saveEntries(() -> flushTable.get().values().iterator());
             } catch (IOException ignored) {
                 // Ignored exception
             } finally {
-                flushTable = null;
+                flushTable.set(null);
             }
         });
     }
