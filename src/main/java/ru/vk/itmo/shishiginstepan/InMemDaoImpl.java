@@ -13,8 +13,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
@@ -139,16 +141,18 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.persistentStorage.close();
     }
 
+
+    private Future<Integer> flush_notification;
     @Override
     public void flush() {
-        executor.execute(() -> {
+        flush_notification = executor.submit(() -> {
             if (flushLock.tryLock()) {
                 try {
                     if (!this.memStorage.get().isEmpty()) {
                         this.tempStorage.set(this.memStorage.get());
                         this.memStorage.set(new ConcurrentSkipListMap<>(keyComparator));
                         this.memStorageSize.set(0);
-                        this.persistentStorage.store(this.tempStorage.get().values());
+                        this.persistentStorage.store(this.tempStorage.get().values(), persistentStorage.nextId());
                     }
                 } finally {
                     flushLock.unlock();
@@ -156,11 +160,23 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             } else {
                 throw new MemStorageOverflowException();
             }
+            return 1;
         });
     }
 
+
     @Override
     public void compact() {
-        executor.execute(persistentStorage::compact);
+        int id = persistentStorage.nextId();
+        executor.execute(() -> {
+            try {
+                if (flush_notification != null) {
+                    flush_notification.get();
+                }
+            } catch (InterruptedException | ExecutionException ignored) {
+            }
+            persistentStorage.compact(id);
+        });
+
     }
 }

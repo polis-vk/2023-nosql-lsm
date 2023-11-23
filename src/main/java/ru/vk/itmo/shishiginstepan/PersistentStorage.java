@@ -49,6 +49,10 @@ public class PersistentStorage {
         lastSSTableId = new AtomicInteger(this.sstables.isEmpty() ? 0 : this.sstables.getFirst().id);
     }
 
+    public synchronized int nextId() {
+        return this.lastSSTableId.incrementAndGet();
+    }
+
     public void close() {
         arena.close();
     }
@@ -57,15 +61,14 @@ public class PersistentStorage {
      * Гарантирует что при успешном завершении записи на диск, SSTable с переданными в метод данными
      * сразу будет доступен для чтения в PersistentStorage.
      **/
-    public void store(Iterable<Entry<MemorySegment>> data) {
+    public void store(Iterable<Entry<MemorySegment>> data, int id) {
         BinarySearchSSTable newSSTable = BinarySearchSSTableWriter.writeSSTable(
                 data,
                 basePath,
-                this.lastSSTableId.incrementAndGet(),
+                id,
                 arena
         );
         this.sstables.add(newSSTable);
-
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -120,7 +123,7 @@ public class PersistentStorage {
     }
 
 
-    public void compact() {
+    public void compact(int id) {
         tablesToCompact.set(new ArrayList<>());
         setTablesToCompact();
         store(
@@ -129,7 +132,7 @@ public class PersistentStorage {
                     return new SkipDeletedIterator(
                             new MergeIterator(
                                     iterators));
-                });
+                }, id);
         for (var sstable : tablesToCompact.get()) {
             compactionClean(sstable);
         }
