@@ -124,19 +124,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return;
         }
         State tmpState = getStateUnderWriteLock();
+
         long entrySize = calculateSize(entry);
-        if (flushThresholdBytes < tmpState.memoryStorageSizeInBytes.get() + entrySize) {
-            // if not flushing throw
-            if (!tmpState.flushingMemoryTable.isEmpty()) {
-                //throw
-                return;
-            }
-
-            this.state.memoryStorage.put(entry.key(), entry);
-            autoFlush();
-            return;
-        }
-
         memoryLock.writeLock().lock();
         try {
             this.state.memoryStorage.put(entry.key(), entry);
@@ -144,6 +133,16 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } finally {
             memoryLock.writeLock().unlock();
         }
+        if (flushThresholdBytes < tmpState.memoryStorageSizeInBytes.get() + entrySize) {
+            // if not flushing throw
+            if (!tmpState.flushingMemoryTable.isEmpty()) {
+                //throw
+                return;
+            }
+            autoFlush();
+        }
+
+
     }
 
     @Override
