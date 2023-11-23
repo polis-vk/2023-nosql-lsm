@@ -194,7 +194,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private synchronized void autoFlush() {
         State tmpState = getStateUnderWriteLock();
 
-        if (!(flushTask == null || flushTask.isDone()) || tmpState.memoryStorage.isEmpty()) {
+        if (!(flushTask == null || flushTask.isDone()) || !tmpState.memoryStorage.isEmpty()) {
             return;
         }
         memoryLock.writeLock().lock();
