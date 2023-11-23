@@ -160,7 +160,6 @@ public class SSTableManager {
         } finally {
             compactWorker.close();
             deleteWorker.close();
-            arena.close();
         }
     }
 
