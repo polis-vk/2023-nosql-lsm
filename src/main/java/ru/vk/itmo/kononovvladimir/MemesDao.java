@@ -28,19 +28,17 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     final AtomicLong memoryStorageSizeInBytes = new AtomicLong();
     final DiskStorage diskStorage;
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
-
-    private final AtomicBoolean isFlushing = new AtomicBoolean(false);
-    private final AtomicBoolean isCompacting = new AtomicBoolean(false);
+    //private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
     private final long flushThresholdBytes;
     //private State state;
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
-    private final ExecutorService executorServiceForFlushing = Executors.newSingleThreadExecutor();
-    private final ExecutorService executorServiceForCompact = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
-   // private Future<?> taskCompact;
+    private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
-   // private Future<?> flushTask;
+    private Future<?> taskCompact;
+
+    private Future<?> flushTask;
 
 
     public MemesDao(Config config) throws IOException {
@@ -75,13 +73,15 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-
+        if (isClosed.get()) {
+            throw new IllegalStateException("Dao is closed. You can't get entries range");
+        }
         //State tmpState = getStateUnderReadLock();
 
         Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(memoryStorage, from, to);
         List<Iterator<Entry<MemorySegment>>> merged = new ArrayList<>();
         merged.add(memoryIterator);
-        if (!flushingMemoryTable.isEmpty()) {
+        if (!(flushTask == null || flushTask.isDone())) {
             Iterator<Entry<MemorySegment>> flushIterator = getInMemory(flushingMemoryTable, from, to);
             merged.addFirst(flushIterator);
         }
@@ -108,7 +108,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (isClosed.get() || isCompacting.get()) {
+        if (isClosed.get() || (!(flushTask == null || flushTask.isDone()) && memoryStorageSizeInBytes.get() >= flushThresholdBytes)) {
             throw new IllegalStateException("Previous flush has not yet ended");
         }
         //State tmpState = getStateUnderWriteLock();
@@ -143,6 +143,9 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
+        if (isClosed.get()) {
+            throw new IllegalStateException("Dao is closed. You can't get entries range");
+        }
         //State tmpState = getStateUnderReadLock();
         Entry<MemorySegment> entry = memoryStorage.get(key);
         if (entry == null && flushingMemoryTable != null) {
@@ -170,14 +173,12 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void compact() throws IOException {
-        if (isClosed.get() || isCompacting.get()) {
+        if (isClosed.get() || !(taskCompact == null || taskCompact.isDone())) {
             return;
         }
-        isCompacting.set(true);
-        executorServiceForCompact.execute(() -> {
+        taskCompact = executorService.submit(() -> {
             try {
                 DiskStorage.compact(path, this::all);
-                isCompacting.set(false);
             } catch (IOException e) {
                 throw new RuntimeException("Error during compaction", e);
             }
@@ -192,10 +193,9 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private synchronized void autoFlush() throws IOException {
         //  State tmpState = getStateUnderWriteLock();
 
-        if (isClosed.get() || memoryStorage.isEmpty() || isFlushing.get()) {
+        if (isClosed.get() || !(flushTask == null || flushTask.isDone()) || memoryStorage.isEmpty()) {
             return;
         }
-        isFlushing.set(true);
         lock.writeLock().lock();
         try {
             flushingMemoryTable = memoryStorage;
@@ -205,13 +205,12 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         } finally {
             lock.writeLock().unlock();
         }
-        executorServiceForCompact.execute(() -> {
+        flushTask = executorService.submit(() -> {
 
             if (!flushingMemoryTable.isEmpty()) {
                 try {
                     diskStorage.saveNextSSTable(path, flushingMemoryTable.values(), arena);
                     flushingMemoryTable = new ConcurrentSkipListMap<>(comparator);
-                    isFlushing.set(false);
                 } catch (IOException e) {
                     throw new IllegalStateException("Can not flush", e);
                 }
@@ -223,20 +222,20 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        executorServiceForFlushing.shutdown();
-        executorServiceForCompact.shutdown();
         try {
-            if (!executorServiceForFlushing.awaitTermination(12, TimeUnit.HOURS)
-                    && !executorServiceForCompact.awaitTermination(12, TimeUnit.HOURS)) {
-                throw new RuntimeException("Error during termination");
+            if (taskCompact != null && !taskCompact.isDone() && !taskCompact.isCancelled()) {
+                taskCompact.get();
+            }
+            if (flushTask != null && !flushTask.isDone()) {
+                flushTask.get();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return;
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("Dao can not be stopped gracefully", e);
         }
         isClosed.set(true);
-        executorServiceForFlushing.close();
-        executorServiceForCompact.close();
+        executorService.close();
 
         if (!memoryStorage.isEmpty()) {
             diskStorage.saveNextSSTable(path, memoryStorage.values(), arena);
