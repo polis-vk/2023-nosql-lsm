@@ -13,41 +13,44 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
-import java.util.NavigableMap;
 
 public class SSTable implements Comparable<SSTable> {
     // Contains offset and size for every key and every value in index file
     private MemorySegment summaryFile;
+    private static final String SUMMARY_FILENAME = "summary";
     // Contains keys
     private MemorySegment indexFile;
+    private static final String INDEX_FILENAME = "index";
     // Contains values
     private MemorySegment dataFile;
+    private static final String DATA_FILENAME = "data";
     private final Comparator<MemorySegment> memSegComp;
     private final Arena filesArena = Arena.ofAuto();
     private final long tableId;
+    private final Path ssTablePath;
 
     private final long size;
 
     public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
-                   NavigableMap<MemorySegment, Entry<MemorySegment>> memTable,
+                   Iterable<Entry<MemorySegment>> entriesContainer,
                    boolean rewrite) throws IOException {
         this.tableId = tableId;
-        Path ssTablePath = basePath.resolve(Long.toString(tableId));
+        this.ssTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
-        Path summaryFilePath = ssTablePath.resolve("summary");
-        Path indexFilePath = ssTablePath.resolve("index");
-        Path dataFilePath = ssTablePath.resolve("data");
+        Path summaryFilePath = this.ssTablePath.resolve(SUMMARY_FILENAME);
+        Path indexFilePath = this.ssTablePath.resolve(INDEX_FILENAME);
+        Path dataFilePath = this.ssTablePath.resolve(DATA_FILENAME);
         if (rewrite) {
-            write(memTable, summaryFilePath, indexFilePath, dataFilePath);
+            write(entriesContainer, summaryFilePath, indexFilePath, dataFilePath);
         } else {
             readOld(summaryFilePath, indexFilePath, dataFilePath);
         }
 
-        summaryFile = summaryFile.asReadOnly();
-        indexFile = indexFile.asReadOnly();
-        dataFile = dataFile.asReadOnly();
+        this.summaryFile = this.summaryFile.asReadOnly();
+        this.indexFile = this.indexFile.asReadOnly();
+        this.dataFile = this.dataFile.asReadOnly();
 
-        size = (summaryFile.byteSize() / Metadata.SIZE);
+        this.size = (this.summaryFile.byteSize() / Metadata.SIZE);
     }
 
     private void readOld(Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
@@ -90,30 +93,35 @@ public class SSTable implements Comparable<SSTable> {
         Metadata.writeEntryMetadata(entry, summaryFile, summaryOffset, indexOffset, dataOffset);
     }
 
+    private long[] getFilesSize(Iterable<Entry<MemorySegment>> entriesContainer) {
+        long indexSize = 0;
+        long dataSize = 0;
+        long summarySize = 0;
+        for (Entry<MemorySegment> entry : entriesContainer) {
+            indexSize += entry.key().byteSize();
+            dataSize += entry.value() == null ? 0 : entry.value().byteSize();
+            summarySize += Metadata.SIZE;
+        }
+        return new long[]{summarySize, indexSize, dataSize};
+    }
+
     // Sequentially writes every entity data in SStable keeping files data consistent
-    private void write(NavigableMap<MemorySegment, Entry<MemorySegment>> memTable,
+    private void write(Iterable<Entry<MemorySegment>> entriesContainer,
                        Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
         prepareForWriting(summaryFilePath);
         prepareForWriting(indexFilePath);
         prepareForWriting(dataFilePath);
 
-        long indexSize = 0;
-        long dataSize = 0;
-        long summarySize;
-        for (Entry<MemorySegment> entry : memTable.values()) {
-            indexSize += entry.key().byteSize();
-            dataSize += entry.value() == null ? 0 : entry.value().byteSize();
-        }
-        summarySize = memTable.size() * Metadata.SIZE;
+        long[] filesSize = getFilesSize(entriesContainer);
 
-        summaryFile = mapFile(summarySize, summaryFilePath);
-        indexFile = mapFile(indexSize, indexFilePath);
-        dataFile = mapFile(dataSize, dataFilePath);
+        summaryFile = mapFile(filesSize[0], summaryFilePath);
+        indexFile = mapFile(filesSize[1], indexFilePath);
+        dataFile = mapFile(filesSize[2], dataFilePath);
 
-        long currentDataOffset = 0;
-        long currentIndexOffset = 0;
         long currentSummaryOffset = 0;
-        for (Entry<MemorySegment> entry : memTable.values()) {
+        long currentIndexOffset = 0;
+        long currentDataOffset = 0;
+        for (Entry<MemorySegment> entry : entriesContainer) {
             MemorySegment value = entry.value();
             value = value == null ? filesArena.allocate(0) : value;
             MemorySegment key = entry.key();
@@ -122,6 +130,14 @@ public class SSTable implements Comparable<SSTable> {
             currentIndexOffset += key.byteSize();
             currentSummaryOffset += Metadata.SIZE;
         }
+    }
+
+    // Deletes all SSTable files from disk. Don't use object after invocation of this method!
+    public void deleteFromDisk() throws IOException {
+        Files.delete(ssTablePath.resolve(SUMMARY_FILENAME));
+        Files.delete(ssTablePath.resolve(INDEX_FILENAME));
+        Files.delete(ssTablePath.resolve(DATA_FILENAME));
+        Files.delete(ssTablePath);
     }
 
     private Range readRange(MemorySegment segment, long offset) {
