@@ -28,7 +28,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
     private Future<?> taskCompact;
-    private Future<?> taskFlush;
+    // private Future<?> taskFlush;
 
     public MemesDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
@@ -217,19 +217,17 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             memoryLock.writeLock().unlock();
         }
 
-        taskFlush = executorService.submit(() -> {
-            try {
-                DiskStorage.saveNextSSTable(path, state.flushingMemoryTable.values());
-                memoryLock.writeLock().lock();
-                try {
-                    this.state = new State(new ConcurrentSkipListMap<>(comparator), new ConcurrentSkipListMap<>(comparator), state.diskStorage);
-                } finally {
-                    memoryLock.writeLock().unlock();
-                }
-            } catch (IOException e) {
-                throw new IllegalStateException("Can not flush", e);
-            }
-        });
+        try {
+            DiskStorage.saveNextSSTable(path, state.flushingMemoryTable.values());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        memoryLock.writeLock().lock();
+        try {
+            this.state = new State(new ConcurrentSkipListMap<>(comparator), new ConcurrentSkipListMap<>(comparator), state.diskStorage);
+        } finally {
+            memoryLock.writeLock().unlock();
+        }
     }
 
     @Override
@@ -242,9 +240,9 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (taskCompact != null && !taskCompact.isDone() && !taskCompact.isCancelled()) {
                 taskCompact.get();
             }
-            if (taskFlush != null && !taskFlush.isDone()) {
+/*            if (taskFlush != null && !taskFlush.isDone()) {
                 taskFlush.get();
-            }
+            }*/
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
