@@ -1,4 +1,4 @@
-package ru.vk.itmo.svistukhinandrey;
+package ru.vk.itmo.kononovvladimir;
 
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
@@ -7,52 +7,37 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final Comparator<MemorySegment> comparator = PersistentDao::compare;
+    private final Comparator<MemorySegment> comparator = new MemoryComparator();
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
-    private final Path dataPath;
-    private final Path compactTempPath;
+    private final Path path;
+    private final Path indexFile;
+    static final String FIRST_TABLE_NAME = "0.txt";
+    static final String DIR_DATA = "data";
+    static final String INDEX_FILE_NAME = "index.idx";
 
-    public PersistentDao(Config config) throws IOException {
-        this.dataPath = config.basePath().resolve("data");
-        this.compactTempPath = config.basePath().resolve("compact_temp");
-        Files.createDirectories(dataPath);
-        Files.deleteIfExists(compactTempPath);
+    public MemesDao(Config config) throws IOException {
+        this.path = config.basePath().resolve(DIR_DATA);
+        this.indexFile = path.resolve(INDEX_FILE_NAME);
+        Files.createDirectories(path);
 
-        arena = Arena.ofShared();
+        this.arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(dataPath, arena));
-    }
-
-    static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
-        long mismatch = memorySegment1.mismatch(memorySegment2);
-        if (mismatch == -1) {
-            return 0;
-        }
-
-        if (mismatch == memorySegment1.byteSize()) {
-            return -1;
-        }
-
-        if (mismatch == memorySegment2.byteSize()) {
-            return 1;
-        }
-        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
-        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
-        return Byte.compare(b1, b2);
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
     @Override
@@ -79,6 +64,32 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
+    public void compact() throws IOException {
+        final Iterator<Entry<MemorySegment>> iterator = get(null, null);
+
+        DiskStorage.save(path, () -> iterator, path.resolve(FIRST_TABLE_NAME));
+
+        if (Files.exists(indexFile)) {
+            List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+            //Вдруг неожиданно пропадет из-за внешних обстоятельств
+            Files.deleteIfExists(indexFile);
+
+            for (String fileName : existedFiles) {
+                Files.deleteIfExists(path.resolve(fileName));
+            }
+        }
+        storage.clear();
+
+        Files.write(
+                indexFile,
+                List.of(FIRST_TABLE_NAME),
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+    }
+
+    @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         Entry<MemorySegment> entry = storage.get(key);
         if (entry != null) {
@@ -94,24 +105,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
         Entry<MemorySegment> next = iterator.next();
-        if (compare(next.key(), key) == 0) {
+        if (comparator.compare(next.key(), key) == 0) {
             return next;
         }
         return null;
-    }
-
-    @Override
-    public void compact() throws IOException {
-        Iterable<Entry<MemorySegment>> compactValues = () -> diskStorage.all(storage.values());
-        if (compactValues.iterator().hasNext()) {
-            Files.createDirectories(compactTempPath);
-
-            DiskStorage.save(compactTempPath, compactValues);
-            DiskStorage.deleteObsoleteData(dataPath);
-            Files.move(compactTempPath, dataPath, StandardCopyOption.ATOMIC_MOVE);
-
-            storage.clear();
-        }
     }
 
     @Override
@@ -123,7 +120,9 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (!storage.isEmpty()) {
-            DiskStorage.save(dataPath, storage.values());
+            DiskStorage.save(path, storage.values(), indexFile);
+            //Вдруг вызовется потом повторно метод, а арена жива
+            storage.clear();
         }
     }
 }
