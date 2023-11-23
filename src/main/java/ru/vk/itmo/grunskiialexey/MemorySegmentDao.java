@@ -108,7 +108,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
 
     @Override
     public void flush() throws IOException {
-        inMemoryQuerySystem.flush();
+        inMemoryQuerySystem.flush(null);
     }
 
     @Override

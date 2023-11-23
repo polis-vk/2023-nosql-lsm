@@ -67,11 +67,14 @@ public class InMemoryQuerySystem {
         return storages.stream().map(map -> map.subMap(from, to).values().iterator()).toList();
     }
 
-    public void flush() throws IOException {
+    public void flush(Entry<MemorySegment> firstEntry) throws IOException {
         if (storages.get(0).isEmpty() || !isWorking.compareAndSet(false, true)) {
             return;
         }
         currentByteSize.set(0);
+        if (firstEntry != null) {
+            upsertWhenFlushing(firstEntry);
+        }
 
         final Path indexTmp = flushPath.resolve(NAME_TMP_INDEX_FILE);
         final Path indexFile = flushPath.resolve(NAME_INDEX_FILE);
@@ -151,34 +154,30 @@ public class InMemoryQuerySystem {
 
     public void upsert(Entry<MemorySegment> entry) {
         if (isWorking.get()) {
-            try {
-                Thread.sleep(2);
-            } catch (InterruptedException e) {
-                return;
-            }
             upsertWhenFlushing(entry);
             return;
         }
 
         long size = entrySize(entry);
-        storages.get(0).put(entry.key(), entry);
-        if (currentByteSize.get() + size > flushThresholdBytes) {
+        if (currentByteSize.addAndGet(size) <= flushThresholdBytes) {
+            storages.get(0).put(entry.key(), entry);
+        } else {
+            currentByteSize.addAndGet(-size);
             try {
-                flush();
-            } catch (IOException ignored) {
+                flush(entry);
+            } catch (IOException e) {
                 return;
             }
         }
-        currentByteSize.getAndAdd(size);
     }
 
     private void upsertWhenFlushing(Entry<MemorySegment> entry) {
         long size = entrySize(entry);
-        storages.get(1).put(entry.key(), entry);
-        if (currentByteSize.get() + size > flushThresholdBytes) {
-            throw new OutOfMemoryError("Can't upsert data while flushing");
+        if (currentByteSize.addAndGet(size) <= flushThresholdBytes) {
+            storages.get(1).put(entry.key(), entry);
+        } else  {
+            throw new OutOfMemoryError("Too much upsert data");
         }
-        currentByteSize.addAndGet(size);
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
@@ -189,7 +188,7 @@ public class InMemoryQuerySystem {
         return storages.get(0).get(key);
     }
 
-    private long entrySize(Entry<MemorySegment> entry) {
+    private static long entrySize(Entry<MemorySegment> entry) {
         return entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()) + 2 * Long.BYTES;
     }
 }
