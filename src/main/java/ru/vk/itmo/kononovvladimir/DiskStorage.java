@@ -21,15 +21,16 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 
 public class DiskStorage {
 
     public static final String SSTABLE_PREFIX = "sstable_";
-    private final List<MemorySegment> segmentList;
+    private final List<MemorySegment> segmentList = new CopyOnWriteArrayList<>();
 
     public DiskStorage(List<MemorySegment> segmentList) {
-        this.segmentList = segmentList;
+        this.segmentList.addAll(segmentList);
     }
 
     public Iterator<Entry<MemorySegment>> range(
