@@ -164,12 +164,6 @@ public class DiskStorage {
 
     public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        List<Path> toDelete;
-        try (Stream<Path> stream = Files.find(storagePath, 1,
-                (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
-            toDelete = stream.toList();
-        }
-
         String newFileName = "compaction.tmp";
         Path compactionTmpFile = storagePath.resolve(newFileName);
 
@@ -244,7 +238,7 @@ public class DiskStorage {
                 StandardCopyOption.REPLACE_EXISTING
         );
 
-        finalizeCompaction(storagePath, toDelete);
+        finalizeCompaction(storagePath, Collections.emptyList());
     }
 
     private static void finalizeCompaction(Path storagePath, List<Path> toDelete) throws IOException {
