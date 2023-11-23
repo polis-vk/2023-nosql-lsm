@@ -25,6 +25,9 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
     private final long flushThresholdBytes;
     private State state;
+
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+
     private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
     private Future<?> taskCompact;
@@ -105,12 +108,12 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         //State tmpState = getStateUnderWriteLock();
 
         long entrySize = calculateSize(entry);
-        memoryLock.readLock().lock();
+        lock.readLock().lock();
         try {
             this.state.memoryStorage.put(entry.key(), entry);
             this.state.memoryStorageSizeInBytes.addAndGet(entrySize);
         } finally {
-            memoryLock.readLock().unlock();
+            lock.readLock().unlock();
         }
         if (flushThresholdBytes < state.memoryStorageSizeInBytes.get() + entrySize) {
             // if not flushing throw
@@ -180,11 +183,11 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (!(flushTask == null || flushTask.isDone()) || !state.memoryStorage.isEmpty()) {
             return;
         }
-        memoryLock.writeLock().lock();
+        lock.writeLock().lock();
         try {
             this.state = new State(new ConcurrentSkipListMap<>(comparator), state.memoryStorage, state.diskStorage);
         } finally {
-            memoryLock.writeLock().unlock();
+            lock.writeLock().unlock();
         }
         flushTask = executorService.submit(() -> {
 
