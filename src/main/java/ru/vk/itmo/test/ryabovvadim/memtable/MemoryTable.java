@@ -101,6 +101,7 @@ public class MemoryTable {
 
         if (wasDropped.compareAndSet(true, false)) {
             if (!flushFuture.isDone() && usedSpace.get() >= flushThresholdBytes) {
+                wasDropped.set(true);
                 throw new MemoryTableOutOfMemoryException();
             } else {
                 if (!flush(false)) {
