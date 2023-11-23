@@ -122,7 +122,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (!(flushTask == null || flushTask.isDone()) && state.memoryStorageSizeInBytes.get() >= flushThresholdBytes) {
+        if (isClosed.get() || !(flushTask == null || flushTask.isDone()) && state.memoryStorageSizeInBytes.get() >= flushThresholdBytes) {
             throw new IllegalStateException("Previous flush has not yet ended");
         }
         State tmpState = getStateUnderWriteLock();
