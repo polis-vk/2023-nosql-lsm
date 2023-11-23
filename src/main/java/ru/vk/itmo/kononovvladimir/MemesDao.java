@@ -28,19 +28,17 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     final AtomicLong memoryStorageSizeInBytes = new AtomicLong();
     final DiskStorage diskStorage;
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
-
-    private final AtomicBoolean isFlushing = new AtomicBoolean(false);
-    private final AtomicBoolean isCompacting = new AtomicBoolean(false);
+    //private final ReadWriteLock stateLock = new ReentrantReadWriteLock();
     private final long flushThresholdBytes;
     //private State state;
 
-    private final ReadWriteLock lock = new ReentrantReadWriteLock();
-    private final ExecutorService executorServiceForFlushing = Executors.newSingleThreadExecutor();
-    private final ExecutorService executorServiceForCompact = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
 
-   // private Future<?> taskCompact;
+    private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
-   // private Future<?> flushTask;
+    private Future<?> taskCompact;
+
+    private Future<?> flushTask;
 
 
     public MemesDao(Config config) throws IOException {
@@ -81,7 +79,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(memoryStorage, from, to);
         List<Iterator<Entry<MemorySegment>>> merged = new ArrayList<>();
         merged.add(memoryIterator);
-        if (!flushingMemoryTable.isEmpty()) {
+        if (!(flushTask == null || flushTask.isDone())) {
             Iterator<Entry<MemorySegment>> flushIterator = getInMemory(flushingMemoryTable, from, to);
             merged.addFirst(flushIterator);
         }
@@ -106,15 +104,16 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return storage.subMap(from, to).values().iterator();
     }
 
+    private boolean taskIsWorking(Future<?> task) {
+        return task != null && !task.isDone();
+    }
+
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (isClosed.get() || isCompacting.get()) {
-            throw new IllegalStateException("Previous flush has not yet ended");
-        }
         //State tmpState = getStateUnderWriteLock();
 
         //long entrySize = calculateSize(entry);
-        lock.readLock().lock();
+        memoryLock.readLock().lock();
         try {
             long valueSize;
             if (entry.value() == null) {
@@ -129,14 +128,14 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 memoryStorageSizeInBytes.addAndGet(valueSize);
             }
         } finally {
-            lock.readLock().unlock();
+            memoryLock.readLock().unlock();
         }
         if (flushThresholdBytes < memoryStorageSizeInBytes.get()) {
             // if not flushing throw
             try {
                 autoFlush();
             } catch (IOException e) {
-                throw new IllegalStateException("Can not flush", e);
+                throw new IllegalStateException("Flush не удался", e);
             }
         }
     }
@@ -170,16 +169,14 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void compact() throws IOException {
-        if (isClosed.get() || isCompacting.get()) {
+        if (taskIsWorking(taskCompact)) {
             return;
         }
-        isCompacting.set(true);
-        executorServiceForCompact.execute(() -> {
+        taskCompact = executorService.submit(() -> {
             try {
                 DiskStorage.compact(path, this::all);
-                isCompacting.set(false);
             } catch (IOException e) {
-                throw new RuntimeException("Error during compaction", e);
+                throw new RuntimeException("Compact не удался", e);
             }
         });
     }
@@ -191,29 +188,26 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private synchronized void autoFlush() throws IOException {
         //  State tmpState = getStateUnderWriteLock();
-
-        if (isClosed.get() || memoryStorage.isEmpty() || isFlushing.get()) {
+        if (isClosed.get() || taskIsWorking(flushTask)) {
             return;
         }
-        isFlushing.set(true);
-        lock.writeLock().lock();
+        memoryLock.writeLock().lock();
         try {
             flushingMemoryTable = memoryStorage;
             memoryStorage = new ConcurrentSkipListMap<>(comparator);
             memoryStorageSizeInBytes.set(0);
             //this.state = new State(new ConcurrentSkipListMap<>(comparator), state.memoryStorage, 0, state.diskStorage);
         } finally {
-            lock.writeLock().unlock();
+            memoryLock.writeLock().unlock();
         }
-        executorServiceForCompact.execute(() -> {
+        flushTask = executorService.submit(() -> {
 
             if (!flushingMemoryTable.isEmpty()) {
                 try {
                     diskStorage.saveNextSSTable(path, flushingMemoryTable.values(), arena);
                     flushingMemoryTable = new ConcurrentSkipListMap<>(comparator);
-                    isFlushing.set(false);
                 } catch (IOException e) {
-                    throw new IllegalStateException("Can not flush", e);
+                    throw new IllegalStateException("Flush не удался", e);
                 }
             }
         });
@@ -223,28 +217,27 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
-        executorServiceForFlushing.shutdown();
-        executorServiceForCompact.shutdown();
         try {
-            if (!executorServiceForFlushing.awaitTermination(12, TimeUnit.HOURS)
-                    && !executorServiceForCompact.awaitTermination(12, TimeUnit.HOURS)) {
-                throw new RuntimeException("Error during termination");
+            if (taskIsWorking(taskCompact)) {
+                taskCompact.get();
+            }
+            if (taskIsWorking(flushTask)) {
+                flushTask.get();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return;
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("Не получилось завершить Dao", e);
         }
-        isClosed.set(true);
-        executorServiceForFlushing.close();
-        executorServiceForCompact.close();
+        executorService.close();
 
         if (!memoryStorage.isEmpty()) {
             diskStorage.saveNextSSTable(path, memoryStorage.values(), arena);
         }
-        if (!arena.scope().isAlive()) {
-            return;
+        if (arena.scope().isAlive()) {
+            arena.close();
         }
-        arena.close();
     }
 }
 
