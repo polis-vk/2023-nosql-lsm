@@ -54,7 +54,6 @@ public class InMemoryQuerySystem {
     }
 
     public List<Iterator<Entry<MemorySegment>>> getInMemoryIterators(MemorySegment from, MemorySegment to) {
-        // TODO check that storage.stream.map() - is okey by performance
         if (from == null && to == null) {
             return storages.stream().map(map -> map.values().iterator()).toList();
         }
@@ -168,7 +167,7 @@ public class InMemoryQuerySystem {
     private void upsertWhenFlushing(Entry<MemorySegment> entry) {
         if (currentByteSize.addAndGet(entrySize(entry)) <= flushThresholdBytes) {
             storages.get(1).put(entry.key(), entry);
-        } else  {
+        } else {
             throw new OutOfMemoryError("Too much upsert data");
         }
     }

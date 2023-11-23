@@ -171,7 +171,6 @@ public class DiskStorage {
     }
 
     // getting first offset of key
-    // TODO do normal
     private static long indexSize(MemorySegment segment) {
         try {
             return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);

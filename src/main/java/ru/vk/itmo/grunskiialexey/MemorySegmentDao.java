@@ -13,18 +13,7 @@ import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.concurrent.atomic.AtomicLong;
 
-/*
-5 minutes for describing class
-class which gives to client main things like
-
-1. Make and check files for having data
-2. get(key) - may be better
-3. get(range) - okey launch storage
-4. flush - will be in different FlushClass
-5. compact - will be in different CompactClass
- */
 public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    // no necessary
     private final Arena arena;
     private final CompactionService compactionService;
     private final InMemoryQuerySystem inMemoryQuerySystem;
