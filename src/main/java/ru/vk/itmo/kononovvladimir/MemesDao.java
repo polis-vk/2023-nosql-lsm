@@ -219,10 +219,11 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void autoFlush() {
+        arena.close();
+        this.arena = Arena.ofShared();
         memoryLock.writeLock();
         try {
-            arena.close();
-            this.arena = Arena.ofShared();
+
             lock.lock();
             try {
                 if (!state.memoryStorage.isEmpty()) {
@@ -241,7 +242,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             tmpStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Error during autoFlush", e);
         }
         memoryLock.writeLock().lock();
         try {
