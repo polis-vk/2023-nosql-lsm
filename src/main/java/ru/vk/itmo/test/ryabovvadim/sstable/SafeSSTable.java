@@ -11,7 +11,6 @@ import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DATA_FILE_EXT;
