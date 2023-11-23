@@ -23,6 +23,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableSet;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -43,7 +44,7 @@ public class SSTableManager {
     private final ExecutorService compactWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService deleteWorker = Executors.newVirtualThreadPerTaskExecutor();
     private final ReentrantLock lock = new ReentrantLock();
-    private Future<?> compationTask;
+    private Future<?> compationTask = CompletableFuture.completedFuture(null);
     private Future<?> deleteTask;
 
     public SSTableManager(Path path) throws IOException {
@@ -110,6 +111,10 @@ public class SSTableManager {
     }
 
     public void compact() {
+        if (!compationTask.isDone()) {
+            return;
+        }
+
         compationTask = compactWorker.submit(() -> {
             try {
                 if (safeSSTables.size() <= 1) {
