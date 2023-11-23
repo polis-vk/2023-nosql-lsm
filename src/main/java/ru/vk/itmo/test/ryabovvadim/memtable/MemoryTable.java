@@ -79,6 +79,7 @@ public class MemoryTable {
     }
 
     public void upsert(Entry<MemorySegment> entry) {
+        memTable.get().put(entry.key(), entry);
         lock.lock();
         try {
             Entry<MemorySegment> oldEntry = memTable.get().put(entry.key(), entry);
@@ -92,10 +93,10 @@ public class MemoryTable {
             lock.unlock();
         }
 
-        if (flushTable.get() != null) {
+        if (!flushFuture.isDone()) {
             throw new MemoryTableOutOfMemoryException();
         }
-        flush();
+        flush(false);
     }
 
     private long getEntrySize(Entry<MemorySegment> entry) {
@@ -110,8 +111,8 @@ public class MemoryTable {
         return size;
     }
 
-    public void flush() {
-        if (!existsSSTableManager() || memTable.get().isEmpty() || !flushFuture.isDone()) {
+    public void flush(boolean importantFlush) {
+        if (!importantFlush &&  (!existsSSTableManager() || memTable.get().isEmpty() || !flushFuture.isDone())) {
             return;
         }
 
@@ -138,7 +139,7 @@ public class MemoryTable {
     public void close() throws IOException {
         try {
             if (!flushWorker.isShutdown()) {
-                flush();
+                flush(true);
                 flushFuture.get();
             }
         } catch (InterruptedException e) {
