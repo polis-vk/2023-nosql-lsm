@@ -5,7 +5,6 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 
 public interface OutMemoryDao<D, E extends Entry<D>> extends AutoCloseable {
 
@@ -17,16 +16,22 @@ public interface OutMemoryDao<D, E extends Entry<D>> extends AutoCloseable {
     E get(D key);
 
     /**
-     * Within this method you can save your in memory storage ({@link java.util.Map}) on disk. Truncates previous save.
-     * @param map provided storage.
+     * Within this method you can save your in memory storage ({@link Iterable}) on disk.
+     * @param entries representing memtable.
      */
-    void save(Map<D,E> map) throws IOException;
+    void save(Iterable<E> entries) throws IOException;
 
     /**
      * Returs iterator for every sstable, that was flushed in order from more new to more old.
      * @return list of sstable iterators.
      */
     List<Iterator<E>> get(D from, D to);
+
+    /**
+     * Compact all sstables on disk in one sstable with memtables in one sstable.
+     * @throws IOException if I/O error occurs.
+     */
+    void compact() throws IOException;
 
     @Override
     void close() throws IOException;

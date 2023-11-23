@@ -3,18 +3,17 @@ package ru.vk.itmo.smirnovdmitrii;
 import ru.vk.itmo.Entry;
 
 import java.util.Iterator;
-import java.util.SortedMap;
 
 public interface InMemoryDao<D, E extends Entry<D>> extends AutoCloseable {
 
     /**
      * Committing state of elements in memory represented as map.
-     * Returns {@link java.util.SortedMap} representing elements in memory.
+     * Returns {@link Iterable} representing sorted elements in memory.
      * After that in memory dao will be empty.
      * Changing this map can produce bad work of {@link InMemoryDao}.
      * @return sorted map of elements in memory.
      */
-    SortedMap<D, E> commit();
+    Iterable<E> commit();
 
     /**
      * Return iterator for data in memory from key {@code from} to key {@code to}.

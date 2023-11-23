@@ -1,15 +1,17 @@
 package ru.vk.itmo.test.ryabovvadim;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-@DaoFactory
+@DaoFactory(stage = 3)
 public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public String toString(MemorySegment memorySegment) {
@@ -33,7 +35,12 @@ public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Ent
     }
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao() throws IOException {
         return new InMemoryDao();
+    }
+
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new InMemoryDao(config);
     }
 }
