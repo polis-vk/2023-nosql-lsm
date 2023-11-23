@@ -162,10 +162,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-/*    private Long calculateSize(Entry<MemorySegment> entry) {
-        return Long.BYTES + entry.key().byteSize() + Long.BYTES
-                + (entry.value() == null ? 0 : entry.key().byteSize());
-    }*/
 
     @Override
     public synchronized void compact() throws IOException {
@@ -244,6 +240,10 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
 
 
+/*    private Long calculateSize(Entry<MemorySegment> entry) {
+        return Long.BYTES + entry.key().byteSize() + Long.BYTES
+                + (entry.value() == null ? 0 : entry.key().byteSize());
+    }*/
 
 /*    private void tryToFlush() {
         try {
