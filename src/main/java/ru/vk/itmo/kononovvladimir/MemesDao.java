@@ -114,7 +114,11 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         if (flushThresholdBytes < state.memoryStorageSizeInBytes.get() + entrySize) {
             // if not flushing throw
-            autoFlush();
+            try {
+                autoFlush();
+            } catch (IOException e) {
+                throw new IllegalStateException("Can not flush", e);
+            }
         }
 
 
@@ -152,7 +156,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void compact() throws IOException {
+    public synchronized void compact() throws IOException {
         if (!(taskCompact == null || taskCompact.isDone())) {
             return;
         }
@@ -170,8 +174,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         autoFlush();
     }
 
-    private synchronized void autoFlush() {
-      //  State tmpState = getStateUnderWriteLock();
+    private synchronized void autoFlush() throws IOException {
+        //  State tmpState = getStateUnderWriteLock();
 
         if (!(flushTask == null || flushTask.isDone()) || !state.memoryStorage.isEmpty()) {
             return;
@@ -184,18 +188,18 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         flushTask = executorService.submit(() -> {
 
-            try {
-                if (!state.flushingMemoryTable.isEmpty()) {
+            if (!state.flushingMemoryTable.isEmpty()) {
+                try {
                     state.diskStorage.saveNextSSTable(path, state.flushingMemoryTable.values(), arena);
-                    memoryLock.writeLock().lock();
-                    try {
-                        this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), state.diskStorage);
-                    } finally {
-                        memoryLock.writeLock().unlock();
-                    }
+                } catch (IOException e) {
+                    throw new IllegalStateException("Can not flush", e);
                 }
-            } catch (IOException e) {
-                throw new RuntimeException("Error during autoFlush", e);
+                memoryLock.writeLock().lock();
+                try {
+                    this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), state.diskStorage);
+                } finally {
+                    memoryLock.writeLock().unlock();
+                }
             }
         });
 
@@ -203,7 +207,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public synchronized void close() throws IOException {
+    public void close() throws IOException {
         try {
             if (taskCompact != null && !taskCompact.isDone() && !taskCompact.isCancelled()) {
                 taskCompact.get();
