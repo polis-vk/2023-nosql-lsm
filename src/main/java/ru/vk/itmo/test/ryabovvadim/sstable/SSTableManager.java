@@ -19,7 +19,6 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableSet;
 import java.util.Set;
@@ -30,7 +29,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -43,7 +41,7 @@ public class SSTableManager {
     private final Path path;
     private AtomicLong nextId;
     private final NavigableSet<SafeSSTable> safeSSTables = new ConcurrentSkipListSet<>(
-            Comparator.comparingLong((SafeSSTable table) -> table.ssTable().getId()).reversed()
+            Comparator.comparingLong((SafeSSTable table) -> table.ssTable().getId())
     );
     private final ExecutorService compactWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService deleteWorker = Executors.newVirtualThreadPerTaskExecutor();
@@ -59,7 +57,7 @@ public class SSTableManager {
     }
 
     public Entry<MemorySegment> load(MemorySegment key) {
-        for (SafeSSTable safeSSTable : safeSSTables) {
+        for (SafeSSTable safeSSTable : safeSSTables.reversed()) {
             Entry<MemorySegment> entry = safeSSTable.findEntry(key);
             if (entry != null) {
                 return entry;
@@ -76,7 +74,7 @@ public class SSTableManager {
     public List<FutureIterator<Entry<MemorySegment>>> load(MemorySegment from, MemorySegment to, Long toId) {
         List<FutureIterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
 
-        for (SafeSSTable safeSSTable : safeSSTables.reversed()) {
+        for (SafeSSTable safeSSTable : safeSSTables) {
             if (toId != null && toId <= safeSSTable.ssTable().getId()) {
                 break;
             }
@@ -120,9 +118,7 @@ public class SSTableManager {
             try {
                 long prepareId = nextId.getAndIncrement();
                 saveEntries(() -> loadUntil(prepareId), prepareId);
-                Iterator<SafeSSTable> safeSSTableIterator = safeSSTables.descendingIterator();
-                while (safeSSTableIterator.hasNext()) {
-                    SafeSSTable safeSSTable = safeSSTableIterator.next();
+                for (SafeSSTable safeSSTable : safeSSTables) {
                     long curId = safeSSTable.ssTable().getId();
                     if (curId >= prepareId) {
                         break;

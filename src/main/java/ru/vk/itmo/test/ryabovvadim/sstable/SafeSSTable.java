@@ -18,12 +18,12 @@ import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DATA_FILE_EXT;
 import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DELETED_FILE_EXT;
 
 public class SafeSSTable {
-    private final AtomicBoolean deleted;
+    private boolean deleted;
     private final SSTable ssTable;
     private final AtomicInteger countAliveRef = new AtomicInteger();
 
     public SafeSSTable(SSTable ssTable) {
-        this.deleted = new AtomicBoolean();
+        this.deleted = false;
         this.ssTable = ssTable;
     }
 
@@ -32,11 +32,11 @@ public class SafeSSTable {
     }
 
     public void setDeleted() {
-        this.deleted.set(true);
+        this.deleted = true;
     }
 
     public Entry<MemorySegment> findEntry(MemorySegment key) {
-        if (deleted.get() || incrementRef()) {
+        if (deleted || incrementRef()) {
             return null;
         }
 
@@ -46,7 +46,7 @@ public class SafeSSTable {
     }
 
     public FutureIterator<Entry<MemorySegment>> findEntries(MemorySegment from, MemorySegment to) {
-        if (deleted.get() || incrementRef()) {
+        if (deleted || incrementRef()) {
             return IteratorUtils.emptyFutureIterator();
         }
 

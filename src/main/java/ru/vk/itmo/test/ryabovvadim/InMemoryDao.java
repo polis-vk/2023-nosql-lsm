@@ -118,7 +118,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        memTable.flush(true);
+        memTable.flush(false);
     }
 
     @Override
