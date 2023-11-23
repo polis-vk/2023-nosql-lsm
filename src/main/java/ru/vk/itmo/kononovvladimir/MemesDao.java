@@ -24,7 +24,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
     private final long flushThresholdBytes;
-    private volatile State state;
+    private  State state;
     private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
     private Future<?> taskCompact;
