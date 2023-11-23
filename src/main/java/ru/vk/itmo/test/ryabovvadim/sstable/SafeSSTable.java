@@ -85,7 +85,7 @@ public class SafeSSTable {
     private void decrementRef() {
         if (countAliveRef.updateAndGet(x -> x < 0 ? x + 1 : x - 1) == -1) {
             synchronized (countAliveRef) {
-                countAliveRef.notify();
+                countAliveRef.notifyAll();
             }
         }
     }

@@ -21,13 +21,16 @@ public final class IteratorUtils {
             }
         };
     }
+
     public static <T> FutureIterator<T> emptyFutureIterator() {
         return new LazyIterator<>(
-                () -> {throw new NoSuchElementException();},
+                () -> {
+                    throw new NoSuchElementException();
+                },
                 () -> false
         );
     }
 
-    private IteratorUtils () {
+    private IteratorUtils() {
     }
 }

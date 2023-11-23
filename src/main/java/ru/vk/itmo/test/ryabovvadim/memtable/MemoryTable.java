@@ -85,10 +85,10 @@ public class MemoryTable {
 
             @Override
             public boolean hasNext() {
-                return fstIterator.hasNext() ||
-                        sndIterator.hasNext() ||
-                        fstEntry != null ||
-                        sndEntry != null;
+                return fstIterator.hasNext()
+                        || sndIterator.hasNext()
+                        || fstEntry != null
+                        || sndEntry != null;
             }
 
             @Override
@@ -96,13 +96,8 @@ public class MemoryTable {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-
-                if (fstEntry == null && fstIterator.hasNext()) {
-                    fstEntry = fstIterator.next();
-                }
-                if (sndEntry == null && sndIterator.hasNext()) {
-                    sndEntry = sndIterator.next();
-                }
+                getFstNext();
+                getSndNext();
 
                 Entry<MemorySegment> result;
                 if (fstEntry == null) {
@@ -112,19 +107,37 @@ public class MemoryTable {
                     result = fstEntry;
                     fstEntry = null;
                 } else {
-                    int compareResult = MemorySegmentUtils.compareMemorySegments(fstEntry.key(), sndEntry.key());
-                    if (compareResult < 0) {
-                        result = fstEntry;
-                        fstEntry = null;
-                    } else if (compareResult == 0) {
-                        result = fstEntry;
-                        fstEntry = null;
-                        sndEntry = null;
-                    } else {
+                    result = compare();
+                }
 
-                        result = sndEntry;
-                        sndEntry = null;
-                    }
+                return result;
+            }
+
+            private void getFstNext() {
+                if (fstEntry == null && fstIterator.hasNext()) {
+                    fstEntry = fstIterator.next();
+                }
+            }
+
+            private void getSndNext() {
+                if (sndEntry == null && sndIterator.hasNext()) {
+                    sndEntry = sndIterator.next();
+                }
+            }
+
+            private Entry<MemorySegment> compare() {
+                int compareResult = MemorySegmentUtils.compareMemorySegments(fstEntry.key(), sndEntry.key());
+                Entry<MemorySegment> result;
+                if (compareResult < 0) {
+                    result = fstEntry;
+                    fstEntry = null;
+                } else if (compareResult == 0) {
+                    result = fstEntry;
+                    fstEntry = null;
+                    sndEntry = null;
+                } else {
+                    result = sndEntry;
+                    sndEntry = null;
                 }
 
                 return result;
