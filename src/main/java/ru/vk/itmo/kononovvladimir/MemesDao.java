@@ -125,15 +125,15 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (isClosed.get() || (!(flushTask == null || flushTask.isDone()) && state.memoryStorageSizeInBytes.get() >= flushThresholdBytes)) {
             throw new IllegalStateException("Previous flush has not yet ended");
         }
-        State tmpState = getStateUnderReadLock();
+        State tmpState = getStateUnderWriteLock();
 
         long entrySize = calculateSize(entry);
-        memoryLock.writeLock().lock();
+        memoryLock.readLock().lock();
         try {
             this.state.memoryStorage.put(entry.key(), entry);
             this.state.memoryStorageSizeInBytes.addAndGet(entrySize);
         } finally {
-            memoryLock.writeLock().unlock();
+            memoryLock.readLock().unlock();
         }
         if (flushThresholdBytes < tmpState.memoryStorageSizeInBytes.get() + entrySize) {
             // if not flushing throw
