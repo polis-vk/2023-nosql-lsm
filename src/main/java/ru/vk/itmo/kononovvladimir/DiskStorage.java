@@ -9,7 +9,11 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.*;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -142,16 +146,17 @@ public class DiskStorage {
     }
 
     private void addNewSSL(Path file, Arena arena) {
-        try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-            MemorySegment fileSegment = fileChannel.map(
+        try (FileChannel fileChannel = FileChannel.open(
+                file, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            MemorySegment segment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
                     Files.size(file),
                     arena
             );
-            segmentList.add(fileSegment);
+            segmentList.add(segment);
         } catch (IOException e) {
-            throw new IllegalStateException("Error open after flush", e);
+            throw new IllegalStateException("Не получилос добавить новую таблицу", e);
         }
     }
 

@@ -13,12 +13,12 @@ import java.nio.file.Path;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
-import java.util.Collections;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -198,7 +198,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             try {
                 DiskStorage.compact(path, this::all);
             } catch (IOException e) {
-                throw new RuntimeException("Compact не удался", e);
+                throw new IllegalStateException("Compact не удался", e);
             }
         });
     }

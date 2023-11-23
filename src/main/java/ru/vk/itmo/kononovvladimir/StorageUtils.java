@@ -18,6 +18,8 @@ import java.util.*;
 import java.util.stream.Stream;
 
 public class StorageUtils {
+    private StorageUtils() {}
+
     public static final String SSTABLE_PREFIX = "sstable_";
 
     public static void finalizeCompaction(Path storagePath, boolean doDelete) throws IOException {
