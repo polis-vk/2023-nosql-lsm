@@ -201,7 +201,7 @@ public class MemoryTable {
                 flushFuture.get();
             }
         } catch (InterruptedException ignored) {
-            // Ignored exception
+            Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
             if (e.getCause() instanceof IOException ioEx) {
                 throw ioEx;

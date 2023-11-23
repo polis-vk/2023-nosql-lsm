@@ -29,7 +29,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao(Config config) throws IOException {
         this.ssTableManager = new SSTableManager(config.basePath());
-        this.memTable = new MemoryTable(ssTableManager, config.flushThresholdBytes());
+        long flushThresholdBytes = config.flushThresholdBytes();
+        if (flushThresholdBytes == 0) {
+            flushThresholdBytes = Long.MAX_VALUE;
+        }
+        this.memTable = new MemoryTable(ssTableManager, flushThresholdBytes);
     }
 
     @Override
