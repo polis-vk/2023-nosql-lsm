@@ -90,7 +90,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             priorityIterators.add(new PriorityIterator<>(it, priority++));
         }
         if (memoryIterator.hasNext()) {
-            priorityIterators.add(new PriorityIterator<>(new LazyIterator<>(memoryIterator), priority++));
+            priorityIterators.add(new PriorityIterator<>(new LazyIterator<>(memoryIterator), priority));
         }
 
         GatheringIterator<Entry<MemorySegment>> gatheringIterator = new GatheringIterator<>(
