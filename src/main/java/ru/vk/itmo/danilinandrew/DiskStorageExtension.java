@@ -28,6 +28,7 @@ public final class DiskStorageExtension {
     private DiskStorageExtension() {
 
     }
+
     static void finalizeCompaction(Path storagePath) throws IOException {
         try (Stream<Path> stream =
                      Files.find(
