@@ -1,20 +1,26 @@
 package ru.vk.itmo.test.smirnovdmitrii;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.smirnovdmitrii.InMemoryDao;
+import ru.vk.itmo.smirnovdmitrii.DaoImpl;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory
+@DaoFactory(stage = 4)
 public class MemorySegmentFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+        return new DaoImpl();
+    }
+
+    @Override
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(final Config config) {
+        return new DaoImpl(config);
     }
 
     @Override
