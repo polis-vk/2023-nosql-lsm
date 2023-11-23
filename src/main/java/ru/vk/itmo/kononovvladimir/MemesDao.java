@@ -220,8 +220,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private void autoFlush() {
         DiskStorage tmpStorage;
         try {
-            arena.close();
-            this.arena = Arena.ofShared();
             memoryLock.writeLock().lock();
             try {
                 lock.lock();
