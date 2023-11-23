@@ -17,11 +17,14 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 public final class DiskStorageUtils {
 
     public static final String SSTABLE_PREFIX = "sstable_";
+
+    static final AtomicBoolean isCompacting = new AtomicBoolean(false);
 
     private DiskStorageUtils() {
     }
@@ -178,6 +181,7 @@ public final class DiskStorageUtils {
 
     public static void compact(final Path storagePath, final Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
+
         final String newFileName = "compaction.tmp";
         final Path compactionTmpFile = storagePath.resolve(newFileName);
         final Path newFilePath = storagePath.resolve(newFileName);

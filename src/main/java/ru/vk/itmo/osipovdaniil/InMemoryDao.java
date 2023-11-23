@@ -11,8 +11,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.concurrent.ConcurrentNavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
@@ -22,6 +27,16 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Arena arena;
 
+    private final long flushThresholdBytes;
+
+    private final Lock filesLock;
+
+    private final ReadWriteLock mapLock;
+
+    final AtomicBoolean isFlushing;
+
+    private final AtomicLong mapSize;
+
     private final DiskStorage diskStorage;
     private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memorySegmentMap
             = new ConcurrentSkipListMap<>(Utils::compareMemorySegments);
@@ -30,6 +45,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.path = config.basePath().resolve(DATA);
         Files.createDirectories(path);
         this.arena = Arena.ofShared();
+        this.flushThresholdBytes = config.flushThresholdBytes();
+        this.filesLock = new ReentrantLock();
+        this.mapLock = new ReentrantReadWriteLock();
+        this.isFlushing = new AtomicBoolean(false);
+        this.mapSize = new AtomicLong(0);
         this.diskStorage = new DiskStorage(DiskStorageUtils.loadOrRecover(path, arena));
     }
 
@@ -38,7 +58,12 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public void compact() throws IOException {
-        DiskStorageUtils.compact(path, this::all);
+        filesLock.lock();
+        try {
+            DiskStorageUtils.compact(path, () -> getOnDisk(null, null));
+        } finally {
+            filesLock.unlock();
+        }
     }
 
     /**
@@ -50,20 +75,39 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) {
-        return diskStorage.range(getInMemory(from, to), from, to);
+        filesLock.lock();
+        try {
+            return diskStorage.range(getInMemory(from, to), from, to);
+        } finally {
+            filesLock.unlock();
+        }
+    }
+
+    public Iterator<Entry<MemorySegment>> getOnDisk(final MemorySegment from, final MemorySegment to) {
+        filesLock.lock();
+        try {
+            return diskStorage.range(Collections.emptyIterator(), from, to);
+        } finally {
+            filesLock.unlock();
+        }
     }
 
     private Iterator<Entry<MemorySegment>> getInMemory(final MemorySegment from, final MemorySegment to) {
-        if (from == null && to == null) {
-            return memorySegmentMap.values().iterator();
+        mapLock.readLock().lock();
+        try {
+            if (from == null && to == null) {
+                return memorySegmentMap.values().iterator();
+            }
+            if (from == null) {
+                return memorySegmentMap.headMap(to).values().iterator();
+            }
+            if (to == null) {
+                return memorySegmentMap.tailMap(from).values().iterator();
+            }
+            return memorySegmentMap.subMap(from, to).values().iterator();
+        } finally {
+            mapLock.readLock().unlock();
         }
-        if (from == null) {
-            return memorySegmentMap.headMap(to).values().iterator();
-        }
-        if (to == null) {
-            return memorySegmentMap.tailMap(from).values().iterator();
-        }
-        return memorySegmentMap.subMap(from, to).values().iterator();
     }
 
     /**
@@ -74,24 +118,33 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
-        final Entry<MemorySegment> entry = memorySegmentMap.get(key);
-        if (entry != null) {
-            if (entry.value() == null) {
+        mapLock.readLock().lock();
+        try {
+            final Entry<MemorySegment> entry = memorySegmentMap.get(key);
+            if (entry != null) {
+                if (entry.value() == null) {
+                    return null;
+                }
+                return entry;
+            }
+        } finally {
+            mapLock.readLock().unlock();
+        }
+        filesLock.lock();
+        try {
+            final Iterator<Entry<MemorySegment>> iterator = diskStorage.range(
+                    Collections.emptyIterator(), key, null);
+            if (!iterator.hasNext()) {
                 return null;
             }
-            return entry;
-        }
-
-        final Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
-
-        if (!iterator.hasNext()) {
+            Entry<MemorySegment> next = iterator.next();
+            if (next.key().mismatch(key) == -1) {
+                return next;
+            }
             return null;
+        } finally {
+            filesLock.unlock();
         }
-        Entry<MemorySegment> next = iterator.next();
-        if (next.key().mismatch(key) == -1) {
-            return next;
-        }
-        return null;
     }
 
     /**
@@ -101,7 +154,24 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public void upsert(final Entry<MemorySegment> entry) {
-        memorySegmentMap.put(entry.key(), entry);
+        mapLock.writeLock().lock();
+        try {
+            final long valSize = entry.value() == null ? 0 : entry.value().byteSize();
+            mapSize.addAndGet(entry.key().byteSize() + valSize);
+            if (mapSize.get() >= flushThresholdBytes) {
+                if (isFlushing.get()) {
+                    throw new FlushWhileFlushingException();
+                }
+                memorySegmentMap.put(entry.key(), entry);
+                try {
+                    flush();
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        } finally {
+            mapLock.writeLock().unlock();
+        }
     }
 
     /**
@@ -109,13 +179,22 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
      */
     @Override
     public void flush() throws IOException {
+        if (isFlushing.get()) {
+            throw new FlushWhileFlushingException();
+        }
+        isFlushing.set(true);
         if (!memorySegmentMap.isEmpty()) {
             DiskStorageUtils.save(path, memorySegmentMap.values());
+            memorySegmentMap.clear();
+            mapSize.set(0);
         }
+        isFlushing.set(false);
     }
 
     @Override
     public void close() throws IOException {
+        while (isFlushing.get() || DiskStorageUtils.isCompacting.get()) {
+        }
         if (!arena.scope().isAlive()) {
             return;
         }
