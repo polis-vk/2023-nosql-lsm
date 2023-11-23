@@ -103,7 +103,9 @@ public class MemoryTable {
             if (!flushFuture.isDone() && usedSpace.get() >= flushThresholdBytes) {
                 throw new MemoryTableOutOfMemoryException();
             } else {
-                flush(false);
+                if (!flush(false)) {
+                    wasDropped.set(true);
+                }
             }
         }
     }
@@ -122,9 +124,9 @@ public class MemoryTable {
         return value.byteSize();
     }
 
-    public void flush(boolean importantFlush) {
-        if (existsSSTableManager() && !importantFlush && (memTable.get().isEmpty() || !flushFuture.isDone())) {
-            return;
+    public boolean flush(boolean importantFlush) {
+        if (existsSSTableManager() && !importantFlush && memTable.get().isEmpty()) {
+            return false;
         }
 
         flushFuture = flushWorker.submit(() -> {
@@ -141,6 +143,7 @@ public class MemoryTable {
                 flushTable.set(null);
             }
         });
+        return true;
     }
 
     public void close() throws IOException {
