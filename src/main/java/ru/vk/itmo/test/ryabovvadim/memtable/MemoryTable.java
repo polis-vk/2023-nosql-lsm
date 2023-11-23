@@ -21,8 +21,12 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class MemoryTable {
+    private final Logger log = Logger.getLogger(MemoryTable.class.getName());
+
     private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> memTable =
             new AtomicReference<>(createMap());
     private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> flushTable =
@@ -32,7 +36,7 @@ public class MemoryTable {
     private final long flushThresholdBytes;
     private AtomicLong usedSpace = new AtomicLong();
     private AtomicBoolean wasDropped = new AtomicBoolean(true);
-    private Future<?> flushFuture = CompletableFuture.completedFuture(null);
+    private volatile Future<?> flushFuture = CompletableFuture.completedFuture(null);
 
     public MemoryTable(SSTableManager ssTableManager, long flushThresholdBytes) {
         this.ssTableManager = ssTableManager;
@@ -116,7 +120,7 @@ public class MemoryTable {
     }
 
     public void flush(boolean importantFlush) {
-        if (!importantFlush &&  (!existsSSTableManager() || memTable.get().isEmpty() || !flushFuture.isDone())) {
+        if (existsSSTableManager() && !importantFlush && (memTable.get().isEmpty() || !flushFuture.isDone())) {
             return;
         }
 
@@ -128,8 +132,8 @@ public class MemoryTable {
 
             try {
                 ssTableManager.saveEntries(() -> flushTable.get().values().iterator());
-            } catch (IOException ignored) {
-                // Ignored exception
+            } catch (IOException e) {
+                log.log(Level.WARNING, "Flushing was failed", e);
             } finally {
                 flushTable.set(null);
             }
@@ -146,6 +150,7 @@ public class MemoryTable {
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
             if (e.getCause() instanceof IOException ioEx) {
+                log.log(Level.WARNING, "Closing was failed", e);
                 throw ioEx;
             }
         } finally {

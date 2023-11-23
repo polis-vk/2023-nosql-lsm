@@ -31,10 +31,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DATA_FILE_EXT;
 
 public class SSTableManager {
+    private final Logger log = Logger.getLogger(SSTableManager.class.getName());
+
     private final Arena arena = Arena.ofShared();
     private final Path path;
     private AtomicLong nextId;
@@ -44,7 +48,7 @@ public class SSTableManager {
     private final ExecutorService compactWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService deleteWorker = Executors.newVirtualThreadPerTaskExecutor();
     private final ReentrantLock lock = new ReentrantLock();
-    private Future<?> compationTask = CompletableFuture.completedFuture(null);
+    private Future<?> compactionTask = CompletableFuture.completedFuture(null);
     private Future<?> deleteTask = CompletableFuture.completedFuture(null);
 
     public SSTableManager(Path path) throws IOException {
@@ -115,11 +119,11 @@ public class SSTableManager {
     }
 
     public void compact() {
-        if (!compationTask.isDone() || safeSSTables.size() <= 1) {
+        if (!compactionTask.isDone() || safeSSTables.size() <= 1) {
             return;
         }
 
-        compationTask = compactWorker.submit(() -> {
+        compactionTask = compactWorker.submit(() -> {
             try {
                 long prepareId = nextId.getAndIncrement();
                 saveEntries(() -> loadUntil(prepareId), prepareId);
@@ -130,11 +134,11 @@ public class SSTableManager {
                     if (curId >= prepareId) {
                         break;
                     }
-                    safeSSTableIterator.remove();
+                    safeSSTable.setDeleted();
                     deleteSSTable(safeSSTable);
                 }
-            } catch (IOException ignored) {
-                // Ignored exception
+            } catch (IOException e) {
+                log.log(Level.WARNING, "Compaction was failed", e);
             }
         });
     }
@@ -142,22 +146,27 @@ public class SSTableManager {
     private void deleteSSTable(SafeSSTable safeSSTable) {
         deleteTask = deleteWorker.submit(() -> {
             try {
+                safeSSTables.remove(safeSSTable);
                 safeSSTable.delete(path);
-            } catch (IOException ignored) {
-                // Ignored exception
+            } catch (IOException e) {
+                log.log(
+                        Level.WARNING,
+                        "Deleting was failed for SSTable[id=%d]".formatted(safeSSTable.ssTable().getId()),
+                        e
+                );
             }
         });
     }
 
     public void close() throws IOException {
         try {
-            compationTask.get();
+            compactionTask.get();
             deleteTask.get();
         } catch (ExecutionException e) {
             if (e.getCause() instanceof IOException ioEx) {
                 throw ioEx;
             }
-        } catch (InterruptedException ignored) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } finally {
             compactWorker.close();
