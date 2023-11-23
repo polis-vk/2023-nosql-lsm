@@ -18,7 +18,7 @@ import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DATA_FILE_EXT;
 import static ru.vk.itmo.test.ryabovvadim.utils.FileUtils.DELETED_FILE_EXT;
 
 public class SafeSSTable {
-    private AtomicBoolean deleted;
+    private final AtomicBoolean deleted;
     private final SSTable ssTable;
     private final AtomicInteger countAliveRef = new AtomicInteger();
 
