@@ -67,14 +67,11 @@ public class InMemoryQuerySystem {
         return storages.stream().map(map -> map.subMap(from, to).values().iterator()).toList();
     }
 
-    public void flush(Entry<MemorySegment> firstEntry) throws IOException {
+    public void flush() throws IOException {
         if (storages.get(0).isEmpty() || !isWorking.compareAndSet(false, true)) {
             return;
         }
         currentByteSize.set(0);
-        if (firstEntry != null) {
-            upsertWhenFlushing(firstEntry);
-        }
 
         final Path indexTmp = flushPath.resolve(NAME_TMP_INDEX_FILE);
         final Path indexFile = flushPath.resolve(NAME_INDEX_FILE);
@@ -158,13 +155,10 @@ public class InMemoryQuerySystem {
             return;
         }
 
-        long size = entrySize(entry);
-        if (currentByteSize.addAndGet(size) <= flushThresholdBytes) {
-            storages.get(0).put(entry.key(), entry);
-        } else {
-            currentByteSize.addAndGet(-size);
+        storages.get(0).put(entry.key(), entry);
+        if (currentByteSize.addAndGet(entrySize(entry)) > flushThresholdBytes) {
             try {
-                flush(entry);
+                flush();
             } catch (IOException e) {
                 return;
             }
@@ -172,8 +166,7 @@ public class InMemoryQuerySystem {
     }
 
     private void upsertWhenFlushing(Entry<MemorySegment> entry) {
-        long size = entrySize(entry);
-        if (currentByteSize.addAndGet(size) <= flushThresholdBytes) {
+        if (currentByteSize.addAndGet(entrySize(entry)) <= flushThresholdBytes) {
             storages.get(1).put(entry.key(), entry);
         } else  {
             throw new OutOfMemoryError("Too much upsert data");
