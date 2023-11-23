@@ -107,7 +107,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         List<Iterator<Entry<MemorySegment>>> merged = new ArrayList<>();
         merged.add(memoryIterator);
         if (!(flushTask == null || flushTask.isDone())) {
-            Iterator<Entry<MemorySegment>> flushIterator = getInMemory(tmpState.flushingMemoryTable, from, to);
+            Iterator<Entry<MemorySegment>> flushIterator = getInMemory(tmpState.flushingMemoryStorage, from, to);
             merged.addFirst(flushIterator);
         }
         return tmpState.diskStorage.range(merged, from, to);
@@ -165,8 +165,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Entry<MemorySegment> get(MemorySegment key) {
         State tmpState = stateReadLock();
         Entry<MemorySegment> entry = tmpState.memoryStorage.get(key);
-        if (entry == null && tmpState.flushingMemoryTable != null) {
-            entry = tmpState.flushingMemoryTable.get(key);
+        if (entry == null && tmpState.flushingMemoryStorage != null) {
+            entry = tmpState.flushingMemoryStorage.get(key);
         }
         if (entry != null) {
             if (entry.value() == null) {
@@ -225,10 +225,10 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         State tmpState1 = stateReadLock();
         flushTask = executorService.submit(() -> {
 
-            if (!tmpState1.flushingMemoryTable.isEmpty()) {
+            if (!tmpState1.flushingMemoryStorage.isEmpty()) {
                 stateLock.writeLock().lock();
                 try {
-                    tmpState1.diskStorage.saveNextSSTable(path, tmpState1.flushingMemoryTable.values(), arena);
+                    tmpState1.diskStorage.saveNextSSTable(path, tmpState1.flushingMemoryStorage.values(), arena);
                     this.state = new State(
                             tmpState1.memoryStorage,
                             new ConcurrentSkipListMap<>(comparator),
