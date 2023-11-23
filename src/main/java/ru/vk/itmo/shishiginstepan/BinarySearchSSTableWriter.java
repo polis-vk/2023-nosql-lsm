@@ -76,13 +76,13 @@ public class BinarySearchSSTableWriter {
         }
         writeEntries(entries, tableSegment, indexSegment);
         try {
-            Files.move(tempIndexPath.get(), indexPath.get());
+            Files.move(tempIndexPath.get(), indexPath.get(), StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             throw new SSTableCreationException(e);
         }
 
         try {
-            Files.move(tempSSTPath.get(), sstPath.get());
+            Files.move(tempSSTPath.get(), sstPath.get(), StandardCopyOption.ATOMIC_MOVE);
         } catch (IOException e) {
             throw new SSTableCreationException(e);
         }
