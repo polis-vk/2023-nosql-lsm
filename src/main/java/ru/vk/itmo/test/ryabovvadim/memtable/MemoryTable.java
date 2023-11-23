@@ -29,7 +29,7 @@ public class MemoryTable {
     private final ExecutorService flushWorker = Executors.newSingleThreadExecutor();
     private final SSTableManager ssTableManager;
     private final long flushThresholdBytes;
-    private final AtomicLong usedSpace = new AtomicLong();
+    private AtomicLong usedSpace = new AtomicLong();
     private Future<?> flushFuture;
 
     public MemoryTable(SSTableManager ssTableManager, long flushThresholdBytes) {
