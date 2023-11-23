@@ -8,6 +8,7 @@ import ru.vk.itmo.test.ryabovvadim.utils.IteratorUtils;
 import ru.vk.itmo.test.ryabovvadim.utils.MemorySegmentUtils;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.NavigableMap;
@@ -77,10 +78,6 @@ public class MemoryTable {
     }
 
     public void upsert(Entry<MemorySegment> entry) {
-        if (flushTable != null && usedSpace.get() > flushThresholdBytes) {
-            throw new MemoryTableOutOfMemoryException();
-        }
-
         lock.lock();
         try {
             Entry<MemorySegment> oldEntry = memTable.put(entry.key(), entry);
@@ -94,6 +91,9 @@ public class MemoryTable {
             lock.unlock();
         }
 
+        if (flushTable != null) {
+            throw new MemoryTableOutOfMemoryException();
+        }
         flush();
     }
 
