@@ -12,7 +12,6 @@ public class MergeIterator<T> implements Iterator<T> {
     private final Comparator<T> comparator;
     PeekIterator<T> nextIterator;
 
-
     private static class PeekIterator<T> implements Iterator<T> {
 
         public final int id;
