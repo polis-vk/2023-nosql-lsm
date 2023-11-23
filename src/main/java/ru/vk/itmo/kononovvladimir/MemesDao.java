@@ -210,17 +210,13 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void autoFlush() {
-        memoryLock.writeLock().lock();
-        try {
-            this.state = new State(new ConcurrentSkipListMap<>(comparator), state.memoryStorage, state.diskStorage);
-        } finally {
-            memoryLock.writeLock().unlock();
-        }
-
+        memoryLock.writeLock();
         try {
             DiskStorage.saveNextSSTable(path, state.flushingMemoryTable.values());
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } finally {
+            memoryLock.writeLock().unlock();
         }
         memoryLock.writeLock().lock();
         try {
