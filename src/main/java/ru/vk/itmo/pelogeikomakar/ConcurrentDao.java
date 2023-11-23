@@ -163,7 +163,9 @@ public class ConcurrentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         var values = storage.prepareFlash();
+        // we need to do it before flush start
         diskStorage.getFlushingValues().setRelease(values);
+        
         threadFlush = new Thread(() -> {
             try {
                 diskStorage.saveNextSSTable(path, values, arena);

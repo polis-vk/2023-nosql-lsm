@@ -66,7 +66,9 @@ public class DiskStorage {
     public void saveNextSSTable(Path storagePath, Iterable<Entry<MemorySegment>> iterable, Arena arenaShared)
             throws IOException {
 
+        // for more safety
         flushingValues.setRelease(iterable);
+
         final Path indexTmp = storagePath.resolve("indexFlush.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
 
@@ -170,6 +172,7 @@ public class DiskStorage {
     public void compact(Path storagePath, Arena arenaShared)
             throws IOException {
 
+        // for more safety - no one can make flush until compact ends
         filesLock.lock();
         try {
             List<MemorySegment> memSegList = segmentList;
@@ -249,8 +252,8 @@ public class DiskStorage {
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING
             );
-            String fileNmae = finalizeCompaction(storagePath, true);
-            segmentList.add(openTable(fileNmae, storagePath, arenaShared));
+            String fileName = finalizeCompaction(storagePath, true);
+            segmentList.add(openTable(fileName, storagePath, arenaShared));
         } finally {
             filesLock.unlock();
         }
