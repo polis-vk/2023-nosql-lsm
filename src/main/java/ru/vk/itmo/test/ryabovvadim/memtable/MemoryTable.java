@@ -23,14 +23,13 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MemoryTable {
-    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable = createMap();
-    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushTable = null;
+    private volatile ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable = createMap();
+    private volatile ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushTable = null;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final ExecutorService flushWorker = Executors.newSingleThreadExecutor();
     private final SSTableManager ssTableManager;
     private final long flushThresholdBytes;
-    private long usedSpace = 0;
-    private final AtomicBoolean isFlushing = new AtomicBoolean();
+    private AtomicLong usedSpace = new AtomicLong();
     private Future<?> flushFuture;
 
     public MemoryTable(SSTableManager ssTableManager, long flushThresholdBytes) {
@@ -140,15 +139,14 @@ public class MemoryTable {
             long newValueSize = entry.value() == null ? 0 : entry.value().byteSize();
             long oldValueSize = oldEntry == null || oldEntry.value() == null ? 0 : oldEntry.value().byteSize();
 
-            usedSpace += newValueSize - oldValueSize;
-            if (usedSpace < flushThresholdBytes) {
+            if (usedSpace.updateAndGet(x -> x + (newValueSize - oldValueSize)) < flushThresholdBytes) {
                 return;
             }
         } finally {
             lock.readLock().unlock();
         }
 
-        if (isFlushing.get()) {
+        if (flushTable != null) {
             throw new MemoryTableOutOfMemoryException();
         }
         flush();
@@ -160,12 +158,11 @@ public class MemoryTable {
         }
 
         flushFuture = flushWorker.submit(() -> {
-            isFlushing.set(true);
             lock.writeLock().lock();
             try {
                 flushTable = memTable;
                 memTable = createMap();
-                usedSpace = 0;
+                usedSpace.set(0);
             } finally {
                 lock.writeLock().unlock();
             }
@@ -176,7 +173,6 @@ public class MemoryTable {
                 // Ignored exception
             } finally {
                 flushTable = null;
-                isFlushing.set(false);
             }
         });
     }
