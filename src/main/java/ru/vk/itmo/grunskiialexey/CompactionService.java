@@ -26,7 +26,6 @@ public class CompactionService {
     private final long firstFileNumber;
     private final AtomicLong lastFileNumber;
     private final AtomicLong compactFileName;
-    private final AtomicBoolean isWorking;
     private final Arena arena;
 
     public CompactionService(
@@ -40,7 +39,6 @@ public class CompactionService {
         this.lastFileNumber = lastFileNumber;
         this.arena = arena;
         this.compactFileName = new AtomicLong(-1);
-        this.isWorking = new AtomicBoolean();
     }
 
     public Iterator<Entry<MemorySegment>> range(
@@ -81,13 +79,14 @@ public class CompactionService {
         return iterators;
     }
 
-    public void compact(Path storagePath) throws IOException {
-        if (segmentList.size() <= 1 || !isWorking.compareAndSet(false, true)) {
+    public synchronized void compact(Path storagePath) throws IOException {
+        if (segmentList.size() <= 1) {
             return;
         }
 
         final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
-        final long fileNumber = lastFileNumber.getAndIncrement();
+        compactFileName.set(lastFileNumber.getAndIncrement());
+        final long fileNumber = compactFileName.get();
         final Path filePath = storagePath.resolve(Long.toString(fileNumber));
 
         long startValuesOffset = 0;
@@ -136,7 +135,6 @@ public class CompactionService {
                 storagePath
         );
         DiskStorage.changeActualLeftInterval(indexFile, arena, fileNumber);
-        isWorking.set(false);
     }
 
     private Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
