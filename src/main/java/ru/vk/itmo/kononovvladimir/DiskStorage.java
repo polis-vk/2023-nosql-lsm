@@ -143,7 +143,7 @@ public class DiskStorage {
         Files.deleteIfExists(indexFile);
 
         Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
-        if (arena.scope().isAlive()){
+        if (arena.scope().isAlive()) {
             addNewSSL(storagePath.resolve(newFileName), arena);
         }
     }
@@ -164,12 +164,6 @@ public class DiskStorage {
 
     public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        List<Path> toDelete;
-        try (Stream<Path> stream = Files.find(storagePath, 1,
-                (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
-            toDelete = stream.toList();
-        }
-
         String newFileName = "compaction.tmp";
         Path compactionTmpFile = storagePath.resolve(newFileName);
 
@@ -244,11 +238,25 @@ public class DiskStorage {
                 StandardCopyOption.REPLACE_EXISTING
         );
 
-        finalizeCompaction(storagePath, toDelete);
+        try (Stream<Path> stream = Files.find(storagePath, 1,
+                (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
+            stream.forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+
+        finalizeCompaction(storagePath, false);
     }
 
-    private static void finalizeCompaction(Path storagePath, List<Path> toDelete) throws IOException {
-        if (toDelete.isEmpty()) {
+    private static void finalizeCompaction(Path storagePath, boolean doDelete) throws IOException {
+        if (doDelete) {
             try (Stream<Path> stream =
                          Files.find(
                                  storagePath,
@@ -262,14 +270,6 @@ public class DiskStorage {
                     }
                 });
             }
-        } else {
-            toDelete.forEach(p -> {
-                try {
-                    Files.delete(p);
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            });
         }
 
         Path compactionFile = compactionFile(storagePath);
@@ -303,7 +303,7 @@ public class DiskStorage {
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         if (Files.exists(compactionFile(storagePath))) {
-            finalizeCompaction(storagePath, Collections.emptyList());
+            finalizeCompaction(storagePath, true);
         }
 
         Path indexTmp = storagePath.resolve("index.tmp");
