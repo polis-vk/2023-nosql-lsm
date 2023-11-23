@@ -132,6 +132,10 @@ public class MemoryTable {
     }
 
     public void upsert(Entry<MemorySegment> entry) {
+        if (flushTable != null && usedSpace.get() > flushThresholdBytes) {
+            throw new MemoryTableOutOfMemoryException();
+        }
+
         lock.readLock().lock();
         try {
             Entry<MemorySegment> oldEntry = memTable.put(entry.key(), entry);
@@ -143,10 +147,6 @@ public class MemoryTable {
             }
         } finally {
             lock.readLock().unlock();
-        }
-
-        if (flushTable != null) {
-            throw new MemoryTableOutOfMemoryException();
         }
         flush();
     }
