@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -21,10 +22,15 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Comparator<MemorySegment> comparator = MemesDao::compare;
     private final Arena arena;
     private final Path path;
+
+    NavigableMap<MemorySegment, Entry<MemorySegment>> memoryStorage;
+    NavigableMap<MemorySegment, Entry<MemorySegment>> flushingMemoryTable;
+    final AtomicLong memoryStorageSizeInBytes = new AtomicLong();
+    final DiskStorage diskStorage;
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
-    private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
+    //private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
     private final long flushThresholdBytes;
-    private State state;
+    //private State state;
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -41,11 +47,9 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         this.flushThresholdBytes = config.flushThresholdBytes();
         this.arena = Arena.ofShared();
-        this.state = new State(
-                new ConcurrentSkipListMap<>(comparator),
-                new ConcurrentSkipListMap<>(comparator),
-                new DiskStorage(DiskStorage.loadOrRecover(path, arena))
-        );
+        this.memoryStorage = new ConcurrentSkipListMap<>(comparator);
+        this.flushingMemoryTable = new ConcurrentSkipListMap<>(comparator);
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -69,18 +73,15 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (isClosed.get()) {
-            throw new OutOfMemoryError("f");
-        }
 
         //State tmpState = getStateUnderReadLock();
 
-        Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(state.memoryStorage, from, to);
+        Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(memoryStorage, from, to);
         Iterator<Entry<MemorySegment>> flushIterator;
         if (!(flushTask == null || flushTask.isDone())) {
-            flushIterator = getInMemory(state.flushingMemoryTable, from, to);
+            flushIterator = getInMemory(flushingMemoryTable, from, to);
         } else flushIterator = Collections.emptyIterator();
-        return state.diskStorage.range(List.of(memoryIterator, flushIterator), from, to);
+        return diskStorage.range(List.of(memoryIterator, flushIterator), from, to);
     }
 
     private Iterator<Entry<MemorySegment>> getInMemory(
@@ -102,7 +103,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (isClosed.get() || (!(flushTask == null || flushTask.isDone()) && state.memoryStorageSizeInBytes.get() >= flushThresholdBytes)) {
+        if (isClosed.get() || (!(flushTask == null || flushTask.isDone()) && memoryStorageSizeInBytes.get() >= flushThresholdBytes)) {
             throw new IllegalStateException("Previous flush has not yet ended");
         }
         //State tmpState = getStateUnderWriteLock();
@@ -116,16 +117,16 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             } else {
                 valueSize = entry.value().byteSize();
             }
-            Entry<MemorySegment> prev = state.memoryStorage.put(entry.key(), entry);
+            Entry<MemorySegment> prev = memoryStorage.put(entry.key(), entry);
             if (prev == null) {
-                state.memoryStorageSizeInBytes.addAndGet(entry.key().byteSize() + valueSize);
+                memoryStorageSizeInBytes.addAndGet(entry.key().byteSize() + valueSize);
             } else {
-                state.memoryStorageSizeInBytes.addAndGet(valueSize);
+                memoryStorageSizeInBytes.addAndGet(valueSize);
             }
         } finally {
             lock.readLock().unlock();
         }
-        if (flushThresholdBytes < state.memoryStorageSizeInBytes.get()) {
+        if (flushThresholdBytes < memoryStorageSizeInBytes.get()) {
             // if not flushing throw
             try {
                 autoFlush();
@@ -133,16 +134,14 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 throw new IllegalStateException("Can not flush", e);
             }
         }
-
-
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         //State tmpState = getStateUnderReadLock();
-        Entry<MemorySegment> entry = state.memoryStorage.get(key);
-        if (entry == null && state.flushingMemoryTable != null) {
-            entry = state.flushingMemoryTable.get(key);
+        Entry<MemorySegment> entry = memoryStorage.get(key);
+        if (entry == null && flushingMemoryTable != null) {
+            entry = flushingMemoryTable.get(key);
         }
         if (entry != null) {
             if (entry.value() == null) {
@@ -151,7 +150,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return entry;
         }
 
-        Iterator<Entry<MemorySegment>> iterator = state.diskStorage.range(List.of(Collections.emptyIterator()), key, null);
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(List.of(Collections.emptyIterator()), key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -190,21 +189,24 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private synchronized void autoFlush() throws IOException {
         //  State tmpState = getStateUnderWriteLock();
 
-        if (!(flushTask == null || flushTask.isDone()) || !state.memoryStorage.isEmpty()) {
+        if (!(flushTask == null || flushTask.isDone()) || memoryStorage.isEmpty()) {
             return;
         }
         lock.writeLock().lock();
         try {
-            this.state = new State(new ConcurrentSkipListMap<>(comparator), state.memoryStorage, 0, state.diskStorage);
+            flushingMemoryTable = memoryStorage;
+            memoryStorage = new ConcurrentSkipListMap<>(comparator);
+            memoryStorageSizeInBytes.set(0);
+            //this.state = new State(new ConcurrentSkipListMap<>(comparator), state.memoryStorage, 0, state.diskStorage);
         } finally {
             lock.writeLock().unlock();
         }
         flushTask = executorService.submit(() -> {
 
-            if (!state.flushingMemoryTable.isEmpty()) {
+            if (!flushingMemoryTable.isEmpty()) {
                 try {
-                    state.diskStorage.saveNextSSTable(path, state.flushingMemoryTable.values(), arena);
-                    this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), state.diskStorage);
+                    diskStorage.saveNextSSTable(path, flushingMemoryTable.values(), arena);
+                    flushingMemoryTable = new ConcurrentSkipListMap<>(comparator);
                 } catch (IOException e) {
                     throw new IllegalStateException("Can not flush", e);
                 }
@@ -230,8 +232,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         executorService.close();
 
-        if (!state.memoryStorage.isEmpty()) {
-            state.diskStorage.saveNextSSTable(path, state.memoryStorage.values(), arena);
+        if (!memoryStorage.isEmpty()) {
+            diskStorage.saveNextSSTable(path, memoryStorage.values(), arena);
         }
         if (!arena.scope().isAlive()) {
             return;
