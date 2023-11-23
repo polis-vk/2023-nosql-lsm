@@ -164,10 +164,10 @@ public class DiskStorage {
 
     public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        Stream<Path> streamForDelete;
+        List<Path> streamForDelete;
         try (Stream<Path> streamFiles = Files.find(storagePath, 1,
                 (path, ignored) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
-            streamForDelete = streamFiles;
+            streamForDelete = streamFiles.toList();
         }
 
         String newFileName = "compaction.tmp";
@@ -244,7 +244,6 @@ public class DiskStorage {
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
-
         streamForDelete.forEach(p -> {
             try {
                 Files.delete(p);
