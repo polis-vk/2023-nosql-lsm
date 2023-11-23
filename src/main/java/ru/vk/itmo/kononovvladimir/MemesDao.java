@@ -77,11 +77,12 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         //State tmpState = getStateUnderReadLock();
 
         Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(memoryStorage, from, to);
-        Iterator<Entry<MemorySegment>> flushIterator;
         if (!(flushTask == null || flushTask.isDone())) {
-            flushIterator = getInMemory(flushingMemoryTable, from, to);
-        } else flushIterator = Collections.emptyIterator();
-        return diskStorage.range(new ArrayList<>(List.of(memoryIterator, flushIterator)), from, to);
+            Iterator<Entry<MemorySegment>> flushIterator = getInMemory(flushingMemoryTable, from, to);
+            return diskStorage.range(new ArrayList<>(List.of(flushIterator, memoryIterator)), from, to);
+        } else {
+            return diskStorage.range(new ArrayList<>(List.of(memoryIterator)), from, to);
+        }
     }
 
     private Iterator<Entry<MemorySegment>> getInMemory(
