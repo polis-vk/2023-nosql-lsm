@@ -96,7 +96,10 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         State tmpState = getStateUnderReadLock();
 
         Iterator<Entry<MemorySegment>> memoryIterator = getInMemory(tmpState.memoryStorage, from, to);
-        Iterator<Entry<MemorySegment>> flushIterator = getInMemory(tmpState.flushingMemoryTable, from, to);
+        Iterator<Entry<MemorySegment>> flushIterator;
+        if (!(flushTask == null || flushTask.isDone())) {
+            flushIterator = getInMemory(tmpState.flushingMemoryTable, from, to);
+        } else flushIterator = Collections.emptyIterator();
         return state.diskStorage.range(List.of(memoryIterator, flushIterator), from, to);
     }
 
@@ -119,9 +122,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (isClosed.get()) {
-            //throw
-            return;
+        if (!(flushTask == null || flushTask.isDone()) && state.memoryStorageSizeInBytes.get() >= flushThresholdBytes) {
+            throw new IllegalStateException("Previous flush has not yet ended");
         }
         State tmpState = getStateUnderWriteLock();
 

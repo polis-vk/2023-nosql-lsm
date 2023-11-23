@@ -256,13 +256,13 @@ public class DiskStorage {
             });
         }
 
+        Path compactionFile = compactionFile(storagePath);
         Path indexTmp = storagePath.resolve("index.tmp");
         Path indexFile = storagePath.resolve("index.idx");
 
         Files.deleteIfExists(indexFile);
         Files.deleteIfExists(indexTmp);
 
-        Path compactionFile = compactionFile(storagePath);
         boolean noData = Files.size(compactionFile) == 0;
 
         Files.write(
