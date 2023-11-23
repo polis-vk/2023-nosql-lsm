@@ -25,7 +25,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String DATA_PATH = "data";
-    //private final Comparator<MemorySegment> comparator = ChernyshevDao::compare;
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
@@ -33,7 +32,6 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ExecutorService executor = Executors.newSingleThreadExecutor(e ->
             new Thread(e, "Background thread"));
     private final List<Future<?>> backgroundResults = new CopyOnWriteArrayList<>();
-    //private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final Memory memory = new Memory();
     private final AtomicBoolean isBackgroundFlushingInProgress = new AtomicBoolean(false);
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
@@ -169,7 +167,8 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
         }
 
-        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), Collections.emptyIterator(), key, null);
+        Iterator<Entry<MemorySegment>> iterator =
+                diskStorage.range(Collections.emptyIterator(), Collections.emptyIterator(), key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -243,7 +242,6 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (isClosed.get()) {
             throw new RuntimeException("Dao is closed");
         }
-        //flush();
         if (all().hasNext()) {
             backgroundResults.add(executor.submit(() -> FileUtils.compact(path, this::all)));
         }
@@ -263,7 +261,6 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 if (isBackgroundFlushingInProgress.getAndSet(true)) {
                     throw new RuntimeException("flushThresholdBytes reached; Automatic flush is in progress");
                 } else {
-                    //isBackgroundFlushingInProgress.set(true);
                     try {
                         memory.changeStorage();
                         memory.size = 0;
