@@ -24,8 +24,10 @@ import java.util.List;
 import java.util.NavigableSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentSkipListSet;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -41,6 +43,8 @@ public class SSTableManager {
     private final ExecutorService compactWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService deleteWorker = Executors.newVirtualThreadPerTaskExecutor();
     private final ReentrantLock lock = new ReentrantLock();
+    private Future<?> compationTask;
+    private Future<?> deleteTask;
 
     public SSTableManager(Path path) throws IOException {
         this.path = path;
@@ -106,7 +110,7 @@ public class SSTableManager {
     }
 
     public void compact() {
-        compactWorker.submit(() -> {
+        compationTask = compactWorker.submit(() -> {
             try {
                 long prepareId = nextId.getAndIncrement();
                 long id = saveEntries(() -> loadUntil(prepareId), prepareId);
@@ -129,7 +133,7 @@ public class SSTableManager {
     }
 
     private void deleteSSTable(SafeSSTable safeSSTable) {
-        deleteWorker.submit(() -> {
+        deleteTask = deleteWorker.submit(() -> {
             try {
                 safeSSTable.delete(path);
             } catch (IOException ignored) {
@@ -138,10 +142,25 @@ public class SSTableManager {
         });
     }
 
-    public void close() {
-        compactWorker.close();
-        deleteWorker.close();
-        arena.close();
+    public void close() throws IOException {
+        try {
+            if (compationTask != null) {
+                compationTask.get();
+            }
+            if (deleteTask != null) {
+                deleteTask.get();
+            }
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof IOException ioEx) {
+                throw ioEx;
+            }
+        } catch (InterruptedException ignored) {
+            // Ignored exception
+        } finally {
+            compactWorker.close();
+            deleteWorker.close();
+            arena.close();
+        }
     }
 
     private FutureIterator<Entry<MemorySegment>> loadUntil(long toId) {
