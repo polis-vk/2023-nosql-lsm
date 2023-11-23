@@ -133,12 +133,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
 
             memoryLock.writeLock().lock();
-            try {
-                this.state = new State(new ConcurrentSkipListMap<>(comparator), tmpState.memoryStorage, tmpState.diskStorage);
-                this.state.memoryStorage.put(entry.key(), entry);
-            } finally {
-                memoryLock.writeLock().unlock();
-            }
+            this.state.memoryStorage.put(entry.key(), entry);
             autoFlush();
             return;
         }
@@ -199,22 +194,20 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void flush() throws IOException {
-        memoryLock.writeLock().lock();
-        try {
-            if (!state.memoryStorage.isEmpty()) {
-                state.diskStorage.saveNextSSTable(path, state.memoryStorage.values(), arena);
-            }
-            this.state = new State(
-                    new ConcurrentSkipListMap<>(comparator),
-                    state.flushingMemoryTable,
-                    new DiskStorage(DiskStorage.loadOrRecover(path, arena))
-            );
-        } finally {
-            memoryLock.writeLock().unlock();
-        }
+autoFlush();
     }
 
     private void autoFlush() {
+        if (!(flushTask == null || flushTask.isDone()) || state.memoryStorage.isEmpty()) {
+            return;
+        }
+        State tmpState = getStateUnderWriteLock();
+        memoryLock.writeLock().lock();
+        try {
+            this.state = new State(new ConcurrentSkipListMap<>(comparator), tmpState.memoryStorage, tmpState.diskStorage);
+        } finally {
+            memoryLock.writeLock().unlock();
+        }
         flushTask = executorService.submit(() -> {
 
             try {
