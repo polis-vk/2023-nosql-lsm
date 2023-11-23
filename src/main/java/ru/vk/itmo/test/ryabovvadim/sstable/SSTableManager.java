@@ -45,7 +45,7 @@ public class SSTableManager {
     private final ExecutorService deleteWorker = Executors.newVirtualThreadPerTaskExecutor();
     private final ReentrantLock lock = new ReentrantLock();
     private Future<?> compationTask = CompletableFuture.completedFuture(null);
-    private Future<?> deleteTask;
+    private Future<?> deleteTask = CompletableFuture.completedFuture(null);
 
     public SSTableManager(Path path) throws IOException {
         this.path = path;
@@ -147,12 +147,8 @@ public class SSTableManager {
 
     public void close() throws IOException {
         try {
-            if (compationTask != null) {
-                compationTask.get();
-            }
-            if (deleteTask != null) {
-                deleteTask.get();
-            }
+            compationTask.get();
+            deleteTask.get();
         } catch (ExecutionException e) {
             if (e.getCause() instanceof IOException ioEx) {
                 throw ioEx;
