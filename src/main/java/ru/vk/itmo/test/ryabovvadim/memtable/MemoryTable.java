@@ -18,21 +18,20 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class MemoryTable {
     private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> memTable =
             new AtomicReference<>(createMap());
     private final AtomicReference<ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>>> flushTable =
             new AtomicReference<>(null);
-    private final Lock lock = new ReentrantLock();
     private final ExecutorService flushWorker = Executors.newSingleThreadExecutor();
     private final SSTableManager ssTableManager;
     private final long flushThresholdBytes;
     private AtomicLong usedSpace = new AtomicLong();
+    private AtomicBoolean wasDropped = new AtomicBoolean(true);
     private Future<?> flushFuture = CompletableFuture.completedFuture(null);
 
     public MemoryTable(SSTableManager ssTableManager, long flushThresholdBytes) {
@@ -79,24 +78,29 @@ public class MemoryTable {
     }
 
     public void upsert(Entry<MemorySegment> entry) {
-        memTable.get().put(entry.key(), entry);
-        lock.lock();
-        try {
-            Entry<MemorySegment> oldEntry = memTable.get().put(entry.key(), entry);
-            long newValueSize = getEntrySize(entry);
-            long oldValueSize = getEntrySize(oldEntry);
+        ChangeableEntryWithLock<MemorySegment> prev = (ChangeableEntryWithLock<MemorySegment>) memTable.get()
+                .putIfAbsent(entry.key(), new ChangeableEntryWithLock<>(entry));
 
-            if (usedSpace.addAndGet(newValueSize - oldValueSize) < flushThresholdBytes) {
-                return;
+        if (prev != null) {
+            prev.lock();
+            try {
+                long prevSize = getEntrySize(prev);
+                long newSize = getEntrySize(entry);
+                prev.setValue(entry.value());
+                usedSpace.addAndGet(newSize - prevSize);
+            } finally {
+                prev.unlock();
             }
-        } finally {
-            lock.unlock();
+        } else {
+            usedSpace.addAndGet(getEntrySize(entry));
         }
 
-        if (!flushFuture.isDone()) {
-            throw new MemoryTableOutOfMemoryException();
+        if (usedSpace.get() > flushThresholdBytes && wasDropped.compareAndSet(true, false)) {
+            if (!flushFuture.isDone()) {
+                throw new MemoryTableOutOfMemoryException();
+            }
+            flush(false);
         }
-        flush(false);
     }
 
     private long getEntrySize(Entry<MemorySegment> entry) {
@@ -117,14 +121,10 @@ public class MemoryTable {
         }
 
         flushFuture = flushWorker.submit(() -> {
-            lock.lock();
-            try {
-                flushTable.set(memTable.get());
-                memTable.set(createMap());
-                usedSpace.set(0);
-            } finally {
-                lock.unlock();
-            }
+            flushTable.set(memTable.get());
+            memTable.set(createMap());
+            usedSpace.set(0);
+            wasDropped.set(true);
 
             try {
                 ssTableManager.saveEntries(() -> flushTable.get().values().iterator());
