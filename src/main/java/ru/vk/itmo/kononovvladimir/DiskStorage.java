@@ -163,6 +163,11 @@ public class DiskStorage {
 
     public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
+        List<Path> toDelete;
+        try (Stream<Path> stream = Files.find(storagePath, 1,
+                (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
+            toDelete = stream.toList();
+        }
 
         String newFileName = "compaction.tmp";
         Path compactionTmpFile = storagePath.resolve(newFileName);
@@ -238,16 +243,26 @@ public class DiskStorage {
                 StandardCopyOption.REPLACE_EXISTING
         );
 
-        finalizeCompaction(storagePath);
+        finalizeCompaction(storagePath, toDelete);
     }
 
-    private static void finalizeCompaction(Path storagePath) throws IOException {
-        try (Stream<Path> stream =
-                     Files.find(
-                             storagePath,
-                             1,
-                             (path, ignored) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
-            stream.forEach(p -> {
+    private static void finalizeCompaction(Path storagePath, List<Path> toDelete) throws IOException {
+        if (toDelete.isEmpty()) {
+            try (Stream<Path> stream =
+                         Files.find(
+                                 storagePath,
+                                 1,
+                                 (path, ignored) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
+                stream.forEach(p -> {
+                    try {
+                        Files.delete(p);
+                    } catch (IOException e) {
+                        throw new UncheckedIOException(e);
+                    }
+                });
+            }
+        } else {
+            toDelete.forEach(p -> {
                 try {
                     Files.delete(p);
                 } catch (IOException e) {
@@ -287,7 +302,7 @@ public class DiskStorage {
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         if (Files.exists(compactionFile(storagePath))) {
-            finalizeCompaction(storagePath);
+            finalizeCompaction(storagePath, Collections.emptyList());
         }
 
         Path indexTmp = storagePath.resolve("index.tmp");
