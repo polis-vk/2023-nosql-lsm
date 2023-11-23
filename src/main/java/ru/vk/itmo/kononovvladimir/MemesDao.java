@@ -107,15 +107,25 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         //State tmpState = getStateUnderWriteLock();
 
-        long entrySize = calculateSize(entry);
+        //long entrySize = calculateSize(entry);
         lock.readLock().lock();
         try {
-            this.state.memoryStorage.put(entry.key(), entry);
-            this.state.memoryStorageSizeInBytes.addAndGet(entrySize);
+            long valueSize;
+            if (entry.value() == null) {
+                valueSize = Long.BYTES;
+            } else {
+                valueSize = entry.value().byteSize();
+            }
+            Entry<MemorySegment> prev = state.memoryStorage.put(entry.key(), entry);
+            if (prev == null) {
+                state.memoryStorageSizeInBytes.addAndGet(entry.key().byteSize() + valueSize);
+            } else {
+                state.memoryStorageSizeInBytes.addAndGet(valueSize);
+            }
         } finally {
             lock.readLock().unlock();
         }
-        if (flushThresholdBytes < state.memoryStorageSizeInBytes.get() + entrySize) {
+        if (flushThresholdBytes < state.memoryStorageSizeInBytes.get()) {
             // if not flushing throw
             try {
                 autoFlush();
@@ -131,7 +141,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Entry<MemorySegment> get(MemorySegment key) {
         //State tmpState = getStateUnderReadLock();
         Entry<MemorySegment> entry = state.memoryStorage.get(key);
-        if (entry == null) {
+        if (entry == null && state.flushingMemoryTable != null) {
             entry = state.flushingMemoryTable.get(key);
         }
         if (entry != null) {
@@ -153,10 +163,10 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         return null;
     }
 
-    private Long calculateSize(Entry<MemorySegment> entry) {
+/*    private Long calculateSize(Entry<MemorySegment> entry) {
         return Long.BYTES + entry.key().byteSize() + Long.BYTES
                 + (entry.value() == null ? 0 : entry.key().byteSize());
-    }
+    }*/
 
     @Override
     public synchronized void compact() throws IOException {
@@ -185,7 +195,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         lock.writeLock().lock();
         try {
-            this.state = new State(new ConcurrentSkipListMap<>(comparator), state.memoryStorage, state.diskStorage);
+            this.state = new State(new ConcurrentSkipListMap<>(comparator), state.memoryStorage, 0, state.diskStorage);
         } finally {
             lock.writeLock().unlock();
         }

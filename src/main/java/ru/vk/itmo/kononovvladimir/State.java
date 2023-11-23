@@ -21,4 +21,14 @@ public class State {
         this.memoryStorageSizeInBytes.getAndSet(memoryStorage.size());
         this.diskStorage = diskStorage;
     }
+
+    public State(NavigableMap<MemorySegment, Entry<MemorySegment>> memoryStorage,
+                 NavigableMap<MemorySegment, Entry<MemorySegment>> flushingMemoryTable,
+                 long memoryStorageSizeInBytes,
+                 DiskStorage diskStorage) {
+        this.memoryStorage = memoryStorage;
+        this.flushingMemoryTable = flushingMemoryTable;
+        this.memoryStorageSizeInBytes.getAndSet(memoryStorageSizeInBytes);
+        this.diskStorage = diskStorage;
+    }
 }
