@@ -7,7 +7,6 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 public final class IteratorUtils {
-
     public static <T> Iterator<T> emptyIterator() {
         return new Iterator<T>() {
             @Override
