@@ -98,15 +98,11 @@ public class MemoryTable {
     }
 
     public void flush() {
-        if (!existsSSTableManager() || !flushFuture.isDone()) {
+        if (!existsSSTableManager() || memTable.isEmpty() || !flushFuture.isDone()) {
             return;
         }
 
         flushFuture = flushWorker.submit(() -> {
-            if (memTable.isEmpty()) {
-                return;
-            }
-
             lock.lock();
             try {
                 flushTable = memTable;
@@ -132,7 +128,7 @@ public class MemoryTable {
                 flush();
                 flushFuture.get();
             }
-        } catch (InterruptedException ignored) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (ExecutionException e) {
             if (e.getCause() instanceof IOException ioEx) {
