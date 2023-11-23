@@ -31,7 +31,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final AtomicBoolean isFlushing = new AtomicBoolean(false);
     private final AtomicBoolean isCompacting = new AtomicBoolean(false);
-    //private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
     private final long flushThresholdBytes;
     //private State state;
 
