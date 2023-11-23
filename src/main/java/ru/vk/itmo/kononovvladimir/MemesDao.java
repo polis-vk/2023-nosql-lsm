@@ -128,6 +128,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private Long calculateSize(Entry<MemorySegment> entry) {
+        if (entry == null) return 0L;
         return entry.key().byteSize()
                 + (entry.value() == null ? 0 : entry.key().byteSize());
     }
