@@ -212,38 +212,34 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             } finally {
                 lock.unlock();
             }
-
         } finally {
             memoryLock.writeLock().unlock();
         }
     }
 
     private void autoFlush() {
-        arena.close();
-        this.arena = Arena.ofShared();
-        memoryLock.writeLock();
-        try {
-
-            lock.lock();
-            try {
-                if (!state.memoryStorage.isEmpty()) {
-                    DiskStorage.saveNextSSTable(path, state.flushingMemoryTable.values());
-                }
-            } finally {
-                lock.unlock();
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        } finally {
-            memoryLock.writeLock().unlock();
-        }
-
         DiskStorage tmpStorage;
         try {
+            arena.close();
+            this.arena = Arena.ofShared();
+            memoryLock.writeLock().lock();
+            try {
+                lock.lock();
+                try {
+                    if (!state.memoryStorage.isEmpty()) {
+                        DiskStorage.saveNextSSTable(path, state.flushingMemoryTable.values());
+                    }
+                } finally {
+                    lock.unlock();
+                }
+            } finally {
+                memoryLock.writeLock().unlock();
+            }
             tmpStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
         } catch (IOException e) {
             throw new RuntimeException("Error during autoFlush", e);
         }
+
         memoryLock.writeLock().lock();
         try {
             this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), tmpStorage);
