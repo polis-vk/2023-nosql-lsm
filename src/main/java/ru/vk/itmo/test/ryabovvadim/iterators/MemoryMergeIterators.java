@@ -8,8 +8,8 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 public class MemoryMergeIterators implements Iterator<Entry<MemorySegment>> {
-    private Iterator<Entry<MemorySegment>> fstIterator;
-    private Iterator<Entry<MemorySegment>> sndIterator;
+    private final Iterator<Entry<MemorySegment>> fstIterator;
+    private final Iterator<Entry<MemorySegment>> sndIterator;
     private Entry<MemorySegment> fstEntry;
     private Entry<MemorySegment> sndEntry;
 

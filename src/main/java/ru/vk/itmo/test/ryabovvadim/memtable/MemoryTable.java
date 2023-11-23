@@ -93,6 +93,7 @@ public class MemoryTable {
         } finally {
             lock.unlock();
         }
+
         flush();
     }
 
