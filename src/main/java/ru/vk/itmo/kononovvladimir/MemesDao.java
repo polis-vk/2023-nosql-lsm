@@ -132,7 +132,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 return;
             }
 
-            memoryLock.writeLock().lock();
             this.state.memoryStorage.put(entry.key(), entry);
             autoFlush();
             return;
