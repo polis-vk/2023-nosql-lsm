@@ -29,6 +29,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private Future<?> taskCompact;
 
+    private Future<?> flushTask;
+
 
     public MemesDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
@@ -213,20 +215,22 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void autoFlush() {
+        flushTask = executorService.submit(() -> {
 
-        try {
-            if (!state.memoryStorage.isEmpty()) {
-                state.diskStorage.saveNextSSTable(path, state.flushingMemoryTable.values(), arena);
-                memoryLock.writeLock().lock();
-                try {
-                    this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), state.diskStorage);
-                } finally {
-                    memoryLock.writeLock().unlock();
+            try {
+                if (!state.memoryStorage.isEmpty()) {
+                    state.diskStorage.saveNextSSTable(path, state.flushingMemoryTable.values(), arena);
+                    memoryLock.writeLock().lock();
+                    try {
+                        this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), state.diskStorage);
+                    } finally {
+                        memoryLock.writeLock().unlock();
+                    }
                 }
+            } catch (IOException e) {
+                throw new RuntimeException("Error during autoFlush", e);
             }
-        } catch (IOException e) {
-            throw new RuntimeException("Error during autoFlush", e);
-        }
+        });
 
 
     }
@@ -236,6 +240,9 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             if (taskCompact != null && !taskCompact.isDone() && !taskCompact.isCancelled()) {
                 taskCompact.get();
+            }
+            if (flushTask != null && !flushTask.isDone()){
+                flushTask.get();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
