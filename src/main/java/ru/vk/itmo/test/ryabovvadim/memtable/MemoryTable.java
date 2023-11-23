@@ -15,13 +15,15 @@ import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MemoryTable {
     private volatile ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> memTable = createMap();
     private volatile ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> flushTable = null;
-    private final ReentrantLock lock = new ReentrantLock();
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
     private final ExecutorService flushWorker = Executors.newSingleThreadExecutor();
     private final SSTableManager ssTableManager;
     private final long flushThresholdBytes;
@@ -129,24 +131,24 @@ public class MemoryTable {
 
     public void upsert(Entry<MemorySegment> entry) {
         long usedSpaceAfterPut;
-        lock.lock();
+        lock.readLock().lock();
         try {
-            Entry<MemorySegment> oldEntry = memTable.get(entry.key());
+            Entry<MemorySegment> oldEntry = memTable.put(entry.key(), entry);
             long newValueSize = entry.value() == null ? 0 : entry.value().byteSize();
             long oldValueSize = oldEntry == null || oldEntry.value() == null ? 0 : oldEntry.value().byteSize();
-            memTable.put(entry.key(), entry);
 
             usedSpaceAfterPut = usedSpace.updateAndGet(x -> x + (newValueSize - oldValueSize));
+            if (usedSpaceAfterPut < flushThresholdBytes) {
+                return;
+            }
         } finally {
-            lock.unlock();
+            lock.readLock().unlock();
         }
 
-        if (usedSpaceAfterPut >= flushThresholdBytes) {
-            if (flushTable != null) {
-                throw new MemoryTableOutOfMemoryException();
-            }
-            flush();
+        if (flushTable != null) {
+            throw new MemoryTableOutOfMemoryException();
         }
+        flush();
     }
 
     public void flush() {
@@ -154,14 +156,14 @@ public class MemoryTable {
             return;
         }
 
-        flushWorker.submit(() -> {
-            lock.lock();
+        Future<?> flushTask = flushWorker.submit(() -> {
+            lock.writeLock().lock();
             try {
                 flushTable = memTable;
                 memTable = createMap();
                 usedSpace.set(0);
             } finally {
-                lock.unlock();
+                lock.writeLock().unlock();
             }
 
             try {
