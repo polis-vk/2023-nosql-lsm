@@ -164,15 +164,14 @@ public class DiskStorage {
 
     public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        List<Path> streamForDelete;
-        try (Stream<Path> streamFiles = Files.find(storagePath, 1,
-                (path, ignored) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
-            streamForDelete = streamFiles.toList();
+        List<Path> toDelete;
+        try (Stream<Path> stream = Files.find(storagePath, 1,
+                (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
+            toDelete = stream.toList();
         }
 
         String newFileName = "compaction.tmp";
         Path compactionTmpFile = storagePath.resolve(newFileName);
-
 
         long dataSize = 0;
         long count = 0;
@@ -245,14 +244,11 @@ public class DiskStorage {
                 StandardCopyOption.REPLACE_EXISTING
         );
 
-
-
-        finalizeCompaction(storagePath, false, streamForDelete);
-
+        finalizeCompaction(storagePath, toDelete);
     }
 
-    private static void finalizeCompaction(Path storagePath, boolean doDelete, List<Path> forDel) throws IOException {
-        if (doDelete) {
+    private static void finalizeCompaction(Path storagePath, List<Path> toDelete) throws IOException {
+        if (toDelete.isEmpty()) {
             try (Stream<Path> stream =
                          Files.find(
                                  storagePath,
@@ -267,7 +263,7 @@ public class DiskStorage {
                 });
             }
         } else {
-            forDel.forEach(p -> {
+            toDelete.forEach(p -> {
                 try {
                     Files.delete(p);
                 } catch (IOException e) {
@@ -307,7 +303,7 @@ public class DiskStorage {
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         if (Files.exists(compactionFile(storagePath))) {
-            finalizeCompaction(storagePath, true, Collections.emptyList());
+            finalizeCompaction(storagePath, Collections.emptyList());
         }
 
         Path indexTmp = storagePath.resolve("index.tmp");
