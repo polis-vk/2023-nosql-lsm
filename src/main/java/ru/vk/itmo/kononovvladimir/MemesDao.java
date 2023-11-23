@@ -10,10 +10,9 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
@@ -155,7 +154,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         if (flushThresholdBytes < tmpState.memoryStorageSizeInBytes.get()) {
             try {
-                autoFlush();
+                flushing();
             } catch (IOException e) {
                 throw new IllegalStateException("Flush не удался", e);
             }
@@ -205,10 +204,10 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void flush() throws IOException {
-        autoFlush();
+        flushing();
     }
 
-    private synchronized void autoFlush() throws IOException {
+    private synchronized void flushing() throws IOException {
         State tmpState = stateWriteLock();
         if (isClosed.get() || taskIsWorking(flushTask)) {
             return;

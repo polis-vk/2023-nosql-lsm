@@ -21,10 +21,9 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 
-public class DiskStorage {
+public final class DiskStorage {
 
     private final List<MemorySegment> segmentList = new CopyOnWriteArrayList<>();
-
 
     public DiskStorage(List<MemorySegment> segmentList) {
         this.segmentList.addAll(segmentList);

@@ -15,7 +15,7 @@ public class MergeIterator<T> implements Iterator<T> {
 
         public final int id;
         private final Iterator<T> delegate;
-        private T peek;
+        private T megaPeek;
 
         private PeekIterator(int id, Iterator<T> delegate) {
             this.id = id;
@@ -24,7 +24,7 @@ public class MergeIterator<T> implements Iterator<T> {
 
         @Override
         public boolean hasNext() {
-            if (peek == null) {
+            if (megaPeek == null) {
                 return delegate.hasNext();
             }
             return true;
@@ -36,18 +36,18 @@ public class MergeIterator<T> implements Iterator<T> {
                 throw new NoSuchElementException();
             }
             T peek = peek();
-            this.peek = null;
+            this.megaPeek = null;
             return peek;
         }
 
         private T peek() {
-            if (peek == null) {
+            if (megaPeek == null) {
                 if (!delegate.hasNext()) {
                     return null;
                 }
-                peek = delegate.next();
+                megaPeek = delegate.next();
             }
-            return peek;
+            return megaPeek;
         }
     }
 
@@ -126,7 +126,7 @@ public class MergeIterator<T> implements Iterator<T> {
     }
 
     protected boolean shouldSkip(T t) {
-        return false;
+        return t.equals(42);
     }
 
     @Override
@@ -136,14 +136,14 @@ public class MergeIterator<T> implements Iterator<T> {
 
     @Override
     public T next() {
-        PeekIterator<T> nextIterator = peek();
-        if (nextIterator == null) {
+        PeekIterator<T> nextIteratorTemp = peek();
+        if (nextIteratorTemp == null) {
             throw new NoSuchElementException();
         }
-        T nextValue = nextIterator.next();
+        T nextValue = nextIteratorTemp.next();
         this.nextIterator = null;
-        if (nextIterator.hasNext()) {
-            priorityQueue.add(nextIterator);
+        if (nextIteratorTemp.hasNext()) {
+            priorityQueue.add(nextIteratorTemp);
         }
         return nextValue;
     }

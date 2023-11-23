@@ -14,13 +14,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.stream.Stream;
 
 public class StorageUtils {
-    private StorageUtils() {}
-
     public static final String SSTABLE_PREFIX = "sstable_";
+
+    private StorageUtils() {
+
+    }
 
     public static void finalizeCompaction(Path storagePath, boolean doDelete) throws IOException {
         if (doDelete) {
