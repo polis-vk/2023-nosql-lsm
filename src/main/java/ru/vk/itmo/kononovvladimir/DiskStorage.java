@@ -50,7 +50,7 @@ public class DiskStorage {
         };
     }
 
-    public static void saveNextSSTable(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
+    public void saveNextSSTable(Path storagePath, Iterable<Entry<MemorySegment>> iterable, Arena arena)
             throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
@@ -142,6 +142,23 @@ public class DiskStorage {
         Files.deleteIfExists(indexFile);
 
         Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
+        if (arena.scope().isAlive()){
+            addNewSSL(storagePath.resolve(newFileName), arena);
+        }
+    }
+
+    private void addNewSSL(Path file, Arena arena) {
+        try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            MemorySegment fileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    Files.size(file),
+                    arena
+            );
+            segmentList.add(fileSegment);
+        } catch (IOException e) {
+            throw new IllegalStateException("Error open after flush", e);
+        }
     }
 
     public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable)

@@ -200,7 +200,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         memoryLock.writeLock().lock();
         try {
             if (!state.memoryStorage.isEmpty()) {
-                DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
+                state.diskStorage.saveNextSSTable(path, state.memoryStorage.values(), arena);
             }
             this.state = new State(
                     new ConcurrentSkipListMap<>(comparator),
@@ -216,7 +216,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         try {
             if (!state.memoryStorage.isEmpty()) {
-                DiskStorage.saveNextSSTable(path, state.flushingMemoryTable.values());
+                state.diskStorage.saveNextSSTable(path, state.flushingMemoryTable.values(), arena);
                 memoryLock.writeLock().lock();
                 try {
                     this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), new DiskStorage(DiskStorage.loadOrRecover(path, arena)));
@@ -245,7 +245,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         executorService.close();
 
         if (!state.memoryStorage.isEmpty()) {
-            DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
+            state.diskStorage.saveNextSSTable(path, state.memoryStorage.values(), arena);
         }
         if (!arena.scope().isAlive()) {
             return;
