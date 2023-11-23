@@ -244,20 +244,14 @@ public class DiskStorage {
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
-        streamForDelete.forEach(p -> {
-            try {
-                Files.delete(p);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        });
 
 
-        finalizeCompaction(storagePath, false);
+
+        finalizeCompaction(storagePath, false, streamForDelete);
 
     }
 
-    private static void finalizeCompaction(Path storagePath, boolean doDelete) throws IOException {
+    private static void finalizeCompaction(Path storagePath, boolean doDelete, List<Path> forDel) throws IOException {
         if (doDelete) {
             try (Stream<Path> stream =
                          Files.find(
@@ -272,6 +266,14 @@ public class DiskStorage {
                     }
                 });
             }
+        } else {
+            forDel.forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
         }
 
         Path compactionFile = compactionFile(storagePath);
@@ -305,7 +307,7 @@ public class DiskStorage {
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         if (Files.exists(compactionFile(storagePath))) {
-            finalizeCompaction(storagePath, true);
+            finalizeCompaction(storagePath, true, Collections.emptyList());
         }
 
         Path indexTmp = storagePath.resolve("index.tmp");
