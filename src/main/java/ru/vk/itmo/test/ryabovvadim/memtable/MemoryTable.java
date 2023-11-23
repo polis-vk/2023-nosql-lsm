@@ -91,8 +91,8 @@ public class MemoryTable {
                 .putIfAbsent(entry.key(), new ChangeableEntryWithLock<>(entry));
 
         if (prev != null) {
-            prevSize = getEntrySize(prev);
-            prev.setValue(entry.value());
+            prevSize = getValueSize(prev.getAndSet(entry.value()));
+            newSize = getValueSize(entry.value());
         }
 
         if (usedSpace.addAndGet(newSize - prevSize) < flushThresholdBytes) {
@@ -112,12 +112,14 @@ public class MemoryTable {
         if (entry == null) {
             return 0;
         }
-        long size = entry.key().byteSize();
-        if (entry.value() != null) {
-            size += entry.value().byteSize();
-        }
+        return entry.key().byteSize() + getValueSize(entry.value());
+    }
 
-        return size;
+    private long getValueSize(MemorySegment value) {
+        if (value == null) {
+            return 0;
+        }
+        return value.byteSize();
     }
 
     public void flush(boolean importantFlush) {

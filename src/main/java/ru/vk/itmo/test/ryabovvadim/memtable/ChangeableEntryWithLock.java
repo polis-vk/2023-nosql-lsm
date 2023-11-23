@@ -3,11 +3,10 @@ package ru.vk.itmo.test.ryabovvadim.memtable;
 import ru.vk.itmo.Entry;
 
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReentrantLock;
 
 public class ChangeableEntryWithLock<T> implements Entry<T> {
     private final T key;
-    private AtomicReference<T> value;
+    private final AtomicReference<T> value;
 
     public ChangeableEntryWithLock(Entry<T> entry) {
         this.key = entry.key();
@@ -24,7 +23,7 @@ public class ChangeableEntryWithLock<T> implements Entry<T> {
         return value.get();
     }
 
-    public void setValue(T value) {
-        this.value.set(value);
+    public T getAndSet(T value) {
+        return this.value.getAndSet(value);
     }
 }
