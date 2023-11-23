@@ -111,16 +111,12 @@ public class SSTableManager {
     }
 
     public void compact() {
-        if (!compationTask.isDone()) {
+        if (!compationTask.isDone() || safeSSTables.size() <= 1) {
             return;
         }
 
         compationTask = compactWorker.submit(() -> {
             try {
-                if (safeSSTables.size() <= 1) {
-                    return;
-                }
-
                 long prepareId = nextId.getAndIncrement();
                 saveEntries(() -> loadUntil(prepareId), prepareId);
                 Iterator<SafeSSTable> safeSSTableIterator = safeSSTables.descendingIterator();
@@ -130,6 +126,7 @@ public class SSTableManager {
                     if (curId >= prepareId) {
                         break;
                     }
+                    safeSSTableIterator.remove();
                     deleteSSTable(safeSSTable);
                 }
             } catch (IOException ignored) {
@@ -141,7 +138,6 @@ public class SSTableManager {
     private void deleteSSTable(SafeSSTable safeSSTable) {
         deleteTask = deleteWorker.submit(() -> {
             try {
-                safeSSTables.remove(safeSSTable);
                 safeSSTable.delete(path);
             } catch (IOException ignored) {
                 // Ignored exception
