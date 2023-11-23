@@ -173,7 +173,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void compact() throws IOException {
-        if (isClosed.get() || !(taskCompact == null || taskCompact.isDone())) {
+        if (!(taskCompact == null || taskCompact.isDone())) {
             return;
         }
         taskCompact = executorService.submit(() -> {
@@ -193,7 +193,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private synchronized void autoFlush() throws IOException {
         //  State tmpState = getStateUnderWriteLock();
 
-        if (isClosed.get() || !(flushTask == null || flushTask.isDone()) || memoryStorage.isEmpty()) {
+        if (!(flushTask == null || flushTask.isDone()) || memoryStorage.isEmpty()) {
             return;
         }
         lock.writeLock().lock();
