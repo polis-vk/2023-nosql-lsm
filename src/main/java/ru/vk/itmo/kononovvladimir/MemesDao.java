@@ -10,8 +10,18 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
-import java.util.concurrent.*;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
+import java.util.Collections;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -28,12 +38,12 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
 
-    private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private final ExecutorService executorService
+            = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
     private Future<?> taskCompact;
 
     private Future<?> flushTask;
-
 
     public MemesDao(Config config) throws IOException {
         this.path = config.basePath().resolve("data");
@@ -44,7 +54,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.state = new State(
                 new ConcurrentSkipListMap<>(comparator),
                 new ConcurrentSkipListMap<>(comparator),
-                new DiskStorage(DiskStorage.loadOrRecover(path, arena))
+                new DiskStorage(StorageUtils.loadOrRecover(path, arena))
         );
     }
 
@@ -65,7 +75,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
         return Byte.compare(b1, b2);
     }
-
 
     private State stateReadLock() {
         State tmpState;
@@ -90,7 +99,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         return tmpState;
     }
-
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
@@ -168,7 +176,8 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return entry;
         }
 
-        Iterator<Entry<MemorySegment>> iterator = tmpState.diskStorage.range(List.of(Collections.emptyIterator()), key, null);
+        Iterator<Entry<MemorySegment>> iterator
+                = tmpState.diskStorage.range(List.of(Collections.emptyIterator()), key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -179,7 +188,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
         return null;
     }
-
 
     @Override
     public synchronized void compact() throws IOException {
@@ -233,8 +241,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 stateLock.writeLock().unlock();
             }
         });
-
-
     }
 
     @Override
