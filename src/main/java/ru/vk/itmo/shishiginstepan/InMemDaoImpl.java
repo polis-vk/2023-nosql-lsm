@@ -42,7 +42,6 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     };
 
 
-
     private final AtomicLong memStorageSize = new AtomicLong(0);
 
     private final long memStorageLimit;
@@ -88,15 +87,16 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             memIterator = this.memStorage.get().values().iterator();
             tempIterator = this.tempStorage.get().values().iterator();
         } else if (to == null) {
-            memIterator = this.memStorage.get().tailMap(from).sequencedValues().iterator();
+            memIterator = this.memStorage.get().tailMap(from).values().iterator();
             tempIterator = this.tempStorage.get().tailMap(from).sequencedValues().iterator();
         } else if (from == null) {
-            memIterator = this.memStorage.get().headMap(to).sequencedValues().iterator();
-            tempIterator = this.tempStorage.get().headMap(to).sequencedValues().iterator();
+            memIterator = this.memStorage.get().headMap(to).values().iterator();
+            tempIterator = this.tempStorage.get().headMap(to).values().iterator();
         } else {
-            memIterator = this.memStorage.get().subMap(from, to).sequencedValues().iterator();
-            tempIterator = this.tempStorage.get().subMap(from, to).sequencedValues().iterator();
+            memIterator = this.memStorage.get().subMap(from, to).values().iterator();
+            tempIterator = this.tempStorage.get().subMap(from, to).values().iterator();
         }
+
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
         iterators.add(memIterator);
         iterators.add(tempIterator);
@@ -123,13 +123,13 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
+        this.memStorage.get().put(entry.key(), entry);
         this.memStorageSize.updateAndGet(
                 (size) -> size + (entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()))
         );
         if (this.memStorageSize.get() >= this.memStorageLimit) {
             flush();
         }
-        this.memStorage.get().put(entry.key(), entry);
     }
 
     @Override
@@ -149,7 +149,6 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                         this.memStorage.set(new ConcurrentSkipListMap<>(keyComparator));
                         this.memStorageSize.set(0);
                         this.persistentStorage.store(this.tempStorage.get().values());
-                        this.tempStorage.get().clear();
                     }
                 } finally {
                     flushLock.unlock();
