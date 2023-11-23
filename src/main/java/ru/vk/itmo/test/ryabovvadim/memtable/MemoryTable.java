@@ -35,7 +35,7 @@ public class MemoryTable {
     private final SSTableManager ssTableManager;
     private final long flushThresholdBytes;
     private AtomicLong usedSpace = new AtomicLong();
-    private AtomicBoolean wasDropped = new AtomicBoolean(true);
+    private AtomicBoolean wasDropped = new AtomicBoolean(false);
     private volatile Future<?> flushFuture = CompletableFuture.completedFuture(null);
 
     public MemoryTable(SSTableManager ssTableManager, long flushThresholdBytes) {
@@ -83,27 +83,30 @@ public class MemoryTable {
 
     public void upsert(Entry<MemorySegment> entry) {
         long newSize = getEntrySize(entry);
+        long prevSize = 0;
         ChangeableEntryWithLock<MemorySegment> prev = (ChangeableEntryWithLock<MemorySegment>) memTable.get()
                 .putIfAbsent(entry.key(), new ChangeableEntryWithLock<>(entry));
 
         if (prev != null) {
             prev.lock();
             try {
-                long prevSize = getEntrySize(prev);
+                prevSize = getEntrySize(prev);
                 prev.setValue(entry.value());
-                usedSpace.addAndGet(newSize - prevSize);
             } finally {
                 prev.unlock();
             }
-        } else {
-            usedSpace.addAndGet(getEntrySize(entry));
         }
 
-        if (usedSpace.get() > flushThresholdBytes && wasDropped.compareAndSet(true, false)) {
-            if (!flushFuture.isDone()) {
+        if (usedSpace.addAndGet(newSize - prevSize) < flushThresholdBytes) {
+            return;
+        }
+
+        if (wasDropped.compareAndSet(true, false)) {
+            if (!flushFuture.isDone() && usedSpace.get() >= flushThresholdBytes) {
                 throw new MemoryTableOutOfMemoryException();
+            } else {
+                flush(false);
             }
-            flush(false);
         }
     }
 
