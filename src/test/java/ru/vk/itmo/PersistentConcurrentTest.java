@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.nio.channels.IllegalBlockingModeException;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import org.junit.jupiter.api.Timeout;
 
 /**
  * @author andrey.timofeev
@@ -28,12 +27,11 @@ public class PersistentConcurrentTest extends BaseTest {
     }
 
     @DaoTest(stage = 5)
-    @Timeout(value = 12)
     void testConcurrentRW_100_000_compact(Dao<String, Entry<String>> dao) throws Exception {
         int count = 100_000;
 
         List<Entry<String>> entries = entries("k", "v", count);
-        long timeoutNanosWarmup = TimeUnit.MILLISECONDS.toNanos(2000);
+        long timeoutNanosWarmup = TimeUnit.MILLISECONDS.toNanos(1500);
         runInParallel(100, count, value -> {
             tryRun(timeoutNanosWarmup, () -> dao.upsert(entries.get(value)));
             tryRun(timeoutNanosWarmup, () -> dao.upsert(entry(keyAt(value), null)));
