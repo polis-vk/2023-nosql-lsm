@@ -78,7 +78,7 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.basePath = Paths.get("./");
         this.persistentStorage = new PersistentStorage(this.basePath);
         this.memStorageLimit = Runtime.getRuntime().freeMemory();
-        this.executor = Executors.newFixedThreadPool(16);
+        this.executor = Executors.newFixedThreadPool(8);
     }
 
     @Override
@@ -141,8 +141,8 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.persistentStorage.close();
     }
 
+    Future<?> flush_notification;
 
-    private Future<Integer> flush_notification;
     @Override
     public void flush() {
         flush_notification = executor.submit(() -> {
@@ -160,7 +160,6 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             } else {
                 throw new MemStorageOverflowException();
             }
-            return 1;
         });
     }
 
@@ -173,10 +172,10 @@ public class InMemDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 if (flush_notification != null) {
                     flush_notification.get();
                 }
-            } catch (InterruptedException | ExecutionException ignored) {
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
             }
             persistentStorage.compact(id);
         });
-
     }
 }
