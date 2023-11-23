@@ -230,13 +230,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 throw new IllegalStateException("Can not flush", e);
             }
         });
-
-        memoryLock.writeLock().lock();
-        try {
-            this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), state.diskStorage);
-        } finally {
-            memoryLock.writeLock().unlock();
-        }
     }
 
     @Override
