@@ -50,35 +50,6 @@ public class DiskStorage {
         mapSSTableAfterFlush(storagePath, DATA_FILE_AFTER_COMPACTION, arena);
     }
 
-    public Entry<MemorySegment> getFromDisk(MemorySegment key) {
-        for (int i = segmentList.size() - 1; i >= 0; i--) {
-            MemorySegment page = segmentList.get(i);
-
-            long recordIndexFrom = key == null ? 0 : MemorySegmentUtils.normalize(MemorySegmentUtils.indexOf(page, key));
-
-            MemorySegment foundKey = MemorySegmentUtils.slice(
-                    page,
-                    MemorySegmentUtils.startOfKey(page, recordIndexFrom),
-                    MemorySegmentUtils.endOfKey(page, recordIndexFrom)
-            );
-
-            if (MemorySegmentUtils.isSameKey(key, foundKey)) {
-                long startOfValue = MemorySegmentUtils.startOfValue(page, recordIndexFrom);
-                MemorySegment value = startOfValue < 0 ? null : MemorySegmentUtils.slice(
-                        page,
-                        startOfValue,
-                        MemorySegmentUtils.endOfValue(page, recordIndexFrom, MemorySegmentUtils.recordsCount(page))
-                );
-                if (value == null) {
-                    return null;
-                } else {
-                    return new BaseEntry<>(key, value);
-                }
-            }
-        }
-        return null;
-    }
-
     public Iterator<Entry<MemorySegment>> range(
             StorageState storageState,
             MemorySegment from,
