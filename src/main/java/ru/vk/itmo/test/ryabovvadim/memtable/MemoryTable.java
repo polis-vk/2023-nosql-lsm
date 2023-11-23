@@ -82,6 +82,7 @@ public class MemoryTable {
     }
 
     public void upsert(Entry<MemorySegment> entry) {
+        long newSize = getEntrySize(entry);
         ChangeableEntryWithLock<MemorySegment> prev = (ChangeableEntryWithLock<MemorySegment>) memTable.get()
                 .putIfAbsent(entry.key(), new ChangeableEntryWithLock<>(entry));
 
@@ -89,7 +90,6 @@ public class MemoryTable {
             prev.lock();
             try {
                 long prevSize = getEntrySize(prev);
-                long newSize = getEntrySize(entry);
                 prev.setValue(entry.value());
                 usedSpace.addAndGet(newSize - prevSize);
             } finally {
