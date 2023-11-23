@@ -41,7 +41,7 @@ public class BinarySearchSSTable implements SSTable<MemorySegment, Entry<MemoryS
     BinarySearchSSTable(Path path, Arena arena) {
         this.id = Integer.parseInt(path.getFileName().toString().substring(8));
         tablePath = path;
-        indexPath = Paths.get(path.toAbsolutePath() + "_index");
+        indexPath = Paths.get(path + "_index");
 
         try {
             if (Files.exists(tablePath)) {
