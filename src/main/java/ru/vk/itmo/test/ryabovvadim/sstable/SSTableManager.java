@@ -29,6 +29,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -45,6 +47,7 @@ public class SSTableManager {
     );
     private final ExecutorService compactWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService deleteWorker = Executors.newVirtualThreadPerTaskExecutor();
+    private final Lock lock = new ReentrantLock();
     private Future<?> compactionTask = CompletableFuture.completedFuture(null);
     private Future<?> deleteTask = CompletableFuture.completedFuture(null);
 
@@ -94,15 +97,21 @@ public class SSTableManager {
 
     public long saveEntries(Iterable<Entry<MemorySegment>> entries, Long prepareId) throws IOException {
         long id = prepareId == null ? nextId.getAndIncrement() : prepareId;
-        boolean saved = SSTable.save(path, id, entries, arena);
 
-        if (saved) {
-            safeSSTables.add(new SafeSSTable(new SSTable(path, id, arena)));
-        } else {
-            id = -1;
+        lock.lock();
+        try {
+            boolean saved = SSTable.save(path, id, entries, arena);
+
+            if (saved) {
+                safeSSTables.add(new SafeSSTable(new SSTable(path, id, arena)));
+            } else {
+                id = -1;
+            }
+
+            return id;
+        } finally {
+            lock.unlock();
         }
-
-        return id;
     }
 
     public int size() {
