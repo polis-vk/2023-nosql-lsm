@@ -22,7 +22,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -38,8 +37,7 @@ public class MemoryTable {
     private final SSTableManager ssTableManager;
     private final long flushThresholdBytes;
     private AtomicLong usedSpace = new AtomicLong();
-    private AtomicBoolean wasDropped = new AtomicBoolean(false);
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private AtomicBoolean wasDropped = new AtomicBoolean(true);
     private volatile Future<?> flushFuture = CompletableFuture.completedFuture(null);
 
     public MemoryTable(SSTableManager ssTableManager, long flushThresholdBytes) {
@@ -90,26 +88,11 @@ public class MemoryTable {
 
         long newSize = getEntrySize(entry);
         long prevSize = 0;
-        lock.readLock().lock();
-        try {
-            Entry<MemorySegment> prev = memTable.get().get(entry.key());
-            if (prev == null) {
-                lock.readLock().unlock();
-                lock.writeLock().lock();
-                ChangeableEntryWithLock<MemorySegment> putEntry = new ChangeableEntryWithLock<>(entry);
-                prev = memTable.get().put(entry.key(), putEntry);
-                if (prev != null) {
-                    prevSize = getEntrySize(prev);
-                }
-            } else {
-                prevSize = getValueSize(((ChangeableEntryWithLock<MemorySegment>) prev).getAndSet(entry.value()));
-            }
-        } finally {
-            if (lock.isWriteLockedByCurrentThread()) {
-                lock.writeLock().unlock();
-            } else {
-                lock.readLock().unlock();
-            }
+        Entry<MemorySegment> prev = memTable.get().putIfAbsent(entry.key(), new ChangeableEntryWithLock<>(entry));
+
+        if (prev != null) {
+            prevSize = getValueSize(((ChangeableEntryWithLock<MemorySegment>) prev).getAndSet(entry.value()));
+            newSize = getValueSize(entry.value());
         }
 
         if (usedSpace.addAndGet(newSize - prevSize) < flushThresholdBytes) {
@@ -142,7 +125,7 @@ public class MemoryTable {
     }
 
     public boolean flush(boolean importantFlush) {
-        if (existsSSTableManager() && !importantFlush && memTable.get().isEmpty()) {
+        if (existsSSTableManager() && !importantFlush && (memTable.get().isEmpty() || !flushFuture.isDone())) {
             return false;
         }
 
