@@ -13,7 +13,9 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -23,6 +25,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Path path;
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
+    private final Lock lock = new ReentrantLock();
     private final long flushThresholdBytes;
     private volatile State state;
     private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
@@ -196,14 +199,20 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void flush() throws IOException {
         memoryLock.writeLock().lock();
         try {
-            if (!state.memoryStorage.isEmpty()) {
-                DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
+            lock.lock();
+            try {
+                if (!state.memoryStorage.isEmpty()) {
+                    DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
+                }
+                this.state = new State(
+                        new ConcurrentSkipListMap<>(comparator),
+                        state.flushingMemoryTable,
+                        new DiskStorage(DiskStorage.loadOrRecover(path, arena))
+                );
+            } finally {
+                lock.unlock();
             }
-            this.state = new State(
-                    new ConcurrentSkipListMap<>(comparator),
-                    state.flushingMemoryTable,
-                    new DiskStorage(DiskStorage.loadOrRecover(path, arena))
-            );
+
         } finally {
             memoryLock.writeLock().unlock();
         }
@@ -214,8 +223,13 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             arena.close();
             this.arena = Arena.ofShared();
-            if (!state.memoryStorage.isEmpty()) {
-                DiskStorage.saveNextSSTable(path, state.flushingMemoryTable.values());
+            lock.lock();
+            try {
+                if (!state.memoryStorage.isEmpty()) {
+                    DiskStorage.saveNextSSTable(path, state.flushingMemoryTable.values());
+                }
+            } finally {
+                lock.unlock();
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -259,10 +273,15 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         memoryLock.writeLock().lock();
         try {
-            arena.close();
+            lock.lock();
+            try {
+                arena.close();
 
-            if (!state.memoryStorage.isEmpty()) {
-                DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
+                if (!state.memoryStorage.isEmpty()) {
+                    DiskStorage.saveNextSSTable(path, state.memoryStorage.values());
+                }
+            } finally {
+                lock.unlock();
             }
         } finally {
             memoryLock.writeLock().unlock();
