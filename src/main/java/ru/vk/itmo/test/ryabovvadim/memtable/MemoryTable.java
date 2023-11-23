@@ -8,11 +8,9 @@ import ru.vk.itmo.test.ryabovvadim.utils.IteratorUtils;
 import ru.vk.itmo.test.ryabovvadim.utils.MemorySegmentUtils;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.NavigableMap;
-import java.util.NoSuchElementException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -81,8 +79,8 @@ public class MemoryTable {
         lock.lock();
         try {
             Entry<MemorySegment> oldEntry = memTable.put(entry.key(), entry);
-            long newValueSize = entry.value() == null ? 0 : entry.value().byteSize();
-            long oldValueSize = oldEntry == null || oldEntry.value() == null ? 0 : oldEntry.value().byteSize();
+            long newValueSize = getEntrySize(entry);
+            long oldValueSize = getEntrySize(oldEntry);
 
             if (usedSpace.addAndGet(newValueSize - oldValueSize) < flushThresholdBytes) {
                 return;
@@ -95,6 +93,18 @@ public class MemoryTable {
             throw new MemoryTableOutOfMemoryException();
         }
         flush();
+    }
+
+    private long getEntrySize(Entry<MemorySegment> entry) {
+        if (entry == null) {
+            return 0;
+        }
+        long size = entry.key().byteSize();
+        if (entry.value() != null) {
+            size += entry.value().byteSize();
+        }
+
+        return size;
     }
 
     public void flush() {
