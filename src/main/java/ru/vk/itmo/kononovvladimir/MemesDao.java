@@ -219,7 +219,7 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 state.diskStorage.saveNextSSTable(path, state.flushingMemoryTable.values(), arena);
                 memoryLock.writeLock().lock();
                 try {
-                    this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), new DiskStorage(DiskStorage.loadOrRecover(path, arena)));
+                    this.state = new State(state.memoryStorage, new ConcurrentSkipListMap<>(comparator), state.diskStorage);
                 } finally {
                     memoryLock.writeLock().unlock();
                 }
