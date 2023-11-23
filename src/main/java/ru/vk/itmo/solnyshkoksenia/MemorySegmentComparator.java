@@ -1,11 +1,10 @@
-package ru.vk.itmo.svistukhinandrey;
+package ru.vk.itmo.solnyshkoksenia;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Comparator;
 
 public class MemorySegmentComparator implements Comparator<MemorySegment> {
-
     @Override
     public int compare(MemorySegment o1, MemorySegment o2) {
         long mismatch = o1.mismatch(o2);
@@ -21,6 +20,8 @@ public class MemorySegmentComparator implements Comparator<MemorySegment> {
             return 1;
         }
 
-        return o1.get(ValueLayout.JAVA_BYTE, mismatch) - o2.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b1 = o1.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b2 = o2.get(ValueLayout.JAVA_BYTE, mismatch);
+        return Byte.compare(b1, b2);
     }
 }
