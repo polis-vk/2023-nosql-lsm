@@ -31,7 +31,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         this.ssTableManager = new SSTableManager(config.basePath());
         long flushThresholdBytes = config.flushThresholdBytes();
         if (flushThresholdBytes == 0) {
-            flushThresholdBytes = Long.MAX_VALUE;
+            flushThresholdBytes = Long.MAX_VALUE / 2;
         }
         this.memTable = new MemoryTable(ssTableManager, flushThresholdBytes);
     }
@@ -86,11 +86,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         List<FutureIterator<Entry<MemorySegment>>> loadedIterators = ssTableManager.load(from, to);
         List<PriorityIterator<Entry<MemorySegment>>> priorityIterators = new ArrayList<>();
 
-        if (memoryIterator.hasNext()) {
-            priorityIterators.add(new PriorityIterator<>(new LazyIterator<>(memoryIterator), priority++));
-        }
         for (FutureIterator<Entry<MemorySegment>> it : loadedIterators) {
             priorityIterators.add(new PriorityIterator<>(it, priority++));
+        }
+        if (memoryIterator.hasNext()) {
+            priorityIterators.add(new PriorityIterator<>(new LazyIterator<>(memoryIterator), priority++));
         }
 
         GatheringIterator<Entry<MemorySegment>> gatheringIterator = new GatheringIterator<>(
@@ -98,7 +98,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 Comparator.comparing(
                         (PriorityIterator<Entry<MemorySegment>> it) -> it.showNext().key(),
                         MemorySegmentUtils::compareMemorySegments
-                ).thenComparingInt(PriorityIterator::getPriority),
+                ).thenComparing(Comparator.comparingInt((PriorityIterator<?> it) -> it.getPriority()).reversed()),
                 Comparator.comparing(Entry::key, MemorySegmentUtils::compareMemorySegments)
         );
 

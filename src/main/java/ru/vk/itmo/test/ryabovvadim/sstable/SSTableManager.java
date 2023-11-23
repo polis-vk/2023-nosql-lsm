@@ -85,7 +85,7 @@ public class SSTableManager {
             }
         }
 
-        return iterators.reversed();
+        return iterators;
     }
 
     public long saveEntries(Iterable<Entry<MemorySegment>> entries) throws IOException {
@@ -166,10 +166,10 @@ public class SSTableManager {
     private FutureIterator<Entry<MemorySegment>> loadUntil(long toId) {
         List<FutureIterator<Entry<MemorySegment>>> loadedIterators = load(null, null, toId);
 
-        int priority = 0;
+        int priority = loadedIterators.size();
         List<PriorityIterator<Entry<MemorySegment>>> priorityIterators = new ArrayList<>();
         for (FutureIterator<Entry<MemorySegment>> it : loadedIterators) {
-            priorityIterators.add(new PriorityIterator<>(it, priority++));
+            priorityIterators.add(new PriorityIterator<>(it, priority--));
         }
 
         GatheringIterator<Entry<MemorySegment>> gatheringIterator = new GatheringIterator<>(
