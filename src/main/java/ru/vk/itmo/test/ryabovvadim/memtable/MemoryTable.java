@@ -91,13 +91,8 @@ public class MemoryTable {
                 .putIfAbsent(entry.key(), new ChangeableEntryWithLock<>(entry));
 
         if (prev != null) {
-            prev.lock();
-            try {
-                prevSize = getEntrySize(prev);
-                prev.setValue(entry.value());
-            } finally {
-                prev.unlock();
-            }
+            prevSize = getEntrySize(prev);
+            prev.setValue(entry.value());
         }
 
         if (usedSpace.addAndGet(newSize - prevSize) < flushThresholdBytes) {

@@ -2,24 +2,16 @@ package ru.vk.itmo.test.ryabovvadim.memtable;
 
 import ru.vk.itmo.Entry;
 
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class ChangeableEntryWithLock<T> implements Entry<T> {
-    private final ReentrantLock lock = new ReentrantLock();
     private final T key;
-    private T value;
+    private AtomicReference<T> value;
 
     public ChangeableEntryWithLock(Entry<T> entry) {
         this.key = entry.key();
-        this.value = entry.value();
-    }
-
-    public void lock() {
-        lock.lock();
-    }
-
-    public void unlock() {
-        lock.unlock();
+        this.value = new AtomicReference<>(entry.value());
     }
 
     @Override
@@ -29,10 +21,10 @@ public class ChangeableEntryWithLock<T> implements Entry<T> {
 
     @Override
     public T value() {
-        return value;
+        return value.get();
     }
 
     public void setValue(T value) {
-        this.value = value;
+        this.value.set(value);
     }
 }
