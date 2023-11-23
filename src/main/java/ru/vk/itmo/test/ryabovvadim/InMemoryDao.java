@@ -78,7 +78,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             MemorySegment to
     ) {
         Iterator<Entry<MemorySegment>> memoryIterator = memTable.get(from, to);
-        if (!existsSSTableManager()) {
+        if (!existsSSTableManager() || ssTableManager.size() == 0) {
             return new EntrySkipNullsIterator(memoryIterator);
         }
 

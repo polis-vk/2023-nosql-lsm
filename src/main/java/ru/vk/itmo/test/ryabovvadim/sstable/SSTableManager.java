@@ -110,6 +110,10 @@ public class SSTableManager {
         return id;
     }
 
+    public int size() {
+        return safeSSTables.size();
+    }
+
     public void compact() {
         if (!compationTask.isDone() || safeSSTables.size() <= 1) {
             return;
