@@ -144,9 +144,6 @@ public class MemesDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             memoryLock.readLock().unlock();
         }
         if (flushThresholdBytes < tmpState.memoryStorageSizeInBytes.get()) {
-            if (taskIsWorking(flushTask)) {
-                throw new IllegalStateException("Flush не поспевает за предыдущим");
-            }
             try {
                 autoFlush();
             } catch (IOException e) {
