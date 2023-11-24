@@ -1,167 +1,116 @@
 package ru.vk.itmo.bandurinvladislav;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.Map;
-import java.util.concurrent.ConcurrentNavigableMap;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private static final Comparator<MemorySegment> MEMORY_SEGMENT_COMPARATOR = (m1, m2) -> {
-        long mismatch = m1.mismatch(m2);
-        if (mismatch == m2.byteSize()) {
-            return 1;
-        } else if (mismatch == m1.byteSize()) {
-            return -1;
-        } else if (mismatch == -1) {
+
+    private final Comparator<MemorySegment> comparator = PersistentDao::compare;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private final Arena arena;
+    private final DiskStorage diskStorage;
+    private final Path path;
+
+    public PersistentDao(Config config) throws IOException {
+        this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
+
+        arena = Arena.ofShared();
+
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
+    }
+
+    static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
+        long mismatch = memorySegment1.mismatch(memorySegment2);
+        if (mismatch == -1) {
             return 0;
-        } else {
-            return m1.get(ValueLayout.JAVA_BYTE, mismatch) - m2.get(ValueLayout.JAVA_BYTE, mismatch);
-        }
-    };
-    private static final String STORAGE_NAME = "persistentStorage.txt";
-
-    private final Arena daoArena = Arena.ofConfined();
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> inMemoryStorage =
-            new ConcurrentSkipListMap<>(MEMORY_SEGMENT_COMPARATOR);
-    private final Path persistentStorage;
-    private final MemorySegment fileSegment;
-
-    public PersistentDao(Config config) {
-        persistentStorage = config.basePath().resolve(STORAGE_NAME);
-        try (FileChannel fileChannel = FileChannel.open(persistentStorage,
-                StandardOpenOption.READ)) {
-            fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    0,
-                    fileChannel.size(),
-                    daoArena
-            );
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
         }
 
+        if (mismatch == memorySegment1.byteSize()) {
+            return -1;
+        }
+
+        if (mismatch == memorySegment2.byteSize()) {
+            return 1;
+        }
+        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
+        return Byte.compare(b1, b2);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return getEntryIterator(from, to);
+        return diskStorage.range(getInMemory(from, to), from, to);
+    }
+
+    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return storage.values().iterator();
+        }
+        if (from == null) {
+            return storage.headMap(to).values().iterator();
+        }
+        if (to == null) {
+            return storage.tailMap(from).values().iterator();
+        }
+        return storage.subMap(from, to).values().iterator();
+    }
+
+    @Override
+    public void upsert(Entry<MemorySegment> entry) {
+        storage.put(entry.key(), entry);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> memorySegmentEntry = inMemoryStorage.get(key);
-        if (memorySegmentEntry != null) {
-            return memorySegmentEntry;
+        Entry<MemorySegment> entry = storage.get(key);
+        if (entry != null) {
+            if (entry.value() == null) {
+                return null;
+            }
+            return entry;
         }
-        if (!Files.exists(persistentStorage)) {
+
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+
+        if (!iterator.hasNext()) {
             return null;
         }
-
-        long offset = 0;
-        long entryCount = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-        offset += Long.BYTES;
-
-        for (long i = 0; i < entryCount; i++) {
-            long keySize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            if (keySize != key.byteSize()) {
-                offset += Long.BYTES + keySize;
-                offset += Long.BYTES + fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                continue;
-            }
-
-            offset += Long.BYTES;
-            MemorySegment entryKey = fileSegment.asSlice(offset, keySize);
-            offset += keySize;
-
-            long valueSize = fileSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
-            if (key.mismatch(entryKey) == -1) {
-                MemorySegment entryValue = fileSegment.asSlice(offset, valueSize);
-                return new BaseEntry<>(entryKey, entryValue);
-            } else {
-                offset += valueSize;
-            }
+        Entry<MemorySegment> next = iterator.next();
+        if (compare(next.key(), key) == 0) {
+            return next;
         }
         return null;
     }
 
     @Override
-    public void upsert(Entry<MemorySegment> entry) {
-        inMemoryStorage.put(entry.key(), entry);
-    }
-
-    private Iterator<Entry<MemorySegment>> getEntryIterator(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) {
-            return inMemoryStorage.values().iterator();
-        } else if (from == null) {
-            return inMemoryStorage.headMap(to, false).values().iterator();
-        } else if (to == null) {
-            return inMemoryStorage.tailMap(from, true).values().iterator();
-        } else {
-            return inMemoryStorage.subMap(from, true, to, false).values().iterator();
-        }
-    }
-
-    private void writeMemorySegment(MemorySegment fileSegment, MemorySegment data, long offset) {
-        fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, data.byteSize());
-        MemorySegment.copy(data, 0, fileSegment, offset + Long.BYTES, data.byteSize());
-    }
-
-    @Override
-    public void flush() throws IOException {
-        long writeOffset = 0;
-        try (FileChannel fileChannel = FileChannel.open(persistentStorage,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.READ,
-                StandardOpenOption.TRUNCATE_EXISTING);
-             Arena arena = Arena.ofConfined()) {
-
-            long fileSegmentSize = Long.BYTES;
-            for (Map.Entry<MemorySegment, Entry<MemorySegment>> e : inMemoryStorage.entrySet()) {
-                fileSegmentSize += e.getKey().byteSize() + e.getValue().value().byteSize() + 2 * Long.BYTES;
-            }
-
-            MemorySegment fileWriteSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    fileSegmentSize,
-                    arena
-            );
-
-            fileWriteSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, writeOffset, inMemoryStorage.size());
-            writeOffset += 8;
-
-            for (Map.Entry<MemorySegment, Entry<MemorySegment>> e : inMemoryStorage.entrySet()) {
-                writeMemorySegment(fileWriteSegment, e.getKey(), writeOffset);
-                writeOffset += Long.BYTES + e.getKey().byteSize();
-                writeMemorySegment(fileWriteSegment, e.getValue().value(), writeOffset);
-                writeOffset += Long.BYTES + e.getValue().value().byteSize();
-            }
-        }
-    }
-
-    @Override
     public void close() throws IOException {
-        if (daoArena.scope().isAlive()) {
-            daoArena.close();
+        if (!arena.scope().isAlive()) {
+            return;
         }
 
-        flush();
+        arena.close();
+
+        if (!storage.isEmpty()) {
+            DiskStorage.save(path, storage.values());
+        }
+    }
+
+    @Override
+    public void compact() throws IOException {
+        diskStorage.compact(path, get(null, null));
     }
 }
