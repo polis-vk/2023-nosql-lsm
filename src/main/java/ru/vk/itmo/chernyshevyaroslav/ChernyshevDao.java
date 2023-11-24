@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static final String DATA_PATH = "data";
+    private static final String DAO_CLOSED_MESSAGE = "Dao is closed";
     private final Arena arena;
     private final DiskStorage diskStorage;
     private final Path path;
@@ -38,23 +39,22 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private static class Memory {
 
-        Memory() {
+        private long size;
 
-        }
-
-        private long size = 0;
-
-        private int isReserveStorage = 0;
+        private int isReserveStorage;
         private final NavigableMap<MemorySegment, Entry<MemorySegment>> storageFirst =
                 new ConcurrentSkipListMap<>(ChernyshevDao::compare);
         private final NavigableMap<MemorySegment, Entry<MemorySegment>> storageSecond =
                 new ConcurrentSkipListMap<>(ChernyshevDao::compare);
 
+        private Memory() {
+
+        }
+
         private NavigableMap<MemorySegment, Entry<MemorySegment>> getActualMemory() {
             if (isReserveStorage == 0) {
                 return this.storageFirst;
-            }
-            else {
+            } else {
                 return this.storageSecond;
             }
         }
@@ -62,8 +62,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         private NavigableMap<MemorySegment, Entry<MemorySegment>> getReserveMemory() {
             if (isReserveStorage == 1) {
                 return this.storageFirst;
-            }
-            else {
+            } else {
                 return this.storageSecond;
             }
         }
@@ -108,14 +107,14 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         if (isClosed.get()) {
-            throw new RuntimeException("Dao is closed");
+            throw new RuntimeException(DAO_CLOSED_MESSAGE);
         }
         return diskStorage.range(getInActualMemory(from, to), getInReserveMemory(from, to), from, to);
     }
 
     private Iterator<Entry<MemorySegment>> getInActualMemory(MemorySegment from, MemorySegment to) {
         if (isClosed.get()) {
-            throw new RuntimeException("Dao is closed");
+            throw new RuntimeException(DAO_CLOSED_MESSAGE);
         }
         if (from == null && to == null) {
             return memory.getActualMemory().values().iterator();
@@ -131,7 +130,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private Iterator<Entry<MemorySegment>> getInReserveMemory(MemorySegment from, MemorySegment to) {
         if (isClosed.get()) {
-            throw new RuntimeException("Dao is closed");
+            throw new RuntimeException(DAO_CLOSED_MESSAGE);
         }
         if (from == null && to == null) {
             return memory.getReserveMemory().values().iterator();
@@ -148,16 +147,10 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
         if (isClosed.get()) {
-            throw new RuntimeException("Dao is closed");
+            throw new RuntimeException(DAO_CLOSED_MESSAGE);
         }
         Entry<MemorySegment> entry = memory.getActualMemory().get(key);
-        if (entry != null) {
-            if (entry.value() == null) {
-                return null;
-            }
-            return entry;
-        }
-        else {
+        if (entry == null) {
             entry = memory.getReserveMemory().get(key);
             if (entry != null) {
                 if (entry.value() == null) {
@@ -165,6 +158,11 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
                 return entry;
             }
+        } else {
+            if (entry.value() == null) {
+                return null;
+            }
+            return entry;
         }
 
         Iterator<Entry<MemorySegment>> iterator =
@@ -196,10 +194,11 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         executor.shutdown();
         for (Future<?> result : backgroundResults) {
-            if (!result.isDone()) {
+            if (result != null && !result.isDone()) {
                 try {
                     result.get();
                 } catch (ExecutionException | InterruptedException e) {
+                    Thread.currentThread().interrupt();
                     throw new RuntimeException(e);
                 }
             }
@@ -212,7 +211,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         if (isClosed.get()) {
-            throw new RuntimeException("Dao is closed");
+            throw new RuntimeException(DAO_CLOSED_MESSAGE);
         }
         if (!memory.getActualMemory().isEmpty() && !isBackgroundFlushingInProgress.get()) {
             isBackgroundFlushingInProgress.set(true);
@@ -226,7 +225,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public void flushReserve() throws IOException {
         if (isClosed.get()) {
-            throw new RuntimeException("Dao is closed");
+            throw new RuntimeException();
         }
         if (!memory.getReserveMemory().isEmpty()) {
             backgroundResults.add(executor.submit(() -> {
@@ -240,7 +239,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void compact() throws IOException {
         if (isClosed.get()) {
-            throw new RuntimeException("Dao is closed");
+            throw new RuntimeException(DAO_CLOSED_MESSAGE);
         }
         if (all().hasNext()) {
             backgroundResults.add(executor.submit(() -> FileUtils.compact(path, this::all)));
@@ -250,7 +249,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void upsert(Entry<MemorySegment> entry) {
         if (isClosed.get()) {
-            throw new RuntimeException("Dao is closed");
+            throw new RuntimeException(DAO_CLOSED_MESSAGE);
         }
         if (entry == null || entry.key() == null) {
             throw new RuntimeException("entry/key is null");
@@ -270,8 +269,7 @@ public class ChernyshevDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                                 throw new RuntimeException(e);
                     }
                 }
-            }
-            else {
+            } else {
                 memory.size += entrySize;
             }
         }
