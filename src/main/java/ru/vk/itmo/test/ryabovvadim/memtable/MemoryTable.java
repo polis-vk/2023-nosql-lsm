@@ -37,7 +37,7 @@ public class MemoryTable {
     private final long flushThresholdBytes;
     private AtomicLong usedSpace = new AtomicLong();
     private AtomicBoolean wasDropped = new AtomicBoolean(true);
-    private volatile Future<?> flushFuture = CompletableFuture.completedFuture(null);
+    private Future<?> flushFuture = CompletableFuture.completedFuture(null);
 
     public MemoryTable(SSTableManager ssTableManager, long flushThresholdBytes) {
         this.ssTableManager = ssTableManager;
@@ -125,7 +125,7 @@ public class MemoryTable {
     }
 
     public boolean flush(boolean importantFlush) {
-        if (existsSSTableManager() && !importantFlush && (memTable.get().isEmpty() || !flushFuture.isDone())) {
+        if (!importantFlush && (memTable.get().isEmpty() || !flushFuture.isDone())) {
             return false;
         }
 
@@ -162,10 +162,6 @@ public class MemoryTable {
         } finally {
             flushWorker.close();
         }
-    }
-
-    private boolean existsSSTableManager() {
-        return ssTableManager != null;
     }
 
     private static ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> createMap() {
