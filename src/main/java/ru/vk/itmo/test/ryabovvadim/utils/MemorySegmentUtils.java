@@ -50,6 +50,17 @@ public final class MemorySegmentUtils {
         );
     }
 
+    public static void copyByteArray(byte[] src, MemorySegment dst, long offsetDst) {
+        MemorySegment.copy(
+                src,
+                0,
+                dst,
+                JAVA_BYTE,
+                offsetDst,
+                src.length
+        );
+    }
+
     private MemorySegmentUtils() {
     }
 }
