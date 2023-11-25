@@ -17,10 +17,10 @@ import java.util.concurrent.ConcurrentSkipListMap;
 
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
     private final Arena arena;
     private final Path path;
     private final DiskStorage diskStorage;
+    private ConcurrentNavigableMap<MemorySegment, Entry<MemorySegment>> storage;
 
     public PersistentDao(Config config) throws IOException {
         path = config.basePath().resolve("data");
@@ -102,6 +102,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void compact() throws IOException {
         if (!storage.isEmpty()) {
             flush();
+            storage = new ConcurrentSkipListMap<>(PersistentDao::compare);
         }
         diskStorage.compact(path);
     }
