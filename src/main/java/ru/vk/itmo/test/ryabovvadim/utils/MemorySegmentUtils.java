@@ -8,8 +8,8 @@ public final class MemorySegmentUtils {
 
     public static int compareMemorySegments(MemorySegment left, MemorySegment right) {
         return compareMemorySegments(
-                left, 0, left.byteSize(),
-                right, 0, right.byteSize()
+                left, 0, left == null ? 0 : left.byteSize(),
+                right, 0, right == null ? 0 : right.byteSize()
         );
     }
 
@@ -47,6 +47,17 @@ public final class MemorySegmentUtils {
         return Byte.compareUnsigned(
                 left.get(JAVA_BYTE, leftFromOffset + mismatch),
                 right.get(JAVA_BYTE, rightFromOffset + mismatch)
+        );
+    }
+
+    public static void copyByteArray(byte[] src, MemorySegment dst, long offsetDst) {
+        MemorySegment.copy(
+                src,
+                0,
+                dst,
+                JAVA_BYTE,
+                offsetDst,
+                src.length
         );
     }
 
