@@ -11,7 +11,9 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 /**
  * Persistent SSTable in data file and index file.
@@ -111,7 +113,47 @@ public final class SSTable implements ReadableTable {
     public Iterator<Entry<MemorySegment>> get(
             final MemorySegment from,
             final MemorySegment to) {
-        throw new UnsupportedOperationException("Not implemented (yet)!");
+        assert MemorySegmentComparator.INSTANCE.compare(from, to) < 0;
+
+        // Slice of SSTable in absolute offsets
+        final long fromOffset;
+        final long toOffset;
+
+        // Left offset bound
+        if (from == null) {
+            // Start from the beginning
+            fromOffset = 0L;
+        } else {
+            final long fromEntry = entryBinarySearch(from);
+            if (fromEntry >= 0L) {
+                fromOffset = entryOffset(fromEntry);
+            } else if (-fromEntry - 1 == size) {
+                // No relevant data
+                return Collections.emptyIterator();
+            } else {
+                // Greater but existing key found
+                fromOffset = entryOffset(-fromEntry - 1);
+            }
+        }
+
+        // Right offset bound
+        if (to == null) {
+            // Up to the end
+            toOffset = data.byteSize();
+        } else {
+            final long toEntry = entryBinarySearch(to);
+            if (toEntry >= 0L) {
+                toOffset = entryOffset(toEntry);
+            } else if (-toEntry - 1 == size) {
+                // Up to the end
+                toOffset = data.byteSize();
+            } else {
+                // Greater but existing key found
+                toOffset = entryOffset(-toEntry - 1);
+            }
+        }
+
+        return new SliceIterator(fromOffset, toOffset);
     }
 
     @Override
@@ -121,11 +163,9 @@ public final class SSTable implements ReadableTable {
             return null;
         }
 
-        // Extract key
-        long offset = entryOffset(entry);
-        final long keyLength = getLength(offset);
         // Skip key (will reuse the argument)
-        offset += Long.BYTES + keyLength;
+        long offset = entryOffset(entry);
+        offset += Long.BYTES + key.byteSize();
         // Extract value length
         final long valueLength = getLength(offset);
         if (valueLength == SSTables.TOMBSTONE_VALUE_LENGTH) {
@@ -136,6 +176,52 @@ public final class SSTable implements ReadableTable {
             offset += Long.BYTES;
             final MemorySegment value = data.asSlice(offset, valueLength);
             return new BaseEntry<>(key, value);
+        }
+    }
+
+    private final class SliceIterator implements Iterator<Entry<MemorySegment>> {
+        private long offset;
+        private final long toOffset;
+
+        private SliceIterator(
+                final long offset,
+                final long toOffset) {
+            this.offset = offset;
+            this.toOffset = toOffset;
+        }
+
+        @Override
+        public boolean hasNext() {
+            return offset < toOffset;
+        }
+
+        @Override
+        public Entry<MemorySegment> next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+
+            // Read key length
+            final long keyLength = getLength(offset);
+            offset += Long.BYTES;
+
+            // Read key
+            final MemorySegment key = data.asSlice(offset, keyLength);
+            offset += keyLength;
+
+            // Read value length
+            final long valueLength = getLength(offset);
+            offset += Long.BYTES;
+
+            // Read value
+            if (valueLength == SSTables.TOMBSTONE_VALUE_LENGTH) {
+                // Tombstone encountered
+                return new BaseEntry<>(key, null);
+            } else {
+                final MemorySegment value = data.asSlice(offset, valueLength);
+                offset += valueLength;
+                return new BaseEntry<>(key, value);
+            }
         }
     }
 }
