@@ -46,4 +46,44 @@ public final class MemorySegmentComparator implements Comparator<MemorySegment> 
                         ValueLayout.OfByte.JAVA_BYTE,
                         mismatch));
     }
+
+    public static int compare(
+            final MemorySegment srcSegment,
+            final long srcFromOffset,
+            final long srcLength,
+            final MemorySegment dstSegment,
+            final long dstFromOffset,
+            final long dstLength) {
+        final long mismatch =
+                MemorySegment.mismatch(
+                        srcSegment,
+                        srcFromOffset,
+                        srcFromOffset + srcLength,
+                        dstSegment,
+                        dstFromOffset,
+                        dstFromOffset + dstLength);
+        if (mismatch == -1L) {
+            // No mismatch
+            return 0;
+        }
+
+        if (mismatch == srcLength) {
+            // left is prefix of right, so left is smaller
+            return -1;
+        }
+
+        if (mismatch == dstLength) {
+            // right is prefix of left, so left is greater
+            return 1;
+        }
+
+        // Compare mismatched bytes as unsigned
+        return Byte.compareUnsigned(
+                srcSegment.getAtIndex(
+                        ValueLayout.OfByte.JAVA_BYTE,
+                        srcFromOffset + mismatch),
+                dstSegment.getAtIndex(
+                        ValueLayout.OfByte.JAVA_BYTE,
+                        dstFromOffset + mismatch));
+    }
 }

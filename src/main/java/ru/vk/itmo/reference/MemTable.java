@@ -12,7 +12,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
  *
  * @author incubos
  */
-public class MemTable implements ReadableTable, WriteableTable {
+public final class MemTable implements ReadableTable, WriteableTable {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(
                     MemorySegmentComparator.INSTANCE);
