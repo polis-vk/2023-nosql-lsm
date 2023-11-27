@@ -24,6 +24,7 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
         if (!iterator.hasNext()) {
             return null;
         }
+
         E next = iterator.next();
         if (next.key().equals(key)) {
             return next;
@@ -63,11 +64,18 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
      */
     void upsert(E entry);
 
-    /*
+    /**
      * Persists data (no-op by default).
      */
     default void flush() throws IOException {
-        //by default do nothing
+        // Do nothing
+    }
+
+    /**
+     * Compacts data (no-op by default).
+     */
+    default void compact() throws IOException {
+        // Do nothing
     }
 
     /*
