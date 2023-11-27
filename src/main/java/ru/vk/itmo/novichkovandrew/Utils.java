@@ -12,15 +12,14 @@ import java.nio.file.Path;
 import java.util.stream.Stream;
 
 public final class Utils {
+    public static final MemorySegment LEFT = MemorySegment.NULL;
+    public static final MemorySegment RIGHT = MemorySegment.NULL;
+
     /**
      * No instances.
      */
     private Utils() {
     }
-
-
-    public static final MemorySegment LEFT = MemorySegment.NULL;
-    public static final MemorySegment RIGHT = MemorySegment.NULL;
 
     /**
      * Executes amount of files by path.

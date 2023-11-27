@@ -17,7 +17,6 @@ public abstract class AbstractTable implements Table<MemorySegment> {
         if (first == Utils.RIGHT || second == Utils.LEFT) {
             return 1;
         }
-        //if (first == null || second == null) return -1; //TODO fix null. ?
         long missIndex = first.mismatch(second);
         if (missIndex == first.byteSize()) {
             return -1;
