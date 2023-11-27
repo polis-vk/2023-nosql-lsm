@@ -18,6 +18,10 @@ public final class Utils {
     private Utils() {
     }
 
+
+    public static final MemorySegment LEFT = MemorySegment.NULL;
+    public static final MemorySegment RIGHT = MemorySegment.NULL;
+
     /**
      * Executes amount of files by path.
      * Stream does not create an explicit list of files

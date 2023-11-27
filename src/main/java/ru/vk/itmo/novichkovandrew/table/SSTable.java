@@ -33,7 +33,7 @@ public class SSTable extends AbstractTable {
             this.sstChannel = FileChannel.open(path, StandardOpenOption.READ);
             this.size = Math.toIntExact(Utils.readLong(sstChannel, 0L));
             this.sstNumber = sstNumber;
-            this.arena = Arena.ofConfined();
+            this.arena = Arena.ofShared();
         } catch (IOException ex) {
             throw new FileChannelException("Couldn't create FileChannel by path" + path, ex);
         }
@@ -98,7 +98,7 @@ public class SSTable extends AbstractTable {
     }
 
     private MemorySegment copyToArena(long valOffset, long nextOffset) {
-        try (Arena mapArena = Arena.ofConfined()) {
+        try (Arena mapArena = Arena.ofShared()) {
             var mappedMem = sstChannel.map(FileChannel.MapMode.READ_ONLY, valOffset, nextOffset - valOffset, mapArena);
             var nativeMem = arena.allocate(mappedMem.byteSize());
             Utils.copyToSegment(nativeMem, mappedMem, 0);
