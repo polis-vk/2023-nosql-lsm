@@ -1,4 +1,4 @@
-package ru.vk.itmo.svistukhinandrey;
+package ru.vk.itmo.cheshevandrey;
 
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
@@ -10,7 +10,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -20,21 +19,19 @@ import java.util.concurrent.ConcurrentSkipListMap;
 public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Comparator<MemorySegment> comparator = PersistentDao::compare;
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
     private final Arena arena;
     private final DiskStorage diskStorage;
-    private final Path dataPath;
-    private final Path compactTempPath;
+    private final Path path;
+
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
 
     public PersistentDao(Config config) throws IOException {
-        this.dataPath = config.basePath().resolve("data");
-        this.compactTempPath = config.basePath().resolve("compact_temp");
-        Files.createDirectories(dataPath);
-        Files.deleteIfExists(compactTempPath);
+        this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(dataPath, arena));
+        this.diskStorage = new DiskStorage(arena, path);
     }
 
     static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -57,20 +54,20 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return diskStorage.range(getInMemory(from, to), from, to);
+        return diskStorage.range(getInMemory(from, to).iterator(), from, to);
     }
 
-    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
+    private Iterable<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
-            return storage.values().iterator();
+            return storage.values();
         }
         if (from == null) {
-            return storage.headMap(to).values().iterator();
+            return storage.headMap(to).values();
         }
         if (to == null) {
-            return storage.tailMap(from).values().iterator();
+            return storage.tailMap(from).values();
         }
-        return storage.subMap(from, to).values().iterator();
+        return storage.subMap(from, to).values();
     }
 
     @Override
@@ -102,16 +99,13 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void compact() throws IOException {
-        Iterable<Entry<MemorySegment>> compactValues = () -> diskStorage.all(storage.values());
-        if (compactValues.iterator().hasNext()) {
-            Files.createDirectories(compactTempPath);
+        DiskStorage.compact(path, diskStorage, getInMemory(null, null));
+        storage = new ConcurrentSkipListMap<>(comparator);
+    }
 
-            DiskStorage.save(compactTempPath, compactValues);
-            DiskStorage.deleteObsoleteData(dataPath);
-            Files.move(compactTempPath, dataPath, StandardCopyOption.ATOMIC_MOVE);
-
-            storage.clear();
-        }
+    @Override
+    public void flush() throws IOException {
+        DiskStorage.save(path, storage.values(), false);
     }
 
     @Override
@@ -123,7 +117,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena.close();
 
         if (!storage.isEmpty()) {
-            DiskStorage.save(dataPath, storage.values());
+            flush();
         }
     }
 }
