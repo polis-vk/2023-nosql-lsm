@@ -14,7 +14,7 @@ public class SSTableIterable implements Iterable<Entry<MemorySegment>> {
 
     public SSTableIterable(Collection<Entry<MemorySegment>> it, SSTablesController controller,
                            MemorySegment from, MemorySegment to) {
-        memTable = it;
+        this.memTable = it;
         this.controller = controller;
 
         this.from = from;
