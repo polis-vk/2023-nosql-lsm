@@ -8,7 +8,11 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
-import java.nio.file.*;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.OpenOption;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -176,7 +180,6 @@ public class SSTablesController {
         } catch (FileAlreadyExistsException ignored) {
             // it is ok, actually it is normal state
         }
-
 
         try (FileChannel ssTableChannel =
                      FileChannel.open(tmpFile, options);
