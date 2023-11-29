@@ -24,14 +24,10 @@ public class DiskStorage {
     private static final String INDEX_FILE_NAME = "index.idx";
     private static final String INDEX_TMP_FILE_NAME = "index.tmp";
 
-    private final List<MemorySegment> segmentList;
-
-    public DiskStorage(List<MemorySegment> segmentList) {
-        this.segmentList = segmentList;
-    }
-
-    public Iterator<Entry<MemorySegment>> range(
+    public static Iterator<Entry<MemorySegment>> range(
             Iterator<Entry<MemorySegment>> firstIterator,
+            Iterator<Entry<MemorySegment>> secondIterator,
+            List<MemorySegment> segmentList,
             MemorySegment from,
             MemorySegment to) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
@@ -39,6 +35,7 @@ public class DiskStorage {
             iterators.add(iterator(memorySegment, from, to));
         }
         iterators.add(firstIterator);
+        iterators.add(secondIterator);
 
         return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
             @Override
@@ -48,7 +45,7 @@ public class DiskStorage {
         };
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
+    public static MemorySegment save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve(INDEX_TMP_FILE_NAME);
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
@@ -62,7 +59,7 @@ public class DiskStorage {
 
         String newFileName = String.valueOf(existedFiles.size());
 
-        fillSSTable(storagePath.resolve(newFileName), iterable);
+        MemorySegment fileSegment = fillSSTable(storagePath.resolve(newFileName), iterable);
 
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
@@ -78,9 +75,10 @@ public class DiskStorage {
         );
 
         Files.delete(indexTmp);
+        return fileSegment;
     }
 
-    public void compact(Path storagePath, Iterator<Entry<MemorySegment>> mergeIterator) throws IOException {
+    public static MemorySegment compact(Path storagePath, Iterator<Entry<MemorySegment>> mergeIterator) throws IOException {
         Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
 
         if (!Files.exists(indexFile)) {
@@ -95,7 +93,14 @@ public class DiskStorage {
         }
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        fillSSTable(newFilePath, compactedValues);
+        MemorySegment fileSegment = fillSSTable(newFilePath, compactedValues);
+        Files.writeString(
+                indexFile,
+                newFilePath.getFileName().toString(),
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
 
         for (String existedFile : existedFiles) {
             Files.deleteIfExists(storagePath.resolve(existedFile));
@@ -105,7 +110,6 @@ public class DiskStorage {
                 storagePath.resolve("0"),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING);
-        Files.deleteIfExists(newFilePath);
 
         Files.writeString(
                 indexFile,
@@ -114,20 +118,30 @@ public class DiskStorage {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
+
+        Files.deleteIfExists(newFilePath);
+        return fileSegment;
     }
 
-    private static void fillSSTable(Path newFilePath, Iterable<Entry<MemorySegment>> iterable)
+    private static MemorySegment fillSSTable(Path newFilePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         long dataSize = 0;
         long count = 0;
+//        long nonEmptyCount = 0;
         for (Entry<MemorySegment> entry : iterable) {
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
             if (value != null) {
                 dataSize += value.byteSize();
+//                nonEmptyCount++;
             }
             count++;
         }
+
+        if (count == 0) {
+            return null;
+        }
+
         long indexSize = count * 2 * Long.BYTES;
 
         try (
@@ -180,6 +194,7 @@ public class DiskStorage {
                     dataOffset += value.byteSize();
                 }
             }
+            return fileSegment;
         }
     }
 
