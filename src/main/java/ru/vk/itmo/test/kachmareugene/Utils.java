@@ -76,43 +76,6 @@ public final class Utils {
         return value;
     }
 
-    public static void finalizeCompaction(Path storagePath, String SSTablePrefix) throws IOException {
-        Path compactionFile = compactionFile(storagePath);
-        try (Stream<Path> stream = Files.find(storagePath, 1,
-                (path, attrs) -> path.getFileName().toString().startsWith(SSTablePrefix))) {
-            stream.forEach(p -> {
-                try {
-                    Files.delete(p);
-                } catch (IOException e) {
-                    throw new UncheckedIOException(e);
-                }
-            });
-        }
-
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
-
-        Files.deleteIfExists(indexFile);
-        Files.deleteIfExists(indexTmp);
-
-        boolean noData = Files.size(compactionFile) == 0;
-
-        Files.write(
-                indexTmp,
-                noData ? Collections.emptyList() : Collections.singleton(SSTablePrefix + "0"),
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        );
-
-        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
-        if (noData) {
-            Files.delete(compactionFile);
-        } else {
-            Files.move(compactionFile, storagePath.resolve(SSTablePrefix + "0"), StandardCopyOption.ATOMIC_MOVE);
-        }
-    }
-
     private static Path compactionFile(Path storagePath) {
         return storagePath.resolve("compaction");
     }

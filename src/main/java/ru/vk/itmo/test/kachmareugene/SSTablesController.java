@@ -16,9 +16,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.WRITE;
+import static java.nio.file.StandardOpenOption.*;
 import static ru.vk.itmo.test.kachmareugene.Utils.getValueOrNull;
 
 public class SSTablesController {
@@ -28,6 +26,7 @@ public class SSTablesController {
     private static final String SS_TABLE_COMMON_PREF = "ssTable";
     //  index format: (long) keyOffset, (long) keyLen, (long) valueOffset, (long) valueLen
     private static final long ONE_LINE_SIZE = 4 * Long.BYTES;
+    private static final Set<OpenOption> options = Set.of(WRITE, READ, CREATE, TRUNCATE_EXISTING);
     private final Arena arenaForReading = Arena.ofShared();
     private boolean isClosedArena;
     private final Comparator<MemorySegment> segComp;
@@ -168,7 +167,6 @@ public class SSTablesController {
             return;
         }
         String suff = String.valueOf(Utils.getMaxNumberOfFile(ssTablesDir, SS_TABLE_COMMON_PREF) + 1);
-        Set<OpenOption> options = Set.of(WRITE, READ, CREATE);
 
         final Path tmpFile = ssTablesDir.resolve("data.tmp");
         final Path targetFile = ssTablesDir.resolve(SS_TABLE_COMMON_PREF + suff);
@@ -221,9 +219,7 @@ public class SSTablesController {
                 currOffsetSSTable = Utils.dumpSegment(mappedSSTable, getValueOrNull(kv), currOffsetSSTable);
             }
 
-            Files.deleteIfExists(targetFile);
-
-            Files.move(tmpFile, targetFile, StandardCopyOption.ATOMIC_MOVE);
+            Files.move(tmpFile, targetFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         } finally {
             closeArena();
