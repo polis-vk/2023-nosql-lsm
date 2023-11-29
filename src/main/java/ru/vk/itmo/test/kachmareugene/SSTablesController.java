@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -20,10 +21,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 
-import static java.nio.file.StandardOpenOption.CREATE;
-import static java.nio.file.StandardOpenOption.READ;
-import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
-import static java.nio.file.StandardOpenOption.WRITE;
 import static ru.vk.itmo.test.kachmareugene.Utils.getValueOrNull;
 
 public class SSTablesController {
@@ -33,7 +30,8 @@ public class SSTablesController {
     private static final String SS_TABLE_COMMON_PREF = "ssTable";
     //  index format: (long) keyOffset, (long) keyLen, (long) valueOffset, (long) valueLen
     private static final long ONE_LINE_SIZE = 4 * Long.BYTES;
-    private static final Set<OpenOption> options = Set.of(WRITE, READ, CREATE, TRUNCATE_EXISTING);
+    private static final Set<OpenOption> options = Set.of(StandardOpenOption.WRITE, StandardOpenOption.READ,
+            StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
     private final Arena arenaForReading = Arena.ofShared();
     private boolean isClosedArena;
     private final Comparator<MemorySegment> segComp;
@@ -61,7 +59,7 @@ public class SSTablesController {
             final List<Path> list = new ArrayList<>(tabels.toList());
             Utils.sortByNames(list, fileNamePref);
             list.forEach(t -> {
-                try (FileChannel channel = FileChannel.open(t, READ)) {
+                try (FileChannel channel = FileChannel.open(t, StandardOpenOption.READ)) {
                     storage.add(channel.map(FileChannel.MapMode.READ_ONLY, 0, channel.size(), arenaForReading));
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
