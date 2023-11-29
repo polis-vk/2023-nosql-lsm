@@ -18,7 +18,8 @@ import java.util.List;
 import java.util.concurrent.ConcurrentNavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>>, Iterable<Entry<MemorySegment>> {
+
     public static final MemorySegment DELETED_VALUE = null;
     private final Config config;
     private final List<SSTable> tables = new ArrayList<>();
@@ -36,7 +37,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         for (String tableID : ssTablesIds) {
             // SSTable constructor with rewrite=false reads table data from disk if it exists
             tables.add(new SSTable(config.basePath(), comparator, Long.parseLong(tableID),
-                    storage, false));
+                    storage.values(), false));
         }
         tables.sort(SSTable::compareTo);
     }
@@ -54,6 +55,10 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static Entry<MemorySegment> wrapEntryIfDeleted(Entry<MemorySegment> entry) {
         if (entry.value() == DELETED_VALUE) return null;
         return entry;
+    }
+
+    private void updateId() {
+        lastTimestamp = Math.max(lastTimestamp + 1, System.currentTimeMillis());
     }
 
     @Override
@@ -81,16 +86,36 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         if (!storage.isEmpty()) {
-            lastTimestamp = Math.max(lastTimestamp + 1, System.currentTimeMillis());
+            updateId();
             // SSTable constructor with rewrite=true writes MemTable data on disk deleting old data if it exists
             tables.add(new SSTable(config.basePath(), comparator,
-                    lastTimestamp, storage, true));
+                    lastTimestamp, storage.values(), true));
+            storage.clear();
         }
     }
 
     @Override
     public void close() throws IOException {
         flush();
+    }
+
+    @Override
+    public void compact() throws IOException {
+        if (!tables.isEmpty()) {
+            updateId();
+            SSTable compactedTable = new SSTable(config.basePath(), comparator, lastTimestamp,
+                    this, true);
+            storage.clear();
+            for (SSTable table : tables) {
+                table.deleteFromDisk();
+            }
+            tables.add(compactedTable);
+        }
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> iterator() {
+        return get(null, null);
     }
 
     private static class MemSegComparator implements Comparator<MemorySegment> {
