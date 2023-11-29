@@ -20,7 +20,10 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 
-import static java.nio.file.StandardOpenOption.*;
+import static java.nio.file.StandardOpenOption.CREATE;
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
+import static java.nio.file.StandardOpenOption.WRITE;
 import static ru.vk.itmo.test.kachmareugene.Utils.getValueOrNull;
 
 public class SSTablesController {
