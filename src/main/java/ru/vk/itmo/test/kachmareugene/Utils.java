@@ -75,8 +75,4 @@ public final class Utils {
         }
         return value;
     }
-
-    private static Path compactionFile(Path storagePath) {
-        return storagePath.resolve("compaction");
-    }
 }
