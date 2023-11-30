@@ -106,7 +106,7 @@ public class DiskStorage {
         Files.delete(indexTmp);
     }
 
-    public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
+    public void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable, Arena arena)
             throws IOException {
         final Path indexTmp = storagePath.resolve(INDEX_TMP_FILE);
         final Path indexFile = storagePath.resolve(INDEX_FILE);
@@ -127,6 +127,30 @@ public class DiskStorage {
         list.add(newFileName);
 
         rewriteIndexFile(indexFile, indexTmp, list);
+        if (arena.scope().isAlive()) {
+            createSSTable(storagePath.resolve(newFileName), arena);
+        }
+    }
+
+    public void createSSTable(Path filePath, Arena writeArena) {
+        try (
+                FileChannel fileChannel = FileChannel.open(
+                        filePath,
+                        StandardOpenOption.WRITE,
+                        StandardOpenOption.READ,
+                        StandardOpenOption.CREATE
+                )
+        ) {
+            MemorySegment fileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    Files.size(filePath),
+                    writeArena
+            );
+            segmentList.add(fileSegment);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static String getFileNameAccordingToIndexFileSize(Path indexFile) throws IOException {
@@ -167,10 +191,10 @@ public class DiskStorage {
     }
 
     public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
             MemorySegment from,
-            MemorySegment to) {
-        return DiskStorageUtils.range(firstIterator, from, to, segmentList);
+            MemorySegment to,
+            List<Iterator<Entry<MemorySegment>>> newIters) {
+        return DiskStorageUtils.range(from, to, newIters, segmentList);
     }
 
     public void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable) throws IOException {

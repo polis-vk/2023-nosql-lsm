@@ -128,15 +128,15 @@ public final class DiskStorageUtils {
     }
 
     public static Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
             MemorySegment from,
             MemorySegment to,
+            List<Iterator<Entry<MemorySegment>>> newIters,
             List<MemorySegment> segmentList) {
         List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
-        iterators.add(firstIterator);
+        iterators.addAll(newIters);
         return new MergeIterator(iterators, Comparator.comparing(Entry::key, MemorySegmentDao::compare)) {
             @Override
             protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
