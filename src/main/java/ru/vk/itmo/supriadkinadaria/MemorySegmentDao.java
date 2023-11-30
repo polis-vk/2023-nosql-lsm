@@ -100,9 +100,10 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
     public void upsert(Entry<MemorySegment> entry) {
         lock.readLock().lock();
         try {
-            if (storageBytesSize.get() >= flushThresholdBytes || processInProgress(flushFuture)) {
+            if (storageBytesSize.get() >= flushThresholdBytes && processInProgress(flushFuture)) {
                 throw new RuntimeException();
             }
+
             long size = entry.value() == null ? Long.BYTES : entry.value().byteSize();
 
             if (storage.put(entry.key(), entry) == null) {
@@ -133,7 +134,6 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
             }
             return entry;
         }
-
         Entry<MemorySegment> entry2 = storage2.get(key);
         if (entry2 != null) {
             if (entry2.value() == null) {
@@ -236,6 +236,7 @@ public class MemorySegmentDao implements Dao<MemorySegment, Entry<MemorySegment>
         public void run() {
             try {
                 diskStorage.save(path, storage.values(), arena);
+                storage.clear();
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
