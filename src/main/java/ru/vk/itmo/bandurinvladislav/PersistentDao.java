@@ -165,7 +165,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             MemorySegment newPage;
             entries = writeStorage.values();
             try {
-                newPage = DiskStorage.save(path, entries);
+                newPage = DiskStorage.save(arena, path, entries);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -210,7 +210,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         bgExecutor.execute(() -> {
             try {
                 StorageState state = this.state.get();
-                MemorySegment newPage = DiskStorage.compact(path, DiskStorage.range(
+                MemorySegment newPage = DiskStorage.compact(arena, path, DiskStorage.range(
                                 Collections.emptyIterator(),
                                 Collections.emptyIterator(),
                                 state.diskSegmentList,
