@@ -259,7 +259,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     writeStorage,
                     compacted == null ? Collections.emptyList() : Collections.singletonList(compacted)
             );
-        } 
+        }  
 
         public StorageState beforeFlush() {
             return new StorageState(writeStorage, createMap(), diskSegmentList);
