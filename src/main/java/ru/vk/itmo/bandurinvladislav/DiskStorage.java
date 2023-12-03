@@ -137,7 +137,6 @@ public class DiskStorage {
             MemorySegment value = entry.value();
             if (value != null) {
                 dataSize += value.byteSize();
-//                nonEmptyCount++;
             }
             count++;
         }
