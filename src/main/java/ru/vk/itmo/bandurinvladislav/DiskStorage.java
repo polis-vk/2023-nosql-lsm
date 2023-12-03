@@ -79,6 +79,10 @@ public class DiskStorage {
     }
 
     public static MemorySegment compact(Path storagePath, Iterator<Entry<MemorySegment>> mergeIterator) throws IOException {
+        if (!mergeIterator.hasNext()) {
+            return null;
+        }
+
         Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
 
         if (!Files.exists(indexFile)) {

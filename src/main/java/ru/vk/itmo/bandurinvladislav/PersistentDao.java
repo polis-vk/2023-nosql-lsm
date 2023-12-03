@@ -149,8 +149,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             StorageState nextState = prevState.beforeFlush();
 
-            // почему здесь мы можем так сделать? Между nextState и локом разве не может ничего произойти?
-
             upsertLock.writeLock().lock();
             try {
                 state.set(nextState);
