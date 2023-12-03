@@ -45,7 +45,7 @@ public class DiskStorage {
         };
     }
 
-    public static MemorySegment save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
+    public static MemorySegment save(Arena arena, Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve(INDEX_TMP_FILE_NAME);
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
@@ -59,7 +59,7 @@ public class DiskStorage {
 
         String newFileName = String.valueOf(existedFiles.size());
 
-        MemorySegment fileSegment = fillSSTable(storagePath.resolve(newFileName), iterable);
+        MemorySegment fileSegment = fillSSTable(arena, storagePath.resolve(newFileName), iterable);
 
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
@@ -78,7 +78,7 @@ public class DiskStorage {
         return fileSegment;
     }
 
-    public static MemorySegment compact(Path storagePath, Iterator<Entry<MemorySegment>> mergeIterator) throws IOException {
+    public static MemorySegment compact(Arena arena, Path storagePath, Iterator<Entry<MemorySegment>> mergeIterator) throws IOException {
         if (!mergeIterator.hasNext()) {
             return null;
         }
@@ -97,7 +97,7 @@ public class DiskStorage {
         }
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        MemorySegment fileSegment = fillSSTable(newFilePath, compactedValues);
+        MemorySegment fileSegment = fillSSTable(arena, newFilePath, compactedValues);
         Files.writeString(
                 indexFile,
                 newFilePath.getFileName().toString(),
@@ -127,7 +127,7 @@ public class DiskStorage {
         return fileSegment;
     }
 
-    private static MemorySegment fillSSTable(Path newFilePath, Iterable<Entry<MemorySegment>> iterable)
+    private static MemorySegment fillSSTable(Arena arena, Path newFilePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         long dataSize = 0;
         long count = 0;
@@ -148,20 +148,18 @@ public class DiskStorage {
 
         long indexSize = count * 2 * Long.BYTES;
 
-        try (
-                FileChannel fileChannel = FileChannel.open(
-                        newFilePath,
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.CREATE
-                );
-                Arena writeArena = Arena.ofConfined()
+        try (FileChannel fileChannel = FileChannel.open(
+                newFilePath,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.READ,
+                StandardOpenOption.CREATE
+        );
         ) {
             MemorySegment fileSegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
                     indexSize == 0 ? Long.BYTES : indexSize + dataSize,
-                    writeArena
+                    arena
             );
 
             // index:
@@ -259,8 +257,8 @@ public class DiskStorage {
                 long startOfValue = StorageUtil.startOfValue(page, index);
                 MemorySegment value =
                         startOfValue < 0
-                             ? null
-                             : StorageUtil.slice(page, startOfValue, StorageUtil.endOfValue(page, index, recordsCount));
+                                ? null
+                                : StorageUtil.slice(page, startOfValue, StorageUtil.endOfValue(page, index, recordsCount));
                 index++;
                 return new BaseEntry<>(key, value);
             }
