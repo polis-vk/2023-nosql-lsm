@@ -45,8 +45,7 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
         return !lsmPointerIterators.isEmpty();
     }
 
-    @Override
-    public Entry<MemorySegment> next() {
+    private LSMPointerIterator shiftIterators() {
         LSMPointerIterator lsmPointerIterator = lsmPointerIterators.remove();
         LSMPointerIterator nextIterator;
         while ((nextIterator = lsmPointerIterators.peek()) != null) {
@@ -55,11 +54,35 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
                 break;
             }
             lsmPointerIterators.remove();
-            nextIterator.next();
+            nextIterator.shift();
             if (nextIterator.hasNext()) {
                 lsmPointerIterators.add(nextIterator);
             }
         }
+        return lsmPointerIterator;
+    }
+
+    private void shift() {
+        LSMPointerIterator lsmPointerIterator = shiftIterators();
+        lsmPointerIterator.shift();
+        if (lsmPointerIterator.hasNext()) {
+            lsmPointerIterators.add(lsmPointerIterator);
+        }
+    }
+
+    private long getPointerSizeAndShift() {
+        LSMPointerIterator lsmPointerIterator = shiftIterators();
+        long pointerSize = lsmPointerIterator.getPointerSize();
+        lsmPointerIterator.shift();
+        if (lsmPointerIterator.hasNext()) {
+            lsmPointerIterators.add(lsmPointerIterator);
+        }
+        return pointerSize;
+    }
+
+    @Override
+    public Entry<MemorySegment> next() {
+        LSMPointerIterator lsmPointerIterator = shiftIterators();
         Entry<MemorySegment> next = lsmPointerIterator.next();
         if (lsmPointerIterator.hasNext()) {
             lsmPointerIterators.add(lsmPointerIterator);
@@ -67,7 +90,7 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
         return next;
     }
 
-    private static final class MergeIteratorWithTombstoneFilter implements Iterator<Entry<MemorySegment>> {
+    public static final class MergeIteratorWithTombstoneFilter implements Iterator<Entry<MemorySegment>> {
 
         private final MergeIterator mergeIterator;
         private boolean haveNext;
@@ -87,7 +110,7 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
                     haveNext = true;
                     return true;
                 }
-                mergeIterator.next();
+                mergeIterator.shift();
             }
 
             return false;
@@ -101,6 +124,21 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
             Entry<MemorySegment> next = mergeIterator.next();
             haveNext = false;
             return next;
+        }
+
+        public long getPointerSizeAndShift() {
+            haveNext = false;
+            return mergeIterator.getPointerSizeAndShift();
+        }
+
+        public EntriesMetadata countEntities() {
+            int count = 0;
+            long entriesSize = 0;
+            while (hasNext()) {
+                entriesSize += getPointerSizeAndShift();
+                count++;
+            }
+            return new EntriesMetadata(count, entriesSize);
         }
     }
 }
