@@ -240,7 +240,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             this.readStorage = readStorage;
             this.writeStorage = writeStorage;
             this.diskSegmentList = diskSegmentList;
-        }
+        } 
 
         private static ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> createMap() {
             return new ConcurrentSkipListMap<>(comparator);
