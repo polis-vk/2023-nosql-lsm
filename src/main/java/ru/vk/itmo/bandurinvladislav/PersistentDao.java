@@ -210,14 +210,16 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         bgExecutor.execute(() -> {
             try {
                 StorageState state = this.state.get();
-                MemorySegment newPage = DiskStorage.compact(arena, path, DiskStorage.range(
-                                Collections.emptyIterator(),
-                                Collections.emptyIterator(),
-                                state.diskSegmentList,
-                                null,
-                                null
-                        ));
-                this.state.set(state.compact(newPage));
+                if (state.diskSegmentList.size() > 1) {
+                    MemorySegment newPage = DiskStorage.compact(arena, path, DiskStorage.range(
+                            Collections.emptyIterator(),
+                            Collections.emptyIterator(),
+                            state.diskSegmentList,
+                            null,
+                            null
+                    ));
+                    this.state.set(state.compact(newPage));
+                }
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
