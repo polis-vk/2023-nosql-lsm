@@ -131,7 +131,6 @@ public class DiskStorage {
             throws IOException {
         long dataSize = 0;
         long count = 0;
-//        long nonEmptyCount = 0;
         for (Entry<MemorySegment> entry : iterable) {
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
