@@ -138,7 +138,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void flush() throws IOException {
+    public void flush() {
         bgExecutor.execute(() -> {
             Collection<Entry<MemorySegment>> entries;
             StorageState prevState = state.get();
