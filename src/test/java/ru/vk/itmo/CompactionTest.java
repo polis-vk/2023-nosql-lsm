@@ -54,7 +54,7 @@ class CompactionTest extends BaseTest {
     }
 
     @DaoTest(stage = 4)
-//    @Timeout(value = 20)
+    @Timeout(value = 20)
     void overwrite(Dao<String, Entry<String>> dao) throws Exception {
         // Reference value
         int valueSize = 10 * 1024 * 1024;
