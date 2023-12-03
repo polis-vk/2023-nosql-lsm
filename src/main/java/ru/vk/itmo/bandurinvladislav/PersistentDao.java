@@ -240,7 +240,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             this.readStorage = readStorage;
             this.writeStorage = writeStorage;
             this.diskSegmentList = diskSegmentList;
-        } 
+        }
 
         private static ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> createMap() {
             return new ConcurrentSkipListMap<>(comparator);
@@ -259,7 +259,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                     writeStorage,
                     compacted == null ? Collections.emptyList() : Collections.singletonList(compacted)
             );
-        }
+        } 
 
         public StorageState beforeFlush() {
             return new StorageState(writeStorage, createMap(), diskSegmentList);
