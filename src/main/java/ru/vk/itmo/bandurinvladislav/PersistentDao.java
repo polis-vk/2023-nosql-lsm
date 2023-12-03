@@ -200,7 +200,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public void compact() throws IOException {
+    public void compact() {
         bgExecutor.execute(() -> {
             try {
                 StorageState state = this.state.get();
