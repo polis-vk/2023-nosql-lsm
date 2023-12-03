@@ -76,7 +76,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private long mapByteSizeInFile() {
         long size = 0;
         for (var entry : map.values()) {
-            size += 2 * Long.BYTES;
+            size += Storage.BYTES_TO_STORE_ENTRY_SIZE;
             size += entry.key().byteSize();
             if (entry.value() != null) {
                 size += entry.value().byteSize();
@@ -86,7 +86,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private long indexByteSizeInFile() {
-        return (long) map.size() * (Integer.BYTES + Long.BYTES);
+        return (long) map.size() * Storage.INDEX_ENTRY_SIZE;
     }
 
     @Override

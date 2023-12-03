@@ -97,7 +97,7 @@ final class StorageFileWriter {
                 );
                 entryNum++;
 
-                storageWriteOffset += 2 * Long.BYTES;
+                storageWriteOffset += Storage.BYTES_TO_STORE_ENTRY_SIZE;
                 storageWriteOffset += entry.key().byteSize();
                 if (entry.value() != null) {
                     storageWriteOffset += entry.value().byteSize();
@@ -122,9 +122,9 @@ final class StorageFileWriter {
                                               long storageWriteOffset) {
         long offset = indexWriteOffset;
         mappedIndex.set(ENTRY_NUMBER_LAYOUT, offset, entryNum);
-        offset += Integer.BYTES;
+        offset += Storage.BYTES_TO_STORE_INDEX_KEY;
         mappedIndex.set(MEMORY_SEGMENT_SIZE_LAYOUT, offset, storageWriteOffset);
-        offset += Long.BYTES;
+        offset += Storage.BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
         return offset;
     }
 
@@ -135,11 +135,11 @@ final class StorageFileWriter {
         long offset = writeOffset;
         if (memorySegment == null) {
             mapped.set(MEMORY_SEGMENT_SIZE_LAYOUT, offset, -1);
-            offset += Long.BYTES;
+            offset += Storage.BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
         } else {
             long msSize = memorySegment.byteSize();
             mapped.set(MEMORY_SEGMENT_SIZE_LAYOUT, offset, msSize);
-            offset += Long.BYTES;
+            offset += Storage.BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
             MemorySegment.copy(memorySegment, 0, mapped, offset, msSize);
             offset += msSize;
         }

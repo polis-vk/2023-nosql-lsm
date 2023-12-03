@@ -25,7 +25,10 @@ class Storage implements Closeable {
     private static final String SSTABLE_BASE_NAME = "storage";
     private static final String INDEX_BASE_NAME = "index";
     public static final String META_FILE_BASE_NAME = "meta";
-    public static final long INDEX_ENTRY_SIZE = (Integer.BYTES + Long.BYTES);
+    public static final int BYTES_TO_STORE_ENTRY_ELEMENT_SIZE = Long.BYTES;
+    public static final int BYTES_TO_STORE_ENTRY_SIZE = 2 * BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
+    public static final int BYTES_TO_STORE_INDEX_KEY = Integer.BYTES;
+    public static final long INDEX_ENTRY_SIZE = BYTES_TO_STORE_INDEX_KEY + BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
     private final Path storagePath;
     private final Path metaFilePath;
     private final List<FileChannel> sstableFileChannels = new ArrayList<>();
@@ -103,7 +106,7 @@ class Storage implements Closeable {
         int foundIndex = upperBound(key, storageMapped, indexMapped, indexMapped.byteSize());
         long keyStorageOffset = getKeyStorageOffset(indexMapped, foundIndex);
         long foundKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
-        keyStorageOffset += Long.BYTES;
+        keyStorageOffset += BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
 
         if (MemorySegment.mismatch(key,
                 0,
@@ -119,7 +122,7 @@ class Storage implements Closeable {
     static long getKeyStorageOffset(MemorySegment indexMapped, int entryNum) {
         return indexMapped.get(
                 ValueLayout.JAVA_LONG_UNALIGNED,
-                INDEX_ENTRY_SIZE * entryNum + Integer.BYTES
+                INDEX_ENTRY_SIZE * entryNum + BYTES_TO_STORE_INDEX_KEY
         );
     }
 
@@ -128,16 +131,17 @@ class Storage implements Closeable {
                                                        int entryNum) {
         long offsetInStorageFile = indexMapped.get(
                 ValueLayout.JAVA_LONG_UNALIGNED,
-                INDEX_ENTRY_SIZE * entryNum + Integer.BYTES
+                INDEX_ENTRY_SIZE * entryNum + BYTES_TO_STORE_INDEX_KEY
         );
 
         long keySize = sstableMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetInStorageFile);
-        offsetInStorageFile += Long.BYTES;
+        offsetInStorageFile += BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
         offsetInStorageFile += keySize;
 
         long valueSize = sstableMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetInStorageFile);
-        offsetInStorageFile += Long.BYTES;
-        MemorySegment key = sstableMapped.asSlice(offsetInStorageFile - keySize - Long.BYTES, keySize);
+        offsetInStorageFile += BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
+        MemorySegment key = sstableMapped.asSlice(
+                offsetInStorageFile - keySize - BYTES_TO_STORE_ENTRY_ELEMENT_SIZE, keySize);
         MemorySegment value;
         if (valueSize == -1) {
             value = null;
@@ -161,8 +165,8 @@ class Storage implements Closeable {
         long indexSize = 0;
         while (iterator.hasNext()) {
             Entry<MemorySegment> entry = iterator.next();
-            storageSize += entry.key().byteSize() + entry.value().byteSize() + 2 * Long.BYTES;
-            indexSize += Integer.BYTES + Long.BYTES;
+            storageSize += entry.key().byteSize() + entry.value().byteSize() + BYTES_TO_STORE_ENTRY_SIZE;
+            indexSize += INDEX_ENTRY_SIZE;
         }
         return new BaseEntry<>(storageSize, indexSize);
     }
@@ -241,27 +245,27 @@ class Storage implements Closeable {
         MemorySegment indexMapped = indexMappedList.get(fileNum);
 
         if (from == null && to == null) {
-            return Integer.BYTES;
+            return BYTES_TO_STORE_INDEX_KEY;
         } else if (from == null) {
             long firstKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
-            readOffset += Long.BYTES;
+            readOffset += BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
             MemorySegment firstKey = storageMapped.asSlice(readOffset, firstKeySize);
             if (DaoImpl.compareMemorySegments(firstKey, to) >= 0) {
                 return -1;
             }
-            return Integer.BYTES;
+            return BYTES_TO_STORE_INDEX_KEY;
         } else {
             int foundIndex = upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
             long keyStorageOffset = getKeyStorageOffset(indexMapped, foundIndex);
             long keySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
-            keyStorageOffset += Long.BYTES;
+            keyStorageOffset += BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
 
             if (DaoImpl.compareMemorySegmentsUsingOffset(from, storageMapped, keyStorageOffset, keySize) > 0
                     || (to != null && DaoImpl.compareMemorySegmentsUsingOffset(
                     to, storageMapped, keyStorageOffset, keySize) <= 0)) {
                 return -1;
             }
-            return (long) foundIndex * (Integer.BYTES + Long.BYTES) + Integer.BYTES;
+            return (long) foundIndex * INDEX_ENTRY_SIZE + BYTES_TO_STORE_INDEX_KEY;
         }
     }
 
@@ -270,13 +274,13 @@ class Storage implements Closeable {
                                   MemorySegment indexMapped,
                                   long indexSize) {
         int l = -1;
-        int r = indexMapped.get(ValueLayout.JAVA_INT_UNALIGNED, indexSize - Long.BYTES - Integer.BYTES);
+        int r = indexMapped.get(ValueLayout.JAVA_INT_UNALIGNED, indexSize - INDEX_ENTRY_SIZE);
 
         while (r - l > 1) {
             int m = (r + l) / 2;
             long keyStorageOffset = getKeyStorageOffset(indexMapped, m);
             long keySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
-            keyStorageOffset += Long.BYTES;
+            keyStorageOffset += BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
 
             if (DaoImpl.compareMemorySegmentsUsingOffset(key, storageMapped, keyStorageOffset, keySize) > 0) {
                 l = m;
