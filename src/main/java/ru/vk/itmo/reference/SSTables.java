@@ -21,14 +21,14 @@ import java.util.stream.Stream;
 
 /**
  * Provides {@link SSTable} management facilities: dumping and discovery.
- * <p>
- * Index file {@code <N>.index} contains {@code long} offsets to entries in data file:
+ *
+ * <p>Index file {@code <N>.index} contains {@code long} offsets to entries in data file:
  * {@code [offset0, offset1, ...]}
- * <p>
- * Data file {@code <N>.data} contains serialized entries:
+ *
+ * <p>Data file {@code <N>.data} contains serialized entries:
  * {@code <long keyLength><key><long valueLength><value>}
- * <p>
- * Tombstones are encoded as {@code valueLength} {@code -1} and no subsequent value.
+ *
+ * <p>Tombstones are encoded as {@code valueLength} {@code -1} and no subsequent value.
  *
  * @author incubos
  */
@@ -39,6 +39,9 @@ final class SSTables {
 
     private static final String TEMP_SUFFIX = ".tmp";
 
+    /**
+     * Can't instantiate.
+     */
     private SSTables() {
         // Only static methods
     }
@@ -271,6 +274,8 @@ final class SSTables {
     }
 
     /**
+     * Writes {@link Entry} to {@link FileChannel} reusing supplied buffers.
+     *
      * @return {@code offset} advanced
      */
     private static long write(
