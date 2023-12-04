@@ -42,6 +42,7 @@ public class LockTransaction<T, E extends Entry<T>> implements Transaction<T, E>
                 key, k -> new ReentrantUpgradableReadWriteLock()
         );
         if (!lock.tryReadLock()) {
+            release();
             throw new ConcurrentModificationException(
                     "while getting " + key + " in transaction " + revision);
         }
@@ -61,6 +62,7 @@ public class LockTransaction<T, E extends Entry<T>> implements Transaction<T, E>
                 key, k -> new ReentrantUpgradableReadWriteLock()
         );
         if (!lock.tryWriteLock()) {
+            release();
             throw new ConcurrentModificationException(
                     "while upserting " + e + " in transaction " + revision);
         }
