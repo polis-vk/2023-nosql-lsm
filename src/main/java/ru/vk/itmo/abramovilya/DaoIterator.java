@@ -7,9 +7,7 @@ import ru.vk.itmo.abramovilya.table.SSTable;
 import ru.vk.itmo.abramovilya.table.TableEntry;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
-import java.util.List;
 import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 import java.util.PriorityQueue;
@@ -18,19 +16,17 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
     private final PriorityQueue<TableEntry> priorityQueue = new PriorityQueue<>();
     private final MemorySegment from;
     private final MemorySegment to;
-    private final List<MemorySegment> sstableMappedList;
-    private final List<MemorySegment> indexMappedList;
+    private final Storage storage;
 
     DaoIterator(int totalSStables,
                 MemorySegment from,
                 MemorySegment to,
-                List<MemorySegment> sstableMappedList,
-                List<MemorySegment> indexMappedList,
+                Storage storage,
                 NavigableMap<MemorySegment, Entry<MemorySegment>> memTable) {
+
         this.from = from;
         this.to = to;
-        this.sstableMappedList = sstableMappedList;
-        this.indexMappedList = indexMappedList;
+        this.storage = storage;
 
         NavigableMap<MemorySegment, Entry<MemorySegment>> subMap = getSubMap(memTable);
         for (int i = 0; i < totalSStables; i++) {
@@ -39,8 +35,8 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
                 priorityQueue.add(new SSTable(
                         i,
                         offset,
-                        sstableMappedList.get(i),
-                        indexMappedList.get(i)
+                        storage.mappedSStable(i),
+                        storage.mappedIndex(i)
                 ).currentEntry());
             }
         }
@@ -115,33 +111,7 @@ class DaoIterator implements Iterator<Entry<MemorySegment>> {
         }
     }
 
-    private long findOffsetInIndex(MemorySegment from, MemorySegment to, int i) {
-        long readOffset = 0;
-        MemorySegment storageMapped = sstableMappedList.get(i);
-        MemorySegment indexMapped = indexMappedList.get(i);
-
-        if (from == null && to == null) {
-            return Integer.BYTES;
-        } else if (from == null) {
-            long firstKeySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, readOffset);
-            readOffset += Long.BYTES;
-            MemorySegment firstKey = storageMapped.asSlice(readOffset, firstKeySize);
-            if (DaoImpl.compareMemorySegments(firstKey, to) >= 0) {
-                return -1;
-            }
-            return Integer.BYTES;
-        } else {
-            int foundIndex = DaoImpl.upperBound(from, storageMapped, indexMapped, indexMapped.byteSize());
-            long keyStorageOffset = DaoImpl.getKeyStorageOffset(indexMapped, foundIndex);
-            long keySize = storageMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, keyStorageOffset);
-            keyStorageOffset += Long.BYTES;
-
-            if (DaoImpl.compareMemorySegmentsUsingOffset(from, storageMapped, keyStorageOffset, keySize) > 0
-                    || (to != null && DaoImpl.compareMemorySegmentsUsingOffset(
-                            to, storageMapped, keyStorageOffset, keySize) <= 0)) {
-                return -1;
-            }
-            return (long) foundIndex * (Integer.BYTES + Long.BYTES) + Integer.BYTES;
-        }
+    private long findOffsetInIndex(MemorySegment from, MemorySegment to, int fileNum) {
+        return storage.findOffsetInIndex(from, to, fileNum);
     }
 }
