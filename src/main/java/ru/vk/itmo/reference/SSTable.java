@@ -3,14 +3,8 @@ package ru.vk.itmo.reference;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
-import java.io.IOException;
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
@@ -18,46 +12,24 @@ import java.util.NoSuchElementException;
 /**
  * Persistent SSTable in data file and index file.
  *
- * @see SSTables
  * @author incubos
+ * @see SSTables
  */
-public final class SSTable implements ReadableTable {
-    public final int sequence;
-    public final Path indexName;
-    public final Path dataName;
+final class SSTable {
+    final int sequence;
 
     private final MemorySegment index;
     private final MemorySegment data;
     private final long size;
 
-    public SSTable(
-            final Arena arena,
-            final Path baseDir,
-            final int sequence) throws IOException {
-        // Build file names
+    SSTable(
+            final int sequence,
+            final MemorySegment index,
+            final MemorySegment data) {
         this.sequence = sequence;
-        this.indexName = SSTables.indexName(baseDir, sequence);
-        this.dataName = SSTables.dataName(baseDir, sequence);
-
-        // Open segments
-        this.index = mapReadOnly(arena, indexName);
-        this.data = mapReadOnly(arena, dataName);
+        this.index = index;
+        this.data = data;
         this.size = index.byteSize() / Long.BYTES;
-    }
-
-    private static MemorySegment mapReadOnly(
-            final Arena arena,
-            final Path path) throws IOException {
-        try (final FileChannel channel =
-                     FileChannel.open(
-                             path,
-                             StandardOpenOption.READ)) {
-            return channel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    0L,
-                    Files.size(path),
-                    arena);
-        }
     }
 
     /**
@@ -99,21 +71,20 @@ public final class SSTable implements ReadableTable {
 
     private long entryOffset(final long entry) {
         return index.get(
-                        ValueLayout.OfLong.JAVA_LONG,
-                        entry * Long.BYTES);
+                ValueLayout.OfLong.JAVA_LONG,
+                entry * Long.BYTES);
     }
 
     private long getLength(final long offset) {
         return data.get(
-                ValueLayout.OfLong.JAVA_LONG,
+                ValueLayout.OfLong.JAVA_LONG_UNALIGNED,
                 offset);
     }
 
-    @Override
-    public Iterator<Entry<MemorySegment>> get(
+    Iterator<Entry<MemorySegment>> get(
             final MemorySegment from,
             final MemorySegment to) {
-        assert MemorySegmentComparator.INSTANCE.compare(from, to) < 0;
+        assert from == null || to == null || MemorySegmentComparator.INSTANCE.compare(from, to) <= 0;
 
         // Slice of SSTable in absolute offsets
         final long fromOffset;
@@ -156,8 +127,7 @@ public final class SSTable implements ReadableTable {
         return new SliceIterator(fromOffset, toOffset);
     }
 
-    @Override
-    public Entry<MemorySegment> get(final MemorySegment key) {
+    Entry<MemorySegment> get(final MemorySegment key) {
         final long entry = entryBinarySearch(key);
         if (entry < 0) {
             return null;

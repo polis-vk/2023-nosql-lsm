@@ -9,8 +9,8 @@ import java.util.Comparator;
  *
  * @author incubos
  */
-public final class MemorySegmentComparator implements Comparator<MemorySegment> {
-    public static final Comparator<MemorySegment> INSTANCE =
+final class MemorySegmentComparator implements Comparator<MemorySegment> {
+    static final Comparator<MemorySegment> INSTANCE =
             new MemorySegmentComparator();
 
     private MemorySegmentComparator() {
@@ -47,7 +47,7 @@ public final class MemorySegmentComparator implements Comparator<MemorySegment> 
                         mismatch));
     }
 
-    public static int compare(
+    static int compare(
             final MemorySegment srcSegment,
             final long srcFromOffset,
             final long srcLength,

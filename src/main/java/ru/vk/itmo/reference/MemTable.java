@@ -12,13 +12,12 @@ import java.util.concurrent.ConcurrentSkipListMap;
  *
  * @author incubos
  */
-public final class MemTable implements ReadableTable, WriteableTable {
+final class MemTable {
     private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
             new ConcurrentSkipListMap<>(
                     MemorySegmentComparator.INSTANCE);
 
-    @Override
-    public Iterator<Entry<MemorySegment>> get(
+    Iterator<Entry<MemorySegment>> get(
             final MemorySegment from,
             final MemorySegment to) {
         if (from == null && to == null) {
@@ -36,13 +35,11 @@ public final class MemTable implements ReadableTable, WriteableTable {
         }
     }
 
-    @Override
-    public Entry<MemorySegment> get(final MemorySegment key) {
+    Entry<MemorySegment> get(final MemorySegment key) {
         return map.get(key);
     }
 
-    @Override
-    public void upsert(final Entry<MemorySegment> entry) {
+    void upsert(final Entry<MemorySegment> entry) {
         map.put(entry.key(), entry);
     }
 }
