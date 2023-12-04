@@ -20,8 +20,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private final MemorySegment to;
     private Entry<MemorySegment> head;
     private Entry<MemorySegment> keeper;
-
-    private boolean isReversed = false;
+    private boolean isReversed;
 
     public SSTableIterator(Iterator<Entry<MemorySegment>> it, SSTablesController controller,
                            MemorySegment from, MemorySegment to) {
@@ -45,11 +44,10 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
         this.from = from;
         this.to = to;
-        this.isReversed = true;
+        this.isReversed = isReversed;
 
         positioningIterator();
     }
-
 
     private void positioningIterator() {
         List<SSTableRowInfo> rawData = controller.firstKeys(from, isReversed);
@@ -70,7 +68,6 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private Entry<MemorySegment> getHead() {
         if (head == null && memTableIterator.hasNext()) {
             head = memTableIterator.next();
-            // fixme ended
             if (comp.compare(head.key(), to) >= 0) {
                 head = null;
             }

@@ -6,6 +6,9 @@ import java.lang.foreign.MemorySegment;
 import java.util.SortedMap;
 
 public class IteratorUtils {
+    private IteratorUtils() {
+    }
+
     public static void insertNew(SortedMap<MemorySegment, SSTableRowInfo> mp,
                                  SSTablesController controller, SSTableRowInfo info, MemorySegment to) {
         Entry<MemorySegment> kv = controller.getRow(info);
