@@ -12,7 +12,7 @@ import java.nio.charset.StandardCharsets;
 
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
 
-@DaoFactory(stage = 2)
+@DaoFactory(stage = 4)
 public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
