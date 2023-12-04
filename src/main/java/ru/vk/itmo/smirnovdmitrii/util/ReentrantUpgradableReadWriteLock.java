@@ -5,20 +5,28 @@ import ru.vk.itmo.smirnovdmitrii.util.exceptions.LockError;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class ReentrantUpgradableReadWriteLock implements UpgradableReadWriteLock {
-    private Thread owner = null;
+    private Thread owner;
     //                    16 bits             16 bits
     // 32 bits: |---read state part---|---write state part--|
     private final AtomicInteger state = new AtomicInteger(0);
-    private final ThreadLocal<Integer> threadReads;
-    private final ThreadLocal<Integer> threadWrites;
+    private final ThreadLocal<Holder> holder;
     private static final int MASK_SHIFT = 16;
     private static final int READ_UNIT = 1 << MASK_SHIFT;
     private static final int MAX_COUNT = (1 << MASK_SHIFT) - 1;
     private static final int WRITE_MASK = (1 << MASK_SHIFT) - 1;
 
+    static class Holder {
+        int threadReads;
+        int threadWrites;
+
+        public Holder(final int threadReads, final int threadWrites) {
+            this.threadReads = threadReads;
+            this.threadWrites = threadWrites;
+        }
+    }
+
     public ReentrantUpgradableReadWriteLock() {
-        threadReads = ThreadLocal.withInitial(() -> 0);
-        threadWrites = ThreadLocal.withInitial(() -> 0);
+        holder = ThreadLocal.withInitial(() -> new Holder(0, 0));
     }
 
     private int getReadCount(final int state) {
@@ -30,31 +38,32 @@ public class ReentrantUpgradableReadWriteLock implements UpgradableReadWriteLock
     }
 
     private int getThreadReads() {
-        return threadReads.get();
+        return holder.get().threadReads;
     }
 
     private void incrementThreadReads() {
-        threadReads.set(threadReads.get() + 1);
+        final Holder threadHolder = holder.get();
+        threadHolder.threadReads++;
     }
 
     private void incrementThreadWrites() {
-        threadWrites.set(threadWrites.get() + 1);
-    }
-
-    private void decrementThreadLocal(final ThreadLocal<Integer> threadLocal) {
-        final int count = threadLocal.get();
-        if (count == 0) {
-            throw new IllegalMonitorStateException();
-        }
-        threadLocal.set(count - 1);
+        holder.get().threadWrites++;
     }
 
     private void decrementThreadReads() {
-        decrementThreadLocal(threadReads);
+        final Holder threadHolder = holder.get();
+        if (threadHolder.threadReads == 0) {
+            throw new IllegalMonitorStateException();
+        }
+        threadHolder.threadReads--;
     }
 
     private void decrementThreadWrites() {
-        decrementThreadLocal(threadWrites);
+        final Holder threadHolder = holder.get();
+        if (threadHolder.threadWrites == 0) {
+            throw new IllegalMonitorStateException();
+        }
+        threadHolder.threadWrites--;
     }
 
     @Override
@@ -64,7 +73,7 @@ public class ReentrantUpgradableReadWriteLock implements UpgradableReadWriteLock
         if (s != 0) {
             final int w = getWriteCount(s);
             final int r = getReadCount(s);
-            if ((w == 0 && r != getThreadReads()) || (w != 0 && owner != current)) {
+            if ((w == 0 && r != getThreadReads()) || (w != 0 && !current.equals(owner))) {
                 return false;
             }
             if (w >= MAX_COUNT) {
@@ -84,7 +93,7 @@ public class ReentrantUpgradableReadWriteLock implements UpgradableReadWriteLock
         Thread current = Thread.currentThread();
         while (true) {
             int c = state.get();
-            if (getWriteCount(c) != 0 && owner != current) {
+            if (getWriteCount(c) != 0 && !current.equals(owner)) {
                 return false;
             }
             int r = getReadCount(c);
@@ -113,5 +122,10 @@ public class ReentrantUpgradableReadWriteLock implements UpgradableReadWriteLock
     public void writeUnlock() {
         decrementThreadWrites();
         state.decrementAndGet();
+    }
+
+    // This code is for cleaning ThreadLocals if we will need this.
+    public void cleanUp() {
+        holder.remove();
     }
 }

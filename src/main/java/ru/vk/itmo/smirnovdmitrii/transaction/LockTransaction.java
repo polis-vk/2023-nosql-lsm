@@ -15,10 +15,10 @@ import java.util.concurrent.atomic.AtomicLong;
 public class LockTransaction<T, E extends Entry<T>> implements Transaction<T, E> {
     private static final AtomicLong transactionN = new AtomicLong();
     private final long revision = transactionN.getAndIncrement();
-    private final HashMap<T, E> cache = new HashMap<>();
+    private final Map<T, E> cache = new HashMap<>();
 
-    private final HashMap<T, UpgradableReadWriteLock> localReadLocks = new HashMap<>();
-    private final HashMap<T, UpgradableReadWriteLock> localWriteLocks = new HashMap<>();
+    private final Map<T, UpgradableReadWriteLock> localReadLocks = new HashMap<>();
+    private final Map<T, UpgradableReadWriteLock> localWriteLocks = new HashMap<>();
     private final Dao<T, E> dao;
     private final TransactionGroup<T> group;
     private final AtomicBoolean released = new AtomicBoolean(false);
