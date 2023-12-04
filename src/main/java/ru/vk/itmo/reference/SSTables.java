@@ -170,7 +170,7 @@ final class SSTables {
         }
     }
 
-    static void dump(
+    static void write(
             final Path baseDir,
             final int sequence,
             final Iterator<Entry<MemorySegment>> entries) throws IOException {
@@ -196,13 +196,15 @@ final class SSTables {
                              tempIndexName,
                              StandardOpenOption.READ,
                              StandardOpenOption.WRITE,
-                             StandardOpenOption.CREATE_NEW);
+                             StandardOpenOption.CREATE,
+                             StandardOpenOption.TRUNCATE_EXISTING);
              final FileChannel data =
                      FileChannel.open(
                              tempDataName,
                              StandardOpenOption.READ,
                              StandardOpenOption.WRITE,
-                             StandardOpenOption.CREATE_NEW)) {
+                             StandardOpenOption.CREATE,
+                             StandardOpenOption.TRUNCATE_EXISTING)) {
             long indexOffset = 0L;
             long entryOffset = 0L;
 
@@ -246,7 +248,8 @@ final class SSTables {
         Files.move(
                 tempIndexName,
                 indexName,
-                StandardCopyOption.ATOMIC_MOVE);
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING);
         final Path dataName =
                 dataName(
                         baseDir,
@@ -254,7 +257,8 @@ final class SSTables {
         Files.move(
                 tempDataName,
                 dataName,
-                StandardCopyOption.ATOMIC_MOVE);
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING);
     }
 
     private static void writeFully(

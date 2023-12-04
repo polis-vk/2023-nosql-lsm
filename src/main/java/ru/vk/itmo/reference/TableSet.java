@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Data set in various tables.
@@ -15,19 +16,24 @@ import java.util.List;
  */
 final class TableSet {
     final MemTable memTable;
+    // null or read-only
+    final MemTable flushing;
     // From freshest to oldest
     final List<SSTable> ssTables;
 
     private TableSet(
             final MemTable memTable,
+            final MemTable flushing,
             final List<SSTable> ssTables) {
         this.memTable = memTable;
+        this.flushing = flushing;
         this.ssTables = ssTables;
     }
 
     static TableSet from(final List<SSTable> ssTables) {
         return new TableSet(
                 new MemTable(),
+                null,
                 ssTables);
     }
 
@@ -38,24 +44,57 @@ final class TableSet {
                 .orElse(0) + 1;
     }
 
+    TableSet flushing() {
+        if (memTable.isEmpty()) {
+            throw new IllegalStateException("Nothing to flush");
+        }
+
+        if (flushing != null) {
+            throw new IllegalStateException("Already flushing");
+        }
+
+        return new TableSet(
+                new MemTable(),
+                memTable,
+                ssTables);
+    }
+
     TableSet flushed(final SSTable flushed) {
         final List<SSTable> newSSTables = new ArrayList<>(ssTables.size() + 1);
         newSSTables.add(flushed);
         newSSTables.addAll(ssTables);
-        return TableSet.from(newSSTables);
-    }
-
-    TableSet compacted(final SSTable compacted) {
         return new TableSet(
                 memTable,
-                List.of(compacted));
+                null,
+                newSSTables);
+    }
+
+    TableSet compacted(
+            final Set<SSTable> replaced,
+            final SSTable with) {
+        final List<SSTable> ssTables = new ArrayList<>(this.ssTables.size() + 1);
+
+        // Keep not replaced SSTables
+        for (final SSTable ssTable : this.ssTables) {
+            if (!replaced.contains(ssTable)) {
+                ssTables.add(ssTable);
+            }
+        }
+
+        // Logically the oldest one
+        ssTables.add(with);
+
+        return new TableSet(
+                memTable,
+                flushing,
+                ssTables);
     }
 
     Iterator<Entry<MemorySegment>> get(
             final MemorySegment from,
             final MemorySegment to) {
         final List<WeightedPeekingEntryIterator> iterators =
-                new ArrayList<>(1 + ssTables.size());
+                new ArrayList<>(2 + ssTables.size());
 
         // MemTable goes first
         final Iterator<Entry<MemorySegment>> memTableIterator =
@@ -65,6 +104,18 @@ final class TableSet {
                     new WeightedPeekingEntryIterator(
                             Integer.MIN_VALUE,
                             memTableIterator));
+        }
+
+        // Then goes flushing
+        if (flushing != null) {
+            final Iterator<Entry<MemorySegment>> flushingIterator =
+                    flushing.get(from, to);
+            if (flushingIterator.hasNext()) {
+                iterators.add(
+                        new WeightedPeekingEntryIterator(
+                                Integer.MIN_VALUE + 1,
+                                flushingIterator));
+            }
         }
 
         // Then go all the SSTables
@@ -94,20 +145,33 @@ final class TableSet {
         Entry<MemorySegment> result = memTable.get(key);
         if (result != null) {
             // Transform tombstone
-            return result.value() == null ? null : result;
+            return swallowTombstone(result);
         }
 
-        // Then check SSTables from freshest to oldest
+        // Then check flushing
+        if (flushing != null) {
+            result = flushing.get(key);
+            if (result != null) {
+                // Transform tombstone
+                return swallowTombstone(result);
+            }
+        }
+
+        // At last check SSTables from freshest to oldest
         for (final SSTable ssTable : ssTables) {
             result = ssTable.get(key);
             if (result != null) {
                 // Transform tombstone
-                return result.value() == null ? null : result;
+                return swallowTombstone(result);
             }
         }
 
         // Nothing found
         return null;
+    }
+
+    private static Entry<MemorySegment> swallowTombstone(final Entry<MemorySegment> entry) {
+        return entry.value() == null ? null : entry;
     }
 
     void upsert(final Entry<MemorySegment> entry) {

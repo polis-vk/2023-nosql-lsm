@@ -32,6 +32,13 @@ final class SSTable {
         this.size = index.byteSize() / Long.BYTES;
     }
 
+    SSTable withSequence(final int sequence) {
+        return new SSTable(
+                sequence,
+                index,
+                data);
+    }
+
     /**
      * @return index of the entry if found; otherwise, (-(insertion point) - 1).
      * The insertion point is defined as the point at which the key would be inserted:

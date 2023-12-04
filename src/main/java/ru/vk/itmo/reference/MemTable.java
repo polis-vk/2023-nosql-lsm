@@ -17,6 +17,10 @@ final class MemTable {
             new ConcurrentSkipListMap<>(
                     MemorySegmentComparator.INSTANCE);
 
+    boolean isEmpty() {
+        return map.isEmpty();
+    }
+
     Iterator<Entry<MemorySegment>> get(
             final MemorySegment from,
             final MemorySegment to) {

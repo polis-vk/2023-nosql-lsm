@@ -7,7 +7,15 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Reference implementation of {@link Dao}.
@@ -17,7 +25,25 @@ import java.util.Iterator;
 public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final Config config;
     private final Arena arena;
-    private volatile TableSet tableSet;
+
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    // Guarded by lock
+    private TableSet tableSet;
+
+    private final ExecutorService flusher =
+            Executors.newSingleThreadExecutor(r -> {
+                final Thread result = new Thread(r);
+                result.setName("flusher");
+                return result;
+            });
+    private final ExecutorService compactor =
+            Executors.newSingleThreadExecutor(r -> {
+                final Thread result = new Thread(r);
+                result.setName("compactor");
+                return result;
+            });
+
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     public ReferenceDao(final Config config) throws IOException {
         this.config = config;
@@ -40,94 +66,202 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Iterator<Entry<MemorySegment>> get(
             final MemorySegment from,
             final MemorySegment to) {
-        return new LiveFilteringIterator(tableSet.get(from, to));
+        lock.readLock().lock();
+        try {
+            return new LiveFilteringIterator(
+                    tableSet.get(
+                            from,
+                            to));
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
-        return tableSet.get(key);
+        lock.readLock().lock();
+        try {
+            return tableSet.get(key);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     @Override
     public void upsert(final Entry<MemorySegment> entry) {
-        tableSet.upsert(entry);
+        lock.readLock().lock();
+        try {
+            tableSet.upsert(entry);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     @Override
-    public synchronized void flush() throws IOException {
-        final Iterator<Entry<MemorySegment>> iterator =
-                tableSet.memTable.get(null, null);
-        if (!iterator.hasNext()) {
-            // Nothing to flush
-            return;
-        }
+    public void flush() throws IOException {
+        flusher.submit(() -> {
+            final TableSet tableSet;
+            lock.writeLock().lock();
+            try {
+                if (this.tableSet.memTable.isEmpty()) {
+                    // Nothing to flush
+                    return;
+                }
 
-        // Write
-        final int sequence = tableSet.nextSequence();
-        SSTables.dump(
-                config.basePath(),
-                sequence,
-                iterator);
+                // Switch memTable to flushing
+                tableSet = this.tableSet.flushing();
+                this.tableSet = tableSet;
+            } finally {
+                lock.writeLock().unlock();
+            }
 
-        // Attach
-        final SSTable flushed =
-                SSTables.open(
+            // Write
+            final int sequence = tableSet.nextSequence();
+            try {
+                SSTables.write(
+                        config.basePath(),
+                        sequence,
+                        tableSet.flushing.get(null, null));
+            } catch (IOException e) {
+                e.printStackTrace();
+                Runtime.getRuntime().halt(-1);
+                return;
+            }
+
+            // Open
+            final SSTable flushed;
+            try {
+                flushed = SSTables.open(
                         arena,
                         config.basePath(),
                         sequence);
-        tableSet = tableSet.flushed(flushed);
+            } catch (IOException e) {
+                e.printStackTrace();
+                Runtime.getRuntime().halt(-2);
+                return;
+            }
+
+            // Switch
+            lock.writeLock().lock();
+            try {
+                this.tableSet = this.tableSet.flushed(flushed);
+            } finally {
+                lock.writeLock().unlock();
+            }
+        }).state();
     }
 
     @Override
-    public synchronized void compact() throws IOException {
-        final TableSet tableSet = this.tableSet;
-        if (tableSet.ssTables.size() < 2) {
-            // Nothing to compact
-            return;
-        }
+    public void compact() throws IOException {
+        compactor.submit(() -> {
+            final TableSet tableSet;
+            lock.writeLock().lock();
+            try {
+                tableSet = this.tableSet;
+                if (tableSet.ssTables.size() < 2) {
+                    // Nothing to compact
+                    return;
+                }
+            } finally {
+                lock.writeLock().unlock();
+            }
 
-        // Compact to 0
-        SSTables.dump(
-                config.basePath(),
-                0,
-                new LiveFilteringIterator(
-                        tableSet.allDiskEntries()));
+            // Compact to 0
+            try {
+                SSTables.write(
+                        config.basePath(),
+                        0,
+                        new LiveFilteringIterator(
+                                tableSet.allDiskEntries()));
+            } catch (IOException e) {
+                e.printStackTrace();
+                Runtime.getRuntime().halt(-3);
+            }
 
-        // Open 0
-        final SSTable compacted =
-                SSTables.open(
+            // Open 0
+            final SSTable compacted;
+            try {
+                compacted =
+                        SSTables.open(
                         arena,
                         config.basePath(),
                         0);
+            } catch (IOException e) {
+                e.printStackTrace();
+                Runtime.getRuntime().halt(-4);
+                return;
+            }
 
-        // Replace old SSTables with compacted one to
-        // keep serving requests
-        this.tableSet = tableSet.compacted(compacted);
+            // Replace old SSTables with compacted one to
+            // keep serving requests
+            final Set<SSTable> replaced = new HashSet<>(tableSet.ssTables);
+            lock.writeLock().lock();
+            try {
+                this.tableSet =
+                        this.tableSet.compacted(
+                                replaced,
+                                compacted);
+            } finally {
+                lock.writeLock().unlock();
+            }
 
-        // Remove compacted SSTables starting from the oldest ones.
-        // If we crash, 0 contains all the data, and
-        // it will be promoted on reopen.
-        for (final SSTable ssTable : tableSet.ssTables.reversed()) {
-            SSTables.remove(
-                    config.basePath(),
-                    ssTable.sequence);
-        }
+            // Remove compacted SSTables starting from the oldest ones.
+            // If we crash, 0 contains all the data, and
+            // it will be promoted on reopen.
+            for (final SSTable ssTable : tableSet.ssTables.reversed()) {
+                try {
+                    SSTables.remove(
+                            config.basePath(),
+                            ssTable.sequence);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Runtime.getRuntime().halt(-5);
+                }
+            }
 
-        // Promote zero to one (possibly replacing)
-        SSTables.promote(
-                config.basePath(),
-                0,
-                1);
+            // Promote zero to one (possibly replacing)
+            try {
+                SSTables.promote(
+                        config.basePath(),
+                        0,
+                        1);
+            } catch (IOException e) {
+                e.printStackTrace();
+                Runtime.getRuntime().halt(-6);
+            }
+
+            // Replace promoted SSTable
+            lock.writeLock().lock();
+            try {
+                this.tableSet =
+                        this.tableSet.compacted(
+                                Collections.singleton(compacted),
+                                compacted.withSequence(1));
+            } finally {
+                lock.writeLock().unlock();
+            }
+        }).state();
     }
 
     @Override
     public void close() throws IOException {
-        if (!arena.scope().isAlive()) {
-            // Closed
+        if (closed.getAndSet(true)) {
+            // Already closed
             return;
         }
 
+        // Maybe flush
         flush();
+
+        // Ask threads to complete jobs and to stop
+        flusher.shutdown();
+        compactor.shutdown();
+
+        // Wait for threads to stop
+        flusher.close();
+        compactor.close();
+
+        // Close arena
         arena.close();
     }
 }
