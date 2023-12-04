@@ -11,7 +11,7 @@ import java.lang.foreign.ValueLayout;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-@DaoFactory(stage = 3)
+@DaoFactory(stage = 4)
 public class InMemoryDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public String toString(MemorySegment memorySegment) {
