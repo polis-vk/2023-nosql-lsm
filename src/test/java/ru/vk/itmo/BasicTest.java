@@ -146,7 +146,7 @@ public class BasicTest extends BaseTest {
 
             // Back off after 1K upserts to be able to flush
             if (entry % 1000 == 0) {
-                Thread.sleep(1);
+                Thread.sleep(10);
             }
         }
 
