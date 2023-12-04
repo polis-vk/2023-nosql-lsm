@@ -1,7 +1,11 @@
 package ru.vk.itmo.test.kachmareugene;
 
 import ru.vk.itmo.Config;
+import ru.vk.itmo.Entry;
+
 import java.io.IOException;
+import java.lang.foreign.MemorySegment;
+import java.util.Iterator;
 
 public class DaoWithCompaction extends InMemoryDao {
     public DaoWithCompaction() {

@@ -19,6 +19,7 @@ import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 import static ru.vk.itmo.test.kachmareugene.Utils.getValueOrNull;
@@ -77,6 +78,12 @@ public class SSTablesController {
         return segComp.compare(key, mapped.asSlice(keyOffset, keySize)) > 0;
     }
 
+    private boolean greaterEqThen(long keyOffset, long keySize,
+                                MemorySegment mapped, MemorySegment key) {
+
+        return segComp.compare(key, mapped.asSlice(keyOffset, keySize)) >= 0;
+    }
+
     //Gives offset for line in index file
     private long searchKeyInFile(int ind, MemorySegment mapped, MemorySegment key) {
         long l = -1;
@@ -94,19 +101,42 @@ public class SSTablesController {
         return r == getNumberOfEntries(mapped) ? -1 : r;
     }
 
+    private long searchKeyInFileReversed(int ind, MemorySegment mapped, MemorySegment key) {
+        long l = -1;
+        long r = getNumberOfEntries(mapped);
+
+        while (r - l > 1) {
+            long mid = (l + r) / 2;
+            SSTableRowInfo info = createRowInfo(ind, mid);
+            if (greaterEqThen(info.keyOffset, info.keySize, mapped, key)) {
+                l = mid;
+            } else {
+                r = mid;
+            }
+        }
+        return l;
+    }
+
     //return - List ordered form the latest created sstable to the first.
-    public List<SSTableRowInfo> firstGreaterKeys(MemorySegment key) {
+    public List<SSTableRowInfo> firstKeys(MemorySegment key, boolean isReversed) {
         List<SSTableRowInfo> ans = new ArrayList<>();
 
         for (int i = ssTables.size() - 1; i >= 0; i--) {
             long entryIndexesLine = 0;
             if (key != null) {
-                entryIndexesLine = searchKeyInFile(i, ssTables.get(i), key);
+                if (!isReversed) {
+                    entryIndexesLine = searchKeyInFile(i, ssTables.get(i), key);
+                } else {
+                    entryIndexesLine = searchKeyInFileReversed(i, ssTables.get(i), key);
+                }
              }
             if (entryIndexesLine < 0) {
                 continue;
             }
-            ans.add(createRowInfo(i, entryIndexesLine));
+            SSTableRowInfo row = createRowInfo(i, entryIndexesLine);
+            row.isReversedToIter = isReversed;
+
+            ans.add(row);
         }
         return ans;
     }
@@ -154,6 +184,19 @@ public class SSTablesController {
 
             Entry<MemorySegment> row = getRow(inf);
             if (segComp.compare(row.key(), maxKey) < 0) {
+                return inf;
+            }
+        }
+        return null;
+    }
+
+    public SSTableRowInfo getPrevInfo(SSTableRowInfo info, MemorySegment minKey) {
+        for (long t = info.rowShift - 1; t >= 0; t--) {
+            var inf = createRowInfo(info.ssTableInd, t);
+
+            Entry<MemorySegment> row = getRow(inf);
+            // fixme include?
+            if (segComp.compare(row.key(), minKey) > 0) {
                 return inf;
             }
         }
