@@ -33,10 +33,6 @@ public class ReentrantUpgradableReadWriteLock implements UpgradableReadWriteLock
         return threadReads.get();
     }
 
-    private int getThreadWrites() {
-        return threadWrites.get();
-    }
-
     private void incrementThreadReads() {
         threadReads.set(threadReads.get() + 1);
     }
@@ -68,7 +64,7 @@ public class ReentrantUpgradableReadWriteLock implements UpgradableReadWriteLock
         if (s != 0) {
             final int w = getWriteCount(s);
             final int r = getReadCount(s);
-            if (w == 0 && r != getThreadReads()) {
+            if ((w == 0 && r != getThreadReads()) || (w != 0 && owner != current)) {
                 return false;
             }
             if (w >= MAX_COUNT) {
@@ -89,7 +85,6 @@ public class ReentrantUpgradableReadWriteLock implements UpgradableReadWriteLock
         while (true) {
             int c = state.get();
             if (getWriteCount(c) != 0 && owner != current) {
-                System.out.println(getWriteCount(c));
                 return false;
             }
             int r = getReadCount(c);
@@ -117,9 +112,6 @@ public class ReentrantUpgradableReadWriteLock implements UpgradableReadWriteLock
     @Override
     public void writeUnlock() {
         decrementThreadWrites();
-        if (getThreadWrites() == 0) {
-            owner = null;
-        }
         state.decrementAndGet();
     }
 }

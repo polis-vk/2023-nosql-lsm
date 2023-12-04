@@ -7,19 +7,21 @@ import ru.vk.itmo.smirnovdmitrii.util.UpgradableReadWriteLock;
 
 import java.util.ConcurrentModificationException;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class LockTransaction<T, E extends Entry<T>> implements Transaction<T, E> {
     private static final AtomicLong transactionN = new AtomicLong();
     private final long revision = transactionN.getAndIncrement();
     private final HashMap<T, E> cache = new HashMap<>();
-    private final HashMap<T, UpgradableReadWriteLock> localLocks = new LinkedHashMap<>();
+
+    private final HashMap<T, UpgradableReadWriteLock> localReadLocks = new HashMap<>();
+    private final HashMap<T, UpgradableReadWriteLock> localWriteLocks = new HashMap<>();
     private final Dao<T, E> dao;
     private final TransactionGroup<T> group;
+    private final AtomicBoolean released = new AtomicBoolean(false);
 
     public LockTransaction(
             final Dao<T, E> dao,
@@ -43,7 +45,7 @@ public class LockTransaction<T, E extends Entry<T>> implements Transaction<T, E>
             throw new ConcurrentModificationException(
                     "while getting " + key + " in transaction " + revision);
         }
-        localLocks.put(key, lock);
+        localReadLocks.put(key, lock);
         return dao.get(key);
     }
 
@@ -62,27 +64,31 @@ public class LockTransaction<T, E extends Entry<T>> implements Transaction<T, E>
             throw new ConcurrentModificationException(
                     "while upserting " + e + " in transaction " + revision);
         }
-        localLocks.put(key, lock);
+        localWriteLocks.put(key, lock);
     }
 
     @Override
     public void commit() {
-        for (final Map.Entry<T, UpgradableReadWriteLock> entry: localLocks.entrySet()) {
-            final UpgradableReadWriteLock lock = entry.getValue();
-            final E value = cache.get(entry.getKey());
-            if (value != null) {
-                dao.upsert(value);
-                lock.writeUnlock();
-            } else {
-                lock.readUnlock();
-            }
+        if (!released.compareAndSet(false, true)) {
+            throw new IllegalStateException("Transaction " + revision + " is already released.");
         }
-        cache.clear();
-        localLocks.clear();
+        for (final Map.Entry<T, UpgradableReadWriteLock> entry: localWriteLocks.entrySet()) {
+            dao.upsert(cache.get(entry.getKey()));
+        }
+        release();
     }
 
-    public static class TransactionGroup<T> {
-        public final Map<T, UpgradableReadWriteLock> sharedMap = new ConcurrentHashMap<>();
+    private void release() {
+        released.set(true);
+        for (final UpgradableReadWriteLock lock: localReadLocks.values()) {
+            lock.readUnlock();
+        }
+        for (final UpgradableReadWriteLock lock: localWriteLocks.values()) {
+            lock.writeUnlock();
+        }
+        cache.clear();
+        localWriteLocks.clear();
+        localReadLocks.clear();
     }
 
 }
