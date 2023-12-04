@@ -11,7 +11,9 @@ import java.util.NoSuchElementException;
  *
  * @author incubos
  */
-final class WeightedPeekingEntryIterator implements Iterator<Entry<MemorySegment>>, Comparable<WeightedPeekingEntryIterator> {
+final class WeightedPeekingEntryIterator
+        implements Iterator<Entry<MemorySegment>>,
+        Comparable<WeightedPeekingEntryIterator> {
     private final int weight;
     private final Iterator<Entry<MemorySegment>> delegate;
     private Entry<MemorySegment> next;

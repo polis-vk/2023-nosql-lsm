@@ -92,8 +92,8 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         final boolean autoFlush;
         lock.readLock().lock();
         try {
-            if (tableSet.memTableSize.get() > config.flushThresholdBytes() &&
-                    tableSet.flushing != null) {
+            if (tableSet.memTableSize.get() > config.flushThresholdBytes()
+                    && tableSet.flushing != null) {
                 throw new IllegalStateException("Can't keep up with flushing!");
             }
 
