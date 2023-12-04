@@ -39,6 +39,7 @@ final class SegmentBuffer {
         // Grow to the nearest bigger power of 2
         final int size = Integer.highestOneBit(capacity) << 1;
         blobBuffer = ByteBuffer.allocate(size);
+        blobBuffer.limit(capacity);
         blobSegment = MemorySegment.ofBuffer(blobBuffer);
     }
 }

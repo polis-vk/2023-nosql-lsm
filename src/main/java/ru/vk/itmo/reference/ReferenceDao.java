@@ -89,22 +89,53 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(final Entry<MemorySegment> entry) {
+        final boolean autoFlush;
         lock.readLock().lock();
         try {
-            tableSet.upsert(entry);
+            if (tableSet.memTableSize.get() > config.flushThresholdBytes() &&
+                    tableSet.flushing != null) {
+                throw new IllegalStateException("Can't keep up with flushing!");
+            }
+
+            // Upsert
+            final Entry<MemorySegment> previous = tableSet.upsert(entry);
+
+            // Update size estimate
+            final long size = tableSet.memTableSize.addAndGet(sizeOf(entry) - sizeOf(previous));
+            autoFlush = size > config.flushThresholdBytes();
         } finally {
             lock.readLock().unlock();
         }
+
+        if (autoFlush) {
+            initiateFlush(true);
+        }
     }
 
-    @Override
-    public void flush() throws IOException {
+    private static long sizeOf(final Entry<MemorySegment> entry) {
+        if (entry == null) {
+            return 0L;
+        }
+
+        if (entry.value() == null) {
+            return entry.key().byteSize();
+        }
+
+        return entry.key().byteSize() + entry.value().byteSize();
+    }
+
+    private void initiateFlush(final boolean auto) {
         flusher.submit(() -> {
             final TableSet tableSet;
             lock.writeLock().lock();
             try {
                 if (this.tableSet.memTable.isEmpty()) {
                     // Nothing to flush
+                    return;
+                }
+
+                if (auto && this.tableSet.memTableSize.get() < config.flushThresholdBytes()) {
+                    // Not enough data to flush
                     return;
                 }
 
@@ -152,6 +183,11 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
+    public void flush() throws IOException {
+        initiateFlush(false);
+    }
+
+    @Override
     public void compact() throws IOException {
         compactor.submit(() -> {
             final TableSet tableSet;
@@ -172,7 +208,7 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         config.basePath(),
                         0,
                         new LiveFilteringIterator(
-                                tableSet.allDiskEntries()));
+                                tableSet.allSSTableEntries()));
             } catch (IOException e) {
                 e.printStackTrace();
                 Runtime.getRuntime().halt(-3);

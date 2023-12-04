@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Data set in various tables.
@@ -16,6 +17,7 @@ import java.util.Set;
  */
 final class TableSet {
     final MemTable memTable;
+    final AtomicLong memTableSize;
     // null or read-only
     final MemTable flushing;
     // From freshest to oldest
@@ -23,9 +25,11 @@ final class TableSet {
 
     private TableSet(
             final MemTable memTable,
+            final AtomicLong memTableSize,
             final MemTable flushing,
             final List<SSTable> ssTables) {
         this.memTable = memTable;
+        this.memTableSize = memTableSize;
         this.flushing = flushing;
         this.ssTables = ssTables;
     }
@@ -33,6 +37,7 @@ final class TableSet {
     static TableSet from(final List<SSTable> ssTables) {
         return new TableSet(
                 new MemTable(),
+                new AtomicLong(),
                 null,
                 ssTables);
     }
@@ -55,6 +60,7 @@ final class TableSet {
 
         return new TableSet(
                 new MemTable(),
+                new AtomicLong(),
                 memTable,
                 ssTables);
     }
@@ -65,6 +71,7 @@ final class TableSet {
         newSSTables.addAll(ssTables);
         return new TableSet(
                 memTable,
+                memTableSize,
                 null,
                 newSSTables);
     }
@@ -86,6 +93,7 @@ final class TableSet {
 
         return new TableSet(
                 memTable,
+                memTableSize,
                 flushing,
                 ssTables);
     }
@@ -174,11 +182,11 @@ final class TableSet {
         return entry.value() == null ? null : entry;
     }
 
-    void upsert(final Entry<MemorySegment> entry) {
-        memTable.upsert(entry);
+    Entry<MemorySegment> upsert(final Entry<MemorySegment> entry) {
+        return memTable.upsert(entry);
     }
 
-    Iterator<Entry<MemorySegment>> allDiskEntries() {
+    Iterator<Entry<MemorySegment>> allSSTableEntries() {
         final List<WeightedPeekingEntryIterator> iterators =
                 new ArrayList<>(ssTables.size());
 

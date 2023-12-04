@@ -43,7 +43,7 @@ final class MemTable {
         return map.get(key);
     }
 
-    void upsert(final Entry<MemorySegment> entry) {
-        map.put(entry.key(), entry);
+    Entry<MemorySegment> upsert(final Entry<MemorySegment> entry) {
+        return map.put(entry.key(), entry);
     }
 }
