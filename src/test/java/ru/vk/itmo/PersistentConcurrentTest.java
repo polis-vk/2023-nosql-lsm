@@ -33,9 +33,9 @@ public class PersistentConcurrentTest extends BaseTest {
         List<Entry<String>> entries = entries("k", "v", count);
         long timeoutNanosWarmup = TimeUnit.MILLISECONDS.toNanos(1000);
         runInParallel(100, count, value -> {
-            tryRun(timeoutNanosWarmup, () -> dao.upsert(entries.get(value)));
-            tryRun(timeoutNanosWarmup, () -> dao.upsert(entry(keyAt(value), null)));
-            tryRun(timeoutNanosWarmup, () -> dao.upsert(entries.get(value)));
+            retry(timeoutNanosWarmup, () -> dao.upsert(entries.get(value)));
+            retry(timeoutNanosWarmup, () -> dao.upsert(entry(keyAt(value), null)));
+            retry(timeoutNanosWarmup, () -> dao.upsert(entries.get(value)));
         }, () -> {
             for (int i = 0; i < 100; i++) {
                 try {
@@ -53,9 +53,9 @@ public class PersistentConcurrentTest extends BaseTest {
         long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(200);
 
         runInParallel(100, count, value -> {
-            tryRun(timeoutNanos, () -> dao.upsert(entries.get(value)));
-            tryRun(timeoutNanos, () -> dao.upsert(entry(keyAt(value), null)));
-            tryRun(timeoutNanos, () -> dao.upsert(entries.get(value)));
+            retry(timeoutNanos, () -> dao.upsert(entries.get(value)));
+            retry(timeoutNanos, () -> dao.upsert(entry(keyAt(value), null)));
+            retry(timeoutNanos, () -> dao.upsert(entries.get(value)));
         }, () -> {
             for (int i = 0; i < 100; i++) {
                 try {
@@ -83,28 +83,6 @@ public class PersistentConcurrentTest extends BaseTest {
         long start = System.nanoTime();
         runnable.run();
         long elapsedNanos = System.nanoTime() - start;
-
-        // Check timeout
-        if (elapsedNanos > timeoutNanos) {
-            throw new IllegalBlockingModeException();
-        }
-    }
-
-    private static void tryRun(
-            long timeoutNanos,
-            Runnable runnable) throws InterruptedException {
-        long elapsedNanos;
-        while (true) {
-            try {
-                long start = System.nanoTime();
-                runnable.run();
-                elapsedNanos = System.nanoTime() - start;
-                break;
-            } catch (Exception e) {
-                //noinspection BusyWait
-                Thread.sleep(100);
-            }
-        }
 
         // Check timeout
         if (elapsedNanos > timeoutNanos) {
