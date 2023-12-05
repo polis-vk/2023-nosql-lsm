@@ -83,7 +83,7 @@ final class SSTables {
         }
 
         final List<SSTable> result = new ArrayList<>();
-        try (final Stream<Path> files = Files.list(baseDir)) {
+        try (Stream<Path> files = Files.list(baseDir)) {
             files.forEach(file -> {
                 if (!file.getFileName().toString().endsWith(DATA_SUFFIX)) {
                     // Skip non data
@@ -181,14 +181,14 @@ final class SSTables {
         // Will write through FileChannel despite extra memory copying and
         // no buffering (which may be implemented later).
         // Looking forward to MemorySegment facilities in FileChannel!
-        try (final FileChannel index =
+        try (FileChannel index =
                      FileChannel.open(
                              tempIndexName,
                              StandardOpenOption.READ,
                              StandardOpenOption.WRITE,
                              StandardOpenOption.CREATE,
                              StandardOpenOption.TRUNCATE_EXISTING);
-             final FileChannel data =
+             FileChannel data =
                      FileChannel.open(
                              tempDataName,
                              StandardOpenOption.READ,

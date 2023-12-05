@@ -13,7 +13,7 @@ import java.util.NoSuchElementException;
  */
 final class LiveFilteringIterator implements Iterator<Entry<MemorySegment>> {
     private final Iterator<Entry<MemorySegment>> delegate;
-    private Entry<MemorySegment> next = null;
+    private Entry<MemorySegment> next;
 
     LiveFilteringIterator(final Iterator<Entry<MemorySegment>> delegate) {
         this.delegate = delegate;
