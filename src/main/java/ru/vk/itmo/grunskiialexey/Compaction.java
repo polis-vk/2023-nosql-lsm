@@ -20,8 +20,10 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 
+import static ru.vk.itmo.grunskiialexey.DiskStorage.NAME_INDEX_FILE;
+import static ru.vk.itmo.grunskiialexey.DiskStorage.NAME_TMP_INDEX_FILE;
+
 public class Compaction {
-    private static final String NAME_INDEX_FILE = "index.idx";
     private final List<MemorySegment> segmentList;
 
     public Compaction(List<MemorySegment> segmentList) {
@@ -53,9 +55,12 @@ public class Compaction {
             return;
         }
 
+        final Path indexTmp = storagePath.resolve(NAME_TMP_INDEX_FILE);
         final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
-        final Path newTmpCompactedFileName = storagePath.resolve("-1");
-        final Path newCompactedFileName = storagePath.resolve("0");
+
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        final String compactedFileName = DiskStorage.getNewFileName(existedFiles);
+        final Path compactedFile = storagePath.resolve(compactedFileName);
 
         long startValuesOffset = 0;
         long maxOffset = 0;
@@ -69,7 +74,7 @@ public class Compaction {
 
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        newTmpCompactedFileName,
+                        compactedFile,
                         StandardOpenOption.WRITE, StandardOpenOption.READ,
                         StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
                 );
@@ -98,19 +103,17 @@ public class Compaction {
             }
         }
 
-        // Delete old data
-        deleteFilesAndInMemory(Files.readAllLines(indexFile, StandardCharsets.UTF_8), storagePath);
-        iterable.clear();
-
-        Files.move(
-                newTmpCompactedFileName, newCompactedFileName,
-                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING
-        );
+        Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         Files.write(
                 indexFile,
-                List.of("0"),
+                List.of(compactedFileName),
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
         );
+        Files.delete(indexTmp);
+
+        // Delete old data
+        deleteFilesAndInMemory(existedFiles, storagePath);
+        iterable.clear();
     }
 
     private void deleteFilesAndInMemory(List<String> existedFiles, Path storagePath) throws IOException {

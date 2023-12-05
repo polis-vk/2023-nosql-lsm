@@ -17,8 +17,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class DiskStorage {
-    private static final String NAME_TMP_INDEX_FILE = "index.tmp";
-    private static final String NAME_INDEX_FILE = "index.idx";
+    public static final String NAME_TMP_INDEX_FILE = "index.tmp";
+    public static final String NAME_INDEX_FILE = "index.idx";
 
     private DiskStorage() {
     }
@@ -34,8 +34,7 @@ public final class DiskStorage {
             // it is ok, actually it is normal state
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-
-        String newFileName = String.valueOf(existedFiles.size());
+        String newFileName = getNewFileName(existedFiles);
 
         long dataSize = 0;
         long count = 0;
@@ -52,7 +51,8 @@ public final class DiskStorage {
         try (
                 FileChannel fileChannel = FileChannel.open(
                         storagePath.resolve(newFileName),
-                        StandardOpenOption.WRITE, StandardOpenOption.READ, StandardOpenOption.CREATE
+                        StandardOpenOption.WRITE, StandardOpenOption.READ,
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
@@ -108,6 +108,11 @@ public final class DiskStorage {
         );
 
         Files.delete(indexTmp);
+    }
+
+    public static String getNewFileName(List<String> existedFiles) {
+        int newFileNumber = existedFiles.isEmpty() ? 0 : Integer.parseInt(existedFiles.getLast()) + 1;
+        return Integer.toString(newFileNumber);
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
