@@ -190,11 +190,11 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void compact() throws IOException {
         compactor.submit(() -> {
-            final TableSet tableSet;
+            final TableSet currentTableSet;
             lock.writeLock().lock();
             try {
-                tableSet = this.tableSet;
-                if (tableSet.ssTables.size() < 2) {
+                currentTableSet = this.tableSet;
+                if (currentTableSet.ssTables.size() < 2) {
                     // Nothing to compact
                     return;
                 }
@@ -208,7 +208,7 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         config.basePath(),
                         0,
                         new LiveFilteringIterator(
-                                tableSet.allSSTableEntries()));
+                                currentTableSet.allSSTableEntries()));
             } catch (IOException e) {
                 e.printStackTrace();
                 Runtime.getRuntime().halt(-3);
@@ -230,7 +230,7 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             // Replace old SSTables with compacted one to
             // keep serving requests
-            final Set<SSTable> replaced = new HashSet<>(tableSet.ssTables);
+            final Set<SSTable> replaced = new HashSet<>(currentTableSet.ssTables);
             lock.writeLock().lock();
             try {
                 this.tableSet =
@@ -244,7 +244,7 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             // Remove compacted SSTables starting from the oldest ones.
             // If we crash, 0 contains all the data, and
             // it will be promoted on reopen.
-            for (final SSTable ssTable : tableSet.ssTables.reversed()) {
+            for (final SSTable ssTable : currentTableSet.ssTables.reversed()) {
                 try {
                     SSTables.remove(
                             config.basePath(),
