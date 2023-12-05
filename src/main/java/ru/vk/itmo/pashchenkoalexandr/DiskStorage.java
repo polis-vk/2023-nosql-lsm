@@ -15,7 +15,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.stream.Stream;
 
 public class DiskStorage {
@@ -138,6 +143,7 @@ public class DiskStorage {
 
         Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
     }
+
     public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
 
@@ -219,8 +225,11 @@ public class DiskStorage {
     }
 
     private static void finalizeCompaction(Path storagePath) throws IOException {
-        Path compactionFile = compactionFile(storagePath);
-        try (Stream<Path> stream = Files.find(storagePath, 1, (path, attrs) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
+        try (Stream<Path> stream =
+                     Files.find(
+                             storagePath,
+                             1,
+                             (path, ignored) -> path.getFileName().toString().startsWith(SSTABLE_PREFIX))) {
             stream.forEach(p -> {
                 try {
                     Files.delete(p);
@@ -236,6 +245,7 @@ public class DiskStorage {
         Files.deleteIfExists(indexFile);
         Files.deleteIfExists(indexTmp);
 
+        Path compactionFile = compactionFile(storagePath);
         boolean noData = Files.size(compactionFile) == 0;
 
         Files.write(
@@ -257,7 +267,6 @@ public class DiskStorage {
     private static Path compactionFile(Path storagePath) {
         return storagePath.resolve("compaction");
     }
-
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
         if (Files.exists(compactionFile(storagePath))) {
