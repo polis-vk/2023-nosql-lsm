@@ -149,10 +149,11 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             // Write
             final int sequence = currentTableSet.nextSequence();
             try {
-                SSTables.write(
-                        config.basePath(),
-                        sequence,
-                        currentTableSet.flushingTable.get(null, null));
+                new SSTableWriter()
+                        .write(
+                                config.basePath(),
+                                sequence,
+                                currentTableSet.flushingTable.get(null, null));
             } catch (IOException e) {
                 e.printStackTrace();
                 Runtime.getRuntime().halt(-1);
@@ -204,11 +205,12 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             // Compact to 0
             try {
-                SSTables.write(
-                        config.basePath(),
-                        0,
-                        new LiveFilteringIterator(
-                                currentTableSet.allSSTableEntries()));
+                new SSTableWriter()
+                        .write(
+                                config.basePath(),
+                                0,
+                                new LiveFilteringIterator(
+                                        currentTableSet.allSSTableEntries()));
             } catch (IOException e) {
                 e.printStackTrace();
                 Runtime.getRuntime().halt(-3);
@@ -219,9 +221,9 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             try {
                 compacted =
                         SSTables.open(
-                        arena,
-                        config.basePath(),
-                        0);
+                                arena,
+                                config.basePath(),
+                                0);
             } catch (IOException e) {
                 e.printStackTrace();
                 Runtime.getRuntime().halt(-4);

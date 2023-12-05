@@ -1,12 +1,9 @@
 package ru.vk.itmo.reference;
 
-import ru.vk.itmo.Entry;
-
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,23 +11,11 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Stream;
 
-import static ru.vk.itmo.reference.FileUtils.mapReadOnly;
-import static ru.vk.itmo.reference.FileUtils.writeFully;
-
 /**
  * Provides {@link SSTable} management facilities: dumping and discovery.
- *
- * <p>Index file {@code <N>.index} contains {@code long} offsets to entries in data file:
- * {@code [offset0, offset1, ...]}
- *
- * <p>Data file {@code <N>.data} contains serialized entries:
- * {@code <long keyLength><key><long valueLength><value>}
- *
- * <p>Tombstones are encoded as {@code valueLength} {@code -1} and no subsequent value.
  *
  * @author incubos
  */
@@ -48,25 +33,25 @@ final class SSTables {
         // Only static methods
     }
 
-    private static Path indexName(
+    static Path indexName(
             final Path baseDir,
             final int sequence) {
         return baseDir.resolve(sequence + INDEX_SUFFIX);
     }
 
-    private static Path dataName(
+    static Path dataName(
             final Path baseDir,
             final int sequence) {
         return baseDir.resolve(sequence + DATA_SUFFIX);
     }
 
-    private static Path tempIndexName(
+    static Path tempIndexName(
             final Path baseDir,
             final int sequence) {
         return baseDir.resolve(sequence + INDEX_SUFFIX + TEMP_SUFFIX);
     }
 
-    private static Path tempDataName(
+    static Path tempDataName(
             final Path baseDir,
             final int sequence) {
         return baseDir.resolve(sequence + DATA_SUFFIX + TEMP_SUFFIX);
@@ -131,6 +116,21 @@ final class SSTables {
                 data);
     }
 
+    private static MemorySegment mapReadOnly(
+            final Arena arena,
+            final Path file) throws IOException {
+        try (FileChannel channel =
+                     FileChannel.open(
+                             file,
+                             StandardOpenOption.READ)) {
+            return channel.map(
+                    FileChannel.MapMode.READ_ONLY,
+                    0L,
+                    Files.size(file),
+                    arena);
+        }
+    }
+
     static void remove(
             final Path baseDir,
             final int sequence) throws IOException {
@@ -158,178 +158,5 @@ final class SSTables {
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING);
         }
-    }
-
-    static void write(
-            final Path baseDir,
-            final int sequence,
-            final Iterator<Entry<MemorySegment>> entries) throws IOException {
-        // Write to temporary files
-        final Path tempIndexName = tempIndexName(baseDir, sequence);
-        final Path tempDataName = tempDataName(baseDir, sequence);
-
-        // Reusable buffers to eliminate allocations.
-        // But excessive memory copying is still there :(
-
-        // Long cell
-        final SegmentBuffer longBuffer = new SegmentBuffer(Long.BYTES);
-
-        // Growable blob cell
-        final SegmentBuffer blobBuffer = new SegmentBuffer(512);
-
-        // Iterate in a single pass!
-        // Will write through FileChannel despite extra memory copying and
-        // no buffering (which may be implemented later).
-        // Looking forward to MemorySegment facilities in FileChannel!
-        try (FileChannel index =
-                     FileChannel.open(
-                             tempIndexName,
-                             StandardOpenOption.READ,
-                             StandardOpenOption.WRITE,
-                             StandardOpenOption.CREATE,
-                             StandardOpenOption.TRUNCATE_EXISTING);
-             FileChannel data =
-                     FileChannel.open(
-                             tempDataName,
-                             StandardOpenOption.READ,
-                             StandardOpenOption.WRITE,
-                             StandardOpenOption.CREATE,
-                             StandardOpenOption.TRUNCATE_EXISTING)) {
-            long indexOffset = 0L;
-            long entryOffset = 0L;
-
-            // Iterate and serialize
-            while (entries.hasNext()) {
-                // First write offset to the entry
-                longBuffer.segment().set(
-                        ValueLayout.OfLong.JAVA_LONG_UNALIGNED,
-                        0,
-                        entryOffset);
-                writeFully(
-                        index,
-                        longBuffer.buffer(),
-                        indexOffset);
-
-                // Then write the entry
-                final Entry<MemorySegment> entry = entries.next();
-                entryOffset =
-                        write(
-                                entry,
-                                longBuffer,
-                                blobBuffer,
-                                data,
-                                entryOffset);
-
-                // Advance index
-                indexOffset += Long.BYTES;
-            }
-
-            // Force using all the facilities
-            index.force(true);
-            data.force(true);
-        }
-
-        // Publish files atomically
-        // FIRST index, LAST data
-        final Path indexName =
-                indexName(
-                        baseDir,
-                        sequence);
-        Files.move(
-                tempIndexName,
-                indexName,
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING);
-        final Path dataName =
-                dataName(
-                        baseDir,
-                        sequence);
-        Files.move(
-                tempDataName,
-                dataName,
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING);
-    }
-
-    /**
-     * Writes {@link Entry} to {@link FileChannel} reusing supplied buffers.
-     *
-     * @return {@code offset} advanced
-     */
-    private static long write(
-            final Entry<MemorySegment> entry,
-            final SegmentBuffer longBuffer,
-            final SegmentBuffer blobBuffer,
-            final FileChannel channel,
-            final long from) throws IOException {
-        final MemorySegment key = entry.key();
-        final MemorySegment value = entry.value();
-        long offset = from;
-
-        // Key size
-        longBuffer.segment().set(
-                ValueLayout.OfLong.JAVA_LONG_UNALIGNED,
-                0,
-                key.byteSize());
-        writeFully(
-                channel,
-                longBuffer.buffer(),
-                offset);
-        offset += Long.BYTES;
-
-        // Key
-        blobBuffer.limit(key.byteSize());
-        MemorySegment.copy(
-                key,
-                0L,
-                blobBuffer.segment(),
-                0L,
-                key.byteSize());
-        writeFully(
-                channel,
-                blobBuffer.buffer(),
-                offset);
-        offset += key.byteSize();
-
-        // Value size and possibly value
-        if (value == null) {
-            // Tombstone
-            longBuffer.segment().set(
-                    ValueLayout.OfLong.JAVA_LONG_UNALIGNED,
-                    0,
-                    TOMBSTONE_VALUE_LENGTH);
-            writeFully(
-                    channel,
-                    longBuffer.buffer(),
-                    offset);
-            offset += Long.BYTES;
-        } else {
-            // Value length
-            longBuffer.segment().set(
-                    ValueLayout.OfLong.JAVA_LONG_UNALIGNED,
-                    0,
-                    value.byteSize());
-            writeFully(
-                    channel,
-                    longBuffer.buffer(),
-                    offset);
-            offset += Long.BYTES;
-
-            // Value
-            blobBuffer.limit(value.byteSize());
-            MemorySegment.copy(
-                    value,
-                    0L,
-                    blobBuffer.segment(),
-                    0L,
-                    value.byteSize());
-            writeFully(
-                    channel,
-                    blobBuffer.buffer(),
-                    offset);
-            offset += value.byteSize();
-        }
-
-        return offset;
     }
 }
