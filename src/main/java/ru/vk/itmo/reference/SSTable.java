@@ -40,7 +40,7 @@ final class SSTable {
     }
 
     /**
-     * @return index of the entry if found; otherwise, (-(insertion point) - 1).
+     * Returns index of the entry if found; otherwise, (-(insertion point) - 1).
      * The insertion point is defined as the point at which the key would be inserted:
      * the index of the first element greater than the key,
      * or size if all keys are less than the specified key.
