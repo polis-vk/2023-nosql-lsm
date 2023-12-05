@@ -7,7 +7,6 @@ import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -18,6 +17,9 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.stream.Stream;
+
+import static ru.vk.itmo.reference.FileUtils.mapReadOnly;
+import static ru.vk.itmo.reference.FileUtils.writeFully;
 
 /**
  * Provides {@link SSTable} management facilities: dumping and discovery.
@@ -158,21 +160,6 @@ final class SSTables {
         }
     }
 
-    private static MemorySegment mapReadOnly(
-            final Arena arena,
-            final Path file) throws IOException {
-        try (final FileChannel channel =
-                     FileChannel.open(
-                             file,
-                             StandardOpenOption.READ)) {
-            return channel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    0L,
-                    Files.size(file),
-                    arena);
-        }
-    }
-
     static void write(
             final Path baseDir,
             final int sequence,
@@ -262,15 +249,6 @@ final class SSTables {
                 dataName,
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING);
-    }
-
-    private static void writeFully(
-            final FileChannel channel,
-            final ByteBuffer buffer,
-            long position) throws IOException {
-        while (buffer.hasRemaining()) {
-            position += channel.write(buffer, position);
-        }
     }
 
     /**
