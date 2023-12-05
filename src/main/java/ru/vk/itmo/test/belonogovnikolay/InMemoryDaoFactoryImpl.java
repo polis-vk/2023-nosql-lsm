@@ -6,12 +6,13 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.belonogovnikolay.InMemoryTreeDao;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-@DaoFactory(stage = 2)
+@DaoFactory(stage = 4)
 public class InMemoryDaoFactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     /**
      * Creates new instance of Dao.
@@ -19,13 +20,8 @@ public class InMemoryDaoFactoryImpl implements DaoFactory.Factory<MemorySegment,
      * @return Dao.
      */
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return InMemoryTreeDao.newInstance();
-    }
-
-    @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return InMemoryTreeDao.newInstance(config);
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new InMemoryTreeDao(config);
     }
 
 
