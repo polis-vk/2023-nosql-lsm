@@ -144,14 +144,14 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private void tryToFlush(boolean tolerateToBackgroundFlushing) {
         upsertLock.writeLock().lock();
         try {
-            if (!flushingMemTable.isEmpty()) {
+            if (flushingMemTable.isEmpty()) {
+                prepareFlush();
+            } else {
                 if (tolerateToBackgroundFlushing) {
                     return;
                 } else {
                     throw new TooManyFlushesException();
                 }
-            } else {
-                prepareFlush();
             }
         } finally {
             upsertLock.writeLock().unlock();
