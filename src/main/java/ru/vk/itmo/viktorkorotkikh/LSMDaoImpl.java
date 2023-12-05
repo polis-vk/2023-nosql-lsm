@@ -214,7 +214,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (compactionFuture != null) {
                 await(compactionFuture);
             }
-            bgExecutor.awaitTermination(5, TimeUnit.MINUTES);
+            bgExecutor.awaitTermination(1, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
