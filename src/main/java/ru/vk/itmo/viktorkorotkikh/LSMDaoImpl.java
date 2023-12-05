@@ -150,6 +150,8 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                 } else {
                     throw new TooManyFlushesException();
                 }
+            } else {
+                prepareFlush();
             }
         } finally {
             upsertLock.writeLock().unlock();
@@ -158,17 +160,11 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void prepareFlush() {
-        upsertLock.writeLock().lock();
-        try {
-            flushingMemTable = memTable;
-            memTable = new MemTable(flushThresholdBytes);
-        } finally {
-            upsertLock.writeLock().unlock();
-        }
+        flushingMemTable = memTable;
+        memTable = new MemTable(flushThresholdBytes);
     }
 
     private Future<?> runFlushInBackground() {
-        prepareFlush();
         return bgExecutor.submit(() -> {
             try {
                 compactionLock.writeLock().lock();
