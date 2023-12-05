@@ -19,18 +19,18 @@ final class TableSet {
     final MemTable memTable;
     final AtomicLong memTableSize;
     // null or read-only
-    final MemTable flushing;
+    final MemTable flushingTable;
     // From freshest to oldest
     final List<SSTable> ssTables;
 
     private TableSet(
             final MemTable memTable,
             final AtomicLong memTableSize,
-            final MemTable flushing,
+            final MemTable flushingTable,
             final List<SSTable> ssTables) {
         this.memTable = memTable;
         this.memTableSize = memTableSize;
-        this.flushing = flushing;
+        this.flushingTable = flushingTable;
         this.ssTables = ssTables;
     }
 
@@ -54,7 +54,7 @@ final class TableSet {
             throw new IllegalStateException("Nothing to flush");
         }
 
-        if (flushing != null) {
+        if (flushingTable != null) {
             throw new IllegalStateException("Already flushing");
         }
 
@@ -79,23 +79,23 @@ final class TableSet {
     TableSet compacted(
             final Set<SSTable> replaced,
             final SSTable with) {
-        final List<SSTable> ssTables = new ArrayList<>(this.ssTables.size() + 1);
+        final List<SSTable> newSsTables = new ArrayList<>(this.ssTables.size() + 1);
 
         // Keep not replaced SSTables
         for (final SSTable ssTable : this.ssTables) {
             if (!replaced.contains(ssTable)) {
-                ssTables.add(ssTable);
+                newSsTables.add(ssTable);
             }
         }
 
         // Logically the oldest one
-        ssTables.add(with);
+        newSsTables.add(with);
 
         return new TableSet(
                 memTable,
                 memTableSize,
-                flushing,
-                ssTables);
+                flushingTable,
+                newSsTables);
     }
 
     Iterator<Entry<MemorySegment>> get(
@@ -115,9 +115,9 @@ final class TableSet {
         }
 
         // Then goes flushing
-        if (flushing != null) {
+        if (flushingTable != null) {
             final Iterator<Entry<MemorySegment>> flushingIterator =
-                    flushing.get(from, to);
+                    flushingTable.get(from, to);
             if (flushingIterator.hasNext()) {
                 iterators.add(
                         new WeightedPeekingEntryIterator(
@@ -157,8 +157,8 @@ final class TableSet {
         }
 
         // Then check flushing
-        if (flushing != null) {
-            result = flushing.get(key);
+        if (flushingTable != null) {
+            result = flushingTable.get(key);
             if (result != null) {
                 // Transform tombstone
                 return swallowTombstone(result);

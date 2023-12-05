@@ -93,7 +93,7 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         lock.readLock().lock();
         try {
             if (tableSet.memTableSize.get() > config.flushThresholdBytes()
-                    && tableSet.flushing != null) {
+                    && tableSet.flushingTable != null) {
                 throw new IllegalStateException("Can't keep up with flushing!");
             }
 
@@ -126,7 +126,7 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private void initiateFlush(final boolean auto) {
         flusher.submit(() -> {
-            final TableSet tableSet;
+            final TableSet currentTableSet;
             lock.writeLock().lock();
             try {
                 if (this.tableSet.memTable.isEmpty()) {
@@ -140,19 +140,19 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 }
 
                 // Switch memTable to flushing
-                tableSet = this.tableSet.flushing();
-                this.tableSet = tableSet;
+                currentTableSet = this.tableSet.flushing();
+                this.tableSet = currentTableSet;
             } finally {
                 lock.writeLock().unlock();
             }
 
             // Write
-            final int sequence = tableSet.nextSequence();
+            final int sequence = currentTableSet.nextSequence();
             try {
                 SSTables.write(
                         config.basePath(),
                         sequence,
-                        tableSet.flushing.get(null, null));
+                        currentTableSet.flushingTable.get(null, null));
             } catch (IOException e) {
                 e.printStackTrace();
                 Runtime.getRuntime().halt(-1);

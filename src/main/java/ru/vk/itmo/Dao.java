@@ -85,4 +85,5 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
     default void close() throws IOException {
         flush();
     }
+
 }

@@ -22,7 +22,7 @@ final class FileUtils {
     static MemorySegment mapReadOnly(
             final Arena arena,
             final Path file) throws IOException {
-        try (final FileChannel channel =
+        try (FileChannel channel =
                      FileChannel.open(
                              file,
                              StandardOpenOption.READ)) {
@@ -37,7 +37,8 @@ final class FileUtils {
     static void writeFully(
             final FileChannel channel,
             final ByteBuffer buffer,
-            long position) throws IOException {
+            final long from) throws IOException {
+        long position = from;
         while (buffer.hasRemaining()) {
             position += channel.write(buffer, position);
         }

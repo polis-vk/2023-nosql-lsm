@@ -22,9 +22,9 @@ final class LiveFilteringIterator implements Iterator<Entry<MemorySegment>> {
 
     private void skipTombstones() {
         while (delegate.hasNext()) {
-            final Entry<MemorySegment> next = delegate.next();
-            if (next.value() != null) {
-                this.next = next;
+            final Entry<MemorySegment> entry = delegate.next();
+            if (entry.value() != null) {
+                this.next = entry;
                 break;
             }
         }

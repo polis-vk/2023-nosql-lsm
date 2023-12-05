@@ -261,9 +261,10 @@ final class SSTables {
             final SegmentBuffer longBuffer,
             final SegmentBuffer blobBuffer,
             final FileChannel channel,
-            long offset) throws IOException {
+            final long from) throws IOException {
         final MemorySegment key = entry.key();
         final MemorySegment value = entry.value();
+        long offset = from;
 
         // Key size
         longBuffer.segment().set(
