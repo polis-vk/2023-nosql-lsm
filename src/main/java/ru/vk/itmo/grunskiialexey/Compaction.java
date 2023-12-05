@@ -19,6 +19,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableMap;
 import java.util.NoSuchElementException;
+import java.util.stream.Stream;
 
 import static ru.vk.itmo.grunskiialexey.DiskStorage.NAME_INDEX_FILE;
 import static ru.vk.itmo.grunskiialexey.DiskStorage.NAME_TMP_INDEX_FILE;
@@ -59,8 +60,8 @@ public class Compaction {
         final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        final String compactedFileName = DiskStorage.getNewFileName(existedFiles);
-        final Path compactedFile = storagePath.resolve(compactedFileName);
+        final String compactionFileName = DiskStorage.getNewFileName(existedFiles);
+        final Path compactionFile = storagePath.resolve(compactionFileName);
 
         long startValuesOffset = 0;
         long maxOffset = 0;
@@ -74,7 +75,7 @@ public class Compaction {
 
         try (
                 FileChannel fileChannel = FileChannel.open(
-                        compactedFile,
+                        compactionFile,
                         StandardOpenOption.WRITE, StandardOpenOption.READ,
                         StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
                 );
@@ -106,21 +107,34 @@ public class Compaction {
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         Files.write(
                 indexFile,
-                List.of(compactedFileName),
+                List.of(compactionFileName),
                 StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
         );
         Files.delete(indexTmp);
 
         // Delete old data
-        deleteFilesAndInMemory(existedFiles, storagePath);
+        removeExcessFiles(storagePath, compactionFileName);
+        segmentList.clear();
         iterable.clear();
     }
 
-    private void deleteFilesAndInMemory(List<String> existedFiles, Path storagePath) throws IOException {
-        for (String fileName : existedFiles) {
-            Files.delete(storagePath.resolve(fileName));
+    private static void removeExcessFiles(Path storagePath, String compactionFile) throws IOException {
+        List<Path> excessFiles = new ArrayList<>();
+        try (Stream<Path> stream = Files.walk(storagePath, 1)) {
+            stream.forEach(path -> {
+                String fileName = path.getFileName().toString();
+                if (Files.isRegularFile(path)
+                        && !fileName.equals(compactionFile)
+                        && !fileName.equals(NAME_INDEX_FILE)
+                ) {
+                    excessFiles.add(path);
+                }
+            });
         }
-        segmentList.clear();
+
+        for (Path excessFile : excessFiles) {
+            Files.delete(excessFile);
+        }
     }
 
     private Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
