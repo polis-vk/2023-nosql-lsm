@@ -14,6 +14,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -39,6 +40,8 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
 
     private final ReadWriteLock compactionLock = new ReentrantReadWriteLock();
+
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public LSMDaoImpl(Path storagePath, long flushThresholdBytes) {
         this.memTable = new MemTable(flushThresholdBytes);
@@ -204,6 +207,9 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void close() throws IOException {
+        if (closed.getAndSet(true)) {
+            return; // already closed
+        }
         bgExecutor.shutdown();
         try {
             if (flushFuture != null) {
@@ -212,7 +218,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (compactionFuture != null) {
                 await(compactionFuture);
             }
-            bgExecutor.awaitTermination(1, TimeUnit.SECONDS);
+            bgExecutor.awaitTermination(5, TimeUnit.MINUTES);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

@@ -60,7 +60,7 @@ public class MemTable {
         }
         Entry<MemorySegment> previous = storage.put(entry.key(), entry);
         if (previous != null) {
-            // entry already was in memTable, so we need to substructure subtract size of previous entry
+            // entry already was in memTable, so we need to subtract size of previous entry
             memTableByteSize.addAndGet(-Utils.getEntrySize(previous));
         }
         memTableByteSize.addAndGet(Utils.getEntrySize(entry));
@@ -68,7 +68,7 @@ public class MemTable {
     }
 
     public boolean isEmpty() {
-        return memTableByteSize.compareAndSet(0, 0);
+        return memTableByteSize.get() == 0L;
     }
 
     public long getByteSize() {
