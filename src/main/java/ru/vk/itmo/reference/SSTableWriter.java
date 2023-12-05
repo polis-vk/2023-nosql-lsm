@@ -66,7 +66,7 @@ final class SSTableWriter {
             // Iterate and serialize
             while (entries.hasNext()) {
                 // First write offset to the entry
-                write(
+                writeLong(
                         entryOffset,
                         index,
                         indexOffset);
@@ -74,7 +74,7 @@ final class SSTableWriter {
                 // Then write the entry
                 final Entry<MemorySegment> entry = entries.next();
                 entryOffset =
-                        write(
+                        writeEntry(
                                 entry,
                                 data,
                                 entryOffset);
@@ -120,7 +120,7 @@ final class SSTableWriter {
         }
     }
 
-    private void write(
+    private void writeLong(
             final long value,
             final FileChannel channel,
             final long offset) throws IOException {
@@ -134,7 +134,7 @@ final class SSTableWriter {
                 offset);
     }
 
-    private void write(
+    private void writeSegment(
             final MemorySegment value,
             final FileChannel channel,
             final long offset) throws IOException {
@@ -152,11 +152,11 @@ final class SSTableWriter {
     }
 
     /**
-     * Writes {@link Entry} to {@link FileChannel} reusing supplied buffers.
+     * Writes {@link Entry} to {@link FileChannel}.
      *
      * @return {@code offset} advanced
      */
-    private long write(
+    private long writeEntry(
             final Entry<MemorySegment> entry,
             final FileChannel channel,
             final long from) throws IOException {
@@ -165,14 +165,14 @@ final class SSTableWriter {
         long offset = from;
 
         // Key size
-        write(
+        writeLong(
                 key.byteSize(),
                 channel,
                 offset);
         offset += Long.BYTES;
 
         // Key
-        write(
+        writeSegment(
                 key,
                 channel,
                 offset);
@@ -181,21 +181,21 @@ final class SSTableWriter {
         // Value size and possibly value
         if (value == null) {
             // Tombstone
-            write(
+            writeLong(
                     SSTables.TOMBSTONE_VALUE_LENGTH,
                     channel,
                     offset);
             offset += Long.BYTES;
         } else {
             // Value length
-            write(
+            writeLong(
                     value.byteSize(),
                     channel,
                     offset);
             offset += Long.BYTES;
 
             // Value
-            write(
+            writeSegment(
                     value,
                     channel,
                     offset);
