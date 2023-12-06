@@ -148,13 +148,10 @@ public class DiskStorage {
         BloomFilter bloom = BloomFilter.createBloom((int) count);
 
         for (Entry<MemorySegment> entry : iterable) {
-            MemorySegment value = entry.value();
-            if (value != null) {
-                bloom.add(entry.key());
-            }
+            bloom.add(entry.key());
         }
 
-        long bloomSize = bloom.getFilterSize();
+        long bloomSize = (long) bloom.getFilterSize() * Long.BYTES + Long.BYTES; // 8 bytes for size + actual filter_size
 
         long indexSize = count * 2 * Long.BYTES;
 
@@ -172,11 +169,22 @@ public class DiskStorage {
                     arena
             );
 
+            // bloom:
+            // |bloom_size|long_value1|long_value2|long_value3|...
+            // long values stored in bloom filter - representation of bits
+            // bloomSize = index start
+            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, bloomSize);
+            long bloomOffset = Long.BYTES;
+            for (Long hash : bloom.getFilter().getBitset()) {
+                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, bloomOffset, hash);
+                bloomOffset += Long.BYTES;
+            }
+
             // index:
             // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
             // key0_Start = data start = end of index
-            long dataOffset = indexSize;
-            long indexOffset = 0;
+            long dataOffset = bloomSize + indexSize;
+            long indexOffset = bloomSize;
             for (Entry<MemorySegment> entry : iterable) {
                 fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                 dataOffset += entry.key().byteSize();
@@ -194,7 +202,7 @@ public class DiskStorage {
 
             // data:
             // |key0|value0|key1|value1|...
-            dataOffset = indexSize;
+            dataOffset = bloomSize + indexSize;
             for (Entry<MemorySegment> entry : iterable) {
                 MemorySegment key = entry.key();
                 MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
@@ -205,15 +213,6 @@ public class DiskStorage {
                     MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
                     dataOffset += value.byteSize();
                 }
-            }
-
-            // bloom:
-            // |long_value1|long_value2|long_value3|...
-            // long values stored in bloom filter - representation of bits
-            long bloomOffset = indexSize + dataSize;
-            for (Long hash : bloom.getFilter().getBitset()) {
-                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, bloomOffset, hash);
-                bloomOffset += Long.BYTES;
             }
             return fileSegment;
         }
@@ -253,10 +252,11 @@ public class DiskStorage {
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : StorageUtil.normalize(StorageUtil.indexOf(page, from));
+        long bloomSize = StorageUtil.bloomSize(page);
         long recordIndexTo = to == null
-                ? StorageUtil.recordsCount(page)
+                ? StorageUtil.recordsCount(page, bloomSize)
                 : StorageUtil.normalize(StorageUtil.indexOf(page, to));
-        long recordsCount = StorageUtil.recordsCount(page);
+        long recordsCount = StorageUtil.recordsCount(page, bloomSize);
 
         return new Iterator<>() {
             long index = recordIndexFrom;
@@ -272,12 +272,12 @@ public class DiskStorage {
                     throw new NoSuchElementException();
                 }
                 MemorySegment key = StorageUtil
-                        .slice(page, StorageUtil.startOfKey(page, index), StorageUtil.endOfKey(page, index));
-                long startOfValue = StorageUtil.startOfValue(page, index);
+                        .slice(page, StorageUtil.startOfKey(page, index, bloomSize), StorageUtil.endOfKey(page, index, bloomSize));
+                long startOfValue = StorageUtil.startOfValue(page, index, bloomSize);
                 MemorySegment value =
                         startOfValue < 0
                                 ? null
-                                : StorageUtil.slice(page, startOfValue, StorageUtil.endOfValue(page, index, recordsCount));
+                                : StorageUtil.slice(page, startOfValue, StorageUtil.endOfValue(page, index, recordsCount, bloomSize));
                 index++;
                 return new BaseEntry<>(key, value);
             }

@@ -33,4 +33,8 @@ public class BitSet {
     public List<Long> getBitset() {
         return Collections.unmodifiableList(bitset);
     }
+
+    public int size() {
+        return bitset.size();
+    }
 }

@@ -125,10 +125,17 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return entry;
         }
 
+        List<MemorySegment> segments = new ArrayList<>();
+        for (MemorySegment page : state.diskSegmentList) {
+            if (StorageUtil.checkBloom(page, key)) {
+                segments.add(page);
+            }
+        }
+
         Iterator<Entry<MemorySegment>> iterator = DiskStorage.range(
                 Collections.emptyIterator(),
                 Collections.emptyIterator(),
-                state.diskSegmentList,
+                segments,
                 key,
                 null
         );
@@ -157,6 +164,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             upsertLock.writeLock().lock();
             try {
+                //                state.diskSegmentList,
                 state.set(nextState);
             } finally {
                 upsertLock.writeLock().unlock();
@@ -245,6 +253,7 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         private static ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> createMap() {
             return new ConcurrentSkipListMap<>(comparator);
         }
+
         public static StorageState initial(List<MemorySegment> segments) {
             return new StorageState(
                     createMap(),

@@ -1,21 +1,16 @@
 package ru.vk.itmo.bandurinvladislav;
 
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 
 // I took this implementation from https://github.com/apache/commons-codec/blob/master/src/main/java/org/apache/commons/codec/digest/MurmurHash3.java
 public final class MurmurHash3 {
-    public static final int DEFAULT_SEED = 104729;
     private static final long C1 = 0x87c37b91114253d5L;
     private static final long C2 = 0x4cf5ad432745937fL;
     private static final int R1 = 31;
     private static final int R2 = 27;
     private static final int R3 = 33;
     private static final int M = 5;
-
     private static final int N1 = 0x52dce729;
-
     private static final int N2 = 0x38495ab5;
 
 
@@ -34,13 +29,13 @@ public final class MurmurHash3 {
         return hash;
     }
 
-    public static long[] hash128x64(final ByteBuffer data, final int offset, final int length, final int seed, long[] indexes) {
+    public static void hash128x64(final ByteBuffer data, final int offset, final int length, final int seed, long[] indexes) {
         // Use an unsigned 32-bit integer as the seed
-        return hash128x64Internal(data, offset, length, seed & 0xffffffffL, indexes);
+        hash128x64Internal(data, offset, length, seed & 0xffffffffL, indexes);
     }
 
     private static long getLittleEndianLong(final ByteBuffer data, final int index) {
-        return (long) data.get(index) & 0xff |
+        return ((long) data.get(index) & 0xff) |
                 ((long) data.get(index + 1) & 0xff) << 8 |
                 ((long) data.get(index + 2) & 0xff) << 16 |
                 ((long) data.get(index + 3) & 0xff) << 24 |
@@ -50,7 +45,8 @@ public final class MurmurHash3 {
                 ((long) data.get(index + 7) & 0xff) << 56;
     }
 
-    private static long[] hash128x64Internal(final ByteBuffer data, final int offset, final int length, final long seed, long[] indexes) {
+    @SuppressWarnings("fallthrough")
+    private static void hash128x64Internal(final ByteBuffer data, final int offset, final int length, final long seed, long[] indexes) {
         long h1 = seed;
         long h2 = seed;
         final int nblocks = length >> 4;
@@ -73,7 +69,7 @@ public final class MurmurHash3 {
             // mix functions for k2
             k2 *= C2;
             k2 = Long.rotateLeft(k2, R3);
-            k2 *= C1;   
+            k2 *= C1;
             h2 ^= k2;
             h2 = Long.rotateLeft(h2, R1);
             h2 += h1;
@@ -103,7 +99,6 @@ public final class MurmurHash3 {
                 k2 = Long.rotateLeft(k2, R3);
                 k2 *= C1;
                 h2 ^= k2;
-
             case 8:
                 k1 ^= ((long) data.get(index + 7) & 0xff) << 56;
             case 7:
@@ -115,9 +110,9 @@ public final class MurmurHash3 {
             case 4:
                 k1 ^= ((long) data.get(index + 3) & 0xff) << 24;
             case 3:
-                k1 ^= ((long) data.get(index + 3) & 0xff) << 16;
+                k1 ^= ((long) data.get(index + 2) & 0xff) << 16;
             case 2:
-                k1 ^= ((long) data.get(index + 2) & 0xff) << 8;
+                k1 ^= ((long) data.get(index + 1) & 0xff) << 8;
             case 1:
                 k1 ^= data.get(index) & 0xff;
                 k1 *= C1;
@@ -141,8 +136,6 @@ public final class MurmurHash3 {
 
         indexes[0] = h1;
         indexes[1] = h2;
-
-        return indexes;
     }
 
     /**
