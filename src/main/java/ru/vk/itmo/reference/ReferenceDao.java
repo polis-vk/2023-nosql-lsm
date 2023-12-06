@@ -66,15 +66,10 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Iterator<Entry<MemorySegment>> get(
             final MemorySegment from,
             final MemorySegment to) {
-        lock.readLock().lock();
-        try {
-            return new LiveFilteringIterator(
-                    tableSet.get(
-                            from,
-                            to));
-        } finally {
-            lock.readLock().unlock();
-        }
+        return new LiveFilteringIterator(
+                tableSet.get(
+                        from,
+                        to));
     }
 
     @Override
