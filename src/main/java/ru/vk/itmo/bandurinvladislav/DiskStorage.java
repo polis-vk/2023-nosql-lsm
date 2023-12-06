@@ -60,9 +60,7 @@ public class DiskStorage {
         String newFileName = String.valueOf(existedFiles.size());
 
         MemorySegment fileSegment = fillSSTable(arena, storagePath.resolve(newFileName), iterable);
-
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
         list.addAll(existedFiles);
         list.add(newFileName);
@@ -73,12 +71,12 @@ public class DiskStorage {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
-
         Files.delete(indexTmp);
         return fileSegment;
     }
 
-    public static MemorySegment compact(Arena arena, Path storagePath, Iterator<Entry<MemorySegment>> mergeIterator) throws IOException {
+    public static MemorySegment compact(Arena arena, Path storagePath, Iterator<Entry<MemorySegment>> mergeIterator)
+            throws IOException {
         if (!mergeIterator.hasNext()) {
             return null;
         }
@@ -105,16 +103,13 @@ public class DiskStorage {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
-
         for (String existedFile : existedFiles) {
             Files.deleteIfExists(storagePath.resolve(existedFile));
         }
-
         Files.move(newFilePath,
                 storagePath.resolve("0"),
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING);
-
         Files.writeString(
                 indexFile,
                 "0",
@@ -122,7 +117,6 @@ public class DiskStorage {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
-
         Files.deleteIfExists(newFilePath);
         return fileSegment;
     }
@@ -144,14 +138,16 @@ public class DiskStorage {
             return null;
         }
 
-        // According to our simplified implementation of DB, I rely on the fact that 'count' is always less than Integer.MAX_VALUE
+        // According to our simplified implementation of DB,
+        // I rely on the fact that 'count' is always less than Integer.MAX_VALUE
         BloomFilter bloom = BloomFilter.createBloom((int) count);
 
         for (Entry<MemorySegment> entry : iterable) {
             bloom.add(entry.key());
         }
 
-        long bloomSize = (long) bloom.getFilterSize() * Long.BYTES + Long.BYTES; // 8 bytes for size + actual filter_size
+        // 8 bytes for size + actual filter_size
+        long bloomSize = (long) bloom.getFilterSize() * Long.BYTES + Long.BYTES;
 
         long indexSize = count * 2 * Long.BYTES;
 
@@ -175,7 +171,7 @@ public class DiskStorage {
             // bloomSize = index start
             fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, bloomSize);
             long bloomOffset = Long.BYTES;
-            for (Long hash : bloom.getFilter().getBitset()) {
+            for (Long hash : bloom.getFilter().getLongs()) {
                 fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, bloomOffset, hash);
                 bloomOffset += Long.BYTES;
             }
@@ -272,15 +268,25 @@ public class DiskStorage {
                     throw new NoSuchElementException();
                 }
                 MemorySegment key = StorageUtil
-                        .slice(page, StorageUtil.startOfKey(page, index, bloomSize), StorageUtil.endOfKey(page, index, bloomSize));
+                        .slice(
+                                page,
+                                StorageUtil.startOfKey(page, index, bloomSize),
+                                StorageUtil.endOfKey(page, index, bloomSize)
+                        );
                 long startOfValue = StorageUtil.startOfValue(page, index, bloomSize);
                 MemorySegment value =
                         startOfValue < 0
                                 ? null
-                                : StorageUtil.slice(page, startOfValue, StorageUtil.endOfValue(page, index, recordsCount, bloomSize));
+                                : StorageUtil.slice(
+                                page,
+                                startOfValue,
+                                StorageUtil.endOfValue(page, index, recordsCount, bloomSize)
+                        );
                 index++;
                 return new BaseEntry<>(key, value);
             }
         };
     }
+
+    private DiskStorage() {}
 }

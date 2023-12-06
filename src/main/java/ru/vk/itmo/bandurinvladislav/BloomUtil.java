@@ -5,13 +5,15 @@ import java.nio.ByteBuffer;
 
 public class BloomUtil {
 
+    private BloomUtil() {}
+
     public static long abs(long index) {
         long negbit = index >> 63;
         return (index ^ negbit) - negbit;
     }
 
-    public static int evalHashCount(int mBits, int n) {
-        int k = (int) (Math.log(2) * mBits / n);
+    public static int evalHashCount(int bitsSize, int n) {
+        int k = (int) (Math.log(2) * bitsSize / n);
 
         if (k < 1) {
             return 1;

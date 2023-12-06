@@ -3,16 +3,17 @@ package ru.vk.itmo.bandurinvladislav;
 import java.lang.foreign.MemorySegment;
 
 public class BloomFilter {
-    private final static double DEFAULT_FALSE_POSITIVE_RATE = 0.01;
+    private static final double DEFAULT_FALSE_POSITIVE_RATE = 0.01;
     private final BitSet filter;
-    private final int k;
-    private int mBits;
+    private final int hashCount;
+    private int bitsSize;
 
     private BloomFilter(int n, double p) {
-        mBits = (int) ((-n * Math.log(p)) / Math.pow(Math.log(2), 2)); // Optimal m: https://andybui01.github.io/bloom-filter/
-        int mBytes = (mBits + 7) / 8;
-        int bitsetCapacity = mBytes / 8 + 1;
-        mBits = bitsetCapacity * 64;
+        // Optimal m: https://andybui01.github.io/bloom-filter/
+        bitsSize = (int) ((-n * Math.log(p)) / Math.pow(Math.log(2), 2));
+        int bytesSize = (bitsSize + 7) / 8;
+        int bitsetCapacity = bytesSize / 8 + 1;
+        bitsSize = bitsetCapacity * 64;
         filter = new BitSet(bitsetCapacity);
 
         /*
@@ -21,13 +22,13 @@ public class BloomFilter {
         very expensive to evaluate hashes for big k. You can see similar technique in levelDB implementation
         of bloom filter: https://github.com/google/leveldb/blob/main/util/bloom.cc
          */
-        k = BloomUtil.evalHashCount(mBits, n);
+        hashCount = BloomUtil.evalHashCount(bitsSize, n);
     }
 
     public BloomFilter(BitSet filter, int n) {
         this.filter = filter;
-        mBits = filter.getBitset().size() * 64;
-        k = BloomUtil.evalHashCount(mBits, n);
+        bitsSize = filter.getLongs().size() * 64;
+        hashCount = BloomUtil.evalHashCount(bitsSize, n);
     }
 
     public static BloomFilter createBloom(int n) {
@@ -42,10 +43,10 @@ public class BloomFilter {
     }
 
     public void add(MemorySegment key) {
-        long[] indexes = new long[k];
+        long[] indexes = new long[hashCount];
         BloomUtil.hashKey(key, indexes);
 
-        indexes(indexes[1], indexes[0], k, mBits, indexes);
+        indexes(indexes[1], indexes[0], hashCount, bitsSize, indexes);
         setIndexes(indexes);
     }
 

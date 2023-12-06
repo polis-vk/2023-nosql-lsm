@@ -12,13 +12,13 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Iterator;
-import java.util.NavigableMap;
-import java.util.List;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -153,7 +153,6 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() {
         bgExecutor.execute(() -> {
-            Collection<Entry<MemorySegment>> entries;
             StorageState prevState = state.get();
             NavigableMap<MemorySegment, Entry<MemorySegment>> writeStorage = prevState.writeStorage;
             if (writeStorage.isEmpty()) {
@@ -164,12 +163,12 @@ public class PersistentDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             upsertLock.writeLock().lock();
             try {
-                //                state.diskSegmentList,
                 state.set(nextState);
             } finally {
                 upsertLock.writeLock().unlock();
             }
 
+            Collection<Entry<MemorySegment>> entries;
             MemorySegment newPage;
             entries = writeStorage.values();
             try {

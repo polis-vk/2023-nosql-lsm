@@ -10,31 +10,31 @@ import java.util.List;
 */
 public class BitSet {
 
-    private final List<Long> bitset;
+    private final List<Long> longs;
 
     public BitSet(int capacity) {
-        this.bitset = new ArrayList<>(Collections.nCopies(capacity, 0L));
+        this.longs = new ArrayList<>(Collections.nCopies(capacity, 0L));
     }
 
     public void set(int i) {
         int arrayOffset = i >> 6;
         int longOffset = i - (arrayOffset << 6);
 
-        bitset.set(arrayOffset, bitset.get(arrayOffset) | (1L << (63 - longOffset)));
+        longs.set(arrayOffset, longs.get(arrayOffset) | (1L << (63 - longOffset)));
     }
 
     public boolean get(int i) {
         int arrayOffset = i >> 6;
         int longOffset = i - (arrayOffset << 6);
 
-        return ((1L << (63 - longOffset)) & bitset.get(arrayOffset)) != 0;
+        return ((1L << (63 - longOffset)) & longs.get(arrayOffset)) != 0;
     }
 
-    public List<Long> getBitset() {
-        return Collections.unmodifiableList(bitset);
+    public List<Long> getLongs() {
+        return Collections.unmodifiableList(longs);
     }
 
     public int size() {
-        return bitset.size();
+        return longs.size();
     }
 }
