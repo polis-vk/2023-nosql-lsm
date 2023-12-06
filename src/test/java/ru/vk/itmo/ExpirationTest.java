@@ -132,7 +132,7 @@ public class ExpirationTest {
         return directoryToBeDeleted.delete();
     }
 
-    public void assertSameList(Iterator<Entry<MemorySegment>> iterator, List<Entry<MemorySegment>> expected) { // todo compare as strings
+    public void assertSameList(Iterator<Entry<MemorySegment>> iterator, List<Entry<MemorySegment>> expected) {
         int index = 0;
         for (Entry<MemorySegment> entry : expected) {
             if (!iterator.hasNext()) {

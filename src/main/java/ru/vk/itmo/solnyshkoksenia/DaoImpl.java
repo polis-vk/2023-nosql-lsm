@@ -65,7 +65,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             try {
                 autoFlush();
             } catch (IOException e) {
-                throw new DaoException("Memory storage overflowed. Cannot flush: " + e.getMessage());
+                throw new DaoException("Memory storage overflowed. Cannot flush", e);
             }
         }
     }
@@ -110,21 +110,21 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void tryFlush() {
-        State state = this.curState.checkAndGet();
+        State curState = this.curState.checkAndGet();
         try {
-            state.flush();
-
-            lock.writeLock().lock();
-            try {
-                this.curState = new State(state.config, state.storage, new ConcurrentSkipListMap<>(comparator),
-                        new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
-            } catch (IOException e) {
-                throw new DaoException("Cannot recover storage on disk", e);
-            } finally {
-                lock.writeLock().unlock();
-            }
+            curState.flush();
         } catch (IOException e) {
             throw new DaoException("Flush failed", e);
+        }
+
+        lock.writeLock().lock();
+        try {
+            this.curState = new State(curState.config, curState.storage, new ConcurrentSkipListMap<>(comparator),
+                    new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
+        } catch (IOException e) {
+            throw new DaoException("Cannot recover storage on disk", e);
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 
@@ -133,6 +133,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         try {
             executor.submit(this::tryCompact).get();
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             throw new DaoException("Compaction failed. Thread interrupted", e);
         } catch (ExecutionException e) {
             throw new DaoException("Compaction failed", e);
