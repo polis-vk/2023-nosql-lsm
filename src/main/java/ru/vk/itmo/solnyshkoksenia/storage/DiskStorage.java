@@ -101,11 +101,11 @@ public class DiskStorage {
             MemorySegment fileSegment = utils.mapFile(fileChannel, indexSize + dataSize, writeArena);
 
             // index:
-            // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
+            // |key0_Start|value0_Start|expiration0_Start|key1_Start|value1_Start|expiration1_Start|key2_Start|...
             // key0_Start = data start = end of index
 
             // data:
-            // |key0|value0|key1|value1|...
+            // |key0|value0|expiration0|key1|value1|expiration1|...
             Entry<Long> offsets = new BaseEntry<>(indexSize, 0L);
             for (Triple<MemorySegment> triple : iterable) {
                 offsets = utils.putEntry(fileSegment, offsets, triple);

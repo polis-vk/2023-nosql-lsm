@@ -105,14 +105,12 @@ public class State {
 
     public Entry<MemorySegment> get(MemorySegment key, Comparator<MemorySegment> comparator) {
         Triple<MemorySegment> entry = storage.get(key);
-        if (entry != null && (entry.expiration() == null
-                || entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis())) {
+        if (isValidEntry(entry)) {
             return entry.value() == null ? null : entry;
         }
 
         entry = flushingStorage.get(key);
-        if (entry != null && (entry.expiration() == null
-                || entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis())) {
+        if (isValidEntry(entry)) {
             return entry.value() == null ? null : entry;
         }
 
@@ -122,11 +120,15 @@ public class State {
             return null;
         }
         Triple<MemorySegment> next = iterator.next();
-        if (comparator.compare(next.key(), key) == 0 && next.value() != null && (next.expiration() == null
-                || next.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis())) {
+        if (comparator.compare(next.key(), key) == 0 && isValidEntry(next)) {
                 return next;
         }
         return null;
+    }
+
+    private boolean isValidEntry(Triple<MemorySegment> entry) {
+        return entry != null && (entry.expiration() == null
+                || entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis());
     }
 
     protected Iterator<Triple<MemorySegment>> getInMemory(NavigableMap<MemorySegment, Triple<MemorySegment>> memory,
