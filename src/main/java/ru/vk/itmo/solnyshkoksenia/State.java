@@ -106,22 +106,16 @@ public class State {
     public Entry<MemorySegment> get(MemorySegment key, Comparator<MemorySegment> comparator) {
         Triple<MemorySegment> entry = storage.get(key);
         if (entry != null) {
-            if (entry.expiration() != null) {
-                if (entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
-                    return entry.value() == null ? null : entry;
-                }
-            } else {
+            if (entry.expiration() == null
+                    || entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
                 return entry.value() == null ? null : entry;
             }
         }
 
         entry = flushingStorage.get(key);
         if (entry != null) {
-            if (entry.expiration() != null) {
-                if (entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
-                    return entry.value() == null ? null : entry;
-                }
-            } else {
+            if (entry.expiration() == null
+                    || entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
                 return entry.value() == null ? null : entry;
             }
         }
@@ -133,11 +127,8 @@ public class State {
         }
         Triple<MemorySegment> next = iterator.next();
         if (comparator.compare(next.key(), key) == 0 && next.value() != null) {
-            if (next.expiration() != null) {
-                if (next.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
-                    return next;
-                }
-            } else {
+            if (next.expiration() == null
+                    || next.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
                 return next;
             }
         }
