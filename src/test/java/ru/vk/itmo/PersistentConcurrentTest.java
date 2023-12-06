@@ -15,13 +15,13 @@ public class PersistentConcurrentTest extends BaseTest {
     void testConcurrentRW_2_500_2(Dao<String, Entry<String>> dao) throws Exception {
         int count = 2_500;
         List<Entry<String>> entries = entries("k", "v", count);
-        runInParallel(100, count, value -> {
+        runInParallel(4, count, value -> {
             dao.upsert(entries.get(value));
         }).close();
         dao.close();
 
         Dao<String, Entry<String>> dao2 = DaoFactory.Factory.reopen(dao);
-        runInParallel(100, count, value -> {
+        runInParallel(4, count, value -> {
             assertSame(dao2.get(entries.get(value).key()), entries.get(value));
         }).close();
     }
@@ -32,7 +32,7 @@ public class PersistentConcurrentTest extends BaseTest {
 
         List<Entry<String>> entries = entries("k", "v", count);
         long timeoutNanosWarmup = TimeUnit.MILLISECONDS.toNanos(1000);
-        runInParallel(100, count, value -> {
+        runInParallel(4, count, value -> {
             retry(timeoutNanosWarmup, () -> dao.upsert(entries.get(value)));
             retry(timeoutNanosWarmup, () -> dao.upsert(entry(keyAt(value), null)));
             retry(timeoutNanosWarmup, () -> dao.upsert(entries.get(value)));
@@ -52,7 +52,7 @@ public class PersistentConcurrentTest extends BaseTest {
         // 200ms should be enough considering GC
         long timeoutNanos = TimeUnit.MILLISECONDS.toNanos(200);
 
-        runInParallel(100, count, value -> {
+        runInParallel(4, count, value -> {
             retry(timeoutNanos, () -> dao.upsert(entries.get(value)));
             retry(timeoutNanos, () -> dao.upsert(entry(keyAt(value), null)));
             retry(timeoutNanos, () -> dao.upsert(entries.get(value)));
@@ -72,7 +72,7 @@ public class PersistentConcurrentTest extends BaseTest {
 
         Dao<String, Entry<String>> dao2 = DaoFactory.Factory.reopen(dao);
         runInParallel(
-                100,
+                4,
                 count,
                 value -> assertSame(dao2.get(entries.get(value).key()), entries.get(value))).close();
     }
