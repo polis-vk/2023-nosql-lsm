@@ -3,7 +3,6 @@ package ru.vk.itmo.reference;
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
-import java.util.function.Consumer;
 
 /**
  * Growable buffer with {@link ByteBuffer} and {@link MemorySegment} interface.
