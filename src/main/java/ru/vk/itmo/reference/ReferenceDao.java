@@ -28,7 +28,7 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     // Guarded by lock
-    private TableSet tableSet;
+    private volatile TableSet tableSet;
 
     private final ExecutorService flusher =
             Executors.newSingleThreadExecutor(r -> {
@@ -79,12 +79,8 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(final MemorySegment key) {
-        lock.readLock().lock();
-        try {
-            return tableSet.get(key);
-        } finally {
-            lock.readLock().unlock();
-        }
+        // Without lock, just snapshot of table set
+        return tableSet.get(key);
     }
 
     @Override

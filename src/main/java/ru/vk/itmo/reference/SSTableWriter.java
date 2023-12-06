@@ -2,15 +2,16 @@ package ru.vk.itmo.reference;
 
 import ru.vk.itmo.Entry;
 
+import java.io.BufferedOutputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
 
 /**
@@ -27,12 +28,14 @@ import java.util.Iterator;
  * @author incubos
  */
 final class SSTableWriter {
+    private static final int BUFFER_SIZE = 64 * 1024;
+
     // Reusable buffers to eliminate allocations.
     // But excessive memory copying is still there :(
     // Long cell
-    private final SegmentBuffer longBuffer = new SegmentBuffer(Long.BYTES);
+    private final ByteArraySegment longBuffer = new ByteArraySegment(Long.BYTES);
     // Growable blob cell
-    private final SegmentBuffer blobBuffer = new SegmentBuffer(512);
+    private final ByteArraySegment blobBuffer = new ByteArraySegment(512);
 
     void write(
             final Path baseDir,
@@ -42,50 +45,35 @@ final class SSTableWriter {
         final Path tempIndexName = SSTables.tempIndexName(baseDir, sequence);
         final Path tempDataName = SSTables.tempDataName(baseDir, sequence);
 
+        // Delete temporary files to eliminate tails
+        Files.deleteIfExists(tempIndexName);
+        Files.deleteIfExists(tempDataName);
+
         // Iterate in a single pass!
         // Will write through FileChannel despite extra memory copying and
         // no buffering (which may be implemented later).
         // Looking forward to MemorySegment facilities in FileChannel!
-        try (FileChannel index =
-                     FileChannel.open(
-                             tempIndexName,
-                             StandardOpenOption.READ,
-                             StandardOpenOption.WRITE,
-                             StandardOpenOption.CREATE,
-                             StandardOpenOption.TRUNCATE_EXISTING);
-             FileChannel data =
-                     FileChannel.open(
-                             tempDataName,
-                             StandardOpenOption.READ,
-                             StandardOpenOption.WRITE,
-                             StandardOpenOption.CREATE,
-                             StandardOpenOption.TRUNCATE_EXISTING)) {
-            long indexOffset = 0L;
+        try (OutputStream index =
+                     new BufferedOutputStream(
+                             new FileOutputStream(
+                                     tempIndexName.toFile()),
+                             BUFFER_SIZE);
+             OutputStream data =
+                     new BufferedOutputStream(
+                             new FileOutputStream(
+                                     tempDataName.toFile()),
+                             BUFFER_SIZE)) {
             long entryOffset = 0L;
 
             // Iterate and serialize
             while (entries.hasNext()) {
                 // First write offset to the entry
-                writeLong(
-                        entryOffset,
-                        index,
-                        indexOffset);
+                writeLong(entryOffset, index);
 
                 // Then write the entry
                 final Entry<MemorySegment> entry = entries.next();
-                entryOffset =
-                        writeEntry(
-                                entry,
-                                data,
-                                entryOffset);
-
-                // Advance index
-                indexOffset += Long.BYTES;
+                entryOffset += writeEntry(entry, data);
             }
-
-            // Force using all the facilities
-            index.force(true);
-            data.force(true);
         }
 
         // Publish files atomically
@@ -110,98 +98,68 @@ final class SSTableWriter {
                 StandardCopyOption.REPLACE_EXISTING);
     }
 
-    static void writeFully(
-            final FileChannel channel,
-            final ByteBuffer buffer,
-            final long offset) throws IOException {
-        long position = offset;
-        while (buffer.hasRemaining()) {
-            position += channel.write(buffer, position);
-        }
-    }
-
     private void writeLong(
             final long value,
-            final FileChannel channel,
-            final long offset) throws IOException {
+            final OutputStream os) throws IOException {
         longBuffer.segment().set(
                 ValueLayout.OfLong.JAVA_LONG_UNALIGNED,
                 0,
                 value);
-        writeFully(
-                channel,
-                longBuffer.buffer(),
-                offset);
+        os.write(longBuffer.array());
     }
 
     private void writeSegment(
             final MemorySegment value,
-            final FileChannel channel,
-            final long offset) throws IOException {
-        blobBuffer.limit(value.byteSize());
+            final OutputStream os) throws IOException {
+        final long size = value.byteSize();
+        blobBuffer.ensureCapacity(size);
         MemorySegment.copy(
                 value,
                 0L,
                 blobBuffer.segment(),
                 0L,
-                value.byteSize());
-        writeFully(
-                channel,
-                blobBuffer.buffer(),
-                offset);
+                size);
+        os.write(
+                blobBuffer.array(),
+                0,
+                (int) size);
     }
 
     /**
      * Writes {@link Entry} to {@link FileChannel}.
      *
-     * @return {@code offset} advanced
+     * @return written bytes
      */
     private long writeEntry(
             final Entry<MemorySegment> entry,
-            final FileChannel channel,
-            final long from) throws IOException {
+            final OutputStream os) throws IOException {
         final MemorySegment key = entry.key();
         final MemorySegment value = entry.value();
-        long offset = from;
+        long result = 0L;
 
         // Key size
-        writeLong(
-                key.byteSize(),
-                channel,
-                offset);
-        offset += Long.BYTES;
+        writeLong(key.byteSize(), os);
+        result += Long.BYTES;
 
         // Key
-        writeSegment(
-                key,
-                channel,
-                offset);
-        offset += key.byteSize();
+        writeSegment(key, os);
+        result += key.byteSize();
 
         // Value size and possibly value
         if (value == null) {
             // Tombstone
-            writeLong(
-                    SSTables.TOMBSTONE_VALUE_LENGTH,
-                    channel,
-                    offset);
-            offset += Long.BYTES;
+            writeLong(SSTables.TOMBSTONE_VALUE_LENGTH, os);
+            result += Long.BYTES;
         } else {
             // Value length
-            writeLong(
-                    value.byteSize(),
-                    channel,
-                    offset);
-            offset += Long.BYTES;
+            writeLong(value.byteSize(), os);
+            result += Long.BYTES;
 
             // Value
-            writeSegment(
-                    value,
-                    channel,
-                    offset);
-            offset += value.byteSize();
+            writeSegment(value, os);
+            result += value.byteSize();
         }
 
-        return offset;
+        return result;
     }
 }

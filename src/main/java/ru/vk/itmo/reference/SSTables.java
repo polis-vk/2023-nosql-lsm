@@ -70,12 +70,12 @@ final class SSTables {
         final List<SSTable> result = new ArrayList<>();
         try (Stream<Path> files = Files.list(baseDir)) {
             files.forEach(file -> {
-                if (!file.getFileName().toString().endsWith(DATA_SUFFIX)) {
+                final String fileName = file.getFileName().toString();
+                if (!fileName.endsWith(DATA_SUFFIX)) {
                     // Skip non data
                     return;
                 }
 
-                final String fileName = file.getFileName().toString();
                 final int sequence =
                         // <N>.data -> N
                         Integer.parseInt(
