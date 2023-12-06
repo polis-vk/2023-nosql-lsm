@@ -118,7 +118,7 @@ public final class StorageUtil {
     public static boolean checkBit(long value, long i) {
         return (value & (1L << (63 - i))) != 0;
     }
-    
+
     private StorageUtil() {
     }
 }
