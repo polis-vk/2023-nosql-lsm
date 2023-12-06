@@ -147,10 +147,8 @@ public class ExpirationTest {
     void emptyRangeAfterClose() throws IOException, InterruptedException {
         try {
             DaoImpl dao = new DaoImpl(config);
-            List<Entry<MemorySegment>> values = new ArrayList<>();
             for (int i = 0; i < 25; i++) {
                 dao.upsert(entry(i), 100L);
-                values.add(entry(i));
             }
             dao.close();
             Thread.sleep(100L);
@@ -226,6 +224,48 @@ public class ExpirationTest {
             dao = new DaoImpl(config);
             Assertions.assertNull(dao.get(entry(10).key()));
             dao.close();
+        } finally {
+            deleteDirectory(config.basePath().toFile());
+        }
+    }
+
+    @Test
+    void rangeAfterCompaction() throws IOException {
+        try (DaoImpl dao = new DaoImpl(config)) {
+            List<Entry<MemorySegment>> values = new ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                dao.upsert(entry(i), 1000 * 60L);
+                values.add(entry(i));
+            }
+            for (int i = 10; i < 20; i++) {
+                dao.upsert(entry(i), 1000 * 60L);
+                values.add(entry(i));
+            }
+            for (int i = 20; i < 30; i++) {
+                dao.upsert(entry(i), 1000 * 60L);
+                values.add(entry(i));
+            }
+            dao.flush();
+            assertSame(
+                    dao.all(),
+                    values
+            );
+
+            for (int i = 0; i < 10; i++) {
+                dao.upsert(new BaseEntry<>(key(i), null), 1000 * 60L);
+                values.remove(0);
+            }
+            for (int i = 20; i < 30; i++) {
+                dao.upsert(new BaseEntry<>(key(i), null), 1000 * 60L);
+                values.remove(values.size() - 1);
+            }
+            dao.flush();
+            dao.compact();
+
+            assertSame(
+                    dao.all(),
+                    values
+            );
         } finally {
             deleteDirectory(config.basePath().toFile());
         }

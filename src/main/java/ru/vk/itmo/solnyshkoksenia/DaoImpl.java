@@ -38,7 +38,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) { // todo
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         State state = this.curState.checkAndGet();
         List<Iterator<Triple<MemorySegment>>> iterators = List.of(
                 state.getInMemory(state.flushingStorage, from, to),
