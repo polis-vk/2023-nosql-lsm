@@ -2,6 +2,7 @@ package ru.vk.itmo.solnyshkoksenia.storage;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.solnyshkoksenia.Triple;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -15,7 +16,7 @@ public class StorageUtils {
     }
 
     protected long startOfKey(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 3 * Long.BYTES);
     }
 
     protected long endOfKey(MemorySegment segment, long recordIndex) {
@@ -23,15 +24,28 @@ public class StorageUtils {
     }
 
     protected long startOfValue(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 3 * Long.BYTES + Long.BYTES);
     }
 
     protected long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
+        return normalizedStartOfExpiration(segment, recordIndex);
+//        if (recordIndex < recordsCount - 1) {
+//            return startOfKey(segment, recordIndex + 1);
+//        }
+//        return segment.byteSize();
+    }
+
+    protected long startOfExpiration(MemorySegment segment, long recordIndex) {
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 3 * Long.BYTES + Long.BYTES * 2);
+    }
+
+    protected long endOfExpiration(MemorySegment segment, long recordIndex, long recordsCount) {
         if (recordIndex < recordsCount - 1) {
             return startOfKey(segment, recordIndex + 1);
         }
         return segment.byteSize();
     }
+
 
     protected long tombstone(long offset) {
         return 1L << 63 | offset;
@@ -43,7 +57,7 @@ public class StorageUtils {
 
     protected long recordsCount(MemorySegment segment) {
         long indexSize = indexSize(segment);
-        return indexSize / Long.BYTES / 2;
+        return indexSize / Long.BYTES / 3;
     }
 
     protected MemorySegment mapFile(FileChannel fileChannel, long size, Arena arena) throws IOException {
@@ -55,7 +69,7 @@ public class StorageUtils {
         );
     }
 
-    protected Entry<Long> putEntry(MemorySegment fileSegment, Entry<Long> offsets, Entry<MemorySegment> entry) {
+    protected Entry<Long> putEntry(MemorySegment fileSegment, Entry<Long> offsets, Triple<MemorySegment> entry) {
         long dataOffset = offsets.key();
         long indexOffset = offsets.value();
         fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
@@ -63,6 +77,8 @@ public class StorageUtils {
 
         MemorySegment key = entry.key();
         MemorySegment value = entry.value();
+        MemorySegment expiration = entry.expiration();
+
         MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
         dataOffset += key.byteSize();
 
@@ -75,11 +91,24 @@ public class StorageUtils {
         }
         indexOffset += Long.BYTES;
 
+        if (expiration == null) {
+            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
+        } else {
+            fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+            MemorySegment.copy(expiration, 0, fileSegment, dataOffset, expiration.byteSize());
+            dataOffset += expiration.byteSize();
+        }
+        indexOffset += Long.BYTES;
+
         return new BaseEntry<>(dataOffset, indexOffset);
     }
 
     private long normalizedStartOfValue(MemorySegment segment, long recordIndex) {
         return normalize(startOfValue(segment, recordIndex));
+    }
+
+    private long normalizedStartOfExpiration(MemorySegment segment, long recordIndex) {
+        return normalize(startOfExpiration(segment, recordIndex));
     }
 
     private static long indexSize(MemorySegment segment) {

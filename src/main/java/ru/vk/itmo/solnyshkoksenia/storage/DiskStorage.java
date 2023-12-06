@@ -2,6 +2,7 @@ package ru.vk.itmo.solnyshkoksenia.storage;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.solnyshkoksenia.Triple;
 import ru.vk.itmo.solnyshkoksenia.MemorySegmentComparator;
 import ru.vk.itmo.solnyshkoksenia.MergeIterator;
 
@@ -35,11 +36,11 @@ public class DiskStorage {
         this.storagePath = storagePath;
     }
 
-    public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
+    public Iterator<Triple<MemorySegment>> range(
+            Iterator<Triple<MemorySegment>> firstIterator,
             MemorySegment from,
             MemorySegment to) {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        List<Iterator<Triple<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
@@ -47,13 +48,19 @@ public class DiskStorage {
 
         return new MergeIterator<>(iterators, (e1, e2) -> comparator.compare(e1.key(), e2.key())) {
             @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+            protected boolean skip(Triple<MemorySegment> memorySegmentEntry) {
+                if (memorySegmentEntry.expiration() != null) {
+                    long currentTime = System.currentTimeMillis();
+                    long expiration = memorySegmentEntry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0];
+                    System.err.println(expiration + " || " + currentTime);
+                    return memorySegmentEntry.value() == null || expiration <= currentTime;
+                }
                 return memorySegmentEntry.value() == null;
             }
         };
     }
 
-    public void save(Iterable<Entry<MemorySegment>> iterable)
+    public void save(Iterable<Triple<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
@@ -69,15 +76,19 @@ public class DiskStorage {
 
         long dataSize = 0;
         long count = 0;
-        for (Entry<MemorySegment> entry : iterable) {
+        for (Triple<MemorySegment> entry : iterable) {
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
             if (value != null) {
                 dataSize += value.byteSize();
             }
+            MemorySegment expiration = entry.expiration();
+            if (expiration != null) {
+                dataSize += expiration.byteSize();
+            }
             count++;
         }
-        long indexSize = count * 2 * Long.BYTES;
+        long indexSize = count * 3 * Long.BYTES;
 
         try (
                 FileChannel fileChannel = FileChannel.open(
@@ -97,8 +108,8 @@ public class DiskStorage {
             // data:
             // |key0|value0|key1|value1|...
             Entry<Long> offsets = new BaseEntry<>(indexSize, 0L);
-            for (Entry<MemorySegment> entry : iterable) {
-                offsets = utils.putEntry(fileSegment, offsets, entry);
+            for (Triple<MemorySegment> triple : iterable) {
+                offsets = utils.putEntry(fileSegment, offsets, triple);
             }
         }
 
@@ -134,18 +145,22 @@ public class DiskStorage {
             return; // nothing to compact
         }
 
-        Iterator<Entry<MemorySegment>> iterator = range(Collections.emptyIterator(), null, null);
-        Iterator<Entry<MemorySegment>> iterator1 = range(Collections.emptyIterator(), null, null);
+        Iterator<Triple<MemorySegment>> iterator = range(Collections.emptyIterator(), null, null);
+        Iterator<Triple<MemorySegment>> iterator1 = range(Collections.emptyIterator(), null, null);
 
         long dataSize = 0;
         long indexSize = 0;
         while (iterator.hasNext()) {
-            indexSize += Long.BYTES * 2;
-            Entry<MemorySegment> entry = iterator.next();
+            indexSize += Long.BYTES * 3;
+            Triple<MemorySegment> entry = iterator.next();
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
             if (value != null) {
                 dataSize += value.byteSize();
+            }
+            MemorySegment expiration = entry.expiration();
+            if (expiration != null) {
+                dataSize += expiration.byteSize();
             }
         }
 
@@ -212,12 +227,29 @@ public class DiskStorage {
             Path file = storagePath.resolve(fileName);
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
                 MemorySegment fileSegment = utils.mapFile(fileChannel, Files.size(file), arena);
+//                printData(fileSegment);
                 result.add(fileSegment);
             }
         }
 
         return result;
     }
+
+//    private static void printData(MemorySegment fileSegment) {
+//        Iterator<Triple<MemorySegment>> iterator = iterator(fileSegment, null, null);
+//        while (iterator.hasNext()) {
+//            Triple<MemorySegment> entry = iterator.next();
+////            System.err.println(entry.key() + " " + entry.value());
+////            System.err.println(Arrays.toString(entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)));
+//            long expiration = entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0];
+//            System.err.println(toString(entry.key()) + " " + toString(entry.value()) + " " + expiration);
+//        }
+//        System.err.print("\n");
+//    }
+
+//    private static String toString(MemorySegment memorySegment) {
+//        return memorySegment == null ? null : new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
+//    }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = utils.recordsCount(segment);
@@ -256,7 +288,7 @@ public class DiskStorage {
         return utils.tombstone(left);
     }
 
-    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
+    private static Iterator<Triple<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : utils.normalize(indexOf(page, from));
         long recordIndexTo = to == null ? utils.recordsCount(page) : utils.normalize(indexOf(page, to));
         long recordsCount = utils.recordsCount(page);
@@ -270,7 +302,7 @@ public class DiskStorage {
             }
 
             @Override
-            public Entry<MemorySegment> next() {
+            public Triple<MemorySegment> next() {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
@@ -280,8 +312,13 @@ public class DiskStorage {
                         startOfValue < 0
                                 ? null
                                 : utils.slice(page, startOfValue, utils.endOfValue(page, index, recordsCount));
+                long startOfExpiration = utils.startOfExpiration(page, index);
+                MemorySegment expiration =
+                        startOfExpiration < 0
+                                ? null
+                                : utils.slice(page, startOfExpiration, utils.endOfExpiration(page, index, recordsCount));
                 index++;
-                return new BaseEntry<>(key, value);
+                return new Triple<>(key, value, expiration);
             }
         };
     }

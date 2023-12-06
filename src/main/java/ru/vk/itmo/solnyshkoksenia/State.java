@@ -17,16 +17,17 @@ import java.util.concurrent.atomic.AtomicLong;
 public class State {
     private static final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
     protected final Config config;
-    protected final NavigableMap<MemorySegment, Entry<MemorySegment>> storage;
-    protected final NavigableMap<MemorySegment, Entry<MemorySegment>> flushingStorage;
+    protected final NavigableMap<MemorySegment, Triple<MemorySegment>> storage;
+    protected final NavigableMap<MemorySegment, Triple<MemorySegment>> flushingStorage;
     protected final DiskStorage diskStorage;
-    protected final AtomicLong storageByteSize = new AtomicLong();
-    protected final AtomicBoolean isClosed = new AtomicBoolean();
-    protected final AtomicBoolean overflow = new AtomicBoolean();
+    private final AtomicLong storageByteSize = new AtomicLong();
+    private final AtomicBoolean isClosed = new AtomicBoolean();
+    protected final AtomicBoolean isCompacting = new AtomicBoolean();
+    private final AtomicBoolean overflow = new AtomicBoolean();
 
     public State(Config config,
-                 NavigableMap<MemorySegment, Entry<MemorySegment>> storage,
-                 NavigableMap<MemorySegment, Entry<MemorySegment>> flushingStorage,
+                 NavigableMap<MemorySegment, Triple<MemorySegment>> storage,
+                 NavigableMap<MemorySegment, Triple<MemorySegment>> flushingStorage,
                  DiskStorage diskStorage) {
         this.config = config;
         this.storage = storage;
@@ -42,13 +43,32 @@ public class State {
         this.diskStorage = diskStorage;
     }
 
-    public void putInMemory(Entry<MemorySegment> entry) {
-        Entry<MemorySegment> previousEntry = storage.put(entry.key(), entry);
+//    private long bytesToLong(byte[] bytes) {
+//        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
+//        buffer.put(bytes);
+//        buffer.flip();//need flip
+//        return buffer.getLong();
+//    }
+
+    public void putInMemory(Entry<MemorySegment> entry, Long TTL) {
+        MemorySegment expiration;
+        if (TTL != null) {
+            long[] ar = {System.currentTimeMillis() + TTL};
+            expiration = MemorySegment.ofArray(ar);
+//            System.err.println(Arrays.toString(expiration.toArray(ValueLayout.JAVA_LONG)));
+//            System.err.println(System.currentTimeMillis());
+//            System.err.println(System.currentTimeMillis() + TTL);
+        } else {
+            expiration = null;
+        }
+        Triple<MemorySegment> triple = new Triple<>(entry.key(), entry.value(), expiration);
+        Triple<MemorySegment> previousEntry = storage.put(triple.key(), triple);
+
         if (previousEntry != null) {
             storageByteSize.addAndGet(-getSize(previousEntry));
         }
 
-        if (storageByteSize.addAndGet(getSize(entry)) > config.flushThresholdBytes()) {
+        if (storageByteSize.addAndGet(getSize(triple)) > config.flushThresholdBytes()) {
             overflow.set(true);
         }
     }
@@ -57,14 +77,15 @@ public class State {
         diskStorage.save(storage.values());
     }
 
-    private static long getSize(Entry<MemorySegment> entry) {
+    private static long getSize(Triple<MemorySegment> entry) {
         long valueSize = entry.value() == null ? 0 : entry.value().byteSize();
-        return Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize;
+        long expirationSize = entry.expiration() == null ? 0 : entry.expiration().byteSize();
+        return Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize + Long.BYTES + expirationSize;
     }
 
     public State checkAndGet() {
         if (isClosed.get()) {
-            throw new DaoException("Dao is already closed");
+            throw new RuntimeException("Dao is already closed");
         }
         return this;
     }
@@ -81,10 +102,11 @@ public class State {
         return !flushingStorage.isEmpty();
     }
 
+    public State moveStorage() {
+        return new State(config, new ConcurrentSkipListMap<>(comparator), storage, diskStorage);
+    }
+
     public void flush() throws IOException {
-        if (flushingStorage.isEmpty()) {
-            return;
-        }
         diskStorage.save(flushingStorage.values());
     }
 
@@ -102,7 +124,15 @@ public class State {
             return entry;
         }
 
-        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+        entry = flushingStorage.get(key);
+        if (entry != null) {
+            if (entry.value() == null) {
+                return null;
+            }
+            return entry;
+        }
+
+        Iterator<Triple<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
 
         if (!iterator.hasNext()) {
             return null;
@@ -114,8 +144,8 @@ public class State {
         return null;
     }
 
-    protected Iterator<Entry<MemorySegment>> getInMemory(NavigableMap<MemorySegment, Entry<MemorySegment>> memory,
-                                                         MemorySegment from, MemorySegment to) {
+    protected Iterator<Triple<MemorySegment>> getInMemory(NavigableMap<MemorySegment, Triple<MemorySegment>> memory,
+                                                          MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
             return memory.values().iterator();
         }
