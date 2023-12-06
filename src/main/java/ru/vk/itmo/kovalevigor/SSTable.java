@@ -140,13 +140,10 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
     public void move(final Path root, final String name) throws IOException {
         final Path newDataPath = getDataPath(root, name);
         final Path newIndexPath = getIndexPath(root, name);
-        Files.move(dataPath, newDataPath);
-        try {
-            Files.move(indexPath, newIndexPath);
-        } catch (IOException e) {
-            Files.move(newDataPath, dataPath);
-            throw e;
-        }
+        UtilsFiles.moveTwoFiles(
+                dataPath, newDataPath,
+                indexPath, newIndexPath
+        );
         dataPath = newDataPath;
         indexPath = newIndexPath;
     }

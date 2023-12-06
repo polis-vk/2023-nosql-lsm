@@ -152,15 +152,10 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
                     moved.add(ssTable);
                 }
 
-                final Path dataPath = SSTable.getDataPath(root, sstableName);
-                final Path indexPath = SSTable.getIndexPath(root, sstableName);
-                Files.move(tableTmpPath, dataPath);
-                try {
-                    Files.move(indexTmpPath, indexPath);
-                } catch (IOException e) {
-                    Files.deleteIfExists(dataPath);
-                    throw e;
-                }
+                UtilsFiles.moveTwoFiles(
+                        tableTmpPath, SSTable.getDataPath(root, sstableName),
+                        indexTmpPath, SSTable.getIndexPath(root, sstableName)
+                );
             } catch (IOException e) {
                 for (int i = 0; i < moved.size(); i++) {
                     moved.get(i).move(tmpDir, getNextSSTableName(ssTables.size() - i - 1));
