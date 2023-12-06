@@ -77,22 +77,46 @@ public final class MurmurHash3 {
         long k2 = 0;
         final int index = offset + (nblocks << 4);
         switch (offset + length - index) {
-            case 15: k2 ^= ((long) data.get(index + 14) & 0xff) << 48;
-            case 14: k2 ^= ((long) data.get(index + 13) & 0xff) << 40;
-            case 13: k2 ^= ((long) data.get(index + 12) & 0xff) << 32;
-            case 12: k2 ^= ((long) data.get(index + 11) & 0xff) << 24;
-            case 11: k2 ^= ((long) data.get(index + 10) & 0xff) << 16;
-            case 10: k2 ^= ((long) data.get(index + 9) & 0xff) << 8;
-            case 9: k2 ^= data.get(index + 8) & 0xff; k2 *= C2; k2 = Long.rotateLeft(k2, R3); k2 *= C1; h2 ^= k2;
-            case 8: k1 ^= ((long) data.get(index + 7) & 0xff) << 56;
-            case 7: k1 ^= ((long) data.get(index + 6) & 0xff) << 48;
-            case 6: k1 ^= ((long) data.get(index + 5) & 0xff) << 40;
-            case 5: k1 ^= ((long) data.get(index + 4) & 0xff) << 32;
-            case 4: k1 ^= ((long) data.get(index + 3) & 0xff) << 24;
-            case 3: k1 ^= ((long) data.get(index + 2) & 0xff) << 16;
-            case 2: k1 ^= ((long) data.get(index + 1) & 0xff) << 8;
-            case 1: k1 ^= data.get(index) & 0xff;k1 *= C1; k1 = Long.rotateLeft(k1, R1);k1 *= C2; h1 ^= k1;
-            default: break;
+            case 15:
+                k2 ^= ((long) data.get(index + 14) & 0xff) << 48;
+            case 14:
+                k2 ^= ((long) data.get(index + 13) & 0xff) << 40;
+            case 13:
+                k2 ^= ((long) data.get(index + 12) & 0xff) << 32;
+            case 12:
+                k2 ^= ((long) data.get(index + 11) & 0xff) << 24;
+            case 11:
+                k2 ^= ((long) data.get(index + 10) & 0xff) << 16;
+            case 10:
+                k2 ^= ((long) data.get(index + 9) & 0xff) << 8;
+            case 9:
+                k2 ^= data.get(index + 8) & 0xff;
+                k2 *= C2;
+                k2 = Long.rotateLeft(k2, R3);
+                k2 *= C1;
+                h2 ^= k2;
+            case 8:
+                k1 ^= ((long) data.get(index + 7) & 0xff) << 56;
+            case 7:
+                k1 ^= ((long) data.get(index + 6) & 0xff) << 48;
+            case 6:
+                k1 ^= ((long) data.get(index + 5) & 0xff) << 40;
+            case 5:
+                k1 ^= ((long) data.get(index + 4) & 0xff) << 32;
+            case 4:
+                k1 ^= ((long) data.get(index + 3) & 0xff) << 24;
+            case 3:
+                k1 ^= ((long) data.get(index + 2) & 0xff) << 16;
+            case 2:
+                k1 ^= ((long) data.get(index + 1) & 0xff) << 8;
+            case 1:
+                k1 ^= data.get(index) & 0xff;
+                k1 *= C1;
+                k1 = Long.rotateLeft(k1, R1);
+                k1 *= C2;
+                h1 ^= k1;
+            default:
+                break;
         }
 
         // finalization
