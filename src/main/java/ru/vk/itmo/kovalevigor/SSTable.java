@@ -7,6 +7,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -18,8 +19,8 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
     public static final Comparator<MemorySegment> COMPARATOR = UtilsMemorySegment::compare;
     public static final Comparator<Entry<MemorySegment>> ENTRY_COMPARATOR = UtilsMemorySegment::compareEntry;
 
-    private final Path indexPath;
-    private final Path dataPath;
+    private Path indexPath;
+    private Path dataPath;
     private final IndexList indexList;
 
     private SSTable(final Path indexPath, final Path dataPath, final Arena arena) throws IOException {
@@ -124,11 +125,30 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
     }
 
     public void delete() throws IOException {
+        final Path tmpFile = Files.createTempFile(null, null);
+        Files.move(dataPath, tmpFile, StandardCopyOption.REPLACE_EXISTING);
         try {
-            Files.delete(dataPath);
-        } finally {
             Files.delete(indexPath);
+        } catch (IOException e) {
+            Files.move(tmpFile, dataPath);
+            throw e;
+        } finally {
+            Files.deleteIfExists(tmpFile);
         }
+    }
+
+    public void move(final Path root, final String name) throws IOException {
+        final Path newDataPath = getDataPath(root, name);
+        final Path newIndexPath = getIndexPath(root, name);
+        Files.move(dataPath, newDataPath);
+        try {
+            Files.move(indexPath, newIndexPath);
+        } catch (IOException e) {
+            Files.move(newDataPath, dataPath);
+            throw e;
+        }
+        dataPath = newDataPath;
+        indexPath = newIndexPath;
     }
 
 }

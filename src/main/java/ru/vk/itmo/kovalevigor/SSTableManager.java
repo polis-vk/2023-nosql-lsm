@@ -10,9 +10,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.SortedMap;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySegment>>, AutoCloseable {
 
@@ -101,11 +104,13 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
                 return;
             }
         }
+        Path tmpDir = null;
         Path tableTmpPath = null;
         Path indexTmpPath = null;
         final SizeInfo sizes = SSTable.getMapSize(map);
         sizes.add(getTotalInfoSize());
         try {
+            tmpDir = Files.createTempDirectory(null);
             tableTmpPath = Files.createTempFile(null, null);
             indexTmpPath = Files.createTempFile(null, null);
             final SizeInfo realSize = new SizeInfo();
@@ -139,29 +144,44 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
                 indexChannel.truncate(SStorageDumper.getIndexSize(realSize.size));
             }
 
-            for (SSTable ssTable : ssTables) {
-                ssTable.delete();
-            }
-            ssTables.clear();
-
-            final String sstableName = getNextSSTableName();
-            final Path dataPath = SSTable.getDataPath(root, sstableName);
-            final Path indexPath = SSTable.getIndexPath(root, sstableName);
-            Files.copy(tableTmpPath, dataPath);
+            final List<SSTable> moved = new ArrayList<>(ssTables.size());
+            final String sstableName = getNextSSTableName(0);
             try {
-                Files.copy(indexTmpPath, indexPath);
+                for (final SSTable ssTable : ssTables) {
+                    ssTable.move(tmpDir, Integer.toString(moved.size()));
+                    moved.add(ssTable);
+                }
+
+                final Path dataPath = SSTable.getDataPath(root, sstableName);
+                final Path indexPath = SSTable.getIndexPath(root, sstableName);
+                Files.move(tableTmpPath, dataPath);
+                try {
+                    Files.move(indexTmpPath, indexPath);
+                } catch (IOException e) {
+                    Files.deleteIfExists(dataPath);
+                    throw e;
+                }
             } catch (IOException e) {
-                Files.deleteIfExists(dataPath);
+                for (int i = 0; i < moved.size(); i++) {
+                    moved.get(i).move(tmpDir, getNextSSTableName(ssTables.size() - i - 1));
+                }
                 throw e;
             }
+
+            for (final SSTable movedSSTable : moved) {
+                try {
+                    movedSSTable.delete();
+                } catch (IOException e) {
+                    logException(e);
+                }
+            }
+
+            ssTables.clear();
             ssTables.add(SSTable.create(root, sstableName, arena));
         } finally {
-            if (tableTmpPath != null) {
-                Files.deleteIfExists(tableTmpPath);
-            }
-            if (indexTmpPath != null) {
-                Files.deleteIfExists(indexTmpPath);
-            }
+            deleteIgnored(tableTmpPath);
+            deleteIgnored(indexTmpPath);
+            deleteIgnored(tmpDir);
         }
     }
 
@@ -173,5 +193,22 @@ public class SSTableManager implements DaoFileGet<MemorySegment, Entry<MemorySeg
 
         ssTables.clear();
         arena.close();
+    }
+
+    private void deleteIgnored(final Path path) {
+        if (path == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(path);
+        } catch (IOException e) {
+            logException(e);
+        }
+    }
+
+    private void logException(final Exception e) {
+        if (Logger.getAnonymousLogger().isLoggable(Level.WARNING)) {
+            Logger.getAnonymousLogger().log(Level.WARNING, Arrays.toString(e.getStackTrace()));
+        }
     }
 }

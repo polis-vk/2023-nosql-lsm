@@ -46,7 +46,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                     new MemEntryPriorityIterator(1, ssManager.get(from, to))
             ));
         } catch (IOException e) {
-            return iterator;
+            return null;
         }
     }
 
