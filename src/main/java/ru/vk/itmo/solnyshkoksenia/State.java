@@ -105,19 +105,15 @@ public class State {
 
     public Entry<MemorySegment> get(MemorySegment key, Comparator<MemorySegment> comparator) {
         Triple<MemorySegment> entry = storage.get(key);
-        if (entry != null) {
-            if (entry.expiration() == null
-                    || entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
-                return entry.value() == null ? null : entry;
-            }
+        if (entry != null && (entry.expiration() == null
+                || entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis())) {
+            return entry.value() == null ? null : entry;
         }
 
         entry = flushingStorage.get(key);
-        if (entry != null) {
-            if (entry.expiration() == null
-                    || entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
-                return entry.value() == null ? null : entry;
-            }
+        if (entry != null && (entry.expiration() == null
+                || entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis())) {
+            return entry.value() == null ? null : entry;
         }
 
         Iterator<Triple<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
@@ -126,11 +122,9 @@ public class State {
             return null;
         }
         Triple<MemorySegment> next = iterator.next();
-        if (comparator.compare(next.key(), key) == 0 && next.value() != null) {
-            if (next.expiration() == null
-                    || next.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
+        if (comparator.compare(next.key(), key) == 0 && next.value() != null && (next.expiration() == null
+                || next.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis())) {
                 return next;
-            }
         }
         return null;
     }
