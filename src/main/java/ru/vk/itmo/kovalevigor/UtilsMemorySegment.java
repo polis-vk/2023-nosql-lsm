@@ -30,4 +30,8 @@ public final class UtilsMemorySegment {
         }
         return Byte.compare(getByte(lhs, mismatch), getByte(rhs, mismatch));
     }
+
+    public static int compareEntry(final Entry<MemorySegment> lhs, final Entry<MemorySegment> rhs) {
+        return compare(lhs.key(), rhs.key());
+    }
 }
