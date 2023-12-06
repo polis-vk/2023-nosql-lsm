@@ -6,6 +6,7 @@ import ru.vk.itmo.solnyshkoksenia.storage.DiskStorage;
 
 import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
@@ -22,7 +23,6 @@ public class State {
     protected final DiskStorage diskStorage;
     private final AtomicLong storageByteSize = new AtomicLong();
     private final AtomicBoolean isClosed = new AtomicBoolean();
-    protected final AtomicBoolean isCompacting = new AtomicBoolean();
     private final AtomicBoolean overflow = new AtomicBoolean();
 
     public State(Config config,
@@ -104,20 +104,26 @@ public class State {
     }
 
     public Entry<MemorySegment> get(MemorySegment key, Comparator<MemorySegment> comparator) {
-        Entry<MemorySegment> entry = storage.get(key);
+        Triple<MemorySegment> entry = storage.get(key);
         if (entry != null) {
-            if (entry.value() == null) {
-                return null;
+            if (entry.expiration() != null) {
+                if (entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
+                    return entry.value() == null ? null : entry;
+                }
+            } else {
+                return entry.value() == null ? null : entry;
             }
-            return entry;
         }
 
         entry = flushingStorage.get(key);
         if (entry != null) {
-            if (entry.value() == null) {
-                return null;
+            if (entry.expiration() != null) {
+                if (entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
+                    return entry.value() == null ? null : entry;
+                }
+            } else {
+                return entry.value() == null ? null : entry;
             }
-            return entry;
         }
 
         Iterator<Triple<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
@@ -125,9 +131,15 @@ public class State {
         if (!iterator.hasNext()) {
             return null;
         }
-        Entry<MemorySegment> next = iterator.next();
+        Triple<MemorySegment> next = iterator.next();
         if (comparator.compare(next.key(), key) == 0 && next.value() != null) {
-            return next;
+            if (next.expiration() != null) {
+                if (next.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis()) {
+                    return next;
+                }
+            } else {
+                return next;
+            }
         }
         return null;
     }

@@ -76,7 +76,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     @Override
-    public Entry<MemorySegment> get(MemorySegment key) { // todo
+    public Entry<MemorySegment> get(MemorySegment key) {
         State state = this.curState.checkAndGet();
         return state.get(key, comparator);
     }

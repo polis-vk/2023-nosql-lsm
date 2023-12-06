@@ -20,7 +20,7 @@ public class ExpirationTest {
     private final static Config config = new Config(Path.of("var"), 100000);
 
     @Test
-    void testSimple() throws IOException, InterruptedException {
+    void testExpiration() throws IOException, InterruptedException {
         try (DaoImpl dao = new DaoImpl(config)) {
             for (int i = 0; i < 25; i++) {
                 dao.upsert(entry(i), 1L);
@@ -33,14 +33,14 @@ public class ExpirationTest {
     }
 
     @Test
-    void testLast() throws IOException, InterruptedException {
+    void testLiving() throws IOException, InterruptedException {
         try (DaoImpl dao = new DaoImpl(config)) {
             for (int i = 0; i < 25; i++) {
                 dao.upsert(entry(i), 1L);
             }
             dao.upsert(entry(26), 1000 * 60L);
             Thread.sleep(1L);
-            assertSameList(
+            assertSame(
                     dao.all(),
                     List.of(entry(26))
             );
@@ -50,14 +50,14 @@ public class ExpirationTest {
     }
 
     @Test
-    void testLastMany() throws IOException {
+    void testRange() throws IOException {
         try (DaoImpl dao = new DaoImpl(config)) {
             List<Entry<MemorySegment>> values = new ArrayList<>();
             for (int i = 0; i < 25; i++) {
                 dao.upsert(entry(i), 1000 * 60L);
                 values.add(entry(i));
             }
-            assertSameList(
+            assertSame(
                     dao.all(),
                     values
             );
@@ -67,24 +67,7 @@ public class ExpirationTest {
     }
 
     @Test
-    void testWithTimeout() throws IOException {
-        try (DaoImpl dao = new DaoImpl(config)) {
-            List<Entry<MemorySegment>> values = new ArrayList<>();
-            for (int i = 0; i < 25; i++) {
-                dao.upsert(entry(i), 1000 * 60L);
-                values.add(entry(i));
-            }
-            assertSameList(
-                    dao.all(),
-                    values
-            );
-        } finally {
-            deleteDirectory(config.basePath().toFile());
-        }
-    }
-
-    @Test
-    void testAfterFlush() throws IOException {
+    void rangeAfterFlush() throws IOException {
         try (DaoImpl dao = new DaoImpl(config)) {
             List<Entry<MemorySegment>> values = new ArrayList<>();
             for (int i = 0; i < 25; i++) {
@@ -92,7 +75,7 @@ public class ExpirationTest {
                 values.add(entry(i));
             }
             dao.flush();
-            assertSameList(
+            assertSame(
                     dao.all(),
                     values
             );
@@ -102,7 +85,45 @@ public class ExpirationTest {
     }
 
     @Test
-    void testAfterClose() throws IOException {
+    void cutRangeAfterFlush() throws IOException {
+        try (DaoImpl dao = new DaoImpl(config)) {
+            List<Entry<MemorySegment>> values = new ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                dao.upsert(entry(i), 1000 * 60L);
+            }
+            for (int i = 10; i < 20; i++) {
+                dao.upsert(entry(i), 1000 * 60L);
+                values.add(entry(i));
+            }
+            for (int i = 20; i < 30; i++) {
+                dao.upsert(entry(i), 1000 * 60L);
+            }
+            dao.flush();
+            assertSame(
+                    dao.get(entry(10).key(), entry(20).key()),
+                    values
+            );
+        } finally {
+            deleteDirectory(config.basePath().toFile());
+        }
+    }
+
+    @Test
+    void emptyRangeAfterFlush() throws IOException, InterruptedException {
+        try (DaoImpl dao = new DaoImpl(config)) {
+            for (int i = 0; i < 25; i++) {
+                dao.upsert(entry(i), 100L);
+            }
+            dao.flush();
+            Thread.sleep(100L);
+            Assertions.assertIterableEquals(Collections.emptyList(), list(dao.all()));
+        } finally {
+            deleteDirectory(config.basePath().toFile());
+        }
+    }
+
+    @Test
+    void rangeAfterClose() throws IOException {
         try {
             DaoImpl dao = new DaoImpl(config);
             List<Entry<MemorySegment>> values = new ArrayList<>();
@@ -112,7 +133,7 @@ public class ExpirationTest {
             }
             dao.close();
             dao = new DaoImpl(config);
-            assertSameList(
+            assertSame(
                     dao.all(),
                     values
             );
@@ -122,7 +143,95 @@ public class ExpirationTest {
         }
     }
 
-    boolean deleteDirectory(File directoryToBeDeleted) {
+    @Test
+    void emptyRangeAfterClose() throws IOException, InterruptedException {
+        try {
+            DaoImpl dao = new DaoImpl(config);
+            List<Entry<MemorySegment>> values = new ArrayList<>();
+            for (int i = 0; i < 25; i++) {
+                dao.upsert(entry(i), 100L);
+                values.add(entry(i));
+            }
+            dao.close();
+            Thread.sleep(100L);
+            dao = new DaoImpl(config);
+            Assertions.assertIterableEquals(Collections.emptyList(), list(dao.all()));
+            dao.close();
+        } finally {
+            deleteDirectory(config.basePath().toFile());
+        }
+    }
+
+    @Test
+    void testExpiredGet() throws IOException, InterruptedException {
+        try (DaoImpl dao = new DaoImpl(config)) {
+            dao.upsert(entry(10), 1000L);
+            assertSame(
+                    dao.get(entry(10).key()),
+                    entry(10)
+            );
+            Thread.sleep(1000L);
+            Assertions.assertNull(dao.get(entry(10).key()));
+        } finally {
+            deleteDirectory(config.basePath().toFile());
+        }
+    }
+
+    @Test
+    void expiredGetAfterFlush() throws IOException, InterruptedException {
+        try (DaoImpl dao = new DaoImpl(config)) {
+            for (int i = 0; i < 25; i++) {
+                dao.upsert(entry(i), 1000L);
+            }
+            dao.flush();
+            assertSame(
+                    dao.get(entry(10).key()),
+                    entry(10)
+            );
+            Thread.sleep(1000L);
+            Assertions.assertNull(dao.get(entry(10).key()));
+        } finally {
+            deleteDirectory(config.basePath().toFile());
+        }
+    }
+
+    @Test
+    void getAfterClose() throws IOException {
+        try {
+            DaoImpl dao = new DaoImpl(config);
+            for (int i = 0; i < 25; i++) {
+                dao.upsert(entry(i), 1000 * 60L);
+            }
+            dao.close();
+            dao = new DaoImpl(config);
+            assertSame(
+                    dao.get(entry(10).key()),
+                    entry(10)
+            );
+            dao.close();
+        } finally {
+            deleteDirectory(config.basePath().toFile());
+        }
+    }
+
+    @Test
+    void expiredGetAfterClose() throws IOException, InterruptedException {
+        try {
+            DaoImpl dao = new DaoImpl(config);
+            for (int i = 0; i < 25; i++) {
+                dao.upsert(entry(i), 100L);
+            }
+            dao.close();
+            Thread.sleep(100L);
+            dao = new DaoImpl(config);
+            Assertions.assertNull(dao.get(entry(10).key()));
+            dao.close();
+        } finally {
+            deleteDirectory(config.basePath().toFile());
+        }
+    }
+
+    private boolean deleteDirectory(File directoryToBeDeleted) {
         File[] allContents = directoryToBeDeleted.listFiles();
         if (allContents != null) {
             for (File file : allContents) {
@@ -132,7 +241,12 @@ public class ExpirationTest {
         return directoryToBeDeleted.delete();
     }
 
-    public void assertSameList(Iterator<Entry<MemorySegment>> iterator, List<Entry<MemorySegment>> expected) {
+    public void assertSame(Entry<MemorySegment> entry, Entry<MemorySegment> expected) {
+        Entry<String> entry1 = new BaseEntry<>(toString(entry.key()), toString(entry.value()));
+        Entry<String> expectedEntry = new BaseEntry<>(toString(expected.key()), toString(expected.value()));
+        Assertions.assertEquals(expectedEntry, entry1, "wrong entry");
+    }
+    public void assertSame(Iterator<Entry<MemorySegment>> iterator, List<Entry<MemorySegment>> expected) {
         int index = 0;
         for (Entry<MemorySegment> entry : expected) {
             if (!iterator.hasNext()) {
