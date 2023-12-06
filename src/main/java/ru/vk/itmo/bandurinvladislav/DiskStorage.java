@@ -168,7 +168,7 @@ public class DiskStorage {
             // bloom:
             // |bloom_size|long_value1|long_value2|long_value3|...
             // long values stored in bloom filter - representation of bits
-            // bloomSize = index start
+            // bloomSize = index start 
             fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, bloomSize);
             long bloomOffset = Long.BYTES;
             for (Long hash : bloom.getFilter().getLongs()) {
