@@ -4,8 +4,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 public final class StorageUtil {
-    private StorageUtil() {
-    }
 
     public static long indexOf(MemorySegment segment, MemorySegment key) {
         long bloomSize = bloomSize(segment);
@@ -119,5 +117,8 @@ public final class StorageUtil {
 
     public static boolean checkBit(long value, long i) {
         return (value & (1L << (63 - i))) != 0;
+    }
+    
+    private StorageUtil() {
     }
 }
