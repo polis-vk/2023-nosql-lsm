@@ -44,12 +44,10 @@ public class State {
     }
 
     public void putInMemory(Entry<MemorySegment> entry, Long ttl) {
-        MemorySegment expiration;
+        MemorySegment expiration = null;
         if (ttl != null) {
             long[] ar = {System.currentTimeMillis() + ttl};
             expiration = MemorySegment.ofArray(ar);
-        } else {
-            expiration = null;
         }
         Triple<MemorySegment> triple = new Triple<>(entry.key(), entry.value(), expiration);
         Triple<MemorySegment> previousEntry = storage.put(triple.key(), triple);
@@ -75,7 +73,7 @@ public class State {
 
     public State checkAndGet() {
         if (isClosed.get()) {
-            throw new RuntimeException("Dao is already closed");
+            throw new DaoException("Dao is already closed");
         }
         return this;
     }

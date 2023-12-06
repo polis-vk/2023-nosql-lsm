@@ -52,7 +52,6 @@ public class DiskStorage {
                 if (memorySegmentEntry.expiration() != null) {
                     long currentTime = System.currentTimeMillis();
                     long expiration = memorySegmentEntry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0];
-                    System.err.println(expiration + " || " + currentTime);
                     return memorySegmentEntry.value() == null || expiration <= currentTime;
                 }
                 return memorySegmentEntry.value() == null;
@@ -294,7 +293,7 @@ public class DiskStorage {
                 MemorySegment value =
                         startOfValue < 0
                                 ? null
-                                : utils.slice(page, startOfValue, utils.endOfValue(page, index, recordsCount));
+                                : utils.slice(page, startOfValue, utils.endOfValue(page, index));
                 long startOfExp = utils.startOfExpiration(page, index);
                 MemorySegment expiration =
                         startOfExp < 0

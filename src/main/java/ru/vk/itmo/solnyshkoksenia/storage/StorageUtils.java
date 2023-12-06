@@ -27,7 +27,7 @@ public class StorageUtils {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 3 * Long.BYTES + Long.BYTES);
     }
 
-    protected long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
+    protected long endOfValue(MemorySegment segment, long recordIndex) {
         return normalizedStartOfExpiration(segment, recordIndex);
     }
 
