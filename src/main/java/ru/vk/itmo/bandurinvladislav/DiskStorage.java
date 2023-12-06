@@ -144,6 +144,18 @@ public class DiskStorage {
             return null;
         }
 
+        // According to our simplified implementation of DB, I rely on the fact that 'count' is always less than Integer.MAX_VALUE
+        BloomFilter bloom = BloomFilter.createBloom((int) count);
+
+        for (Entry<MemorySegment> entry : iterable) {
+            MemorySegment value = entry.value();
+            if (value != null) {
+                bloom.add(entry.key());
+            }
+        }
+
+        long bloomSize = bloom.getFilterSize();
+
         long indexSize = count * 2 * Long.BYTES;
 
         try (FileChannel fileChannel = FileChannel.open(
@@ -156,7 +168,7 @@ public class DiskStorage {
             MemorySegment fileSegment = fileChannel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0,
-                    indexSize == 0 ? Long.BYTES : indexSize + dataSize,
+                    indexSize == 0 ? Long.BYTES : bloomSize + indexSize + dataSize,
                     arena
             );
 
@@ -164,7 +176,7 @@ public class DiskStorage {
             // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
             // key0_Start = data start = end of index
             long dataOffset = indexSize;
-            int indexOffset = 0;
+            long indexOffset = 0;
             for (Entry<MemorySegment> entry : iterable) {
                 fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
                 dataOffset += entry.key().byteSize();
@@ -193,6 +205,15 @@ public class DiskStorage {
                     MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
                     dataOffset += value.byteSize();
                 }
+            }
+
+            // bloom:
+            // |long_value1|long_value2|long_value3|...
+            // long values stored in bloom filter - representation of bits
+            long bloomOffset = indexSize + dataSize;
+            for (Long hash : bloom.getFilter().getBitset()) {
+                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, bloomOffset, hash);
+                bloomOffset += Long.BYTES;
             }
             return fileSegment;
         }
