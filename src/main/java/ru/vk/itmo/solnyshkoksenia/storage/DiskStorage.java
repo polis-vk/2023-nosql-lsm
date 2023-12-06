@@ -50,8 +50,8 @@ public class DiskStorage {
             @Override
             protected boolean skip(Triple<MemorySegment> memorySegmentEntry) {
                 if (memorySegmentEntry.expiration() != null) {
-                    return memorySegmentEntry.value() == null ||
-                            memorySegmentEntry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0]
+                    return memorySegmentEntry.value() == null
+                            || memorySegmentEntry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0]
                                     <= System.currentTimeMillis();
                 }
                 return memorySegmentEntry.value() == null;

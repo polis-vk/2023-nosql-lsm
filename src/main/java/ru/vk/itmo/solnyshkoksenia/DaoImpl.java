@@ -110,16 +110,16 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void tryFlush() {
-        State curState = this.curState.checkAndGet();
+        State state = this.curState.checkAndGet();
         try {
-            curState.flush();
+            state.flush();
         } catch (IOException e) {
             throw new DaoException("Flush failed", e);
         }
 
         lock.writeLock().lock();
         try {
-            this.curState = new State(curState.config, curState.storage, new ConcurrentSkipListMap<>(comparator),
+            this.curState = new State(state.config, state.storage, new ConcurrentSkipListMap<>(comparator),
                     new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
         } catch (IOException e) {
             throw new DaoException("Cannot recover storage on disk", e);
