@@ -40,7 +40,7 @@ public class BloomFilterTest extends BaseTest {
 
         // here we check if all longs in file are the same as in the original bloom_filter
         long sstableOffset = Long.BYTES;
-        for (Long originalLong : originalBloom.getFilter().getBitset()) {
+        for (Long originalLong : originalBloom.getFilter().getLongs()) {
             long fileLong = flushedSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, sstableOffset);
             assertEquals(originalLong, fileLong);
             sstableOffset += Long.BYTES;
