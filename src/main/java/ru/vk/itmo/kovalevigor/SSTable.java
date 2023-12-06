@@ -19,6 +19,7 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
 
     public static final Comparator<MemorySegment> COMPARATOR = UtilsMemorySegment::compare;
     public static final Comparator<Entry<MemorySegment>> ENTRY_COMPARATOR = UtilsMemorySegment::compareEntry;
+    public static final String INDEX_SUFFIX = "_index";
 
     private final IndexList indexList;
 
@@ -43,7 +44,7 @@ public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> 
     }
 
     private static Path getIndexPath(final Path root, final String name) {
-        return root.resolve(name + "_index");
+        return root.resolve(name + INDEX_SUFFIX);
     }
 
     private static MemorySegment mapSegment(final Path path, final Arena arena) throws IOException {
