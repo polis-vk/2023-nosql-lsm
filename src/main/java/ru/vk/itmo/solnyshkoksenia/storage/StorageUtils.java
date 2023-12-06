@@ -29,10 +29,6 @@ public class StorageUtils {
 
     protected long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
         return normalizedStartOfExpiration(segment, recordIndex);
-//        if (recordIndex < recordsCount - 1) {
-//            return startOfKey(segment, recordIndex + 1);
-//        }
-//        return segment.byteSize();
     }
 
     protected long startOfExpiration(MemorySegment segment, long recordIndex) {
@@ -45,7 +41,6 @@ public class StorageUtils {
         }
         return segment.byteSize();
     }
-
 
     protected long tombstone(long offset) {
         return 1L << 63 | offset;
@@ -76,12 +71,10 @@ public class StorageUtils {
         indexOffset += Long.BYTES;
 
         MemorySegment key = entry.key();
-        MemorySegment value = entry.value();
-        MemorySegment expiration = entry.expiration();
-
         MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
         dataOffset += key.byteSize();
 
+        MemorySegment value = entry.value();
         if (value == null) {
             fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
         } else {
@@ -91,6 +84,7 @@ public class StorageUtils {
         }
         indexOffset += Long.BYTES;
 
+        MemorySegment expiration = entry.expiration();
         if (expiration == null) {
             fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
         } else {

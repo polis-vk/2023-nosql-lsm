@@ -43,21 +43,11 @@ public class State {
         this.diskStorage = diskStorage;
     }
 
-//    private long bytesToLong(byte[] bytes) {
-//        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-//        buffer.put(bytes);
-//        buffer.flip();//need flip
-//        return buffer.getLong();
-//    }
-
-    public void putInMemory(Entry<MemorySegment> entry, Long TTL) {
+    public void putInMemory(Entry<MemorySegment> entry, Long ttl) {
         MemorySegment expiration;
-        if (TTL != null) {
-            long[] ar = {System.currentTimeMillis() + TTL};
+        if (ttl != null) {
+            long[] ar = {System.currentTimeMillis() + ttl};
             expiration = MemorySegment.ofArray(ar);
-//            System.err.println(Arrays.toString(expiration.toArray(ValueLayout.JAVA_LONG)));
-//            System.err.println(System.currentTimeMillis());
-//            System.err.println(System.currentTimeMillis() + TTL);
         } else {
             expiration = null;
         }

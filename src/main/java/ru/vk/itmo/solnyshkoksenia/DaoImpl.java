@@ -26,7 +26,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ReadWriteLock lock = new ReentrantReadWriteLock(true);
     private final Arena arena;
     private final Path path;
-    private volatile State state;
+    private volatile State curState;
 
     public DaoImpl(Config config) throws IOException {
         path = config.basePath().resolve("data");
@@ -34,12 +34,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         arena = Arena.ofShared();
 
-        this.state = new State(config, new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
+        this.curState = new State(config, new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) { // todo
-        State state = this.state.checkAndGet();
+        State state = this.curState.checkAndGet();
         List<Iterator<Triple<MemorySegment>>> iterators = List.of(
                 state.getInMemory(state.flushingStorage, from, to),
                 state.getInMemory(state.storage, from, to)
@@ -51,12 +51,12 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         return new FilterIterator(state.diskStorage.range(iterator, from, to));
     }
 
-    public void upsert(Entry<MemorySegment> entry, Long TTL) {
-        State state = this.state.checkAndGet();
+    public void upsert(Entry<MemorySegment> entry, Long ttl) {
+        State state = this.curState.checkAndGet();
 
         lock.readLock().lock();
         try {
-            state.putInMemory(entry, TTL);
+            state.putInMemory(entry, ttl);
         } finally {
             lock.readLock().unlock();
         }
@@ -77,13 +77,13 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) { // todo
-        State state = this.state.checkAndGet();
+        State state = this.curState.checkAndGet();
         return state.get(key, comparator);
     }
 
     @Override
     public void flush() throws IOException {
-        State state = this.state.checkAndGet();
+        State state = this.curState.checkAndGet();
         if (state.storage.isEmpty() || state.isFlushing()) {
             return;
         }
@@ -91,7 +91,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void autoFlush() throws IOException {
-        State state = this.state.checkAndGet();
+        State state = this.curState.checkAndGet();
         lock.writeLock().lock();
         try {
             if (state.isFlushing()) {
@@ -101,7 +101,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                     return;
                 }
             }
-            this.state = state.moveStorage();
+            this.curState = state.moveStorage();
         } finally {
             lock.writeLock().unlock();
         }
@@ -110,13 +110,13 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private void tryFlush() {
-        State state = this.state.checkAndGet();
+        State state = this.curState.checkAndGet();
         try {
             state.flush();
 
             lock.writeLock().lock();
             try {
-                this.state = new State(state.config, state.storage, new ConcurrentSkipListMap<>(comparator),
+                this.curState = new State(state.config, state.storage, new ConcurrentSkipListMap<>(comparator),
                         new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
             } catch (IOException e) {
                 throw new RuntimeException("Cannot recover storage on disk");
@@ -140,7 +140,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private Object tryCompact() {
-        State state = this.state.checkAndGet();
+        State state = this.curState.checkAndGet();
         try {
             state.diskStorage.compact();
         } catch (IOException e) {
@@ -149,7 +149,8 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
         lock.writeLock().lock();
         try {
-            this.state = new State(state.config, state.storage, state.flushingStorage, new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
+            this.curState = new State(state.config, state.storage, state.flushingStorage,
+                    new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
         } catch (IOException e) {
             throw new RuntimeException("Cannot recover storage on disk after compaction: " + e.getMessage());
         } finally {
@@ -161,7 +162,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public synchronized void close() throws IOException {
-        State state = this.state;
+        State state = this.curState;
         if (state.isClosed() || !arena.scope().isAlive()) {
             return;
         }
@@ -173,6 +174,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         executor.close();
         arena.close();
 
-        this.state = state.close();
+        this.curState = state.close();
     }
 }

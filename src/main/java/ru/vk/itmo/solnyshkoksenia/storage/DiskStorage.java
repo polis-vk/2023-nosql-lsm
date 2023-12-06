@@ -2,9 +2,9 @@ package ru.vk.itmo.solnyshkoksenia.storage;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.solnyshkoksenia.Triple;
 import ru.vk.itmo.solnyshkoksenia.MemorySegmentComparator;
 import ru.vk.itmo.solnyshkoksenia.MergeIterator;
+import ru.vk.itmo.solnyshkoksenia.Triple;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -227,29 +227,12 @@ public class DiskStorage {
             Path file = storagePath.resolve(fileName);
             try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
                 MemorySegment fileSegment = utils.mapFile(fileChannel, Files.size(file), arena);
-//                printData(fileSegment);
                 result.add(fileSegment);
             }
         }
 
         return result;
     }
-
-//    private static void printData(MemorySegment fileSegment) {
-//        Iterator<Triple<MemorySegment>> iterator = iterator(fileSegment, null, null);
-//        while (iterator.hasNext()) {
-//            Triple<MemorySegment> entry = iterator.next();
-////            System.err.println(entry.key() + " " + entry.value());
-////            System.err.println(Arrays.toString(entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)));
-//            long expiration = entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0];
-//            System.err.println(toString(entry.key()) + " " + toString(entry.value()) + " " + expiration);
-//        }
-//        System.err.print("\n");
-//    }
-
-//    private static String toString(MemorySegment memorySegment) {
-//        return memorySegment == null ? null : new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
-//    }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = utils.recordsCount(segment);
@@ -312,11 +295,11 @@ public class DiskStorage {
                         startOfValue < 0
                                 ? null
                                 : utils.slice(page, startOfValue, utils.endOfValue(page, index, recordsCount));
-                long startOfExpiration = utils.startOfExpiration(page, index);
+                long startOfExp = utils.startOfExpiration(page, index);
                 MemorySegment expiration =
-                        startOfExpiration < 0
+                        startOfExp < 0
                                 ? null
-                                : utils.slice(page, startOfExpiration, utils.endOfExpiration(page, index, recordsCount));
+                                : utils.slice(page, startOfExp, utils.endOfExpiration(page, index, recordsCount));
                 index++;
                 return new Triple<>(key, value, expiration);
             }
