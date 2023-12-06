@@ -9,7 +9,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-@ru.vk.itmo.test.DaoFactory(stage = 3, week = 100)
+@ru.vk.itmo.test.DaoFactory(stage = 4, week = 1111)
 public class DaoFactory implements ru.vk.itmo.test.DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public String toString(MemorySegment memorySegment) {
@@ -34,11 +34,11 @@ public class DaoFactory implements ru.vk.itmo.test.DaoFactory.Factory<MemorySegm
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new InMemoryDao();
+        return new DaoWithCompaction();
     }
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new InMemoryDao(config);
+        return new DaoWithCompaction(config);
     }
 }
