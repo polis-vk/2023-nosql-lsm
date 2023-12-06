@@ -1,7 +1,9 @@
 package ru.vk.itmo.reference;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
+import java.util.function.Consumer;
 
 /**
  * Growable buffer with {@link ByteBuffer} and {@link MemorySegment} interface.
@@ -17,8 +19,8 @@ final class ByteArraySegment {
         this.segment = MemorySegment.ofArray(array);
     }
 
-    byte[] array() {
-        return array;
+    void withArray(final ArrayConsumer consumer) throws IOException {
+        consumer.process(array);
     }
 
     MemorySegment segment() {
@@ -39,5 +41,9 @@ final class ByteArraySegment {
         final int newSize = Integer.highestOneBit(capacity) << 1;
         array = new byte[newSize];
         segment = MemorySegment.ofArray(array);
+    }
+
+    interface ArrayConsumer {
+        void process(byte[] array) throws IOException;
     }
 }

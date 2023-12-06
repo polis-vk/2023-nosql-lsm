@@ -105,7 +105,7 @@ final class SSTableWriter {
                 ValueLayout.OfLong.JAVA_LONG_UNALIGNED,
                 0,
                 value);
-        os.write(longBuffer.array());
+        longBuffer.withArray(os::write);
     }
 
     private void writeSegment(
@@ -119,10 +119,11 @@ final class SSTableWriter {
                 blobBuffer.segment(),
                 0L,
                 size);
-        os.write(
-                blobBuffer.array(),
-                0,
-                (int) size);
+        blobBuffer.withArray(array ->
+                os.write(
+                        array,
+                        0,
+                        (int) size));
     }
 
     /**
