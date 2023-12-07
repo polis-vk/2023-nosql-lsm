@@ -282,11 +282,7 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         // Maybe flush
         flush();
 
-        // Ask threads to complete jobs and to stop
-        flusher.shutdown();
-        compactor.shutdown();
-
-        // Wait for threads to stop
+        // Stop all the threads
         flusher.close();
         compactor.close();
 
