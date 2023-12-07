@@ -66,12 +66,10 @@ public class PersistentTest extends BaseTest {
         // Fill
         List<Entry<String>> entries = entries(keys);
         for (int entry = 0; entry < keys; entry++) {
-            dao.upsert(entries.get(entry));
+            final int e = entry;
 
-            // Back off after 1K upserts to be able to flush
-            if (entry % 1000 == 0) {
-                Thread.sleep(10);
-            }
+            // Retry if autoflush is too slow
+            retry(() -> dao.upsert(entries.get(e)));
         }
         dao.close();
 
