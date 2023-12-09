@@ -55,7 +55,9 @@ public class MemTable {
     }
 
     public boolean upsert(Entry<MemorySegment> entry) {
-        if (memTableByteSize.get() >= flushThresholdBytes) {
+        long newEntrySize = Utils.getEntrySize(entry);
+        if (memTableByteSize.addAndGet(newEntrySize) - newEntrySize >= flushThresholdBytes) {
+            memTableByteSize.addAndGet(-newEntrySize);
             throw new LSMDaoOutOfMemoryException();
         }
         Entry<MemorySegment> previous = storage.put(entry.key(), entry);
@@ -63,7 +65,6 @@ public class MemTable {
             // entry already was in memTable, so we need to subtract size of previous entry
             memTableByteSize.addAndGet(-Utils.getEntrySize(previous));
         }
-        memTableByteSize.addAndGet(Utils.getEntrySize(entry));
         return memTableByteSize.get() >= flushThresholdBytes;
     }
 

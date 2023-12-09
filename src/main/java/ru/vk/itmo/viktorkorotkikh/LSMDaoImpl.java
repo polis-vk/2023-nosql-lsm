@@ -39,8 +39,6 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
 
-    private final ReadWriteLock compactionLock = new ReentrantReadWriteLock();
-
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public LSMDaoImpl(Path storagePath, long flushThresholdBytes) {
@@ -119,18 +117,13 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private void compactInBackground() {
         try {
-            compactionLock.writeLock().lock();
-            try {
-                SSTable.compact(
-                        () -> MergeIterator.createThroughSSTables(
-                                SSTable.ssTableIterators(ssTables, null, null)
-                        ),
-                        storagePath
-                );
-                ssTables = SSTable.load(ssTablesArena, storagePath);
-            } finally {
-                compactionLock.writeLock().unlock();
-            }
+            SSTable.compact(
+                    () -> MergeIterator.createThroughSSTables(
+                            SSTable.ssTableIterators(ssTables, null, null)
+                    ),
+                    storagePath
+            );
+            ssTables = SSTable.load(ssTablesArena, storagePath);
         } catch (IOException e) {
             throw new CompactionException(e);
         }
@@ -167,12 +160,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private Future<?> runFlushInBackground() {
         return bgExecutor.submit(() -> {
             try {
-                compactionLock.writeLock().lock();
-                try {
-                    flush(flushingMemTable, ssTables.size(), storagePath, ssTablesArena);
-                } finally {
-                    compactionLock.writeLock().lock();
-                }
+                flush(flushingMemTable, ssTables.size(), storagePath, ssTablesArena);
             } catch (IOException e) {
                 throw new FlushingException(e);
             }
@@ -214,7 +202,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             if (compactionFuture != null) {
                 await(compactionFuture);
             }
-            bgExecutor.awaitTermination(1, TimeUnit.SECONDS);
+            bgExecutor.awaitTermination(1, TimeUnit.MINUTES);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
