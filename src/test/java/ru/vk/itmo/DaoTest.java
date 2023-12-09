@@ -143,7 +143,11 @@ public @interface DaoTest {
             long flushThreshold = 1 << 20; // 1 MB
 
             DaoFactory.Factory<?, ?> f = (DaoFactory.Factory<?, ?>) clazz.getDeclaredConstructor().newInstance();
-            Dao<String, Entry<String>> dao = f.createStringDao(new Config(tmp, flushThreshold));
+            Dao<String, Entry<String>> dao = f.createStringDao(new Config(
+                    tmp,
+                    flushThreshold,
+                    Config.disableCompression()
+            ));
 
             ExtensionContext.Store.CloseableResource res = () -> {
                 dao.close();
