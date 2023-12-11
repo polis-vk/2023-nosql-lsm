@@ -3,46 +3,53 @@ package ru.vk.itmo.shemetovalexey;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.shemetovalexey.sstable.SSTable;
+import ru.vk.itmo.shemetovalexey.sstable.SSTableIterator;
+import ru.vk.itmo.shemetovalexey.sstable.SSTableStates;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Comparator;
+import java.util.Collection;
 import java.util.Iterator;
-import java.util.NavigableMap;
+import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.Lock;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-
-    private static final Comparator<MemorySegment> comparator = InMemoryDao::compare;
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memoryStorage =
-            new ConcurrentSkipListMap<>(comparator);
-    private final AtomicLong storageSize = new AtomicLong(0);
+    private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicReference<SSTableStates> state;
     private final Arena arena;
-    private final DiskStorage diskStorage;
     private final Path path;
-    private final long flushMemorySize;
-    private final ReadWriteLock memoryLock = new ReentrantReadWriteLock();
-    private final Lock storageLock = new ReentrantLock();
+    private final AtomicLong size = new AtomicLong();
+    private final long maxSize;
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
 
     public InMemoryDao(Config config) throws IOException {
-        this.path = config.basePath().resolve("data");
-        this.flushMemorySize = config.flushThresholdBytes();
+        maxSize = config.flushThresholdBytes() == 0 ? config.flushThresholdBytes() : Long.MAX_VALUE / 2;
+        path = config.basePath().resolve("data");
         Files.createDirectories(path);
+
         arena = Arena.ofShared();
-        this.diskStorage = new DiskStorage(StorageUtils.loadOrRecover(path, arena));
+
+        List<MemorySegment> segments = SSTable.loadOrRecover(path, arena);
+        state = new AtomicReference<>(SSTableStates.create(segments));
     }
 
-    static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
+    public static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
         long mismatch = memorySegment1.mismatch(memorySegment2);
         if (mismatch == -1) {
             return 0;
@@ -62,132 +69,157 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        storageLock.lock();
-        try {
-            return diskStorage.range(getInMemory(from, to), from, to);
-        } finally {
-            storageLock.unlock();
-        }
+        SSTableStates state = this.state.get();
+        return SSTableIterator.get(
+            getInMemory(state.getReadStorage(), from, to),
+            getInMemory(state.getWriteStorage(), from, to),
+            state.getDiskSegmentList(),
+            from,
+            to
+        );
     }
 
-    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
-        memoryLock.readLock().lock();
-        try {
-            if (from == null && to == null) {
-                return memoryStorage.values().iterator();
-            }
-            if (from == null) {
-                return memoryStorage.headMap(to).values().iterator();
-            }
-            if (to == null) {
-                return memoryStorage.tailMap(from).values().iterator();
-            }
-            return memoryStorage.subMap(from, to).values().iterator();
-        } finally {
-            memoryLock.readLock().unlock();
+    private Iterator<Entry<MemorySegment>> getInMemory(
+        ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> storage,
+        MemorySegment from,
+        MemorySegment to
+    ) {
+        if (from == null && to == null) {
+            return storage.values().iterator();
         }
+        if (from == null) {
+            return storage.headMap(to).values().iterator();
+        }
+        if (to == null) {
+            return storage.tailMap(from).values().iterator();
+        }
+        return storage.subMap(from, to).values().iterator();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        memoryLock.writeLock().lock();
+        upsertLock.readLock().lock();
         try {
-            storageSize.addAndGet(entry.key().byteSize() + (entry.value() == null ? 0 : entry.value().byteSize()));
-            memoryStorage.put(entry.key(), entry);
+            state.get().getWriteStorage().put(entry.key(), entry);
+            long keySize = entry.key().byteSize();
+            long valueSize = entry.value() == null ? 0 : entry.value().byteSize();
+            if (size.addAndGet(keySize + valueSize) >= maxSize) {
+                flush();
+                size.set(0);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
         } finally {
-            memoryLock.writeLock().unlock();
+            upsertLock.readLock().unlock();
         }
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        memoryLock.readLock().lock();
-        try {
-            Entry<MemorySegment> entry = memoryStorage.get(key);
-            if (entry != null) {
-                if (entry.value() == null) {
-                    return null;
-                }
-                return entry;
-            }
-        } finally {
-            memoryLock.readLock().unlock();
-        }
-
-        storageLock.lock();
-        try {
-            Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
-
-            if (!iterator.hasNext()) {
+        SSTableStates state = this.state.get();
+        Entry<MemorySegment> entry = state.getWriteStorage().get(key);
+        if (entry != null) {
+            if (entry.value() == null) {
                 return null;
             }
-            Entry<MemorySegment> next = iterator.next();
-            if (compare(next.key(), key) == 0) {
-                return next;
-            }
-        } finally {
-            storageLock.unlock();
+            return entry;
         }
 
+        entry = state.getReadStorage().get(key);
+        if (entry != null) {
+            if (entry.value() == null) {
+                return null;
+            }
+            return entry;
+        }
+
+        Iterator<Entry<MemorySegment>> iterator = SSTableIterator.get(state.getDiskSegmentList(), key);
+        if (!iterator.hasNext()) {
+            return null;
+        }
+        Entry<MemorySegment> next = iterator.next();
+        if (compare(next.key(), key) == 0) {
+            return next;
+        }
         return null;
     }
 
     @Override
-    public void compact() throws IOException {
-        memoryLock.writeLock().lock();
-        try {
-            storageLock.lock();
+    public void compact() {
+        bgExecutor.execute(() -> {
             try {
-                if (memoryStorage.isEmpty() && diskStorage.getTotalFiles() <= 1) {
-                    return;
-                }
-                StorageUtils.compact(path, this::all);
-            } finally {
-                storageLock.unlock();
+                SSTableStates state = this.state.get();
+                MemorySegment newPage = SSTable.compact(
+                    arena,
+                    path,
+                    () -> SSTableIterator.get(state.getDiskSegmentList())
+                );
+                this.state.set(state.compact(newPage));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
             }
-        } finally {
-            memoryLock.writeLock().unlock();
-        }
+        });
     }
 
     @Override
     public void flush() throws IOException {
-        memoryLock.writeLock().lock();
-        try {
-            storageLock.lock();
-            try {
-                if (storageSize.get() < flushMemorySize) {
-                    return;
-                }
-
-                StorageUtils.save(path, memoryStorage.values());
-                storageSize.set(0);
-            } finally {
-                storageLock.unlock();
+        bgExecutor.execute(() -> {
+            Collection<Entry<MemorySegment>> entries;
+            SSTableStates prevState = state.get();
+            ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> writeStorage = prevState.getWriteStorage();
+            if (writeStorage.isEmpty()) {
+                return;
             }
-        } finally {
-            memoryLock.writeLock().unlock();
-        }
+
+            SSTableStates nextState = prevState.beforeFlush();
+
+            upsertLock.writeLock().lock();
+            try {
+                state.set(nextState);
+            } finally {
+                upsertLock.writeLock().unlock();
+            }
+
+            entries = writeStorage.values();
+            MemorySegment newPage;
+            try {
+                newPage = SSTable.saveNextSSTable(arena, path, entries);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+
+            nextState = nextState.afterFlush(newPage);
+            upsertLock.writeLock().lock();
+            try {
+                state.set(nextState);
+            } finally {
+                upsertLock.writeLock().unlock();
+            }
+        });
     }
 
     @Override
     public void close() throws IOException {
-        if (!arena.scope().isAlive()) {
+        if (closed.getAndSet(true)) {
+            waitForClose();
             return;
         }
-        memoryLock.writeLock().lock();
+
+        flush();
+        bgExecutor.execute(arena::close);
+        bgExecutor.shutdown();
+        waitForClose();
+    }
+
+    private void waitForClose() throws InterruptedIOException {
         try {
-            storageLock.lock();
-            try {
-                arena.close();
-                if (!memoryStorage.isEmpty()) {
-                    StorageUtils.save(path, memoryStorage.values());
-                }
-            } finally {
-                storageLock.unlock();
+            if (!bgExecutor.awaitTermination(1, TimeUnit.MINUTES)) {
+                throw new InterruptedException();
             }
-        } finally {
-            memoryLock.writeLock().unlock();
+        } catch (InterruptedException e) {
+            InterruptedIOException exception = new InterruptedIOException("Interrupted or timed out");
+            exception.initCause(e);
+            throw exception;
         }
     }
 }
