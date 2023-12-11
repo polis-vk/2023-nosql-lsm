@@ -217,9 +217,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 throw new InterruptedIOException();
             }
         } catch (InterruptedException e) {
-            InterruptedIOException exception = new InterruptedIOException("Interrupted or timed out");
-            exception.initCause(e);
-            throw exception;
+            bgExecutor.shutdownNow();
         }
     }
 }
