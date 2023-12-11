@@ -8,11 +8,11 @@ import ru.vk.itmo.shemetovalexey.sstable.SSTableIterator;
 import ru.vk.itmo.shemetovalexey.sstable.SSTableStates;
 
 import java.io.IOException;
-import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.channels.InterruptedByTimeoutException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
@@ -211,13 +211,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         waitForClose();
     }
 
-    private void waitForClose() throws InterruptedIOException {
+    private void waitForClose() throws InterruptedByTimeoutException {
         try {
             if (!bgExecutor.awaitTermination(1, TimeUnit.MINUTES)) {
-                throw new InterruptedIOException();
+                throw new InterruptedByTimeoutException();
             }
-        } catch (InterruptedException e) {
-            bgExecutor.shutdownNow();
+        } catch (InterruptedException ignore) {
+            // ignore
         }
     }
 }
