@@ -4,7 +4,10 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
 
-abstract class SSTableUtils {
+final class SSTableUtils {
+    private SSTableUtils() {
+    }
+
     static Path compactionFile(Path storagePath) {
         return storagePath.resolve("compaction");
     }

@@ -164,7 +164,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         bgExecutor.execute(() -> {
-            Collection<Entry<MemorySegment>> entries;
             SSTableStates prevState = sstableState.get();
             ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> writeStorage = prevState.getWriteStorage();
             if (writeStorage.isEmpty()) {
@@ -180,6 +179,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 upsertLock.writeLock().unlock();
             }
 
+            Collection<Entry<MemorySegment>> entries;
             entries = writeStorage.values();
             MemorySegment newPage;
             try {

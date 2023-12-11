@@ -13,16 +13,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.endOfKey;
-import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.endOfValue;
-import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.indexOf;
-import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.normalize;
-import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.recordsCount;
-import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.slice;
-import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.startOfKey;
-import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.startOfValue;
+public final class SSTableIterator {
+    private SSTableIterator() {
+    }
 
-public abstract class SSTableIterator {
     public static Iterator<Entry<MemorySegment>> get(List<MemorySegment> segmentList) {
         return get(segmentList, null);
     }
@@ -60,9 +54,11 @@ public abstract class SSTableIterator {
     }
 
     static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
-        long recordsCount = recordsCount(page);
+        long recordIndexFrom = from == null ? 0 : SSTableUtils.normalize(SSTableUtils.indexOf(page, from));
+        long recordIndexTo = to == null ? SSTableUtils.recordsCount(page) : SSTableUtils.normalize(
+            SSTableUtils.indexOf(page, to)
+        );
+        long recordsCount = SSTableUtils.recordsCount(page);
 
         return new Iterator<>() {
             long index = recordIndexFrom;
@@ -77,12 +73,16 @@ public abstract class SSTableIterator {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
-                long startOfValue = startOfValue(page, index);
+                MemorySegment key = SSTableUtils.slice(
+                    page,
+                    SSTableUtils.startOfKey(page, index),
+                    SSTableUtils.endOfKey(page, index)
+                );
+                long startOfValue = SSTableUtils.startOfValue(page, index);
                 MemorySegment value =
                     startOfValue < 0
                         ? null
-                        : slice(page, startOfValue, endOfValue(page, index, recordsCount));
+                        : SSTableUtils.slice(page, startOfValue, SSTableUtils.endOfValue(page, index, recordsCount));
                 index++;
                 return new BaseEntry<>(key, value);
             }

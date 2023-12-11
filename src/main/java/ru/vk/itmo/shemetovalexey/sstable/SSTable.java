@@ -19,10 +19,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
 
-public abstract class SSTable {
+public final class SSTable {
     public static final String PREFIX = "data_";
     private static final String TMP_FILE = "index.tmp";
     private static final String IDX_FILE = "index.idx";
+
+    private SSTable() {
+    }
 
     private static MemorySegment save(
         Arena arena,
@@ -154,7 +157,6 @@ public abstract class SSTable {
     }
 
     private static void finalizeCompaction(Path storagePath) throws IOException {
-        Path compactionFile = SSTableUtils.compactionFile(storagePath);
         try (Stream<Path> stream = Files.find(
             storagePath,
             1,
@@ -175,6 +177,7 @@ public abstract class SSTable {
         Files.deleteIfExists(indexFile);
         Files.deleteIfExists(indexTmp);
 
+        Path compactionFile = SSTableUtils.compactionFile(storagePath);
         boolean noData = Files.size(compactionFile) == 0;
 
         Files.write(
