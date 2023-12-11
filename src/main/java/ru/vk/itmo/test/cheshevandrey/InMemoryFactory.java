@@ -3,7 +3,7 @@ package ru.vk.itmo.test.cheshevandrey;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.cheshevandrey.InMemoryDao;
+import ru.vk.itmo.cheshevandrey.PersistentDao;
 import ru.vk.itmo.test.DaoFactory;
 
 import java.io.IOException;
@@ -12,12 +12,12 @@ import java.lang.foreign.ValueLayout;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-@DaoFactory(stage = 2)
+@DaoFactory(stage = 4)
 public class InMemoryFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
-        return new InMemoryDao(config);
+        return new PersistentDao(config);
     }
 
     @Override

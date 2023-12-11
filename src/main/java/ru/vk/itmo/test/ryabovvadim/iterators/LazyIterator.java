@@ -1,11 +1,16 @@
 package ru.vk.itmo.test.ryabovvadim.iterators;
 
+import java.util.Iterator;
 import java.util.function.Supplier;
 
 public class LazyIterator<T> implements FutureIterator<T> {
     private final Supplier<T> loadEntry;
     private final Supplier<Boolean> hasNextEntry;
     private T next;
+
+    public LazyIterator(Iterator<T> iterator) {
+        this(iterator::next, iterator::hasNext);
+    }
 
     public LazyIterator(Supplier<T> getEntry, Supplier<Boolean> hasNextEntry) {
         this.loadEntry = getEntry;

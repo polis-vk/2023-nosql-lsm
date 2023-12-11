@@ -36,7 +36,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public DaoImpl(Config config) throws IOException {
         flushThresholdBytes = config.flushThresholdBytes();
-        storage = new Storage(config);
+        this.storage = new Storage(config);
     }
 
     Iterator<Entry<MemorySegment>> firstNsstablesIterator(int n) {

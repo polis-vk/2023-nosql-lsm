@@ -25,6 +25,7 @@ class Storage implements Closeable {
     static final String COMPACTING_SUFFIX = "_compacting";
     static final String SSTABLE_BASE_NAME = "storage";
     static final String INDEX_BASE_NAME = "index";
+    private static final int INDEX_ENTRY_SIZE = Integer.BYTES + Long.BYTES;
     final Path storagePath;
     final Path metaFilePath;
     final Path compactedTablesAmountFilePath;
@@ -45,7 +46,9 @@ class Storage implements Closeable {
         metaFilePath = storagePath.resolve("meta");
         if (!Files.exists(metaFilePath)) {
             Files.createFile(metaFilePath);
-            Files.writeString(metaFilePath, "0", StandardOpenOption.WRITE);
+
+            int totalSStables = 0;
+            Files.writeString(metaFilePath, String.valueOf(totalSStables), StandardOpenOption.WRITE);
         }
 
         // Restore consistent state if db was dropped during compaction
@@ -128,7 +131,7 @@ class Storage implements Closeable {
                                                        int entryNum) {
         long offsetInStorageFile = indexMapped.get(
                 ValueLayout.JAVA_LONG_UNALIGNED,
-                (long) (Integer.BYTES + Long.BYTES) * entryNum + Integer.BYTES
+                (long) INDEX_ENTRY_SIZE * entryNum + Integer.BYTES
         );
 
         long keySize = sstableMapped.get(ValueLayout.JAVA_LONG_UNALIGNED, offsetInStorageFile);
@@ -265,7 +268,7 @@ class Storage implements Closeable {
                     to, storageMapped, keyStorageOffset, keySize) <= 0)) {
                 return -1;
             }
-            return (long) foundIndex * (Integer.BYTES + Long.BYTES) + Integer.BYTES;
+            return (long) foundIndex * INDEX_ENTRY_SIZE + Integer.BYTES;
         }
     }
 }
