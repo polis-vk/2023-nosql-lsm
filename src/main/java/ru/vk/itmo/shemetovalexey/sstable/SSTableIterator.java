@@ -6,13 +6,25 @@ import ru.vk.itmo.shemetovalexey.InMemoryDao;
 import ru.vk.itmo.shemetovalexey.MergeIterator;
 
 import java.lang.foreign.MemorySegment;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 
-import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.*;
+import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.endOfKey;
+import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.endOfValue;
+import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.indexOf;
+import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.normalize;
+import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.recordsCount;
+import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.slice;
+import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.startOfKey;
+import static ru.vk.itmo.shemetovalexey.sstable.SSTableUtils.startOfValue;
 
-public class SSTableIterator {
+public abstract class SSTableIterator {
     public static Iterator<Entry<MemorySegment>> get(List<MemorySegment> segmentList) {
-        return get(segmentList,null);
+        return get(segmentList, null);
     }
 
     public static Iterator<Entry<MemorySegment>> get(List<MemorySegment> segmentList, MemorySegment from) {

@@ -10,12 +10,14 @@ public class MergeIterator<T> implements Iterator<T> {
 
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
+    PeekIterator<T> nextIterator;
+
 
     private static class PeekIterator<T> implements Iterator<T> {
 
         public final int id;
         private final Iterator<T> delegate;
-        private T peek;
+        private T last;
 
         private PeekIterator(int id, Iterator<T> delegate) {
             this.id = id;
@@ -24,7 +26,7 @@ public class MergeIterator<T> implements Iterator<T> {
 
         @Override
         public boolean hasNext() {
-            if (peek == null) {
+            if (last == null) {
                 return delegate.hasNext();
             }
             return true;
@@ -36,29 +38,27 @@ public class MergeIterator<T> implements Iterator<T> {
                 throw new NoSuchElementException();
             }
             T peek = peek();
-            this.peek = null;
+            this.last = null;
             return peek;
         }
 
         private T peek() {
-            if (peek == null) {
+            if (last == null) {
                 if (!delegate.hasNext()) {
                     return null;
                 }
-                peek = delegate.next();
+                last = delegate.next();
             }
-            return peek;
+            return last;
         }
     }
-
-    PeekIterator<T> nextIterator;
 
     public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
         priorityQueue = new PriorityQueue<>(
-                iterators.size(),
-                peekComp.thenComparing(o -> -o.id)
+            iterators.size(),
+            peekComp.thenComparing(o -> -o.id)
         );
 
         int id = 0;

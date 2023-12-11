@@ -30,7 +30,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
-    private final AtomicReference<SSTableStates> state;
+    private final AtomicReference<SSTableStates> sstableState;
     private final Arena arena;
     private final Path path;
     private final AtomicLong size = new AtomicLong();
@@ -46,7 +46,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         arena = Arena.ofShared();
 
         List<MemorySegment> segments = SSTable.loadOrRecover(path, arena);
-        state = new AtomicReference<>(SSTableStates.create(segments));
+        sstableState = new AtomicReference<>(SSTableStates.create(segments));
     }
 
     public static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
@@ -69,7 +69,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        SSTableStates state = this.state.get();
+        SSTableStates state = this.sstableState.get();
         return SSTableIterator.get(
             getInMemory(state.getReadStorage(), from, to),
             getInMemory(state.getWriteStorage(), from, to),
@@ -100,7 +100,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void upsert(Entry<MemorySegment> entry) {
         upsertLock.readLock().lock();
         try {
-            state.get().getWriteStorage().put(entry.key(), entry);
+            sstableState.get().getWriteStorage().put(entry.key(), entry);
             long keySize = entry.key().byteSize();
             long valueSize = entry.value() == null ? 0 : entry.value().byteSize();
             if (size.addAndGet(keySize + valueSize) >= maxSize) {
@@ -116,7 +116,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        SSTableStates state = this.state.get();
+        SSTableStates state = this.sstableState.get();
         Entry<MemorySegment> entry = state.getWriteStorage().get(key);
         if (entry != null) {
             if (entry.value() == null) {
@@ -148,13 +148,13 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void compact() {
         bgExecutor.execute(() -> {
             try {
-                SSTableStates state = this.state.get();
+                SSTableStates state = this.sstableState.get();
                 MemorySegment newPage = SSTable.compact(
                     arena,
                     path,
                     () -> SSTableIterator.get(state.getDiskSegmentList())
                 );
-                this.state.set(state.compact(newPage));
+                this.sstableState.set(state.compact(newPage));
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -165,7 +165,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public void flush() throws IOException {
         bgExecutor.execute(() -> {
             Collection<Entry<MemorySegment>> entries;
-            SSTableStates prevState = state.get();
+            SSTableStates prevState = sstableState.get();
             ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> writeStorage = prevState.getWriteStorage();
             if (writeStorage.isEmpty()) {
                 return;
@@ -175,7 +175,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
             upsertLock.writeLock().lock();
             try {
-                state.set(nextState);
+                sstableState.set(nextState);
             } finally {
                 upsertLock.writeLock().unlock();
             }
@@ -191,7 +191,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             nextState = nextState.afterFlush(newPage);
             upsertLock.writeLock().lock();
             try {
-                state.set(nextState);
+                sstableState.set(nextState);
             } finally {
                 upsertLock.writeLock().unlock();
             }
@@ -214,7 +214,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private void waitForClose() throws InterruptedIOException {
         try {
             if (!bgExecutor.awaitTermination(1, TimeUnit.MINUTES)) {
-                throw new InterruptedException();
+                throw new InterruptedIOException();
             }
         } catch (InterruptedException e) {
             InterruptedIOException exception = new InterruptedIOException("Interrupted or timed out");

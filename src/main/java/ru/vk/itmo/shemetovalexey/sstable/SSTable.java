@@ -19,8 +19,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Stream;
 
-public class SSTable {
+public abstract class SSTable {
     public static final String PREFIX = "data_";
+    private static final String TMP_FILE = "index.tmp";
+    private static final String IDX_FILE = "index.idx";
 
     private static MemorySegment save(
         Arena arena,
@@ -83,8 +85,8 @@ public class SSTable {
         Path storagePath,
         Iterable<Entry<MemorySegment>> iterable
     ) throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexTmp = storagePath.resolve(TMP_FILE);
+        final Path indexFile = storagePath.resolve(IDX_FILE);
 
         try {
             Files.createFile(indexFile);
@@ -153,7 +155,11 @@ public class SSTable {
 
     private static void finalizeCompaction(Path storagePath) throws IOException {
         Path compactionFile = SSTableUtils.compactionFile(storagePath);
-        try (Stream<Path> stream = Files.find(storagePath, 1, (path, attrs) -> path.getFileName().toString().startsWith(PREFIX))) {
+        try (Stream<Path> stream = Files.find(
+            storagePath,
+            1,
+            (path, attrs) -> path.getFileName().toString().startsWith(PREFIX)
+        )) {
             stream.forEach(p -> {
                 try {
                     Files.delete(p);
@@ -163,8 +169,8 @@ public class SSTable {
             });
         }
 
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(TMP_FILE);
+        Path indexFile = storagePath.resolve(IDX_FILE);
 
         Files.deleteIfExists(indexFile);
         Files.deleteIfExists(indexTmp);
@@ -192,8 +198,8 @@ public class SSTable {
             finalizeCompaction(storagePath);
         }
 
-        Path indexTmp = storagePath.resolve("index.tmp");
-        Path indexFile = storagePath.resolve("index.idx");
+        Path indexTmp = storagePath.resolve(TMP_FILE);
+        Path indexFile = storagePath.resolve(IDX_FILE);
 
         if (!Files.exists(indexFile)) {
             if (Files.exists(indexTmp)) {

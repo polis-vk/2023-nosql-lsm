@@ -9,7 +9,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-public class SSTableStates {
+public final class SSTableStates {
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> readStorage;
     private final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> writeStorage;
     private final List<MemorySegment> diskSegmentList;
