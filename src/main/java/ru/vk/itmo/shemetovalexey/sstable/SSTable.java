@@ -124,8 +124,6 @@ public final class SSTable {
             StandardOpenOption.TRUNCATE_EXISTING
         );
 
-//        Files.deleteIfExists(indexFile);
-
         Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         return fileSegment;
     }
