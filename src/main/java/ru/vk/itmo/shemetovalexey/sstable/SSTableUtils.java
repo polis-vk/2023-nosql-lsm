@@ -6,6 +6,7 @@ import java.nio.file.Path;
 
 final class SSTableUtils {
     private static final String COMPACTION = "compaction";
+
     private SSTableUtils() {
     }
 
