@@ -40,6 +40,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     public InMemoryDao(Config config) throws IOException {
         this.maxSize = config.flushThresholdBytes() == 0 ? config.flushThresholdBytes() : Long.MAX_VALUE / 2;
+
         this.path = config.basePath().resolve(DATA);
         Files.createDirectories(path);
 
