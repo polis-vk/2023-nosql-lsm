@@ -24,7 +24,7 @@ public class MergeIterator<E> implements Iterator<E> {
             return Collections.emptyIterator();
         }
 
-        if (iterators.size() == 1) { //if there is only one existing sstable in storage
+        if (iterators.size() == 1) {
             return iterators.getFirst();
         }
 

@@ -7,16 +7,19 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
 
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.TOMBSTONE;
+
 public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
-    private static final long TOMBSTONE = -1;
     private long index;
     private final long keyIndexTo;
+    private final long keyOffset;
     private final MemorySegment sstable;
 
-    public SSTableIterator(MemorySegment sstable, long keyIndexFrom, long keyIndexTo) {
+    public SSTableIterator(MemorySegment sstable, long keyIndexFrom, long keyIndexTo, long keyOffset) {
         this.sstable = sstable;
         this.index = keyIndexFrom;
         this.keyIndexTo = keyIndexTo;
+        this.keyOffset = keyOffset;
     }
 
     @Override
@@ -26,7 +29,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     @Override
     public Entry<MemorySegment> next() {
-        Entry<MemorySegment> entry = next(Long.BYTES + index * Byte.SIZE);
+        Entry<MemorySegment> entry = next(keyOffset + index * Byte.SIZE);
         index++;
 
         return entry;

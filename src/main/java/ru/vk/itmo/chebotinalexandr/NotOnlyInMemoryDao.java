@@ -5,19 +5,40 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.io.UncheckedIOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.SS_TABLE_PRIORITY;
 
 public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    private static final int SS_TABLE_PRIORITY = 1;
     private final SSTablesStorage ssTablesStorage;
-    private final SortedMap<MemorySegment, Entry<MemorySegment>> entries =
-            new ConcurrentSkipListMap<>(NotOnlyInMemoryDao::comparator);
+    private final Config config;
+    private final Arena arena;
+    private final AtomicReference<State> state;
+    private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
+    private final AtomicBoolean closed = new AtomicBoolean();
+    private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
+    private final AtomicLong size = new AtomicLong();
 
     public static int comparator(MemorySegment segment1, MemorySegment segment2) {
         long offset = segment1.mismatch(segment2);
@@ -43,48 +64,78 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
     }
 
     public NotOnlyInMemoryDao(Config config) {
-        ssTablesStorage = new SSTablesStorage(config);
+        this.config = config;
+        arena = Arena.ofShared();
+        Path path = config.basePath();
+        List<MemorySegment> segments = SSTablesStorage.loadOrRecover(path, arena);
+        ssTablesStorage = new SSTablesStorage(path);
+        state = new AtomicReference<>(State.initial(segments));
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        PeekingIterator<Entry<MemorySegment>> rangeIterator = rangeIterator(from, to);
+        State state = this.state.get();
+
+        PeekingIterator<Entry<MemorySegment>> rangeIterator = range(
+                memoryIterator(state.readEntries, from, to),
+                memoryIterator(state.writeEntries, from, to),
+                state.sstables,
+                from, to);
         return new SkipTombstoneIterator(rangeIterator);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Iterator<Entry<MemorySegment>> iterator = rangeIterator(key, null);
+        State state = this.state.get();
 
-        if (iterator.hasNext()) {
-            Entry<MemorySegment> result = iterator.next();
-            if (comparator(key, result.key()) == 0) {
-                return result.value() == null ? null : result;
+        Entry<MemorySegment> result = state.writeEntries.get(key);
+        if (result != null) {
+            return result.value() == null ? null : result;
+        }
+
+        result = state.readEntries.get(key);
+        if (result != null) {
+            return result.value() == null ? null : result;
+        }
+
+        for (MemorySegment sstable : state.sstables) {
+            if (BloomFilter.sstableMayContain(key, sstable)) {
+                result = SSTableUtils.get(sstable, key);
+
+                if (result != null) {
+                    return result.value() == null ? null : result;
+                }
             }
         }
 
         return null;
     }
 
-    private PeekingIterator<Entry<MemorySegment>> rangeIterator(MemorySegment from, MemorySegment to) {
-        List<PeekingIterator<Entry<MemorySegment>>> allIterators = new ArrayList<>();
+    private PeekingIterator<Entry<MemorySegment>> range(
+            Iterator<Entry<MemorySegment>> firstIterator,
+            Iterator<Entry<MemorySegment>> secondIterator,
+            List<MemorySegment> segments,
+            MemorySegment from,
+            MemorySegment to) {
 
-        if (!entries.isEmpty()) {
-            Iterator<Entry<MemorySegment>> memoryIterator = memoryIterator(from, to);
-            allIterators.add(new PeekingIteratorImpl<>(memoryIterator));
-        }
+        List<PeekingIterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
 
-        allIterators.add(new PeekingIteratorImpl<>(ssTablesStorage.iteratorsAll(from, to), SS_TABLE_PRIORITY));
+        iterators.add(new PeekingIteratorImpl<>(firstIterator));
+        iterators.add(new PeekingIteratorImpl<>(secondIterator));
+        iterators.add(new PeekingIteratorImpl<>(ssTablesStorage.iteratorsAll(segments, from, to), SS_TABLE_PRIORITY));
 
-        return new PeekingIteratorImpl<>(MergeIterator.merge(allIterators, NotOnlyInMemoryDao::entryComparator));
+        return new PeekingIteratorImpl<>(MergeIterator.merge(iterators, NotOnlyInMemoryDao::entryComparator));
     }
 
-    //Retrieves iterator for memory table and sstables
-    private PeekingIterator<Entry<MemorySegment>> iteratorForCompaction() {
-        return rangeIterator(null, null);
+    private PeekingIterator<Entry<MemorySegment>> iteratorForCompaction(List<MemorySegment> segments) {
+        return new PeekingIteratorImpl<>(ssTablesStorage.iteratorsAll(segments, null, null));
     }
 
-    public Iterator<Entry<MemorySegment>> memoryIterator(MemorySegment from, MemorySegment to) {
+    private static Iterator<Entry<MemorySegment>> memoryIterator(
+            SortedMap<MemorySegment, Entry<MemorySegment>> entries,
+            MemorySegment from,
+            MemorySegment to
+    ) {
         if (from == null && to == null) {
             return entries.values().iterator();
         } else if (from == null) {
@@ -98,39 +149,188 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        entries.put(entry.key(), entry);
+        final boolean autoFlush;
+        MemorySegment key = entry.key();
+
+        Entry<MemorySegment> old;
+        upsertLock.readLock().lock();
+        try {
+            old = state.get().writeEntries.put(key, entry);
+
+            final long curSize = size.addAndGet(sizeOf(entry) - sizeOf(old));
+            autoFlush = curSize > config.flushThresholdBytes();
+        } finally {
+            upsertLock.readLock().unlock();
+        }
+
+        if (autoFlush) {
+            flush();
+        }
+    }
+
+    private static long sizeOf(final Entry<MemorySegment> entry) {
+        if (entry == null) {
+            return 0L;
+        }
+
+        if (entry.value() == null) {
+            return entry.key().byteSize();
+        }
+
+        return entry.key().byteSize() + entry.value().byteSize();
     }
 
     @Override
     public void compact() throws IOException {
-        Iterator<Entry<MemorySegment>> iterator = new SkipTombstoneIterator(iteratorForCompaction());
+        bgExecutor.execute(() -> {
+            try {
+                State state = this.state.get();
+                MemorySegment newPage = performCompact(state.sstables);
+                this.state.set(state.compact(newPage));
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
+    }
+
+    private MemorySegment performCompact(List<MemorySegment> segments) throws IOException {
+        Iterator<Entry<MemorySegment>> iterator = new SkipTombstoneIterator(iteratorForCompaction(segments));
 
         long sizeForCompaction = 0;
         long entryCount = 0;
+        long nonEmptyEntryCount = 0;
         while (iterator.hasNext()) {
             Entry<MemorySegment> entry = iterator.next();
-            sizeForCompaction += SSTablesStorage.entryByteSize(entry);
+            sizeForCompaction += entry.key().byteSize();
+            MemorySegment value = entry.value();
+            if (value != null) {
+                sizeForCompaction += value.byteSize();
+                nonEmptyEntryCount++;
+            }
             entryCount++;
         }
-        sizeForCompaction += 2L * Long.BYTES * entryCount;
-        sizeForCompaction += Long.BYTES + Long.BYTES * entryCount; //for metadata (header + key offsets)
 
-        iterator = new SkipTombstoneIterator(iteratorForCompaction());
-        ssTablesStorage.compact(iterator, sizeForCompaction, entryCount);
+        if (entryCount == 0) {
+            return null;
+        }
+
+        long newBloomFilterLength = BloomFilter.divide(entryCount, Long.SIZE);
+
+        sizeForCompaction += 2L * Long.BYTES * nonEmptyEntryCount;
+        sizeForCompaction += 4L * Long.BYTES + Long.BYTES * nonEmptyEntryCount; //for metadata (header + key offsets)
+        sizeForCompaction += Long.BYTES * newBloomFilterLength; //for bloom filter
+
+        iterator = new SkipTombstoneIterator(iteratorForCompaction(segments));
+        return ssTablesStorage.compact(iterator, sizeForCompaction, nonEmptyEntryCount, newBloomFilterLength);
     }
 
+
     @Override
-    public void flush() throws IOException {
-        Dao.super.flush();
+    public void flush() {
+        bgExecutor.execute(() -> {
+            Collection<Entry<MemorySegment>> toFlush;
+            State prevState = state.get();
+            SortedMap<MemorySegment, Entry<MemorySegment>> writeEntries = prevState.writeEntries;
+            if (writeEntries.isEmpty()) {
+                return;
+            }
+
+            State nextState = prevState.beforeFlush(); //fixme
+            upsertLock.writeLock().lock();
+            try {
+                state.set(nextState);
+            } finally {
+                upsertLock.writeLock().unlock();
+            }
+
+            MemorySegment newPage;
+            toFlush = writeEntries.values();
+            try {
+                newPage = ssTablesStorage.write(toFlush);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+
+            nextState = nextState.afterFlush(newPage);
+            upsertLock.writeLock().lock();
+            try {
+                state.set(nextState);
+            } finally {
+                upsertLock.writeLock().unlock();
+            }
+        });
     }
 
     @Override
     public void close() throws IOException {
-        if (entries.isEmpty()) {
+        if (closed.getAndSet(true)) {
+            waitForClose();
             return;
         }
 
-        ssTablesStorage.write(entries);
-        entries.clear();
+        flush();
+        bgExecutor.execute(arena::close);
+        bgExecutor.shutdown();
+        waitForClose();
+    }
+
+    private void waitForClose() throws InterruptedIOException {
+        try {
+            if (!bgExecutor.awaitTermination(5, TimeUnit.MINUTES)) {
+                throw new InterruptedException("Timeout");
+            }
+        } catch (InterruptedException e) {
+            InterruptedIOException exception = new InterruptedIOException("Interrupted or timed out");
+            exception.initCause(e);
+            throw exception;
+        }
+    }
+
+    private static class State {
+        private static final Comparator<MemorySegment> comparator = NotOnlyInMemoryDao::comparator;
+        private final SortedMap<MemorySegment, Entry<MemorySegment>> readEntries;
+        private final SortedMap<MemorySegment, Entry<MemorySegment>> writeEntries;
+        private final List<MemorySegment> sstables;
+
+        private State(
+                SortedMap<MemorySegment, Entry<MemorySegment>> readEntries,
+                SortedMap<MemorySegment, Entry<MemorySegment>> writeEntries,
+                List<MemorySegment> segments
+        ) {
+            this.readEntries = readEntries;
+            this.writeEntries = writeEntries;
+            this.sstables = segments;
+        }
+
+        private static SortedMap<MemorySegment, Entry<MemorySegment>> createMap() {
+            return new ConcurrentSkipListMap<>(comparator);
+        }
+
+        public static State initial(List<MemorySegment> segments) {
+            return new State(
+                    createMap(),
+                    createMap(),
+                    segments
+            );
+        }
+
+        public State compact(MemorySegment compacted) {
+            return new State(
+                    readEntries,
+                    writeEntries,
+                    compacted == null ? Collections.emptyList() : Collections.singletonList(compacted));
+        }
+
+        public State beforeFlush() {
+            return new State(writeEntries, createMap(), sstables);
+        }
+
+        public State afterFlush(MemorySegment newPage) {
+            List<MemorySegment> segments = new ArrayList<>(this.sstables.size() + 1);
+            segments.addAll(this.sstables);
+            segments.add(newPage);
+
+            return new State(createMap(), writeEntries, segments);
+        }
     }
 }
