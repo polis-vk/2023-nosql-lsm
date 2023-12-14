@@ -1,7 +1,7 @@
 package ru.vk.itmo.shemetovalexey.sstable;
 
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.shemetovalexey.InMemoryDao;
+import ru.vk.itmo.shemetovalexey.MemorySegmentComparator;
 
 import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
@@ -25,7 +25,7 @@ public final class SSTableStates {
     }
 
     private static ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> createMap() {
-        return new ConcurrentSkipListMap<>(InMemoryDao::compare);
+        return new ConcurrentSkipListMap<>(MemorySegmentComparator::compare);
     }
 
     public static SSTableStates create(List<MemorySegment> segments) {

@@ -12,7 +12,6 @@ import java.io.InterruptedIOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
@@ -29,6 +28,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+    private static final String DATA = "data";
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
     private final AtomicReference<SSTableStates> sstableState;
     private final Arena arena;
@@ -39,32 +39,14 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
 
     public InMemoryDao(Config config) throws IOException {
-        maxSize = config.flushThresholdBytes() == 0 ? config.flushThresholdBytes() : Long.MAX_VALUE / 2;
-        path = config.basePath().resolve("data");
+        this.maxSize = config.flushThresholdBytes() == 0 ? config.flushThresholdBytes() : Long.MAX_VALUE / 2;
+        this.path = config.basePath().resolve(DATA);
         Files.createDirectories(path);
 
-        arena = Arena.ofShared();
+        this.arena = Arena.ofShared();
 
         List<MemorySegment> segments = SSTable.loadOrRecover(path, arena);
-        sstableState = new AtomicReference<>(SSTableStates.create(segments));
-    }
-
-    public static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
-        long mismatch = memorySegment1.mismatch(memorySegment2);
-        if (mismatch == -1) {
-            return 0;
-        }
-
-        if (mismatch == memorySegment1.byteSize()) {
-            return -1;
-        }
-
-        if (mismatch == memorySegment2.byteSize()) {
-            return 1;
-        }
-        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
-        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
-        return Byte.compare(b1, b2);
+        this.sstableState = new AtomicReference<>(SSTableStates.create(segments));
     }
 
     @Override
@@ -138,7 +120,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             return null;
         }
         Entry<MemorySegment> next = iterator.next();
-        if (compare(next.key(), key) == 0) {
+        if (MemorySegmentComparator.compare(next.key(), key) == 0) {
             return next;
         }
         return null;
@@ -164,23 +146,23 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void flush() throws IOException {
         bgExecutor.execute(() -> {
-            SSTableStates prevState = sstableState.get();
-            ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> writeStorage = prevState.getWriteStorage();
+            ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> writeStorage =
+                sstableState.get().getWriteStorage();
             if (writeStorage.isEmpty()) {
                 return;
             }
 
-            SSTableStates nextState = prevState.beforeFlush();
-
+            SSTableStates nextState;
             upsertLock.writeLock().lock();
             try {
+                nextState = sstableState.get().beforeFlush();
                 sstableState.set(nextState);
             } finally {
                 upsertLock.writeLock().unlock();
             }
 
             Collection<Entry<MemorySegment>> entries;
-            entries = writeStorage.values();
+            entries = nextState.getReadStorage().values();
             MemorySegment newPage;
             try {
                 newPage = SSTable.saveNextSSTable(arena, path, entries);
@@ -188,10 +170,9 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                 throw new UncheckedIOException(e);
             }
 
-            nextState = nextState.afterFlush(newPage);
             upsertLock.writeLock().lock();
             try {
-                sstableState.set(nextState);
+                sstableState.set(nextState.afterFlush(newPage));
             } finally {
                 upsertLock.writeLock().unlock();
             }

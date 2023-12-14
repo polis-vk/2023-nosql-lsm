@@ -2,7 +2,7 @@ package ru.vk.itmo.shemetovalexey.sstable;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.shemetovalexey.InMemoryDao;
+import ru.vk.itmo.shemetovalexey.MemorySegmentComparator;
 import ru.vk.itmo.shemetovalexey.MergeIterator;
 
 import java.lang.foreign.MemorySegment;
@@ -45,7 +45,7 @@ public final class SSTableIterator {
         iterators.add(firstIterator);
         iterators.add(secondIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, InMemoryDao::compare)) {
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, MemorySegmentComparator::compare)) {
             @Override
             protected boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;

@@ -5,11 +5,12 @@ import java.lang.foreign.ValueLayout;
 import java.nio.file.Path;
 
 final class SSTableUtils {
+    private static final String COMPACTION = "compaction";
     private SSTableUtils() {
     }
 
     static Path compactionFile(Path storagePath) {
-        return storagePath.resolve("compaction");
+        return storagePath.resolve(COMPACTION);
     }
 
     static long indexOf(MemorySegment segment, MemorySegment key) {
@@ -86,6 +87,7 @@ final class SSTableUtils {
     }
 
     static long tombstone(long offset) {
+        // set first bit for tombstone offset (equals: -offset - 1)
         return 1L << 63 | offset;
     }
 
