@@ -23,6 +23,9 @@ public final class SSTable {
     public static final String PREFIX = "data_";
     private static final String TMP_FILE = "index.tmp";
     private static final String IDX_FILE = "index.idx";
+    private static final String COMPACTION_TMP = "compaction.tmp";
+    private static final String COMPACTION = "compaction";
+    private static final int KEY_VALUE_SIZE_OFFSET = 2 * Long.BYTES;
 
     private SSTable() {
     }
@@ -42,7 +45,7 @@ public final class SSTable {
             }
             count++;
         }
-        long indexSize = count * 2 * Long.BYTES;
+        long indexSize = count * KEY_VALUE_SIZE_OFFSET;
 
         MemorySegment fileSegment = fileChannel.map(
             FileChannel.MapMode.READ_WRITE,
@@ -121,9 +124,9 @@ public final class SSTable {
             StandardOpenOption.TRUNCATE_EXISTING
         );
 
-        Files.deleteIfExists(indexFile);
+//        Files.deleteIfExists(indexFile);
 
-        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         return fileSegment;
     }
 
@@ -132,8 +135,7 @@ public final class SSTable {
         Path storagePath,
         Iterable<Entry<MemorySegment>> iterable
     ) throws IOException {
-        String newFileName = "compaction.tmp";
-        Path compactionTmpFile = storagePath.resolve(newFileName);
+        Path compactionTmpFile = storagePath.resolve(COMPACTION_TMP);
 
         MemorySegment fileSegment;
         try (FileChannel fileChannel = FileChannel.open(
@@ -147,7 +149,7 @@ public final class SSTable {
 
         Files.move(
             compactionTmpFile,
-            storagePath.resolve("compaction"),
+            storagePath.resolve(COMPACTION),
             StandardCopyOption.ATOMIC_MOVE,
             StandardCopyOption.REPLACE_EXISTING
         );
