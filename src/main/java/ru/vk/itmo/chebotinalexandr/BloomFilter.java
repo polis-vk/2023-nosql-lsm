@@ -52,7 +52,6 @@ public final class BloomFilter {
         sstable.set(ValueLayout.JAVA_LONG_UNALIGNED, bitOffset, oldValue | mask);
     }
 
-
     public static boolean sstableMayContain(MemorySegment key, MemorySegment sstable) {
         long[] indexes = MurmurHash.hash64(key, 0, (int) key.byteSize(), MurmurHash.DEFAULT_SEED);
 

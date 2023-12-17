@@ -74,31 +74,30 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        State state = this.state.get();
+        State currState = this.state.get();
 
         PeekingIterator<Entry<MemorySegment>> rangeIterator = range(
-                memoryIterator(state.readEntries, from, to),
-                memoryIterator(state.writeEntries, from, to),
-                state.sstables,
+                memoryIterator(currState.readEntries, from, to),
+                memoryIterator(currState.writeEntries, from, to),
+                currState.sstables,
                 from, to);
         return new SkipTombstoneIterator(rangeIterator);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        State state = this.state.get();
+        State currState = this.state.get();
 
-        Entry<MemorySegment> result = state.writeEntries.get(key);
+        Entry<MemorySegment> result = currState.writeEntries.get(key);
+        if (result != null) {
+            return result.value() == null ? null : result;
+        }
+        result = currState.readEntries.get(key);
         if (result != null) {
             return result.value() == null ? null : result;
         }
 
-        result = state.readEntries.get(key);
-        if (result != null) {
-            return result.value() == null ? null : result;
-        }
-
-        for (MemorySegment sstable : state.sstables) {
+        for (MemorySegment sstable : currState.sstables) {
             if (BloomFilter.sstableMayContain(key, sstable)) {
                 result = SSTableUtils.get(sstable, key);
 
@@ -120,8 +119,8 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
 
         List<PeekingIterator<Entry<MemorySegment>>> iterators = new ArrayList<>();
 
-        iterators.add(new PeekingIteratorImpl<>(firstIterator));
-        iterators.add(new PeekingIteratorImpl<>(secondIterator));
+        iterators.add(new PeekingIteratorImpl<>(firstIterator, 1));
+        iterators.add(new PeekingIteratorImpl<>(secondIterator, 0));
         iterators.add(new PeekingIteratorImpl<>(ssTablesStorage.iteratorsAll(segments, from, to), SS_TABLE_PRIORITY));
 
         return new PeekingIteratorImpl<>(MergeIterator.merge(iterators, NotOnlyInMemoryDao::entryComparator));
@@ -184,9 +183,9 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
     public void compact() throws IOException {
         bgExecutor.execute(() -> {
             try {
-                State state = this.state.get();
-                MemorySegment newPage = performCompact(state.sstables);
-                this.state.set(state.compact(newPage));
+                State currState = this.state.get();
+                MemorySegment newPage = performCompact(currState.sstables);
+                this.state.set(currState.compact(newPage));
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -224,18 +223,16 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
         return ssTablesStorage.compact(iterator, sizeForCompaction, nonEmptyEntryCount, newBloomFilterLength);
     }
 
-
     @Override
     public void flush() {
         bgExecutor.execute(() -> {
-            Collection<Entry<MemorySegment>> toFlush;
             State prevState = state.get();
             SortedMap<MemorySegment, Entry<MemorySegment>> writeEntries = prevState.writeEntries;
             if (writeEntries.isEmpty()) {
                 return;
             }
 
-            State nextState = prevState.beforeFlush(); //fixme
+            State nextState = prevState.beforeFlush();
             upsertLock.writeLock().lock();
             try {
                 state.set(nextState);
@@ -243,6 +240,7 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
                 upsertLock.writeLock().unlock();
             }
 
+            Collection<Entry<MemorySegment>> toFlush;
             MemorySegment newPage;
             toFlush = writeEntries.values();
             try {

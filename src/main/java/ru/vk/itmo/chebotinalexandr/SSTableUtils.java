@@ -6,11 +6,10 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-
 public final class SSTableUtils {
     public static final long TOMBSTONE = -1;
     public static final long OLDEST_SS_TABLE_INDEX = 0;
-    public static final int SS_TABLE_PRIORITY = 1;
+    public static final int SS_TABLE_PRIORITY = 2;
     public static final long COMPACTION_NOT_FINISHED_TAG = -1;
     public static final long BLOOM_FILTER_LENGTH_OFFSET = 0;
     public static final long BLOOM_FILTER_BIT_SIZE_OFFSET = Long.BYTES;

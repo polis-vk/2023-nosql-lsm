@@ -36,18 +36,18 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private Entry<MemorySegment> next(long offset) {
-        long keyOffset = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-        long keySize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, keyOffset);
-        keyOffset += Long.BYTES;
-        MemorySegment key = sstable.asSlice(keyOffset, keySize);
-        keyOffset += keySize;
-        long valueSize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, keyOffset);
-        keyOffset += Long.BYTES;
+        long keysOffset = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+        long keySize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, keysOffset);
+        keysOffset += Long.BYTES;
+        MemorySegment key = sstable.asSlice(keysOffset, keySize);
+        keysOffset += keySize;
+        long valueSize = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, keysOffset);
+        keysOffset += Long.BYTES;
 
         if (valueSize == TOMBSTONE) {
             return new BaseEntry<>(key, null);
         } else {
-            return new BaseEntry<>(key, sstable.asSlice(keyOffset, valueSize));
+            return new BaseEntry<>(key, sstable.asSlice(keysOffset, valueSize));
         }
     }
 }

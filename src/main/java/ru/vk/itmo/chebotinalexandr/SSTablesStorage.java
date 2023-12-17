@@ -24,14 +24,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static ru.vk.itmo.chebotinalexandr.SSTableUtils.BLOOM_FILTER_BIT_SIZE_OFFSET;
-import static ru.vk.itmo.chebotinalexandr.SSTableUtils.BLOOM_FILTER_HASH_FUNCTIONS_OFFSET;
-import static ru.vk.itmo.chebotinalexandr.SSTableUtils.BLOOM_FILTER_LENGTH_OFFSET;
-import static ru.vk.itmo.chebotinalexandr.SSTableUtils.COMPACTION_NOT_FINISHED_TAG;
-import static ru.vk.itmo.chebotinalexandr.SSTableUtils.ENTRIES_SIZE_OFFSET;
-import static ru.vk.itmo.chebotinalexandr.SSTableUtils.OLDEST_SS_TABLE_INDEX;
-import static ru.vk.itmo.chebotinalexandr.SSTableUtils.TOMBSTONE;
-import static ru.vk.itmo.chebotinalexandr.SSTableUtils.entryByteSize;
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.*;
 
 public class SSTablesStorage {
     private static final String SSTABLE_NAME = "sstable_";
@@ -121,7 +114,11 @@ public class SSTablesStorage {
 
     }
 
-    public static Iterator<Entry<MemorySegment>> iteratorsAll(List<MemorySegment> segments, MemorySegment from, MemorySegment to) {
+    public static Iterator<Entry<MemorySegment>> iteratorsAll(
+            List<MemorySegment> segments,
+            MemorySegment from,
+            MemorySegment to
+    ) {
         List<PeekingIterator<Entry<MemorySegment>>> result = new ArrayList<>();
 
         int priority = 1;
@@ -132,7 +129,11 @@ public class SSTablesStorage {
         return MergeIterator.merge(result, NotOnlyInMemoryDao::entryComparator);
     }
 
-    public static Iterator<Entry<MemorySegment>> iteratorOf(MemorySegment sstable, MemorySegment from, MemorySegment to) {
+    public static Iterator<Entry<MemorySegment>> iteratorOf(
+            MemorySegment sstable,
+            MemorySegment from,
+            MemorySegment to
+    ) {
         long keyIndexFrom;
         long keyIndexTo;
 
@@ -180,7 +181,8 @@ public class SSTablesStorage {
 
             memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_LENGTH_OFFSET, bloomFilterLength);
             headerOffset += Long.BYTES;
-            memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_BIT_SIZE_OFFSET, (long) bloomFilterLength * Long.SIZE);
+            memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED,
+                    BLOOM_FILTER_BIT_SIZE_OFFSET, bloomFilterLength * Long.SIZE);
             headerOffset += Long.BYTES;
             memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_HASH_FUNCTIONS_OFFSET, HASH_FUNCTIONS_NUM);
             headerOffset += Long.BYTES;
@@ -195,7 +197,8 @@ public class SSTablesStorage {
 
             long i = 0;
             for (Entry<MemorySegment> entry : dataToFlush) {
-                BloomFilter.addToSstable(entry.key(), memorySegment, HASH_FUNCTIONS_NUM, (long) bloomFilterLength * Long.SIZE);
+                BloomFilter.addToSstable(entry.key(), memorySegment, HASH_FUNCTIONS_NUM,
+                        bloomFilterLength * Long.SIZE);
                 memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, keyOffset + i * Long.BYTES, offset);
                 offset = writeEntry(entry, memorySegment, offset);
                 i++;
@@ -253,7 +256,7 @@ public class SSTablesStorage {
     }
 
     public MemorySegment compact(Iterator<Entry<MemorySegment>> iterator,
-                        long sizeForCompaction, long entryCount, long bfLength) throws IOException {
+                                 long sizeForCompaction, long entryCount, long bfLength) throws IOException {
         Path path = basePath.resolve(SSTABLE_NAME + ".tmp");
 
         MemorySegment memorySegment;
