@@ -19,17 +19,21 @@ import java.util.Iterator;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
 
-public class StorageUtil {
+public class StorageUtility {
     public static final StandardCopyOption[] MOVE_OPTIONS = new StandardCopyOption[] {
             StandardCopyOption.ATOMIC_MOVE,
             StandardCopyOption.REPLACE_EXISTING
     };
+
     private static final OpenOption[] WRITE_OPTIONS = new OpenOption[] {
             StandardOpenOption.READ,
             StandardOpenOption.WRITE,
             StandardOpenOption.TRUNCATE_EXISTING,
             StandardOpenOption.CREATE
     };
+
+    private StorageUtility() {
+    }
 
     // Удаление ненужных файлов не является чем то критически важным
     // Если произойдет исключение, лучше словить и вывести в лог, чем останавливать работу

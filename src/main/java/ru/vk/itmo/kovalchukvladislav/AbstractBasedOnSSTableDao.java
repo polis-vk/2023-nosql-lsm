@@ -5,7 +5,7 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.kovalchukvladislav.model.DaoIterator;
 import ru.vk.itmo.kovalchukvladislav.model.EntryExtractor;
-import ru.vk.itmo.kovalchukvladislav.model.SimpleDaoLoggerFactory;
+import ru.vk.itmo.kovalchukvladislav.model.SimpleDaoLoggerUtility;
 import ru.vk.itmo.kovalchukvladislav.storage.InMemoryStorage;
 import ru.vk.itmo.kovalchukvladislav.storage.InMemoryStorageImpl;
 import ru.vk.itmo.kovalchukvladislav.storage.SSTableStorage;
@@ -25,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
 public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> implements Dao<D, E> {
-    private final Logger logger = SimpleDaoLoggerFactory.createLogger(getClass());
+    private final Logger logger = SimpleDaoLoggerUtility.createLogger(getClass());
     private static final String DB_FILENAME_PREFIX = "db_";
     private static final String METADATA_FILENAME = "metadata";
     private static final String OFFSETS_FILENAME_PREFIX = "offsets_";
@@ -93,14 +93,13 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> implement
     }
 
     private void submitFlushAndAddSSTable(Callable<String> flushCallable) {
-        flushQueue.submit(() -> {
+        flushQueue.execute(() -> {
             try {
                 String newTimestamp = flushCallable.call();
                 ssTableStorage.addSSTableId(newTimestamp, true);
                 inMemoryStorage.completeFlush();
             } catch (Exception e) {
                 inMemoryStorage.failFlush();
-                throw new RuntimeException(e);
             }
         });
     }
@@ -125,7 +124,7 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> implement
 
     @Override
     public void compact() {
-        compactQueue.submit(() -> {
+        compactQueue.execute(() -> {
             try {
                 ssTableStorage.compact();
             } catch (IOException e) {

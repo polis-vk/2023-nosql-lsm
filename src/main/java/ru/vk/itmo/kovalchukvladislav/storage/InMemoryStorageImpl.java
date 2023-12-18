@@ -3,7 +3,7 @@ package ru.vk.itmo.kovalchukvladislav.storage;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.kovalchukvladislav.model.EntryExtractor;
 import ru.vk.itmo.kovalchukvladislav.model.MemoryOverflowException;
-import ru.vk.itmo.kovalchukvladislav.model.SimpleDaoLoggerFactory;
+import ru.vk.itmo.kovalchukvladislav.model.SimpleDaoLoggerUtility;
 import ru.vk.itmo.kovalchukvladislav.model.TableInfo;
 
 import java.io.IOException;
@@ -21,7 +21,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStorage<D, E> {
-    private static final Logger logger = SimpleDaoLoggerFactory.createLogger(InMemoryStorageImpl.class);
+    private static final Logger logger = SimpleDaoLoggerUtility.createLogger(InMemoryStorageImpl.class);
     private final long flushThresholdBytes;
     private final EntryExtractor<D, E> extractor;
 
@@ -214,18 +214,18 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
             Path tmpSSTable = tempDirectory.resolve(dbPrefix + timestamp);
             Path tmpOffsets = tempDirectory.resolve(offsetsPrefix + timestamp);
 
-            StorageUtil.writeData(tmpSSTable, tmpOffsets, immutableCollectionIterator, info, extractor);
+            StorageUtility.writeData(tmpSSTable, tmpOffsets, immutableCollectionIterator, info, extractor);
 
-            newSSTable = Files.move(tmpSSTable, basePath.resolve(dbPrefix + timestamp), StorageUtil.MOVE_OPTIONS);
-            Files.move(tmpOffsets, basePath.resolve(offsetsPrefix + timestamp), StorageUtil.MOVE_OPTIONS);
+            newSSTable = Files.move(tmpSSTable, basePath.resolve(dbPrefix + timestamp), StorageUtility.MOVE_OPTIONS);
+            Files.move(tmpOffsets, basePath.resolve(offsetsPrefix + timestamp), StorageUtility.MOVE_OPTIONS);
         } catch (Exception e) {
             // newOffsets чистить не надо. Это последняя операция, если исключение то он точно не перемещен.
             if (newSSTable != null) {
-                StorageUtil.deleteUnusedFiles(logger, newSSTable);
+                StorageUtility.deleteUnusedFiles(logger, newSSTable);
             }
             throw e;
         } finally {
-            StorageUtil.deleteUnusedFilesInDirectory(logger, tempDirectory);
+            StorageUtility.deleteUnusedFilesInDirectory(logger, tempDirectory);
         }
         logger.info(() -> String.format("Flushed to dir %s, timestamp %s", basePath, timestamp));
         return timestamp;

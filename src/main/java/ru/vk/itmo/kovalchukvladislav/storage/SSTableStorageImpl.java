@@ -3,7 +3,7 @@ package ru.vk.itmo.kovalchukvladislav.storage;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.kovalchukvladislav.model.DaoIterator;
 import ru.vk.itmo.kovalchukvladislav.model.EntryExtractor;
-import ru.vk.itmo.kovalchukvladislav.model.SimpleDaoLoggerFactory;
+import ru.vk.itmo.kovalchukvladislav.model.SimpleDaoLoggerUtility;
 import ru.vk.itmo.kovalchukvladislav.model.StorageIterator;
 import ru.vk.itmo.kovalchukvladislav.model.TableInfo;
 
@@ -28,7 +28,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage<D, E> {
-    private static final Logger logger = SimpleDaoLoggerFactory.createLogger(SSTableStorageImpl.class);
+    private static final Logger logger = SimpleDaoLoggerUtility.createLogger(SSTableStorageImpl.class);
     private final Path basePath;
     private final String metadataFilename;
     private final String dataPrefix;
@@ -165,7 +165,7 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
     public void close() {
         if (arena.scope().isAlive()) {
             arena.close();
-            StorageUtil.deleteUnusedFiles(logger, filesToDelete.toArray(Path[]::new));
+            StorageUtility.deleteUnusedFiles(logger, filesToDelete.toArray(Path[]::new));
         }
     }
 
@@ -198,23 +198,23 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
             logger.info(() -> String.format("Compacting started to dir %s, timestamp %s, info %s",
                     tempDirectory, timestamp, info));
 
-            StorageUtil.writeData(tmpSSTable, tmpOffsetsTable, iterator, info, extractor);
+            StorageUtility.writeData(tmpSSTable, tmpOffsetsTable, iterator, info, extractor);
             Path tmpMetadata = addSSTableId(tempDirectory, timestamp);
             Path newMetadata = basePath.resolve(metadataFilename);
 
-            newSSTable = Files.move(tmpSSTable, basePath.resolve(dataPrefix + timestamp), StorageUtil.MOVE_OPTIONS);
+            newSSTable = Files.move(tmpSSTable, basePath.resolve(dataPrefix + timestamp), StorageUtility.MOVE_OPTIONS);
             newOffsetsTable = Files.move(tmpOffsetsTable, basePath.resolve(offsetsPrefix + timestamp),
-                    StorageUtil.MOVE_OPTIONS);
-            Files.move(tmpMetadata, newMetadata, StorageUtil.MOVE_OPTIONS);
+                    StorageUtility.MOVE_OPTIONS);
+            Files.move(tmpMetadata, newMetadata, StorageUtility.MOVE_OPTIONS);
         } catch (Exception e) {
             if (newOffsetsTable != null) {
-                StorageUtil.deleteUnusedFiles(logger, newSSTable, newOffsetsTable);
+                StorageUtility.deleteUnusedFiles(logger, newSSTable, newOffsetsTable);
             } else if (newSSTable != null) {
-                StorageUtil.deleteUnusedFiles(logger, newSSTable);
+                StorageUtility.deleteUnusedFiles(logger, newSSTable);
             }
             throw e;
         } finally {
-            StorageUtil.deleteUnusedFiles(logger, tempDirectory);
+            StorageUtility.deleteUnusedFiles(logger, tempDirectory);
         }
         logger.info(() -> String.format("Compacted to dir %s, timestamp %s", basePath, timestamp));
     }
