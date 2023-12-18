@@ -34,6 +34,16 @@ public final class NumberUtils {
 
         return result;
     }
+
+    public static boolean isInteger(String s) {
+        for (int i = 0; i < s.length(); ++i) {
+            if (!Character.isDigit(s.charAt(i))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
     
     private NumberUtils() {
     }
