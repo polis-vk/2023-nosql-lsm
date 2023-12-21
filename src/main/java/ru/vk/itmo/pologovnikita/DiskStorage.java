@@ -191,8 +191,15 @@ public class DiskStorage {
         }
     }
 
-    public static void compact(Iterable<Entry<MemorySegment>> entries, Path compactionalPath, Path path)
+    public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> entries, Path compactionalPath, Path path)
             throws IOException {
+        Path indexFile = storagePath.resolve("index.tmp");
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+
+        if (existedFiles.isEmpty() && !entries.iterator().hasNext()) {
+            return;
+        }
+
         if (entries.iterator().hasNext()) {
             DiskStorage.save(compactionalPath, entries); //save all in compact file
         }
