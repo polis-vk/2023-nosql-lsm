@@ -58,7 +58,7 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
+        final Path indexTmp = getIndexFile(storagePath);
         final Path indexFile = storagePath.resolve("index.idx");
 
         try {
@@ -151,7 +151,7 @@ public class DiskStorage {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve("index.tmp");
+        Path indexTmp = getIndexFile(storagePath);
         Path indexFile = storagePath.resolve("index.idx");
 
         if (Files.exists(indexTmp)) {
@@ -191,9 +191,9 @@ public class DiskStorage {
         }
     }
 
-    public static void compact(Path storagePath, Iterable<Entry<MemorySegment>> entries, Path compactionalPath, Path path)
+    public static void compact(Iterable<Entry<MemorySegment>> entries, Path compactionalPath, Path path)
             throws IOException {
-        Path indexFile = storagePath.resolve("index.tmp");
+        Path indexFile = getIndexFile(path);
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
         if (existedFiles.isEmpty() && !entries.iterator().hasNext()) {
@@ -208,6 +208,10 @@ public class DiskStorage {
         } finally {
             Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE); //move from compact to new main file
         }
+    }
+
+    private static Path getIndexFile(Path path) {
+        return path.resolve("index.tmp");
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
