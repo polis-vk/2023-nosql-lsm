@@ -196,8 +196,11 @@ public class DiskStorage {
         if (entries.iterator().hasNext()) {
             DiskStorage.save(compactionalPath, entries); //save all in compact file
         }
-        DiskStorage.deleteFiles(path); //remove all files
-        Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE); //move from compact to new main file
+        try {
+            DiskStorage.deleteFiles(path); //remove all files
+        } finally {
+            Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE); //move from compact to new main file
+        }
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
