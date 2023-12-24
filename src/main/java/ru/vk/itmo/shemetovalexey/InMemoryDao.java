@@ -88,7 +88,6 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             long valueSize = entry.value() == null ? 0 : entry.value().byteSize();
             if (size.addAndGet(keySize + valueSize) >= maxSize) {
                 flush();
-                size.set(0);
             }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -177,6 +176,7 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             } finally {
                 upsertLock.writeLock().unlock();
             }
+            size.set(0);
         });
     }
 
