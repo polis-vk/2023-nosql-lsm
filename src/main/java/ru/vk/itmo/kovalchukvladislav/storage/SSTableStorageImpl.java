@@ -62,6 +62,8 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
         this.stateRef.set(state);
     }
 
+    @SuppressWarnings("unused")
+    // Компилятор ругается на unused переменные внутри record, хотя они очень даже used
     private record State(List<String> ssTableIds, List<MemorySegment> data, List<MemorySegment> offsets) {
         public int getCount() {
             return ssTableIds.size();
@@ -70,6 +72,8 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
 
     // Вызывается из фонового flush. Можем позволить наглый writeLock на весь метод
     @Override
+    @SuppressWarnings("unused")
+    // Компилятор ругается на unused ignoredPath, хотя в названии переменной есть unused
     public void addSSTableId(String id, boolean needRefresh) throws IOException {
         reloadSSTableLock.writeLock().lock();
         try {
