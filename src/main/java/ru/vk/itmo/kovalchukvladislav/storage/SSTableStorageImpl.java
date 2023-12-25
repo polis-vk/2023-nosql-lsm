@@ -15,6 +15,7 @@ import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,6 +29,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage<D, E> {
+    private static final StandardCopyOption[] MOVE_OPTIONS = new StandardCopyOption[] {
+            StandardCopyOption.ATOMIC_MOVE,
+            StandardCopyOption.REPLACE_EXISTING
+    };
     private static final Logger logger = SimpleDaoLoggerUtility.createLogger(SSTableStorageImpl.class);
     private final Path basePath;
     private final String metadataFilename;
@@ -202,10 +207,10 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
             Path tmpMetadata = addSSTableId(tempDirectory, timestamp);
             Path newMetadata = basePath.resolve(metadataFilename);
 
-            newSSTable = Files.move(tmpSSTable, basePath.resolve(dataPrefix + timestamp), StorageUtility.MOVE_OPTIONS);
+            newSSTable = Files.move(tmpSSTable, basePath.resolve(dataPrefix + timestamp), MOVE_OPTIONS);
             newOffsetsTable = Files.move(tmpOffsetsTable, basePath.resolve(offsetsPrefix + timestamp),
-                    StorageUtility.MOVE_OPTIONS);
-            Files.move(tmpMetadata, newMetadata, StorageUtility.MOVE_OPTIONS);
+                    MOVE_OPTIONS);
+            Files.move(tmpMetadata, newMetadata, MOVE_OPTIONS);
         } catch (Exception e) {
             if (newOffsetsTable != null) {
                 StorageUtility.deleteUnusedFiles(logger, newSSTable, newOffsetsTable);

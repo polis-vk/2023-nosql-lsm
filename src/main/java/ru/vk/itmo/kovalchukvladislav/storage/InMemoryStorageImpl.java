@@ -9,6 +9,7 @@ import ru.vk.itmo.kovalchukvladislav.model.TableInfo;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -21,6 +22,10 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStorage<D, E> {
+    private static final StandardCopyOption[] MOVE_OPTIONS = new StandardCopyOption[] {
+            StandardCopyOption.ATOMIC_MOVE,
+            StandardCopyOption.REPLACE_EXISTING
+    };
     private static final Logger logger = SimpleDaoLoggerUtility.createLogger(InMemoryStorageImpl.class);
     private final long flushThresholdBytes;
     private final EntryExtractor<D, E> extractor;
@@ -218,8 +223,8 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
 
             StorageUtility.writeData(tmpSSTable, tmpOffsets, immutableCollectionIterator, info, extractor);
 
-            newSSTable = Files.move(tmpSSTable, basePath.resolve(dbPrefix + timestamp), StorageUtility.MOVE_OPTIONS);
-            Files.move(tmpOffsets, basePath.resolve(offsetsPrefix + timestamp), StorageUtility.MOVE_OPTIONS);
+            newSSTable = Files.move(tmpSSTable, basePath.resolve(dbPrefix + timestamp), MOVE_OPTIONS);
+            Files.move(tmpOffsets, basePath.resolve(offsetsPrefix + timestamp), MOVE_OPTIONS);
         } catch (Exception e) {
             // newOffsets чистить не надо. Это последняя операция, если исключение то он точно не перемещен.
             if (newSSTable != null) {

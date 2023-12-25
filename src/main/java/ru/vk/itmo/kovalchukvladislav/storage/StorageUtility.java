@@ -20,11 +20,6 @@ import java.util.logging.Logger;
 import java.util.stream.Stream;
 
 public final class StorageUtility {
-    public static final StandardCopyOption[] MOVE_OPTIONS = new StandardCopyOption[] {
-            StandardCopyOption.ATOMIC_MOVE,
-            StandardCopyOption.REPLACE_EXISTING
-    };
-
     private static final OpenOption[] WRITE_OPTIONS = new OpenOption[] {
             StandardOpenOption.READ,
             StandardOpenOption.WRITE,
