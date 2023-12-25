@@ -42,6 +42,7 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
      * В операциях на чтение точного значения daoSize (flush) следует использовать writeLock.
      * writeLock() гарантирует что в настоящее время нет readLock'ов, а значит и незаконченных операций изменения size.
      */
+    @SuppressWarnings("unused")
     private record DaoState<D, E extends Entry<D>>(ConcurrentNavigableMap<D, E> dao, AtomicLong daoSize) {
         public static <D, E extends Entry<D>> DaoState<D, E> createEmpty(EntryExtractor<D, E> extractor) {
             return new DaoState<>(new ConcurrentSkipListMap<>(extractor), new AtomicLong(0));
@@ -52,6 +53,7 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
         }
     }
 
+    @SuppressWarnings("unused")
     private record FlushingDaoState<D, E>(ConcurrentNavigableMap<D, E> dao, long daoSize, FlushingState flushingState) {
         public boolean isRunning() {
             return flushingState == FlushingState.RUNNING;

@@ -19,7 +19,7 @@ import java.util.Iterator;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
 
-public class StorageUtility {
+public final class StorageUtility {
     public static final StandardCopyOption[] MOVE_OPTIONS = new StandardCopyOption[] {
             StandardCopyOption.ATOMIC_MOVE,
             StandardCopyOption.REPLACE_EXISTING

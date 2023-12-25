@@ -4,7 +4,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 // Логгер, который я включаю локально, но выключаю перед пушем, чтобы он не засорял гитхаб.
-public class SimpleDaoLoggerUtility {
+public final class SimpleDaoLoggerUtility {
     private SimpleDaoLoggerUtility() {
     }
 
