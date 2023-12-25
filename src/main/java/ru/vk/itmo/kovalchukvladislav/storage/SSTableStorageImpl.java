@@ -23,13 +23,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage<D, E> {
-    private static final StandardCopyOption[] MOVE_OPTIONS = new StandardCopyOption[] {
+    private static final StandardCopyOption[] MOVE_OPTIONS = new StandardCopyOption[]{
             StandardCopyOption.ATOMIC_MOVE,
             StandardCopyOption.REPLACE_EXISTING
     };
@@ -41,9 +38,8 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
     private final Arena arena = Arena.ofShared();
     private final EntryExtractor<D, E> extractor;
     private final Set<Path> filesToDelete = ConcurrentHashMap.newKeySet();
-
-    private final ReadWriteLock reloadSSTableLock = new ReentrantReadWriteLock();
-    private final AtomicReference<State> stateRef = new AtomicReference<>();
+    // Read-only состояние, не меняется, можем позволить себе не использовать локи
+    private volatile State state;
 
     public SSTableStorageImpl(Path basePath,
                               String metadataFilename,
@@ -58,8 +54,7 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
         if (!Files.exists(basePath)) {
             Files.createDirectory(basePath);
         }
-        State state = reloadSSTableIds(readSSTableIds());
-        this.stateRef.set(state);
+        this.state = reloadSSTableIds();
     }
 
     @SuppressWarnings("unused")
@@ -70,29 +65,75 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
         }
     }
 
-    // Вызывается из фонового flush. Можем позволить наглый writeLock на весь метод
+    @Override
+    public E get(D key) {
+        State currentState = state;
+        for (int i = currentState.getCount() - 1; i >= 0; i--) {
+            MemorySegment storage = currentState.data.get(i);
+            MemorySegment offsets = currentState.offsets.get(i);
+
+            long offset = extractor.findLowerBoundValueOffset(key, storage, offsets);
+            if (offset == -1) {
+                continue;
+            }
+            D lowerBoundKey = extractor.readValue(storage, offset);
+
+            if (extractor.compare(lowerBoundKey, key) == 0) {
+                long valueOffset = offset + extractor.size(lowerBoundKey);
+                D value = extractor.readValue(storage, valueOffset);
+                return extractor.createEntry(lowerBoundKey, value);
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public List<Iterator<E>> getIterators(D from, D to) {
+        State currentState = state;
+        List<Iterator<E>> iterators = new ArrayList<>(currentState.getCount());
+        for (int i = currentState.getCount() - 1; i >= 0; i--) {
+            MemorySegment storage = currentState.data.get(i);
+            MemorySegment offsets = currentState.offsets.get(i);
+            iterators.add(new StorageIterator<>(from, to, storage, offsets, extractor));
+        }
+        return iterators;
+    }
+
+    // State может поменяться только в addSSTableId (используется при flush() для обновления состояния) и compact().
+    // Оба метода никогда не вызываются одновременно из AbstractBasedOnSSTableDao, синхронизация не нужна.
     @Override
     @SuppressWarnings("unused")
     // Компилятор ругается на unused ignoredPath, хотя в названии переменной есть unused
     public void addSSTableId(String id, boolean needRefresh) throws IOException {
-        reloadSSTableLock.writeLock().lock();
-        try {
-            Path ignoredPath = addSSTableId(basePath, id);
-            if (needRefresh) {
-                State newState = reloadSSTableIds(readSSTableIds());
-                stateRef.set(newState);
-            }
-        } finally {
-            reloadSSTableLock.writeLock().unlock();
+        Path ignoredPath = addSSTableId(basePath, id);
+        if (needRefresh) {
+            state = reloadSSTableIds();
         }
     }
 
-    private Path addSSTableId(Path path, String id) throws IOException {
-        return Files.writeString(path.resolve(metadataFilename), id + System.lineSeparator(),
-                StandardOpenOption.WRITE, StandardOpenOption.APPEND, StandardOpenOption.CREATE);
+    @Override
+    public void compact() throws IOException {
+        List<String> ssTableIds = state.ssTableIds;
+        if (ssTableIds.size() <= 1) {
+            logger.info("SSTables <= 1, not compacting: " + ssTableIds);
+            return;
+        }
+
+        compactAndChangeMetadata();
+        state = reloadSSTableIds();
+        filesToDelete.addAll(convertSSTableIdsToPath(ssTableIds));
     }
 
-    private State reloadSSTableIds(List<String> ssTableIds) throws IOException {
+    @Override
+    public void close() {
+        if (arena.scope().isAlive()) {
+            arena.close();
+            StorageUtility.deleteUnusedFiles(logger, filesToDelete.toArray(Path[]::new));
+        }
+    }
+
+    private State reloadSSTableIds() throws IOException {
+        List<String> ssTableIds = readSSTableIds();
         logger.info(() -> String.format("Reloading files from %s", basePath));
         List<MemorySegment> newDbMappedSegments = new ArrayList<>(ssTableIds.size());
         List<MemorySegment> newOffsetMappedSegments = new ArrayList<>(ssTableIds.size());
@@ -136,67 +177,12 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
         logger.info(() -> String.format("Successfully read files with %s timestamp", timestamp));
     }
 
-    @Override
-    public E get(D key) {
-        State state = stateRef.get();
-        for (int i = state.getCount() - 1; i >= 0; i--) {
-            MemorySegment storage = state.data.get(i);
-            MemorySegment offsets = state.offsets.get(i);
-
-            long offset = extractor.findLowerBoundValueOffset(key, storage, offsets);
-            if (offset == -1) {
-                continue;
-            }
-            D lowerBoundKey = extractor.readValue(storage, offset);
-
-            if (extractor.compare(lowerBoundKey, key) == 0) {
-                long valueOffset = offset + extractor.size(lowerBoundKey);
-                D value = extractor.readValue(storage, valueOffset);
-                return extractor.createEntry(lowerBoundKey, value);
-            }
-        }
-        return null;
+    private Path addSSTableId(Path path, String id) throws IOException {
+        return Files.writeString(path.resolve(metadataFilename), id + System.lineSeparator(),
+                StandardOpenOption.WRITE, StandardOpenOption.APPEND, StandardOpenOption.CREATE);
     }
 
-    @Override
-    public List<Iterator<E>> getIterators(D from, D to) {
-        State state = stateRef.get();
-        List<Iterator<E>> iterators = new ArrayList<>(state.getCount());
-        for (int i = state.getCount() - 1; i >= 0; i--) {
-            MemorySegment storage = state.data.get(i);
-            MemorySegment offsets = state.offsets.get(i);
-            iterators.add(new StorageIterator<>(from, to, storage, offsets, extractor));
-        }
-        return iterators;
-    }
-
-    @Override
-    public void close() {
-        if (arena.scope().isAlive()) {
-            arena.close();
-            StorageUtility.deleteUnusedFiles(logger, filesToDelete.toArray(Path[]::new));
-        }
-    }
-
-    @Override
-    public void compact() throws IOException {
-        // Опять нагло используем лок на весь метод
-        reloadSSTableLock.writeLock().lock();
-        try {
-            List<String> ssTableIds = stateRef.get().ssTableIds;
-            if (ssTableIds.size() <= 1) {
-                logger.info("SSTables <= 1, not compacting: " + ssTableIds);
-                return;
-            }
-            compactAndAddToMetadata();
-            reloadSSTableIds(readSSTableIds());
-            filesToDelete.addAll(convertSSTableIdsToPath(ssTableIds));
-        } finally {
-            reloadSSTableLock.writeLock().unlock();
-        }
-    }
-
-    private void compactAndAddToMetadata() throws IOException {
+    private void compactAndChangeMetadata() throws IOException {
         Path tempDirectory = Files.createTempDirectory(null);
         String timestamp = String.valueOf(System.currentTimeMillis());
 

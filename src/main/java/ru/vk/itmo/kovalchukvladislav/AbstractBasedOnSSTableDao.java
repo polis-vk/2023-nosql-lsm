@@ -34,13 +34,14 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> implement
     private final long flushThresholdBytes;
     private final EntryExtractor<D, E> extractor;
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
+    private final AtomicBoolean isFlushingOrCompacting = new AtomicBoolean(false);
     private final ExecutorService flushQueue = Executors.newSingleThreadExecutor();
     private final ExecutorService compactQueue = Executors.newSingleThreadExecutor();
 
     /**
      * В get(), upsert() и compact() для inMemoryStorage и ssTableStorage не требуется синхронизация между собой.
-     * Исключение составляет только flush().
-     * Следует проследить что на любом этапе flush() оба стораджа в сумме будут иметь полные данные.
+     * Исключение составляет только flush() и compact().
+     * Следует проследить что на любом этапе оба стораджа в сумме будут иметь полные данные.
      */
     private final InMemoryStorage<D, E> inMemoryStorage;
     private final SSTableStorage<D, E> ssTableStorage;
@@ -82,11 +83,16 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> implement
 
     @Override
     public void flush() {
+        if (!isFlushingOrCompacting.compareAndSet(false, true)) {
+            logger.info("Flush or compact already in process");
+            return;
+        }
         Callable<String> flushCallable = inMemoryStorage.prepareFlush(
                 basePath,
                 DB_FILENAME_PREFIX,
                 OFFSETS_FILENAME_PREFIX);
         if (flushCallable == null) {
+            isFlushingOrCompacting.set(false);
             return;
         }
         submitFlushAndAddSSTable(flushCallable);
@@ -100,6 +106,8 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> implement
                 inMemoryStorage.completeFlush();
             } catch (Exception e) {
                 inMemoryStorage.failFlush();
+            } finally {
+                isFlushingOrCompacting.set(false);
             }
         });
     }
@@ -124,11 +132,17 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> implement
 
     @Override
     public void compact() {
+        if (!isFlushingOrCompacting.compareAndSet(false, true)) {
+            logger.info("Flush or compact already in process");
+            return;
+        }
         compactQueue.execute(() -> {
             try {
                 ssTableStorage.compact();
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
+            } finally {
+                isFlushingOrCompacting.set(false);
             }
         });
     }
