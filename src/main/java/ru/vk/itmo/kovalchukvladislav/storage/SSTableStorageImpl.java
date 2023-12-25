@@ -184,6 +184,10 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
         reloadSSTableLock.writeLock().lock();
         try {
             List<String> ssTableIds = stateRef.get().ssTableIds;
+            if (ssTableIds.size() <= 1) {
+                logger.info("SSTables <= 1, not compacting: " + ssTableIds);
+                return;
+            }
             compactAndAddToMetadata();
             reloadSSTableIds(readSSTableIds());
             filesToDelete.addAll(convertSSTableIdsToPath(ssTableIds));
