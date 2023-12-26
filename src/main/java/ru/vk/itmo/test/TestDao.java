@@ -29,7 +29,8 @@ class TestDao<Data, E extends Entry<Data>> implements Dao<String, Entry<String>>
     }
 
     public Dao<String, Entry<String>> reopen() throws IOException {
-        return new TestDao<>(factory, config);
+        delegate = factory.createDao(config);
+        return this;
     }
 
     @Override

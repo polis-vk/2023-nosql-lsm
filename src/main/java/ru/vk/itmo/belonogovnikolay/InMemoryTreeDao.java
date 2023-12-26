@@ -5,84 +5,117 @@ import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
-/**
- * The class is an implementation of in memory persistent DAO.
- *
- * @author Belonogov Nikolay
- */
-public final class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySegment>> {
+public class InMemoryTreeDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> memTable;
-    private PersistenceHelper persistenceHelper;
+    private final Comparator<MemorySegment> comparator = InMemoryTreeDao::compare;
+    private NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private final Arena arena;
+    private final DiskStorage diskStorage;
+    private final Path path;
 
-    private InMemoryTreeDao() {
-        this.memTable = new ConcurrentSkipListMap<>(new MemorySegmentComparator());
-    }
+    public InMemoryTreeDao(Config config) throws IOException {
+        this.path = config.basePath().resolve("data");
+        Files.createDirectories(path);
 
-    private InMemoryTreeDao(Config config) {
-        this();
-        this.persistenceHelper = PersistenceHelper.newInstance(config.basePath());
-    }
+        arena = Arena.ofShared();
 
-    public static Dao<MemorySegment, Entry<MemorySegment>> newInstance() {
-        return new InMemoryTreeDao();
-    }
-
-    public static Dao<MemorySegment, Entry<MemorySegment>> newInstance(Config config) {
-        return new InMemoryTreeDao(config);
+        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena));
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> allFrom(MemorySegment from) {
-        return this.memTable.tailMap(from).values().iterator();
+    public void compact() throws IOException {
+        DiskStorage.compact(path, () -> diskStorage.range(getInMemory(null, null), null, null));
+
+        if (this.arena.scope().isAlive()) {
+            arena.close();
+        }
+        storage = new ConcurrentSkipListMap<>(comparator);
     }
 
-    @Override
-    public Iterator<Entry<MemorySegment>> allTo(MemorySegment to) {
-        return this.memTable.headMap(to).values().iterator();
+    static int compare(MemorySegment memorySegment1, MemorySegment memorySegment2) {
+        long mismatch = memorySegment1.mismatch(memorySegment2);
+        if (mismatch == -1) {
+            return 0;
+        }
+
+        if (mismatch == memorySegment1.byteSize()) {
+            return -1;
+        }
+
+        if (mismatch == memorySegment2.byteSize()) {
+            return 1;
+        }
+        byte b1 = memorySegment1.get(ValueLayout.JAVA_BYTE, mismatch);
+        byte b2 = memorySegment2.get(ValueLayout.JAVA_BYTE, mismatch);
+        return Byte.compare(b1, b2);
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) {
-            return this.memTable.values().iterator();
-        } else if (from == null) {
-            return allTo(to);
-        } else if (to == null) {
-            return allFrom(from);
-        }
-
-        return this.memTable.subMap(from, to).values().iterator();
+        return diskStorage.range(getInMemory(from, to), from, to);
     }
 
-    @Override
-    public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> entry = this.memTable.get(key);
-        if (entry == null) {
-            try {
-                entry = persistenceHelper.readEntry(key);
-            } catch (IOException e) {
-                return null;
-            }
+    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return storage.values().iterator();
         }
-        return entry;
+        if (from == null) {
+            return storage.headMap(to).values().iterator();
+        }
+        if (to == null) {
+            return storage.tailMap(from).values().iterator();
+        }
+        return storage.subMap(from, to).values().iterator();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (entry == null) {
-            return;
-        }
-        this.memTable.put(entry.key(), entry);
+        storage.put(entry.key(), entry);
     }
 
     @Override
-    public void flush() throws IOException {
-        persistenceHelper.writeEntries(this.memTable);
+    public Entry<MemorySegment> get(MemorySegment key) {
+        Entry<MemorySegment> entry = storage.get(key);
+        if (entry != null) {
+            if (entry.value() == null) {
+                return null;
+            }
+            return entry;
+        }
+
+        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+
+        if (!iterator.hasNext()) {
+            return null;
+        }
+        Entry<MemorySegment> next = iterator.next();
+        if (compare(next.key(), key) == 0) {
+            return next;
+        }
+        return null;
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (!arena.scope().isAlive()) {
+            return;
+        }
+
+        arena.close();
+
+        if (!storage.isEmpty()) {
+            DiskStorage.save(path, storage.values());
+        }
     }
 }

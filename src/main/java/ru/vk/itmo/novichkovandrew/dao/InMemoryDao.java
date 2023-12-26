@@ -2,68 +2,36 @@ package ru.vk.itmo.novichkovandrew.dao;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.novichkovandrew.table.MemTable;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.util.Comparator;
 import java.util.Iterator;
-import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
-    protected final ConcurrentSkipListMap<MemorySegment, Entry<MemorySegment>> entriesMap;
-    protected final Comparator<MemorySegment> comparator = (first, second) -> {
-        if (first == null || second == null) return -1;
-        long missIndex = first.mismatch(second);
-        if (missIndex == first.byteSize()) {
-            return -1;
-        }
-        if (missIndex == second.byteSize()) {
-            return 1;
-        }
-        return missIndex == -1 ? 0 : Byte.compare(
-                first.getAtIndex(ValueLayout.JAVA_BYTE, missIndex),
-                second.getAtIndex(ValueLayout.JAVA_BYTE, missIndex)
-        );
-    };
-
-    protected final AtomicLong tableByteSize = new AtomicLong(0);
+    protected final MemTable memTable;
 
     public InMemoryDao() {
-        this.entriesMap = new ConcurrentSkipListMap<>(comparator);
-    }
-
-    private NavigableMap<MemorySegment, Entry<MemorySegment>> getSubMap(MemorySegment from, MemorySegment to) {
-        if (from != null && to != null) {
-            return entriesMap.subMap(from, to);
-        }
-        if (from != null) {
-            return entriesMap.tailMap(from, true);
-        }
-        if (to != null) {
-            return entriesMap.headMap(to, false);
-        }
-        return entriesMap;
+        this.memTable = new MemTable();
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return getSubMap(from, to).values().iterator();
+        return memTable.tableIterator(from, true, to, false);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        return entriesMap.get(key);
+        return memTable.tableIterator(key, true, key, true).next();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        tableByteSize.addAndGet(entry.key().byteSize() + entry.value().byteSize());
-        entriesMap.put(entry.key(), entry);
+        memTable.upsert(entry);
     }
 
-    protected long getMetaDataSize() {
-        return 2L * (entriesMap.size() + 1) * Long.BYTES + Long.BYTES;
+    @Override
+    public void close() throws IOException {
+        memTable.close();
     }
 }
