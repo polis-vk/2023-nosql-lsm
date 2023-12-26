@@ -142,12 +142,10 @@ public class BasicTest extends BaseTest {
         final int entries = 100_000;
 
         for (int entry = 0; entry < entries; entry++) {
-            dao.upsert(entry(keyAt(entry), valueAt(entry)));
+            final int e = entry;
 
-            // Back off after 1K upserts to be able to flush
-            if (entry % 1000 == 0) {
-                Thread.sleep(1);
-            }
+            // Retry if autoflush is too slow
+            retry(() -> dao.upsert(entry(keyAt(e), valueAt(e))));
         }
 
         for (int entry = 0; entry < entries; entry++) {
