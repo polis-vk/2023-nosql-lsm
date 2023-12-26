@@ -47,6 +47,10 @@ public final class Storage implements Closeable {
 
     public static Storage load(Config config) throws IOException {
         Path path = config.basePath();
+        Path compactedFile = path.resolve("compacted" + DB_EXTENSION);
+        if (Files.exists(compactedFile)) {
+            throw new IllegalStateException("compaction not finished!");
+        }
 
         List<MemorySegment> ssTables = new ArrayList<>();
         Arena arena = Arena.ofShared();
@@ -77,11 +81,8 @@ public final class Storage implements Closeable {
         return new Storage(arena, ssTables, isCompacted);
     }
 
-    public static void save(Config config, Collection<Entry<MemorySegment>> entries, Storage storage)
+    public static void save(Config config, Collection<Entry<MemorySegment>> entries)
             throws IOException {
-        if (storage.arena.scope().isAlive()) {
-            throw new IllegalStateException("Previous arena is alive");
-        }
 
         if (entries.isEmpty()) {
             return;
@@ -140,7 +141,9 @@ public final class Storage implements Closeable {
                      path,
                      StandardOpenOption.READ,
                      StandardOpenOption.WRITE,
-                     StandardOpenOption.CREATE)
+                     StandardOpenOption.CREATE,
+                     StandardOpenOption.TRUNCATE_EXISTING
+             )
         ) {
 
             MemorySegment newSSTable = channel.map(FileChannel.MapMode.READ_WRITE, 0, sizeOfNewSSTable, arenaSave);
@@ -155,7 +158,6 @@ public final class Storage implements Closeable {
 
                 offsetData = saveEntrySegment(newSSTable, entry, offsetData);
             }
-
         }
     }
 
@@ -198,6 +200,18 @@ public final class Storage implements Closeable {
         }
     }
 
+    private static long getSize(Entry<MemorySegment> entry) {
+        if (entry.value() == null) {
+            return Long.BYTES + entry.key().byteSize() + Long.BYTES;
+        } else {
+            return Long.BYTES + entry.value().byteSize() + entry.key().byteSize() + Long.BYTES;
+        }
+    }
+
+    public static long getSizeOnDisk(Entry<MemorySegment> entry) {
+        return getSize(entry) + Long.BYTES;
+    }
+
     public Iterator<Entry<MemorySegment>> iterateThroughSSTable(
             MemorySegment ssTable,
             MemorySegment from,
@@ -227,28 +241,46 @@ public final class Storage implements Closeable {
     public Iterator<Entry<MemorySegment>> getIterator(
             MemorySegment from,
             MemorySegment to,
-            Iterator<Entry<MemorySegment>> memoryIterator
+            Iterator<Entry<MemorySegment>> memoryIterator,
+            Iterator<Entry<MemorySegment>> flushingIterator
     ) {
-        List<OrderedPeekIterator<Entry<MemorySegment>>> peekIterators = new ArrayList<>();
-        peekIterators.add(new OrderedPeekIteratorImpl(0, memoryIterator));
-        int order = 1;
-        for (MemorySegment sstable : ssTables) {
-            Iterator<Entry<MemorySegment>> iterator = iterateThroughSSTable(sstable, from, to);
-            peekIterators.add(new OrderedPeekIteratorImpl(order, iterator));
-            order++;
+        try {
+            List<OrderedPeekIterator<Entry<MemorySegment>>> peekIterators = new ArrayList<>();
+            if (memoryIterator != null) {
+                peekIterators.add(new OrderedPeekIteratorImpl(0, memoryIterator));
+            }
+            if (flushingIterator != null) {
+                peekIterators.add(new OrderedPeekIteratorImpl(1, flushingIterator));
+            }
+            int order = 2;
+            for (MemorySegment sstable : ssTables) {
+                Iterator<Entry<MemorySegment>> iterator = iterateThroughSSTable(sstable, from, to);
+                peekIterators.add(new OrderedPeekIteratorImpl(order, iterator));
+                order++;
+            }
+            return new MergeSkipNullValuesIterator(peekIterators);
+        } catch (IllegalStateException e) {
+            if (isClosed()) {
+                throw new StorageClosedException(e);
+            } else {
+                throw e;
+            }
         }
-        return new MergeSkipNullValuesIterator(peekIterators);
     }
 
     @Override
-    public void close() {
-        if (arena.scope().isAlive()) {
+    public void close() throws IOException {
+        if (!isClosed()) {
             arena.close();
         }
     }
 
     public boolean isCompacted() {
         return isCompacted;
+    }
+
+    public boolean isClosed() {
+        return !arena.scope().isAlive();
     }
 
     @FunctionalInterface
