@@ -94,6 +94,8 @@ class CompactionTest extends BaseTest {
 
         // Check store size
         long smallSize = sizePersistentData(dao);
+        System.out.println(smallSize);
+        System.out.println(bigSize);
 
         // Heuristic
         assertTrue(smallSize * (overwrites - 1) < bigSize);
