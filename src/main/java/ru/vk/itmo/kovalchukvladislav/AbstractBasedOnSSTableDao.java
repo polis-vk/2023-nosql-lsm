@@ -35,8 +35,7 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> implement
     private final EntryExtractor<D, E> extractor;
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
     private final AtomicBoolean isFlushingOrCompacting = new AtomicBoolean(false);
-    private final ExecutorService flushQueue = Executors.newSingleThreadExecutor();
-    private final ExecutorService compactQueue = Executors.newSingleThreadExecutor();
+    private final ExecutorService flushOrCompactQueue = Executors.newSingleThreadExecutor();
 
     /**
      * В get(), upsert() и compact() для inMemoryStorage и ssTableStorage не требуется синхронизация между собой.
@@ -99,7 +98,7 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> implement
     }
 
     private void submitFlushAndAddSSTable(Callable<String> flushCallable) {
-        flushQueue.execute(() -> {
+        flushOrCompactQueue.execute(() -> {
             try {
                 String newTimestamp = flushCallable.call();
                 ssTableStorage.addSSTableId(newTimestamp, true);
@@ -114,20 +113,20 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> implement
 
     @Override
     public void close() {
-        if (isClosed.compareAndSet(false, true)) {
-            flushQueue.close();
-            compactQueue.close();
-
-            try {
-                String newTimestamp = inMemoryStorage.close(basePath, DB_FILENAME_PREFIX, OFFSETS_FILENAME_PREFIX);
-                if (newTimestamp != null) {
-                    ssTableStorage.addSSTableId(newTimestamp, false);
-                }
-            } catch (Exception e) {
-                logger.severe(() -> "Error while flushing on close: " + e.getMessage());
-            }
-            ssTableStorage.close();
+        if (!isClosed.compareAndSet(false, true)) {
+            return;
         }
+
+        flushOrCompactQueue.close();
+        try {
+            String newTimestamp = inMemoryStorage.close(basePath, DB_FILENAME_PREFIX, OFFSETS_FILENAME_PREFIX);
+            if (newTimestamp != null) {
+                ssTableStorage.addSSTableId(newTimestamp, false);
+            }
+        } catch (Exception e) {
+            logger.severe(() -> "Error while flushing on close: " + e.getMessage());
+        }
+        ssTableStorage.close();
     }
 
     @Override
@@ -136,7 +135,7 @@ public abstract class AbstractBasedOnSSTableDao<D, E extends Entry<D>> implement
             logger.info("Flush or compact already in process");
             return;
         }
-        compactQueue.execute(() -> {
+        flushOrCompactQueue.execute(() -> {
             try {
                 ssTableStorage.compact();
             } catch (IOException e) {

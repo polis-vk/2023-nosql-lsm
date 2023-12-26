@@ -38,7 +38,6 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
     private final Arena arena = Arena.ofShared();
     private final EntryExtractor<D, E> extractor;
     private final Set<Path> filesToDelete = ConcurrentHashMap.newKeySet();
-    // Read-only состояние, не меняется, можем позволить себе не использовать локи
     private volatile State state;
 
     public SSTableStorageImpl(Path basePath,
