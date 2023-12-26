@@ -201,13 +201,15 @@ public class DiskStorage {
         }
 
         if (entries.iterator().hasNext()) {
-            DiskStorage.save(compactionalPath, entries); //save all in compact file
+            DiskStorage.save(compactionalPath, entries); //1. Пишем данные в compaction директорию
         }
-        try {
-            DiskStorage.deleteFiles(path); //remove all files
-        } finally {
-            Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE); //move from compact to new main file
-        }
+        Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE); //2. Перемещаем данные из compaction директории в директорию с данными
+        Files.write(
+                indexFile,
+                List.of(compactionalPath.toString()),
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
+        ); //3. Меняем индекс файл чтобы он читал только из compaction файла
+        DiskStorage.deleteFiles(path); //4. Чистим старые данные
     }
 
     private static Path getIndexFile(Path path) {
