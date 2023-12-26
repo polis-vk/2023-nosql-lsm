@@ -207,6 +207,7 @@ public class DiskStorage {
         //2. Перемещаем данные из compaction директории в директорию с данными
         Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE);
         //3. Меняем индекс файл чтобы он читал только из compaction файла
+        existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         int newIndexFileName = Integer.parseInt(existedFiles.getLast());
         Files.write(
                 indexFile,
