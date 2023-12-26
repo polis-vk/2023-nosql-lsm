@@ -5,110 +5,147 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.SortedMap;
-import java.util.TreeMap;
 
-public class SSTable {
+public class SSTable implements DaoFileGet<MemorySegment, Entry<MemorySegment>> {
 
-    private final Path path;
     public static final Comparator<MemorySegment> COMPARATOR = UtilsMemorySegment::compare;
+    public static final Comparator<Entry<MemorySegment>> ENTRY_COMPARATOR = UtilsMemorySegment::compareEntry;
 
-    public SSTable(final Path path) {
-        this.path = path;
+    private Path indexPath;
+    private Path dataPath;
+    private final IndexList indexList;
+
+    private SSTable(final Path indexPath, final Path dataPath, final Arena arena) throws IOException {
+        this.indexPath = indexPath;
+        this.dataPath = dataPath;
+        this.indexList = new IndexList(
+                UtilsMemorySegment.mapReadSegment(indexPath, arena),
+                UtilsMemorySegment.mapReadSegment(dataPath, arena)
+        );
     }
 
-    public SortedMap<MemorySegment, Entry<MemorySegment>> load(final Arena arena, final long limit) throws IOException {
-        final SortedMap<MemorySegment, Entry<MemorySegment>> map = new TreeMap<>(COMPARATOR);
-        if (Files.notExists(path)) {
-            return map;
-        }
-
-        try (FileChannel readerChannel = FileChannel.open(
-                path,
-                StandardOpenOption.READ)
-        ) {
-            final MemorySegment memorySegment = readerChannel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    0,
-                    readerChannel.size(),
-                    arena
-            );
-            final MemoryEntryReader reader = new MemoryEntryReader(memorySegment);
-
-            Entry<MemorySegment> entry = reader.readEntry(limit);
-            while (entry != null) {
-                map.put(entry.key(), entry);
-                entry = reader.readEntry(limit);
-            }
-            return map;
-        }
-    }
-
-    public SortedMap<MemorySegment, Entry<MemorySegment>> load(final Arena arena) throws IOException {
-        return load(arena, 0);
-    }
-
-    public Entry<MemorySegment> get(final MemorySegment key, final Arena segmentArena) throws IOException {
-        if (Files.notExists(path)) {
+    public static SSTable create(final Path root, final String name, final Arena arena) throws IOException {
+        final Path indexPath = getIndexPath(root, name);
+        final Path dataPath = getDataPath(root, name);
+        if (Files.notExists(indexPath) || Files.notExists(dataPath)) {
             return null;
         }
-
-        try (
-                Arena readerArena = Arena.ofConfined();
-                FileChannel readerChannel = FileChannel.open(path, StandardOpenOption.READ)
-        ) {
-
-            final MemorySegment memorySegment = readerChannel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    0,
-                    readerChannel.size(),
-                    readerArena
-            );
-            final MemoryEntryReader reader = new MemoryEntryReader(memorySegment);
-
-            long prevOffset = reader.getOffset();
-            Entry<MemorySegment> entry = reader.readEntry();
-            while (entry != null) {
-                if (UtilsMemorySegment.findDiff(key, entry.key()) == -1) {
-                    return MemoryEntryReader.mapEntry(
-                            readerChannel,
-                            prevOffset,
-                            entry.key().byteSize(),
-                            entry.value().byteSize(),
-                            segmentArena
-                    );
-                }
-                prevOffset = reader.getOffset();
-                entry = reader.readEntry();
-            }
-        }
-        return null;
+        return new SSTable(indexPath, dataPath, arena);
     }
 
-    public void write(final SortedMap<MemorySegment, Entry<MemorySegment>> map) throws IOException {
-        try (Arena arena = Arena.ofConfined(); FileChannel writerChannel = FileChannel.open(
-                path,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.READ,
-                StandardOpenOption.WRITE)
-        ) {
-            final MemorySegment memorySegment = writerChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    MemoryEntryWriter.getTotalMapSize(map),
-                    arena
-            );
-            final MemoryEntryWriter writer = new MemoryEntryWriter(memorySegment);
+    public static Path getDataPath(final Path root, final String name) {
+        return root.resolve(name);
+    }
 
-            for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : map.entrySet()) {
-                writer.putEntry(entry);
+    public static Path getIndexPath(final Path root, final String name) {
+        return root.resolve(name + "_index");
+    }
+
+    private static final class KeyEntry implements Entry<MemorySegment> {
+
+        final MemorySegment key;
+
+        public KeyEntry(final MemorySegment key) {
+            this.key = key;
+        }
+
+        @Override
+        public MemorySegment key() {
+            return key;
+        }
+
+        @Override
+        public MemorySegment value() {
+            return null;
+        }
+    }
+
+    private int binarySearch(final MemorySegment key) {
+        return Collections.binarySearch(indexList, new KeyEntry(key), ENTRY_COMPARATOR);
+    }
+
+    @Override
+    public Entry<MemorySegment> get(final MemorySegment key) throws IOException {
+        final int pos = binarySearch(key);
+        return pos >= 0 ? indexList.get(pos) : null;
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> get(final MemorySegment from, final MemorySegment to) throws IOException {
+        int startPos = 0;
+        if (from != null && (startPos = binarySearch(from)) < 0) {
+            startPos = -(startPos + 1);
+        }
+        int endPos = indexList.size();
+        if (to != null && (endPos = binarySearch(to)) < 0) {
+            endPos = -(endPos + 1);
+        }
+        return indexList.subList(startPos, endPos).iterator();
+    }
+
+    public static SizeInfo getMapSize(final SortedMap<MemorySegment, Entry<MemorySegment>> map) {
+        long keysSize = 0;
+        long valuesSize = 0;
+        for (Map.Entry<MemorySegment, Entry<MemorySegment>> entry : map.entrySet()) {
+            final MemorySegment value = entry.getValue().value();
+
+            keysSize += entry.getKey().byteSize();
+            valuesSize += value == null ? 0 : value.byteSize();
+        }
+        return new SizeInfo(map.size(), keysSize, valuesSize);
+    }
+
+    public static void write(
+            final SortedMap<MemorySegment, Entry<MemorySegment>> map,
+            final Path path,
+            final String name
+    ) throws IOException {
+        try (Arena arena = Arena.ofConfined(); SStorageDumper dumper = new SStorageDumper(
+                getMapSize(map),
+                getDataPath(path, name),
+                getIndexPath(path, name),
+                arena
+            )) {
+            for (final Entry<MemorySegment> entry: map.values()) {
+                dumper.writeEntry(entry);
             }
         }
     }
+
+    public void move(
+            final Path path,
+            final String name
+    ) throws IOException {
+        final Path targetDataPath = getDataPath(path, name);
+        final Path targetIndexPath = getIndexPath(path, name);
+        Files.move(dataPath, targetDataPath);
+        try {
+            Files.move(indexPath, targetIndexPath);
+        } catch (IOException e) {
+            Files.move(targetDataPath, dataPath);
+            throw e;
+        }
+        dataPath = targetDataPath;
+        indexPath = targetIndexPath;
+    }
+
+    public SizeInfo getSizeInfo() {
+        return new SizeInfo(indexList.size(), indexList.keysSize(), indexList.valuesSize());
+    }
+
+    public void delete() throws IOException {
+        try {
+            Files.delete(dataPath);
+        } finally {
+            Files.delete(indexPath);
+        }
+    }
+
 }
