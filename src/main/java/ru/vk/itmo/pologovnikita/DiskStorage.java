@@ -20,13 +20,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfKey;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfValue;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.normalize;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.slice;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.startOfKey;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.startOfValue;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.tombstone;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.*;
 
 @SuppressWarnings("PMD.TooManyStaticImports")
 public class DiskStorage {
@@ -137,9 +131,7 @@ public class DiskStorage {
         Files.write(
                 indexFile,
                 list,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
         );
 
         Files.delete(indexTmp);
@@ -265,15 +257,6 @@ public class DiskStorage {
         }
 
         return tombstone(left);
-    }
-
-    private static long recordsCount(MemorySegment segment) {
-        long indexSize = indexSize(segment);
-        return indexSize / Long.BYTES / 2;
-    }
-
-    private static long indexSize(MemorySegment segment) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {

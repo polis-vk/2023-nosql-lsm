@@ -41,4 +41,13 @@ public final class MemorySegmentUtils {
     public static long normalize(long value) {
         return value & ~(1L << 63);
     }
+
+    public static long recordsCount(MemorySegment segment) {
+        long indexSize = indexSize(segment);
+        return indexSize / Long.BYTES / 2;
+    }
+
+    public static long indexSize(MemorySegment segment) {
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+    }
 }
