@@ -193,17 +193,14 @@ public class DiskStorage {
 
     public static void compact(Iterable<Entry<MemorySegment>> entries, Path compactionalPath, Path path)
             throws IOException {
-        Path indexFile = getIndexFile(path);
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-
-        if (existedFiles.isEmpty() && !entries.iterator().hasNext()) {
-            return;
+        try {
+            Files.createDirectories(compactionalPath);
+            DiskStorage.save(compactionalPath, entries);
+            DiskStorage.deleteFiles(path);
+            Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
-        if (entries.iterator().hasNext()) {
-            DiskStorage.save(compactionalPath, entries); //save all in compact file
-        }
-        DiskStorage.deleteFiles(path); //remove all files
-        Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE); //move from compact to new main file
     }
 
     private static Path getIndexFile(Path path) {
