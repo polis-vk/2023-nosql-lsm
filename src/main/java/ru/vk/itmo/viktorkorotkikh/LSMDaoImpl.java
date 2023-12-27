@@ -7,28 +7,43 @@ import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.NavigableMap;
-import java.util.NoSuchElementException;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
-    private NavigableMap<MemorySegment, Entry<MemorySegment>> storage;
+    private volatile MemTable memTable;
 
-    private List<SSTable> ssTables;
+    private volatile MemTable flushingMemTable;
+
+    private volatile Future<?> flushFuture;
+
+    private volatile Future<?> compactionFuture;
+
+    private volatile List<SSTable> ssTables;
     private Arena ssTablesArena;
 
     private final Path storagePath;
 
-    private static NavigableMap<MemorySegment, Entry<MemorySegment>> createNewMemTable() {
-        return new ConcurrentSkipListMap<>(MemorySegmentComparator.INSTANCE);
-    }
+    private final long flushThresholdBytes;
 
-    public LSMDaoImpl(Path storagePath) {
-        this.storage = createNewMemTable();
+    private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
+
+    private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
+
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
+    public LSMDaoImpl(Path storagePath, long flushThresholdBytes) {
+        this.memTable = new MemTable(flushThresholdBytes);
+        this.flushingMemTable = new MemTable(-1);
         try {
             this.ssTablesArena = Arena.ofShared();
             this.ssTables = SSTable.load(ssTablesArena, storagePath);
@@ -37,6 +52,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
             throw new LSMDaoCreationException(e);
         }
         this.storagePath = storagePath;
+        this.flushThresholdBytes = flushThresholdBytes;
     }
 
     @Override
@@ -45,39 +61,29 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private MergeIterator.MergeIteratorWithTombstoneFilter mergeIterator(MemorySegment from, MemorySegment to) {
-        List<SSTable.SSTableIterator> ssTableIterators =
-                ssTables.stream().map(ssTable -> ssTable.iterator(from, to)).toList();
-        return MergeIterator.create(lsmPointerIterator(from, to), ssTableIterators);
-    }
-
-    private LSMPointerIterator lsmPointerIterator(MemorySegment from, MemorySegment to) {
-        return new MemTableIterator(iterator(from, to));
-    }
-
-    private Iterator<Entry<MemorySegment>> iterator(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) {
-            return storage.sequencedValues().iterator();
-        }
-
-        if (from == null) {
-            return storage.headMap(to).sequencedValues().iterator();
-        }
-
-        if (to == null) {
-            return storage.tailMap(from).sequencedValues().iterator();
-        }
-
-        return storage.subMap(from, to).sequencedValues().iterator();
+        List<SSTable.SSTableIterator> ssTableIterators = SSTable.ssTableIterators(ssTables, from, to);
+        return MergeIterator.create(
+                memTable.iterator(from, to, 0),
+                flushingMemTable.iterator(from, to, 1),
+                ssTableIterators
+        );
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> fromMemTable = storage.get(key);
+        Entry<MemorySegment> fromMemTable = memTable.get(key);
         if (fromMemTable != null) {
             return fromMemTable.value() == null ? null : fromMemTable;
         }
-        // reverse order because last sstable has the highest priority
-        for (int i = ssTables.size() - 1; i >= 0; i--) {
+        Entry<MemorySegment> fromFlushingMemTable = flushingMemTable.get(key);
+        if (fromFlushingMemTable != null) {
+            return fromFlushingMemTable.value() == null ? null : fromFlushingMemTable;
+        }
+        return getFromDisk(key);
+    }
+
+    private Entry<MemorySegment> getFromDisk(MemorySegment key) {
+        for (int i = ssTables.size() - 1; i >= 0; i--) { // reverse order because last sstable has the highest priority
             SSTable ssTable = ssTables.get(i);
             Entry<MemorySegment> fromDisk = ssTable.get(key);
             if (fromDisk != null) {
@@ -89,104 +95,121 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        storage.put(entry.key(), entry);
+        upsertLock.readLock().lock();
+        try {
+            if (!memTable.upsert(entry)) { // no overflow
+                return;
+            }
+        } finally {
+            upsertLock.readLock().unlock();
+        }
+        tryToFlush(false);
     }
 
     @Override
     public void compact() throws IOException {
-        if (storage.isEmpty() && SSTable.isCompacted(ssTables)) {
+        if (SSTable.isCompacted(ssTables)) {
             return;
         }
-        Path compacted = SSTable.compact(() -> this.mergeIterator(null, null), storagePath);
-        ssTables = SSTable.replaceSSTablesWithCompacted(ssTablesArena, compacted, storagePath, ssTables);
+
+        compactionFuture = bgExecutor.submit(this::compactInBackground);
+    }
+
+    private void compactInBackground() {
+        try {
+            SSTable.compact(
+                    () -> MergeIterator.createThroughSSTables(
+                            SSTable.ssTableIterators(ssTables, null, null)
+                    ),
+                    storagePath
+            );
+            ssTables = SSTable.load(ssTablesArena, storagePath);
+        } catch (IOException e) {
+            throw new CompactionException(e);
+        }
     }
 
     @Override
     public void flush() throws IOException {
-        if (storage.isEmpty()) return;
-        SSTable.save(storage.values(), ssTables.size(), storagePath);
-        ssTables = addNewSSTable(SSTable.loadOneByIndex(ssTablesArena, storagePath, ssTables.size()));
-        storage = createNewMemTable();
+        tryToFlush(true);
     }
 
-    private List<SSTable> addNewSSTable(SSTable newSSTable) {
-        List<SSTable> newSSTables = new ArrayList<>(ssTables.size() + 1);
-        newSSTables.addAll(ssTables);
-        newSSTables.add(newSSTable);
-        return newSSTables;
+    private void tryToFlush(boolean tolerateToBackgroundFlushing) {
+        upsertLock.writeLock().lock();
+        try {
+            if (flushingMemTable.isEmpty()) {
+                prepareFlush();
+            } else {
+                if (tolerateToBackgroundFlushing) {
+                    return;
+                } else {
+                    throw new TooManyFlushesException();
+                }
+            }
+        } finally {
+            upsertLock.writeLock().unlock();
+        }
+        flushFuture = runFlushInBackground();
+    }
+
+    private void prepareFlush() {
+        flushingMemTable = memTable;
+        memTable = new MemTable(flushThresholdBytes);
+    }
+
+    private Future<?> runFlushInBackground() {
+        return bgExecutor.submit(() -> {
+            try {
+                flush(flushingMemTable, ssTables.size(), storagePath, ssTablesArena);
+            } catch (IOException e) {
+                throw new FlushingException(e);
+            }
+        });
+    }
+
+    private void flush(
+            MemTable memTable,
+            int fileIndex,
+            Path storagePath,
+            Arena ssTablesArena
+    ) throws IOException {
+        if (memTable.isEmpty()) return;
+        SSTable.save(memTable, fileIndex, storagePath);
+        ssTables = SSTable.load(ssTablesArena, storagePath);
+        flushingMemTable = new MemTable(-1);
+    }
+
+    private void await(Future<?> future) {
+        try {
+            future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException e) {
+            throw new BackgroundExecutionException(e);
+        }
     }
 
     @Override
     public void close() throws IOException {
-        if (!ssTablesArena.scope().isAlive()) {
-            return;
+        if (closed.getAndSet(true)) {
+            return; // already closed
         }
-        ssTablesArena.close();
-        SSTable.save(storage.values(), ssTables.size(), storagePath);
-    }
-
-    public static final class MemTableIterator extends LSMPointerIterator {
-        private final Iterator<Entry<MemorySegment>> iterator;
-        private Entry<MemorySegment> current;
-
-        private MemTableIterator(Iterator<Entry<MemorySegment>> storageIterator) {
-            this.iterator = storageIterator;
-            if (iterator.hasNext()) {
-                current = iterator.next();
+        bgExecutor.shutdown();
+        try {
+            if (flushFuture != null) {
+                await(flushFuture);
             }
-        }
-
-        @Override
-        int getPriority() {
-            return Integer.MAX_VALUE;
-        }
-
-        @Override
-        protected MemorySegment getPointerKeySrc() {
-            return current.key();
-        }
-
-        @Override
-        protected long getPointerKeySrcOffset() {
-            return 0;
-        }
-
-        @Override
-        boolean isPointerOnTombstone() {
-            return current.value() == null;
-        }
-
-        @Override
-        void shift() {
-            if (!hasNext()) {
-                throw new NoSuchElementException();
+            if (compactionFuture != null) {
+                await(compactionFuture);
             }
-            current = iterator.hasNext() ? iterator.next() : null;
+            bgExecutor.awaitTermination(1, TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
-
-        @Override
-        long getPointerSize() {
-            return Utils.getEntrySize(current);
+        if (ssTablesArena.scope().isAlive()) {
+            ssTablesArena.close();
         }
-
-        @Override
-        protected long getPointerKeySrcSize() {
-            return current.key().byteSize();
-        }
-
-        @Override
-        public boolean hasNext() {
-            return current != null;
-        }
-
-        @Override
-        public Entry<MemorySegment> next() {
-            if (!hasNext()) {
-                throw new NoSuchElementException();
-            }
-            Entry<MemorySegment> entry = current;
-            current = iterator.hasNext() ? iterator.next() : null;
-            return entry;
-        }
+        SSTable.save(memTable, ssTables.size(), storagePath);
+        memTable = new MemTable(-1);
     }
 }
