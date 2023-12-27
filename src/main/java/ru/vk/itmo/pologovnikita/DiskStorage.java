@@ -59,7 +59,7 @@ public class DiskStorage {
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
-        final Path indexFile = storagePath.resolve("index.idx");
+        final Path indexFile = getIndexFile(storagePath);
 
         try {
             Files.createFile(indexFile);
@@ -193,11 +193,21 @@ public class DiskStorage {
 
     public static void compact(Iterable<Entry<MemorySegment>> entries, Path compactionalPath, Path path)
             throws IOException {
+        Path indexFile = getIndexFile(path);
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+
+        if (existedFiles.isEmpty() && !entries.iterator().hasNext()) {
+            return;
+        }
         if (entries.iterator().hasNext()) {
             DiskStorage.save(compactionalPath, entries); //save all in compact file
         }
         DiskStorage.deleteFiles(path); //remove all files
         Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE); //move from compact to new main file
+    }
+
+    private static Path getIndexFile(Path path) {
+        return path.resolve("index.idx");
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
@@ -275,5 +285,4 @@ public class DiskStorage {
             }
         };
     }
-
 }
