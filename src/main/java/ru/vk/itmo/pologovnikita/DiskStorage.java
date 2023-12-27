@@ -20,7 +20,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-
 import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfKey;
 import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfValue;
 import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.normalize;
@@ -61,11 +60,7 @@ public class DiskStorage {
         final Path indexTmp = getTmpIndexFile(storagePath);
         final Path indexFile = getIndexFile(storagePath);
 
-        try {
-            Files.createFile(indexFile);
-        } catch (FileAlreadyExistsException ignored) {
-            // it is ok, actually it is normal state
-        }
+        createFileOrIgnore(indexFile);
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
         String newFileName = String.valueOf(existedFiles.size());
@@ -157,11 +152,7 @@ public class DiskStorage {
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } else {
-            try {
-                Files.createFile(indexFile);
-            } catch (FileAlreadyExistsException ignored) {
-                // it is ok, actually it is normal state
-            }
+            createFileOrIgnore(indexFile);
         }
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
@@ -187,11 +178,9 @@ public class DiskStorage {
         //        1. Пишем данные в compaction директорию
         Path pathIndexesFile = getIndexFile(path);
         List<String> pathIndexes = Files.readAllLines(pathIndexesFile, StandardCharsets.UTF_8);
-
         if (pathIndexes.isEmpty() && !entries.iterator().hasNext()) {
             return;
         }
-
         try {
             Files.createDirectory(path.resolve(compactionalPath));
         } catch (IOException ignored) {
@@ -218,10 +207,18 @@ public class DiskStorage {
 
         //        4. Чистим старые данные
         for (String existedFile : pathIndexes) {
-            if (!existedFile.equals(pathData.getFileName().toString()) &&
-                    !existedFile.equals(pathIndexesFile.getFileName().toString())) {
+            if (!existedFile.equals(pathData.getFileName().toString())
+                    && !existedFile.equals(pathIndexesFile.getFileName().toString())) {
                 Files.delete(path.resolve(existedFile));
             }
+        }
+    }
+
+    private static void createFileOrIgnore(Path indexFile) throws IOException {
+        try {
+            Files.createFile(indexFile);
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
         }
     }
 
