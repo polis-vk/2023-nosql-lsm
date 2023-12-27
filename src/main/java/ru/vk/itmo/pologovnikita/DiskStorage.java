@@ -21,7 +21,13 @@ import java.util.List;
 import java.util.NoSuchElementException;
 
 
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.*;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfKey;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfValue;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.normalize;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.slice;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.startOfKey;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.startOfValue;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.tombstone;
 
 @SuppressWarnings("PMD.TooManyStaticImports")
 public class DiskStorage {
@@ -212,7 +218,8 @@ public class DiskStorage {
 
         //        4. Чистим старые данные
         for (String existedFile : pathIndexes) {
-            if (!existedFile.equals(pathData.getFileName().toString()) && !existedFile.equals(pathIndexesFile.getFileName().toString())) {
+            if (!existedFile.equals(pathData.getFileName().toString()) &&
+                    !existedFile.equals(pathIndexesFile.getFileName().toString())) {
                 Files.delete(path.resolve(existedFile));
             }
         }
