@@ -14,7 +14,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 
 public class DiskStorage {
     private static final String INDEX_IDX = "index.idx";
@@ -114,7 +119,7 @@ public class DiskStorage {
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
-        long recordsCount = recordsCount(segment);
+        long recordsCount = DiskStorageUtils.recordsCount(segment);
 
         long left = 0;
         long right = recordsCount - 1;
@@ -150,19 +155,11 @@ public class DiskStorage {
         return DiskStorageUtils.tombstone(left);
     }
 
-    private static long recordsCount(MemorySegment segment) {
-        long indexSize = indexSize(segment);
-        return indexSize / Long.BYTES / 2;
-    }
-
-    private static long indexSize(MemorySegment segment) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
-    }
-
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : DiskStorageUtils.normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? recordsCount(page) : DiskStorageUtils.normalize(indexOf(page, to));
-        long recordsCount = recordsCount(page);
+        long recordIndexTo = to == null
+                ? DiskStorageUtils.recordsCount(page) : DiskStorageUtils.normalize(indexOf(page, to));
+        long recordsCount = DiskStorageUtils.recordsCount(page);
 
         return new Iterator<>() {
             long index = recordIndexFrom;
@@ -255,8 +252,7 @@ public class DiskStorage {
     }
 
     public void compact(Path basePath, Iterable<Entry<MemorySegment>> iterableStorage) throws IOException {
-        final String tmpFileName = "compaction.tmp";
-        final Path tmpFilePath = basePath.resolve(tmpFileName);
+        final Path tmpFilePath = basePath.resolve("compaction.tmp");
         restoreTmp(iterableStorage, tmpFilePath);
         Files.move(tmpFilePath,
                 basePath.resolve(COMPACTION_FILE),

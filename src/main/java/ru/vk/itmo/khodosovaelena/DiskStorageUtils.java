@@ -3,7 +3,9 @@ package ru.vk.itmo.khodosovaelena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-public class DiskStorageUtils {
+public final class DiskStorageUtils {
+    private DiskStorageUtils() {
+    }
 
     public static MemorySegment slice(MemorySegment page, long start, long end) {
         return page.asSlice(start, end - start);
@@ -38,6 +40,15 @@ public class DiskStorageUtils {
 
     public static long normalize(long value) {
         return value & ~(1L << 63);
+    }
+
+    public static long recordsCount(MemorySegment segment) {
+        long indexSize = indexSize(segment);
+        return indexSize / Long.BYTES / 2;
+    }
+
+    public static long indexSize(MemorySegment segment) {
+        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
 }
