@@ -84,9 +84,7 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public void compact() throws IOException {
         Iterable<Entry<MemorySegment>> allEntities = this::all;
-        if (allEntities.iterator().hasNext()) {
-            DiskStorage.compact(allEntities, compactionalPath, path);
-        }
+        DiskStorage.compact(allEntities, compactionalPath, path);
     }
 
     @Override

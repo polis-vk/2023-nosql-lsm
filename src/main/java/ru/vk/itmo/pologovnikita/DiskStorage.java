@@ -178,52 +178,46 @@ public class DiskStorage {
         return result;
     }
 
-    public static void deleteFiles(Path path) throws IOException {
-        try (var dirStream = Files.walk(path)) {
-            dirStream
-                    .map(Path::toFile)
-                    .sorted(Comparator.reverseOrder())
-                    .forEach(File::delete);
-        }
-    }
-
     public static void compact(Iterable<Entry<MemorySegment>> entries, Path compactionalPath, Path path)
             throws IOException {
+//        1. Пишем данные в compaction директорию
+        Path pathIndexesFile = getIndexFile(path);
+        List<String> pathIndexes = Files.readAllLines(pathIndexesFile, StandardCharsets.UTF_8);
+
+        if (pathIndexes.isEmpty() && !entries.iterator().hasNext()) {
+            return;
+        }
+
         try {
             Files.createDirectory(path.resolve(compactionalPath));
         } catch (IOException ignored) {
             // it is mean, that directory already exist
         }
-//        1. Пишем данные в compaction директорию
         Path compactionalDirectory = path.resolve(compactionalPath);
         save(compactionalDirectory, entries);
 
-        // удаляем старые индексы в целевой папки
-        Path pathIndexesFile = getIndexFile(path);
-//        List<String> pathIndexes = Files.readAllLines(pathIndexesFile, StandardCharsets.UTF_8);
-//        for (String oldIndex : pathIndexes) {
-//            Files.delete(path.resolve(oldIndex));
-//        }
+//        2. Перемещаем данные из compaction директории в директорию с данными
+        String newIndex;
+        if (pathIndexes.isEmpty()) {
+            newIndex = "0";
+        } else {
+            newIndex = pathIndexes.get(0);
+        }
+        Path compactionalData = compactionalDirectory.resolve(newIndex);
+        Path pathData = path.resolve(newIndex);
+        Files.move(compactionalData, pathData, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-        // переносим новые индексы в целевой индекс файл
+//        3. Меняем индекс файл чтобы он читал только из compaction файла
         Path compactionalIndexesFile = getIndexFile(compactionalDirectory);
         Files.move(compactionalIndexesFile, pathIndexesFile,
                 StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-
-        // обновляем данные
-        List<String> pathIndexes = Files.readAllLines(pathIndexesFile, StandardCharsets.UTF_8);
-        Path compactionalData = compactionalDirectory.resolve(pathIndexes.get(0));
-        Path pathData = path.resolve(pathIndexes.get(0));
-        try (var dirStream = Files.walk(path)) {
-            dirStream
-                    .map(Path::toFile)
-                    .sorted(Comparator.reverseOrder())
-                    .filter(file -> !file.getName().equals(pathData.getFileName().toString()) &&
-                            !file.getName().equals(pathIndexesFile.getFileName().toString()))
-                    .forEach(File::delete);
+//        4. Чистим старые данные
+        for (String existedFile : pathIndexes) {
+            if (!existedFile.equals(pathData.getFileName().toString()) && !existedFile.equals(pathIndexesFile.getFileName().toString())) {
+                Files.delete(path.resolve(existedFile));
+            }
         }
-        Files.move(compactionalData, pathData, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
     private static Path getIndexFile(Path path) {
