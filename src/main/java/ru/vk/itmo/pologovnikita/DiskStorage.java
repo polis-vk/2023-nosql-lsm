@@ -58,7 +58,7 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = getIndexFile(storagePath);
+        final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve("index.idx");
 
         try {
@@ -151,7 +151,7 @@ public class DiskStorage {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = getIndexFile(storagePath);
+        Path indexTmp = storagePath.resolve("index.tmp");
         Path indexFile = storagePath.resolve("index.idx");
 
         if (Files.exists(indexTmp)) {
@@ -193,33 +193,11 @@ public class DiskStorage {
 
     public static void compact(Iterable<Entry<MemorySegment>> entries, Path compactionalPath, Path path)
             throws IOException {
-        Path indexFile = getIndexFile(path);
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-
-        if (existedFiles.isEmpty() && !entries.iterator().hasNext()) {
-            return;
-        }
-
         if (entries.iterator().hasNext()) {
-            //1. Пишем данные в compaction директорию
-            DiskStorage.save(compactionalPath, entries);
+            DiskStorage.save(compactionalPath, entries); //save all in compact file
         }
-        //2. Перемещаем данные из compaction директории в директорию с данными
-        Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE);
-        //3. Меняем индекс файл чтобы он читал только из compaction файла
-        existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        int newIndexFileName = Integer.parseInt(existedFiles.getLast());
-        Files.write(
-                indexFile,
-                List.of(Integer.toString(newIndexFileName)),
-                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
-        );
-        //4. Чистим старые данные
-        DiskStorage.deleteFiles(path);
-    }
-
-    private static Path getIndexFile(Path path) {
-        return path.resolve("index.tmp");
+        DiskStorage.deleteFiles(path); //remove all files
+        Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE); //move from compact to new main file
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
