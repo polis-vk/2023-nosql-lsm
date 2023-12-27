@@ -86,7 +86,6 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         Iterable<Entry<MemorySegment>> allEntities = this::all;
         if (allEntities.iterator().hasNext()) {
             DiskStorage.compact(allEntities, compactionalPath, path);
-            storage.clear();
         }
     }
 

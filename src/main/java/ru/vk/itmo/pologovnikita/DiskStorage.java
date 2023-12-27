@@ -15,11 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
+import java.util.*;
 
 import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfKey;
 import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfValue;
@@ -58,7 +54,7 @@ public class DiskStorage {
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve("index.tmp");
+        final Path indexTmp = getTmpIndexFile(storagePath);
         final Path indexFile = getIndexFile(storagePath);
 
         try {
@@ -194,17 +190,48 @@ public class DiskStorage {
     public static void compact(Iterable<Entry<MemorySegment>> entries, Path compactionalPath, Path path)
             throws IOException {
         try {
-            Files.createDirectories(compactionalPath);
-            DiskStorage.save(compactionalPath, entries);
-            DiskStorage.deleteFiles(path);
-            Files.move(compactionalPath, path, StandardCopyOption.ATOMIC_MOVE);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+            Files.createDirectory(path.resolve(compactionalPath));
+        } catch (IOException ignored) {
+            // it is mean, that directory already exist
         }
+//        1. Пишем данные в compaction директорию
+        Path compactionalDirectory = path.resolve(compactionalPath);
+        save(compactionalDirectory, entries);
+
+        // удаляем старые индексы в целевой папки
+        Path pathIndexesFile = getIndexFile(path);
+//        List<String> pathIndexes = Files.readAllLines(pathIndexesFile, StandardCharsets.UTF_8);
+//        for (String oldIndex : pathIndexes) {
+//            Files.delete(path.resolve(oldIndex));
+//        }
+
+        // переносим новые индексы в целевой индекс файл
+        Path compactionalIndexesFile = getIndexFile(compactionalDirectory);
+        Files.move(compactionalIndexesFile, pathIndexesFile,
+                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+
+
+        // обновляем данные
+        List<String> pathIndexes = Files.readAllLines(pathIndexesFile, StandardCharsets.UTF_8);
+        Path compactionalData = compactionalDirectory.resolve(pathIndexes.get(0));
+        Path pathData = path.resolve(pathIndexes.get(0));
+        try (var dirStream = Files.walk(path)) {
+            dirStream
+                    .map(Path::toFile)
+                    .sorted(Comparator.reverseOrder())
+                    .filter(file -> !file.getName().equals(pathData.getFileName().toString()) &&
+                            !file.getName().equals(pathIndexesFile.getFileName().toString()))
+                    .forEach(File::delete);
+        }
+        Files.move(compactionalData, pathData, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
     }
 
     private static Path getIndexFile(Path path) {
         return path.resolve("index.idx");
+    }
+
+    private static Path getTmpIndexFile(Path path) {
+        return path.resolve("index.tmp");
     }
 
     private static long indexOf(MemorySegment segment, MemorySegment key) {
