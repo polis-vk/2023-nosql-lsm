@@ -3,7 +3,6 @@ package ru.vk.itmo.pologovnikita;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
-import java.io.File;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
@@ -15,15 +14,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfKey;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfValue;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.normalize;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.slice;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.startOfKey;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.startOfValue;
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.tombstone;
+
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.*;
 
 @SuppressWarnings("PMD.TooManyStaticImports")
 public class DiskStorage {
@@ -180,7 +178,7 @@ public class DiskStorage {
 
     public static void compact(Iterable<Entry<MemorySegment>> entries, Path compactionalPath, Path path)
             throws IOException {
-//        1. Пишем данные в compaction директорию
+        //        1. Пишем данные в compaction директорию
         Path pathIndexesFile = getIndexFile(path);
         List<String> pathIndexes = Files.readAllLines(pathIndexesFile, StandardCharsets.UTF_8);
 
@@ -196,7 +194,7 @@ public class DiskStorage {
         Path compactionalDirectory = path.resolve(compactionalPath);
         save(compactionalDirectory, entries);
 
-//        2. Перемещаем данные из compaction директории в директорию с данными
+        //        2. Перемещаем данные из compaction директории в директорию с данными
         String newIndex;
         if (pathIndexes.isEmpty()) {
             newIndex = "0";
@@ -207,12 +205,12 @@ public class DiskStorage {
         Path pathData = path.resolve(newIndex);
         Files.move(compactionalData, pathData, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-//        3. Меняем индекс файл чтобы он читал только из compaction файла
+        //        3. Меняем индекс файл чтобы он читал только из compaction файла
         Path compactionalIndexesFile = getIndexFile(compactionalDirectory);
         Files.move(compactionalIndexesFile, pathIndexesFile,
                 StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
-//        4. Чистим старые данные
+        //        4. Чистим старые данные
         for (String existedFile : pathIndexes) {
             if (!existedFile.equals(pathData.getFileName().toString()) && !existedFile.equals(pathIndexesFile.getFileName().toString())) {
                 Files.delete(path.resolve(existedFile));
