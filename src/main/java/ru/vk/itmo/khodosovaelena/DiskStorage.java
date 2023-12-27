@@ -14,15 +14,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
+import java.util.*;
 
 public class DiskStorage {
     private static final String INDEX_IDX = "index.idx";
     private static final String INDEX_TMP = "index.tmp";
+    private static final String COMPACTION_FILE = "compaction";
 
     private final List<MemorySegment> segmentList;
 
@@ -62,69 +59,7 @@ public class DiskStorage {
 
         String newFileName = String.valueOf(existedFiles.size());
 
-        long dataSize = 0;
-        long count = 0;
-        for (Entry<MemorySegment> entry : iterable) {
-            dataSize += entry.key().byteSize();
-            MemorySegment value = entry.value();
-            if (value != null) {
-                dataSize += value.byteSize();
-            }
-            count++;
-        }
-        long indexSize = count * 2 * Long.BYTES;
-
-        try (
-                FileChannel fileChannel = FileChannel.open(
-                        storagePath.resolve(newFileName),
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.CREATE
-                );
-                Arena writeArena = Arena.ofConfined()
-        ) {
-            MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    indexSize + dataSize,
-                    writeArena
-            );
-
-            // index:
-            // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
-            // key0_Start = data start = end of index
-            long dataOffset = indexSize;
-            int indexOffset = 0;
-            for (Entry<MemorySegment> entry : iterable) {
-                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                dataOffset += entry.key().byteSize();
-                indexOffset += Long.BYTES;
-
-                MemorySegment value = entry.value();
-                if (value == null) {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, tombstone(dataOffset));
-                } else {
-                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
-                    dataOffset += value.byteSize();
-                }
-                indexOffset += Long.BYTES;
-            }
-
-            // data:
-            // |key0|value0|key1|value1|...
-            dataOffset = indexSize;
-            for (Entry<MemorySegment> entry : iterable) {
-                MemorySegment key = entry.key();
-                MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
-                dataOffset += key.byteSize();
-
-                MemorySegment value = entry.value();
-                if (value != null) {
-                    MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
-                    dataOffset += value.byteSize();
-                }
-            }
-        }
+        restoreTmp(iterable, storagePath.resolve(newFileName));
 
         Files.move(indexFile, indexTmp, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
@@ -143,6 +78,10 @@ public class DiskStorage {
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
+        if (Files.exists(storagePath.resolve(COMPACTION_FILE))) {
+            replaceCompactedData(storagePath);
+        }
+
         Path indexTmp = storagePath.resolve(INDEX_TMP);
         Path indexFile = storagePath.resolve(INDEX_IDX);
 
@@ -182,8 +121,8 @@ public class DiskStorage {
         while (left <= right) {
             long mid = (left + right) >>> 1;
 
-            long startOfKey = startOfKey(segment, mid);
-            long endOfKey = endOfKey(segment, mid);
+            long startOfKey = DiskStorageUtils.startOfKey(segment, mid);
+            long endOfKey = DiskStorageUtils.endOfKey(segment, mid);
             long mismatch = MemorySegment.mismatch(segment, startOfKey, endOfKey, key, 0, key.byteSize());
             if (mismatch == -1) {
                 return mid;
@@ -208,7 +147,7 @@ public class DiskStorage {
             }
         }
 
-        return tombstone(left);
+        return DiskStorageUtils.tombstone(left);
     }
 
     private static long recordsCount(MemorySegment segment) {
@@ -221,8 +160,8 @@ public class DiskStorage {
     }
 
     private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
+        long recordIndexFrom = from == null ? 0 : DiskStorageUtils.normalize(indexOf(page, from));
+        long recordIndexTo = to == null ? recordsCount(page) : DiskStorageUtils.normalize(indexOf(page, to));
         long recordsCount = recordsCount(page);
 
         return new Iterator<>() {
@@ -238,66 +177,120 @@ public class DiskStorage {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
-                MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
-                long startOfValue = startOfValue(page, index);
+                MemorySegment key = DiskStorageUtils.slice(page,
+                        DiskStorageUtils.startOfKey(page, index),
+                        DiskStorageUtils.endOfKey(page, index));
+                long startOfValue = DiskStorageUtils.startOfValue(page, index);
                 MemorySegment value =
                         startOfValue < 0
                                 ? null
-                                : slice(page, startOfValue, endOfValue(page, index, recordsCount));
+                                : DiskStorageUtils.slice(page, startOfValue,
+                                DiskStorageUtils.endOfValue(page, index, recordsCount));
                 index++;
                 return new BaseEntry<>(key, value);
             }
         };
     }
 
-    public void compact(Path basePath, Iterable<Entry<MemorySegment>> iterableStorage) throws IOException {
-        clearFiles(basePath);
-        save(basePath, iterableStorage);
+    private static void restoreTmp(final Iterable<Entry<MemorySegment>> iterable,
+                                   final Path newFilePath) throws IOException {
+        long dataSize = 0;
+        long count = 0;
+        for (Entry<MemorySegment> entry : iterable) {
+            dataSize += entry.key().byteSize();
+            MemorySegment value = entry.value();
+            if (value != null) {
+                dataSize += value.byteSize();
+            }
+            count++;
+        }
+        final long indexSize = count * 2 * Long.BYTES;
+        try (FileChannel fileChannel = FileChannel.open(
+                newFilePath,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.READ,
+                StandardOpenOption.CREATE);
+             Arena writeArena = Arena.ofConfined()) {
+            MemorySegment fileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    indexSize + dataSize,
+                    writeArena
+            );
+            // index:
+            // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
+            // key0_Start = data start = end of index
+            long dataOffset = indexSize;
+            int indexOffset = 0;
+            for (Entry<MemorySegment> entry : iterable) {
+                fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                dataOffset += entry.key().byteSize();
+                indexOffset += Long.BYTES;
+
+                MemorySegment value = entry.value();
+                if (value == null) {
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset,
+                            DiskStorageUtils.tombstone(dataOffset));
+                } else {
+                    fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
+                    dataOffset += value.byteSize();
+                }
+                indexOffset += Long.BYTES;
+            }
+            // data:
+            // |key0|value0|key1|value1|...
+            dataOffset = indexSize;
+            for (Entry<MemorySegment> entry : iterable) {
+                MemorySegment key = entry.key();
+                MemorySegment.copy(key, 0, fileSegment, dataOffset, key.byteSize());
+                dataOffset += key.byteSize();
+
+                MemorySegment value = entry.value();
+                if (value != null) {
+                    MemorySegment.copy(value, 0, fileSegment, dataOffset, value.byteSize());
+                    dataOffset += value.byteSize();
+                }
+            }
+        }
     }
 
-    private void clearFiles(Path path) throws IOException {
-        final Path indexFile = path.resolve(INDEX_IDX);
+    public void compact(Path basePath, Iterable<Entry<MemorySegment>> iterableStorage) throws IOException {
+        final String tmpFileName = "compaction.tmp";
+        final Path tmpFilePath = basePath.resolve(tmpFileName);
+        restoreTmp(iterableStorage, tmpFilePath);
+        Files.move(tmpFilePath,
+                basePath.resolve(COMPACTION_FILE),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING);
+        replaceCompactedData(basePath);
+    }
+
+    private static void replaceCompactedData(Path storagePath) throws IOException {
+        final Path indexFile = storagePath.resolve(INDEX_IDX);
+        final Path indexTmp = storagePath.resolve(INDEX_TMP);
         final List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         for (String fileName : existedFiles) {
-                Files.deleteIfExists(path.resolve(fileName));
+            if (!Files.deleteIfExists(storagePath.resolve(fileName))) {
+                throw new IllegalStateException("Could not resolve file");
+            }
         }
-        Files.delete(indexFile);
-        Files.deleteIfExists(path.resolve(INDEX_TMP));
-    }
+        Files.deleteIfExists(indexTmp);
 
-    private static MemorySegment slice(MemorySegment page, long start, long end) {
-        return page.asSlice(start, end - start);
-    }
+        Path compactionFile = storagePath.resolve(COMPACTION_FILE);
+        boolean isCompactionFileEmpty = Files.size(compactionFile) == 0;
 
-    private static long startOfKey(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
-    }
-
-    private static long endOfKey(MemorySegment segment, long recordIndex) {
-        return normalizedStartOfValue(segment, recordIndex);
-    }
-
-    private static long normalizedStartOfValue(MemorySegment segment, long recordIndex) {
-        return normalize(startOfValue(segment, recordIndex));
-    }
-
-    private static long startOfValue(MemorySegment segment, long recordIndex) {
-        return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
-    }
-
-    private static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
-        if (recordIndex < recordsCount - 1) {
-            return startOfKey(segment, recordIndex + 1);
+        Files.write(
+                indexTmp,
+                isCompactionFileEmpty ? Collections.emptyList() : Collections.singleton("0"),
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        if (isCompactionFileEmpty) {
+            Files.deleteIfExists(compactionFile);
+        } else {
+            Files.move(compactionFile, storagePath.resolve("0"), StandardCopyOption.ATOMIC_MOVE);
         }
-        return segment.byteSize();
     }
-
-    private static long tombstone(long offset) {
-        return 1L << 63 | offset;
-    }
-
-    private static long normalize(long value) {
-        return value & ~(1L << 63);
-    }
-
 }
