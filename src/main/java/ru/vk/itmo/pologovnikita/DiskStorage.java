@@ -20,7 +20,14 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
-import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.*;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfKey;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.endOfValue;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.normalize;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.recordsCount;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.slice;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.startOfKey;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.startOfValue;
+import static ru.vk.itmo.pologovnikita.MemorySegmentUtils.tombstone;
 
 @SuppressWarnings("PMD.TooManyStaticImports")
 public class DiskStorage {
