@@ -25,6 +25,7 @@ public final class StorageUtility {
             StandardOpenOption.TRUNCATE_EXISTING,
             StandardOpenOption.CREATE
     };
+    private static final int OFFSET_SIZE = Long.BYTES;
 
     private StorageUtility() {
     }
@@ -63,7 +64,7 @@ public final class StorageUtility {
              FileChannel offsets = FileChannel.open(offsetsPath, WRITE_OPTIONS);
              Arena arena = Arena.ofConfined()) {
 
-            long offsetsSize = info.recordsCount() * Long.BYTES;
+            long offsetsSize = info.recordsCount() * OFFSET_SIZE;
             MemorySegment fileSegment = db.map(FileChannel.MapMode.READ_WRITE, 0, info.recordsSize(), arena);
             MemorySegment offsetsSegment = offsets.map(FileChannel.MapMode.READ_WRITE, 0, offsetsSize, arena);
 

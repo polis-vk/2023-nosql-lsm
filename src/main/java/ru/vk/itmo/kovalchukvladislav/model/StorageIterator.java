@@ -4,6 +4,7 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 public class StorageIterator<D, E extends Entry<D>> implements Iterator<E> {
     private final EntryExtractor<D, E> extractor;
@@ -80,6 +81,9 @@ public class StorageIterator<D, E extends Entry<D>> implements Iterator<E> {
 
     @Override
     public E next() {
+        if (!hasNext()) {
+            throw new NoSuchElementException();
+        }
         E entry = extractor.readEntry(storageSegment, start);
         start += extractor.size(entry);
         return entry;

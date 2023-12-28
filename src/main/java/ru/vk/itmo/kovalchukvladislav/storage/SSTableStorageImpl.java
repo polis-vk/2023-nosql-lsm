@@ -70,6 +70,7 @@ public class SSTableStorageImpl<D, E extends Entry<D>> implements SSTableStorage
         for (int i = currentState.getCount() - 1; i >= 0; i--) {
             MemorySegment storage = currentState.data.get(i);
             MemorySegment offsets = currentState.offsets.get(i);
+            offsets.force();
 
             long offset = extractor.findLowerBoundValueOffset(key, storage, offsets);
             if (offset == -1) {

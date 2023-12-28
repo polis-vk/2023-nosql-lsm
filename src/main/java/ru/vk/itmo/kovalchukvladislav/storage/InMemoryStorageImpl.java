@@ -22,7 +22,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.logging.Logger;
 
 public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStorage<D, E> {
-    private static final StandardCopyOption[] MOVE_OPTIONS = new StandardCopyOption[] {
+    private static final StandardCopyOption[] MOVE_OPTIONS = new StandardCopyOption[]{
             StandardCopyOption.ATOMIC_MOVE,
             StandardCopyOption.REPLACE_EXISTING
     };
@@ -31,14 +31,23 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
     private final EntryExtractor<D, E> extractor;
 
     private volatile DaoState<D, E> daoState;
-    // Nullable
     private volatile FlushingDaoState<D, E> flushingDaoState;
     private final ReadWriteLock stateLock = new ReentrantReadWriteLock();
 
     public InMemoryStorageImpl(EntryExtractor<D, E> extractor, long flushThresholdBytes) {
         this.extractor = extractor;
         this.flushThresholdBytes = flushThresholdBytes;
-        this.daoState = DaoState.createEmpty(extractor);
+        this.daoState = createEmptyDaoState();
+        this.flushingDaoState = createEmptyFlushingDaoState();
+
+    }
+
+    private DaoState<D, E> createEmptyDaoState() {
+        return new DaoState<>(new ConcurrentSkipListMap<>(extractor), new AtomicLong(0));
+    }
+
+    private FlushingDaoState<D, E> createEmptyFlushingDaoState() {
+        return new FlushingDaoState<>(new ConcurrentSkipListMap<>(extractor), 0, FlushingState.NOT_RUNNING);
     }
 
     /**
@@ -48,37 +57,32 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
      * writeLock() гарантирует что в настоящее время нет readLock'ов, а значит и незаконченных операций изменения size.
      */
     @SuppressWarnings("unused")
-    // Компилятор ругается на unused переменные внутри record, хотя они очень даже used
     private record DaoState<D, E extends Entry<D>>(ConcurrentNavigableMap<D, E> dao, AtomicLong daoSize) {
-        public static <D, E extends Entry<D>> DaoState<D, E> createEmpty(EntryExtractor<D, E> extractor) {
-            return new DaoState<>(new ConcurrentSkipListMap<>(extractor), new AtomicLong(0));
-        }
-
-        public FlushingDaoState<D, E> toFlushedState() {
+        public FlushingDaoState<D, E> toFlushingRunningDaoState() {
             return new FlushingDaoState<>(dao, daoSize.get(), FlushingState.RUNNING);
         }
     }
 
     @SuppressWarnings("unused")
-    // Компилятор ругается на unused переменные внутри record, хотя они очень даже used
     private record FlushingDaoState<D, E>(ConcurrentNavigableMap<D, E> dao, long daoSize, FlushingState flushingState) {
-        public boolean isRunning() {
-            return flushingState == FlushingState.RUNNING;
-        }
-
-        public boolean isFailed() {
-            return flushingState == FlushingState.FAILED;
-        }
 
         public FlushingDaoState<D, E> toFailed() {
             return new FlushingDaoState<>(dao, daoSize, FlushingState.FAILED);
         }
+
+        public FlushingDaoState<D, E> failedToTryAgain() {
+            if (flushingState != FlushingState.FAILED) {
+                throw new IllegalStateException("This method should be called when state is failed");
+            }
+            return new FlushingDaoState<>(dao, daoSize, FlushingState.RUNNING);
+        }
     }
 
     private enum FlushingState {
+        NOT_RUNNING,
         RUNNING,
         FAILED,
-        // Можно добавить третье состояние: данные выгружены, но произошло исключение при их релоаде в SSTableStorage.
+        // Можно добавить четвертое состояние: данные выгружены, но произошло исключение при их релоаде в SSTableStorage.
         // Позволит при повторном flush вернуть уже готовый timestamp, а не флашить опять в новый файл.
     }
 
@@ -90,13 +94,13 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
         stateLock.readLock().lock();
         try {
             dao = daoState.dao;
-            flushingDao = flushingDaoState == null ? null : flushingDaoState.dao;
+            flushingDao = flushingDaoState.dao;
         } finally {
             stateLock.readLock().unlock();
         }
 
         E entry = dao.get(key);
-        if (entry == null && flushingDao != null) {
+        if (entry == null && !flushingDao.isEmpty()) {
             entry = flushingDao.get(key);
         }
         return entry;
@@ -105,23 +109,14 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
     /**
      * Возвращает не точное значение size в угоду перфомансу, иначе будет куча writeLock.
      * При параллельных upsert(), в одном из них daoSize может не успеть инкрементироваться для вставляемого entry.
-     * Тем не менее, "приблизительное size" можно использовать для детекта случаев когда надо делать flush().
+     * Тем не менее "приблизительное size" можно использовать для детекта случаев когда надо делать flush().
      */
     @Override
     public long upsertAndGetSize(E entry) {
         stateLock.readLock().lock();
         try {
             // "приблизительный" size, не пользуемся write lock'ами в угоду перфомансу
-            AtomicLong daoSize = daoState.daoSize;
-            if (daoSize.get() >= flushThresholdBytes && flushingDaoState != null) {
-                if (flushingDaoState.isRunning()) {
-                    throw new MemoryOverflowException("There no free space."
-                            + "daoSize is max, previous flush running and not completed");
-                } else if (flushingDaoState.isFailed()) {
-                    throw new MemoryOverflowException("There no free space."
-                            + "daoSize is max, previous flush was failed. Try to repeat flush");
-                }
-            }
+            AtomicLong daoSize = getDaoSizeOrThrowMemoryOverflow(flushThresholdBytes, daoState, flushingDaoState);
 
             E oldEntry = daoState.dao.put(entry.key(), entry);
             long delta = extractor.size(entry) - extractor.size(oldEntry);
@@ -129,6 +124,24 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
         } finally {
             stateLock.readLock().unlock();
         }
+    }
+
+    private static <D, E extends Entry<D>> AtomicLong getDaoSizeOrThrowMemoryOverflow(long flushThresholdBytes,
+                                                                                      DaoState<D, E> daoState,
+                                                                                      FlushingDaoState<D, E> flushingDaoState) {
+        AtomicLong daoSize = daoState.daoSize;
+        if (daoSize.get() < flushThresholdBytes) {
+            return daoSize;
+        }
+        FlushingState flushingState = flushingDaoState.flushingState();
+        if (flushingState == FlushingState.RUNNING) {
+            throw new MemoryOverflowException("There no free space."
+                    + "daoSize is max, previous flush running and not completed");
+        } else if (flushingState == FlushingState.FAILED) {
+            throw new MemoryOverflowException("There no free space."
+                    + "daoSize is max, previous flush was failed. Try to repeat flush");
+        }
+        return daoSize;
     }
 
     @Override
@@ -139,18 +152,14 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
         stateLock.readLock().lock();
         try {
             dao = daoState.dao;
-            flushingDao = flushingDaoState == null ? null : flushingDaoState.dao;
+            flushingDao = flushingDaoState.dao;
         } finally {
             stateLock.readLock().unlock();
         }
 
         List<Iterator<E>> result = new ArrayList<>(2);
-        if (dao != null) {
-            result.add(getIteratorDao(dao, from, to));
-        }
-        if (flushingDao != null) {
-            result.add(getIteratorDao(flushingDao, from, to));
-        }
+        result.add(getIteratorDao(dao, from, to));
+        result.add(getIteratorDao(flushingDao, from, to));
         return result;
     }
 
@@ -180,22 +189,22 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
 
         stateLock.writeLock().lock();
         try {
-            if (flushingDaoState != null && flushingDaoState.isRunning()) {
-                return null;
-            } else if (flushingDaoState != null && flushingDaoState.isFailed()) {
-                newFlushingDaoState = new FlushingDaoState<>(
-                        flushingDaoState.dao,
-                        flushingDaoState.daoSize,
-                        FlushingState.RUNNING);
-                flushingDaoState = newFlushingDaoState;
-            } else if (daoState.dao.isEmpty()) {
-                return null;
-            } else {
-                DaoState<D, E> newDaoState = DaoState.createEmpty(extractor);
-                newFlushingDaoState = daoState.toFlushedState();
+            switch (flushingDaoState.flushingState) {
+                case RUNNING -> {
+                    return null;
+                }
+                case FAILED -> {
+                    newFlushingDaoState = flushingDaoState.failedToTryAgain();
+                    flushingDaoState = newFlushingDaoState;
+                }
+                case NOT_RUNNING -> {
+                    DaoState<D, E> newDaoState = createEmptyDaoState();
+                    newFlushingDaoState = daoState.toFlushingRunningDaoState();
 
-                flushingDaoState = newFlushingDaoState;
-                daoState = newDaoState;
+                    flushingDaoState = newFlushingDaoState;
+                    daoState = newDaoState;
+                }
+                default -> throw new IllegalStateException("Unexpected state: " + flushingDaoState.flushingState);
             }
         } finally {
             stateLock.writeLock().unlock();
@@ -255,7 +264,7 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
     public void completeFlush() {
         stateLock.writeLock().lock();
         try {
-            flushingDaoState = null;
+            flushingDaoState = createEmptyFlushingDaoState();
         } finally {
             stateLock.writeLock().unlock();
         }
