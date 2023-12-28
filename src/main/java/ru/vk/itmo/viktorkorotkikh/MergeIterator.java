@@ -13,19 +13,47 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
 
     public static MergeIteratorWithTombstoneFilter create(
             LSMPointerIterator memTableIterator,
+            LSMPointerIterator flushingMemTableIterator,
             List<? extends LSMPointerIterator> ssTableIterators
     ) {
-        return new MergeIteratorWithTombstoneFilter(new MergeIterator(memTableIterator, ssTableIterators));
+        return new MergeIteratorWithTombstoneFilter(
+                new MergeIterator(memTableIterator, flushingMemTableIterator, ssTableIterators)
+        );
     }
 
-    private MergeIterator(LSMPointerIterator memTableIterator, List<? extends LSMPointerIterator> ssTableIterators) {
+    public static MergeIteratorWithTombstoneFilter createThroughSSTables(
+            List<? extends LSMPointerIterator> ssTableIterators
+    ) {
+        return new MergeIteratorWithTombstoneFilter(new MergeIterator(ssTableIterators));
+    }
+
+    private MergeIterator(
+            LSMPointerIterator memTableIterator,
+            LSMPointerIterator flushingMemTableIterator,
+            List<? extends LSMPointerIterator> ssTableIterators
+    ) {
         this.lsmPointerIterators = new PriorityQueue<>(
-                ssTableIterators.size() + 1,
+                ssTableIterators.size() + 2,
                 LSMPointerIterator::compareByPointersWithPriority
         );
         if (memTableIterator.hasNext()) {
             lsmPointerIterators.add(memTableIterator);
         }
+        if (flushingMemTableIterator.hasNext()) {
+            lsmPointerIterators.add(flushingMemTableIterator);
+        }
+        for (LSMPointerIterator iterator : ssTableIterators) {
+            if (iterator.hasNext()) {
+                lsmPointerIterators.add(iterator);
+            }
+        }
+    }
+
+    private MergeIterator(List<? extends LSMPointerIterator> ssTableIterators) {
+        this.lsmPointerIterators = new PriorityQueue<>(
+                ssTableIterators.size(),
+                LSMPointerIterator::compareByPointersWithPriority
+        );
         for (LSMPointerIterator iterator : ssTableIterators) {
             if (iterator.hasNext()) {
                 lsmPointerIterators.add(iterator);
