@@ -5,7 +5,7 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 
-abstract class LSMPointerIterator implements Iterator<Entry<MemorySegment>> {
+public abstract class LSMPointerIterator implements Iterator<Entry<MemorySegment>> {
 
     abstract int getPriority();
 

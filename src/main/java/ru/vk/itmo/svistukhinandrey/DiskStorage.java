@@ -15,26 +15,43 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class DiskStorage {
 
+    private static final String DATA_FILE_AFTER_COMPACTION = "0";
     private final List<MemorySegment> segmentList;
 
     public DiskStorage(List<MemorySegment> segmentList) {
-        this.segmentList = segmentList;
+        this.segmentList = new CopyOnWriteArrayList<>();
+        this.segmentList.addAll(segmentList);
     }
 
-    public Iterator<Entry<MemorySegment>> all(Collection<Entry<MemorySegment>> storage) {
-        return range(storage.iterator(), null, null);
+    public void mapSSTableAfterFlush(Path storagePath, String fileName, Arena arena) throws IOException {
+        Path file = storagePath.resolve(fileName);
+        try (FileChannel fileChannel = FileChannel.open(file, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
+            MemorySegment fileSegment = fileChannel.map(
+                    FileChannel.MapMode.READ_WRITE,
+                    0,
+                    Files.size(file),
+                    arena
+            );
+            this.segmentList.add(fileSegment);
+        }
+    }
+
+    public void mapSSTableAfterCompaction(Path storagePath, Arena arena) throws IOException {
+        this.segmentList.clear();
+        mapSSTableAfterFlush(storagePath, DATA_FILE_AFTER_COMPACTION, arena);
     }
 
     public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
+            StorageState storageState,
             MemorySegment from,
             MemorySegment to
     ) {
@@ -42,17 +59,39 @@ public class DiskStorage {
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
-        iterators.add(firstIterator);
 
-        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, PersistentDao::compare)) {
+        if (storageState.getFlushingSSTable() != null) {
+            iterators.add(storageState.getFlushingSSTable().get(from, to));
+        }
+        iterators.add(storageState.getActiveSSTable().get(from, to));
+
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, MemorySegmentUtils::compare)) {
             @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+            protected boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry) {
                 return memorySegmentEntry.value() == null;
             }
         };
     }
 
-    public static void save(
+    public Iterator<Entry<MemorySegment>> rangeFromDisk(
+            MemorySegment from,
+            MemorySegment to
+    ) {
+        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        iterators.add(Collections.emptyIterator());
+        for (MemorySegment memorySegment : segmentList) {
+            iterators.add(iterator(memorySegment, from, to));
+        }
+
+        return new MergeIterator<>(iterators, Comparator.comparing(Entry::key, MemorySegmentUtils::compare)) {
+            @Override
+            protected boolean shouldSkip(Entry<MemorySegment> memorySegmentEntry) {
+                return memorySegmentEntry.value() == null;
+            }
+        };
+    }
+
+    public static String save(
             Path storagePath,
             Iterable<Entry<MemorySegment>> iterable
     ) throws IOException {
@@ -150,6 +189,7 @@ public class DiskStorage {
         );
 
         Files.delete(indexTmp);
+        return newFileName;
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
