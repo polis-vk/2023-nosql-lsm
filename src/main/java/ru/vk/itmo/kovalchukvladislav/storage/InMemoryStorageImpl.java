@@ -82,7 +82,7 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
         NOT_RUNNING,
         RUNNING,
         FAILED,
-        // Можно добавить четвертое состояние: данные выгружены, но произошло исключение при их релоаде в SSTableStorage.
+        // Можно добавить еще одно состояние: данные выгружены, но произошло исключение при их релоаде в SSTableStorage.
         // Позволит при повторном flush вернуть уже готовый timestamp, а не флашить опять в новый файл.
     }
 
@@ -126,9 +126,8 @@ public class InMemoryStorageImpl<D, E extends Entry<D>> implements InMemoryStora
         }
     }
 
-    private static <D, E extends Entry<D>> AtomicLong getDaoSizeOrThrowMemoryOverflow(long flushThresholdBytes,
-                                                                                      DaoState<D, E> daoState,
-                                                                                      FlushingDaoState<D, E> flushingDaoState) {
+    private static <D, E extends Entry<D>> AtomicLong getDaoSizeOrThrowMemoryOverflow(
+            long flushThresholdBytes, DaoState<D, E> daoState, FlushingDaoState<D, E> flushingDaoState) {
         AtomicLong daoSize = daoState.daoSize;
         if (daoSize.get() < flushThresholdBytes) {
             return daoSize;
