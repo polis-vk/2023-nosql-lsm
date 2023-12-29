@@ -33,6 +33,10 @@ public final class SSTable {
 
     private static final String FILE_EXTENSION = ".db";
 
+    private static final String SSTABLE_INDEX_EXTENSION = ".index";
+
+    private static final String COMPRESSION_INFO_EXTENSION = ".compressionInfo";
+
     private static final String TMP_FILE_EXTENSION = ".tmp";
 
     private static final long METADATA_SIZE = Long.BYTES + 1L;
@@ -41,6 +45,48 @@ public final class SSTable {
     private final int index;
 
     private final boolean hasNoTombstones;
+
+    public static Path compressionInfoName(
+            final Path baseDir,
+            final int fileIndex
+    ) {
+        return baseDir.resolve(FILE_NAME + fileIndex + COMPRESSION_INFO_EXTENSION);
+    }
+
+    public static Path indexName(
+            final Path baseDir,
+            final int fileIndex
+    ) {
+        return baseDir.resolve(fileIndex + SSTABLE_INDEX_EXTENSION);
+    }
+
+    public static Path dataName(
+            final Path baseDir,
+            final int fileIndex
+    ) {
+        return baseDir.resolve(FILE_NAME + fileIndex + FILE_EXTENSION);
+    }
+
+    public static Path tempCompressionInfoName(
+            final Path baseDir,
+            final int fileIndex
+    ) {
+        return baseDir.resolve(FILE_NAME + fileIndex + COMPRESSION_INFO_EXTENSION + TMP_FILE_EXTENSION);
+    }
+
+    public static Path tempIndexName(
+            final Path baseDir,
+            final int fileIndex
+    ) {
+        return baseDir.resolve(FILE_NAME + fileIndex + SSTABLE_INDEX_EXTENSION + TMP_FILE_EXTENSION);
+    }
+
+    public static Path tempDataName(
+            final Path baseDir,
+            final int fileIndex
+    ) {
+        return baseDir.resolve(FILE_NAME + fileIndex + FILE_EXTENSION + TMP_FILE_EXTENSION);
+    }
 
     private SSTable(MemorySegment mappedSSTableFile, int index, boolean hasNoTombstones) {
         this.mappedSSTableFile = mappedSSTableFile;
@@ -436,7 +482,7 @@ public final class SSTable {
         }
 
         @Override
-        int getPriority() {
+        public int getPriority() {
             return index;
         }
 
@@ -451,7 +497,7 @@ public final class SSTable {
         }
 
         @Override
-        boolean isPointerOnTombstone() {
+        public boolean isPointerOnTombstone() {
             long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
             long valueOffset = fromPosition + Long.BYTES + keySize;
             long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
@@ -459,7 +505,7 @@ public final class SSTable {
         }
 
         @Override
-        void shift() {
+        public void shift() {
             long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
             long valueOffset = fromPosition + Long.BYTES + keySize;
             long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
@@ -470,7 +516,7 @@ public final class SSTable {
         }
 
         @Override
-        long getPointerSize() {
+        public long getPointerSize() {
             long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
             long valueOffset = fromPosition + Long.BYTES + keySize;
             long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);

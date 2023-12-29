@@ -91,7 +91,7 @@ public class MemTable {
         }
 
         @Override
-        int getPriority() {
+        public int getPriority() {
             return priority;
         }
 
@@ -106,12 +106,12 @@ public class MemTable {
         }
 
         @Override
-        boolean isPointerOnTombstone() {
+        public boolean isPointerOnTombstone() {
             return current.value() == null;
         }
 
         @Override
-        void shift() {
+        public void shift() {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
@@ -119,7 +119,7 @@ public class MemTable {
         }
 
         @Override
-        long getPointerSize() {
+        public long getPointerSize() {
             return Utils.getEntrySize(current);
         }
 
