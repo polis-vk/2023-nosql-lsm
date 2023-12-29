@@ -1,13 +1,20 @@
-package ru.vk.itmo.bandurinvladislav;
+package ru.vk.itmo.shemetovalexey.sstable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.Path;
 
-public final class StorageUtil {
-    private StorageUtil() {
+final class SSTableUtils {
+    private static final String COMPACTION = "compaction";
+
+    private SSTableUtils() {
     }
 
-    public static long indexOf(MemorySegment segment, MemorySegment key) {
+    static Path compactionFile(Path storagePath) {
+        return storagePath.resolve(COMPACTION);
+    }
+
+    static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);
 
         long left = 0;
@@ -44,47 +51,48 @@ public final class StorageUtil {
         return tombstone(left);
     }
 
-    public static long recordsCount(MemorySegment segment) {
+    static long recordsCount(MemorySegment segment) {
         long indexSize = indexSize(segment);
         return indexSize / Long.BYTES / 2;
     }
 
-    public static long indexSize(MemorySegment segment) {
+    static long indexSize(MemorySegment segment) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
-    public static MemorySegment slice(MemorySegment page, long start, long end) {
+    static MemorySegment slice(MemorySegment page, long start, long end) {
         return page.asSlice(start, end - start);
     }
 
-    public static long startOfKey(MemorySegment segment, long recordIndex) {
+    static long startOfKey(MemorySegment segment, long recordIndex) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
     }
 
-    public static long endOfKey(MemorySegment segment, long recordIndex) {
+    static long endOfKey(MemorySegment segment, long recordIndex) {
         return normalizedStartOfValue(segment, recordIndex);
     }
 
-    public static long normalizedStartOfValue(MemorySegment segment, long recordIndex) {
+    static long normalizedStartOfValue(MemorySegment segment, long recordIndex) {
         return normalize(startOfValue(segment, recordIndex));
     }
 
-    public static long startOfValue(MemorySegment segment, long recordIndex) {
+    static long startOfValue(MemorySegment segment, long recordIndex) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
     }
 
-    public static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
+    static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
         if (recordIndex < recordsCount - 1) {
             return startOfKey(segment, recordIndex + 1);
         }
         return segment.byteSize();
     }
 
-    public static long tombstone(long offset) {
+    static long tombstone(long offset) {
+        // set first bit for tombstone offset (equals: -offset - 1)
         return 1L << 63 | offset;
     }
 
-    public static long normalize(long value) {
+    static long normalize(long value) {
         return value & ~(1L << 63);
     }
 }
