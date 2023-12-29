@@ -2,6 +2,11 @@ package ru.vk.itmo.viktorkorotkikh;
 
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.viktorkorotkikh.exceptions.BackgroundExecutionException;
+import ru.vk.itmo.viktorkorotkikh.exceptions.CompactionException;
+import ru.vk.itmo.viktorkorotkikh.exceptions.FlushingException;
+import ru.vk.itmo.viktorkorotkikh.exceptions.LSMDaoCreationException;
+import ru.vk.itmo.viktorkorotkikh.exceptions.TooManyFlushesException;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;

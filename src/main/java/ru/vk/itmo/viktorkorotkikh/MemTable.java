@@ -1,6 +1,7 @@
 package ru.vk.itmo.viktorkorotkikh;
 
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.viktorkorotkikh.exceptions.LSMDaoOutOfMemoryException;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Collection;
