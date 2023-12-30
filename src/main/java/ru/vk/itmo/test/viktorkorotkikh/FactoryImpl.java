@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) {
-        return new LSMDaoImpl(config.basePath(), config.flushThresholdBytes());
+        return new LSMDaoImpl(config);
     }
 
     @Override

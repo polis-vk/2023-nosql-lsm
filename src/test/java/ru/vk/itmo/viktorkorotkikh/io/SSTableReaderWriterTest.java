@@ -73,38 +73,38 @@ class SSTableReaderWriterTest extends BaseTest {
         List<? extends Entry<MemorySegment>> entries = entries(1000).stream().map(entry ->
                 new BaseEntry<>(factory.fromString(entry.key()), factory.fromString(entry.value()))
         ).toList();
-        writer.write(entries::iterator, baseDir, 0);
+        writer.write(false, entries::iterator, baseDir, 0);
         try (
                 Arena arena = Arena.ofConfined();
                 FileChannel ssTableFileChannel = FileChannel.open(
-                        SSTable.dataName(baseDir, 0),
+                        SSTable.dataName(false, baseDir, 0),
                         StandardOpenOption.READ
                 );
                 FileChannel indexFileChannel = FileChannel.open(
-                        SSTable.indexName(baseDir, 0),
+                        SSTable.indexName(false, baseDir, 0),
                         StandardOpenOption.READ
                 );
                 FileChannel compressionInfoFileChannel = FileChannel.open(
-                        SSTable.compressionInfoName(baseDir, 0),
+                        SSTable.compressionInfoName(false, baseDir, 0),
                         StandardOpenOption.READ
                 )
         ) {
             MemorySegment mappedSSTable = ssTableFileChannel.map(
                     FileChannel.MapMode.READ_ONLY,
                     0,
-                    Files.size(SSTable.dataName(baseDir, 0)),
+                    Files.size(SSTable.dataName(false, baseDir, 0)),
                     arena
             );
             MemorySegment mappedIndexFile = indexFileChannel.map(
                     FileChannel.MapMode.READ_ONLY,
                     0,
-                    Files.size(SSTable.indexName(baseDir, 0)),
+                    Files.size(SSTable.indexName(false, baseDir, 0)),
                     arena
             );
             MemorySegment mappedCompressionInfo = compressionInfoFileChannel.map(
                     FileChannel.MapMode.READ_ONLY,
                     0,
-                    Files.size(SSTable.compressionInfoName(baseDir, 0)),
+                    Files.size(SSTable.compressionInfoName(false, baseDir, 0)),
                     arena
             );
             AbstractSSTableReader reader = new BaseSSTableReader(mappedSSTable, mappedIndexFile, mappedCompressionInfo, 0);
@@ -120,38 +120,38 @@ class SSTableReaderWriterTest extends BaseTest {
         List<? extends Entry<MemorySegment>> entries = entries(1000).stream().map(entry ->
                 new BaseEntry<>(factory.fromString(entry.key()), factory.fromString(entry.value()))
         ).toList();
-        writer.write(entries::iterator, baseDir, 0);
+        writer.write(false, entries::iterator, baseDir, 0);
         try (
                 Arena arena = Arena.ofConfined();
                 FileChannel ssTableFileChannel = FileChannel.open(
-                        SSTable.dataName(baseDir, 0),
+                        SSTable.dataName(false, baseDir, 0),
                         StandardOpenOption.READ
                 );
                 FileChannel indexFileChannel = FileChannel.open(
-                        SSTable.indexName(baseDir, 0),
+                        SSTable.indexName(false, baseDir, 0),
                         StandardOpenOption.READ
                 );
                 FileChannel compressionInfoFileChannel = FileChannel.open(
-                        SSTable.compressionInfoName(baseDir, 0),
+                        SSTable.compressionInfoName(false, baseDir, 0),
                         StandardOpenOption.READ
                 )
         ) {
             MemorySegment mappedSSTable = ssTableFileChannel.map(
                     FileChannel.MapMode.READ_ONLY,
                     0,
-                    Files.size(SSTable.dataName(baseDir, 0)),
+                    Files.size(SSTable.dataName(false, baseDir, 0)),
                     arena
             );
             MemorySegment mappedIndexFile = indexFileChannel.map(
                     FileChannel.MapMode.READ_ONLY,
                     0,
-                    Files.size(SSTable.indexName(baseDir, 0)),
+                    Files.size(SSTable.indexName(false, baseDir, 0)),
                     arena
             );
             MemorySegment mappedCompressionInfo = compressionInfoFileChannel.map(
                     FileChannel.MapMode.READ_ONLY,
                     0,
-                    Files.size(SSTable.compressionInfoName(baseDir, 0)),
+                    Files.size(SSTable.compressionInfoName(false, baseDir, 0)),
                     arena
             );
             AbstractSSTableReader reader

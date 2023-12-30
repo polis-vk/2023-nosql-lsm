@@ -6,6 +6,7 @@ import net.jpountz.lz4.LZ4FastDecompressor;
 import java.io.IOException;
 
 public class LZ4Decompressor implements Decompressor {
+    public static final LZ4Decompressor INSTANCE = new LZ4Decompressor();
     private final LZ4FastDecompressor lz4Decompressor;
 
     public LZ4Decompressor() {

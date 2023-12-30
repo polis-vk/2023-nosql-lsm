@@ -1,11 +1,14 @@
 package ru.vk.itmo.viktorkorotkikh.io.read;
 
 import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.viktorkorotkikh.LSMPointerIterator;
 import ru.vk.itmo.viktorkorotkikh.MemorySegmentComparator;
 import ru.vk.itmo.viktorkorotkikh.Utils;
 import ru.vk.itmo.viktorkorotkikh.decompressor.Decompressor;
+import ru.vk.itmo.viktorkorotkikh.decompressor.LZ4Decompressor;
+import ru.vk.itmo.viktorkorotkikh.exceptions.UnknownCompressorTypeException;
 import ru.vk.itmo.viktorkorotkikh.io.ByteArraySegment;
 
 import java.io.IOException;
@@ -65,7 +68,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> iterator(MemorySegment from, MemorySegment to) throws Exception {
+    public LSMPointerIterator iterator(MemorySegment from, MemorySegment to) throws Exception {
         int fromPosition = 0;
         int toPosition = (int) getEntriesSize() - 1;
         ByteArraySegment iteratorBlockBuffer = null;
@@ -150,7 +153,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
     }
 
     @Override
-    public Entry<MemorySegment> get(MemorySegment key) throws IOException {
+    public Entry<MemorySegment> get(MemorySegment key) {
         try {
             return ScopedValue
                     .where(blockBuffer, getBuffer())
@@ -668,5 +671,17 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
             }
             return next;
         }
+    }
+
+    public static boolean isCompressed(MemorySegment mappedCompressionInfo) {
+        return mappedCompressionInfo.get(ValueLayout.JAVA_BOOLEAN, 0);
+    }
+
+    public static Decompressor getDecompressor(MemorySegment mappedCompressionInfo) {
+        byte compressorType = mappedCompressionInfo.get(ValueLayout.JAVA_BYTE, 1);
+        return switch (compressorType) {
+            case 0 -> LZ4Decompressor.INSTANCE;
+            default -> throw new UnknownCompressorTypeException(compressorType);
+        };
     }
 }

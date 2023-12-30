@@ -9,14 +9,15 @@ public record Config(
 ) {
     public record CompressionConfig(
             boolean enabled,
-            Compressor compressor
+            Compressor compressor,
+            int blockSize
     ) {
-        enum Compressor {
+        public enum Compressor {
             LZ4;
         }
     }
 
     public static CompressionConfig disableCompression() {
-        return new CompressionConfig(false, null);
+        return new CompressionConfig(false, null, -1);
     }
 }

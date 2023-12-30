@@ -1,13 +1,21 @@
 package ru.vk.itmo.viktorkorotkikh;
 
-import ru.vk.itmo.BaseEntry;
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.viktorkorotkikh.compressor.Compressor;
+import ru.vk.itmo.viktorkorotkikh.compressor.LZ4Compressor;
+import ru.vk.itmo.viktorkorotkikh.decompressor.Decompressor;
+import ru.vk.itmo.viktorkorotkikh.io.read.AbstractSSTableReader;
+import ru.vk.itmo.viktorkorotkikh.io.read.BaseSSTableReader;
+import ru.vk.itmo.viktorkorotkikh.io.read.CompressedSSTableReader;
+import ru.vk.itmo.viktorkorotkikh.io.write.AbstractSSTableWriter;
+import ru.vk.itmo.viktorkorotkikh.io.write.BaseSSTableWriter;
+import ru.vk.itmo.viktorkorotkikh.io.write.CompressedSSTableWriter;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
@@ -17,15 +25,11 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
-import java.util.NoSuchElementException;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 public final class SSTable {
-
-    private final MemorySegment mappedSSTableFile;
 
     private static final String FILE_NAME = "sstable";
 
@@ -35,67 +39,91 @@ public final class SSTable {
 
     private static final String SSTABLE_INDEX_EXTENSION = ".index";
 
+    private static final String COMPACTED_PREFIX = "_compacted_";
+
     private static final String COMPRESSION_INFO_EXTENSION = ".compressionInfo";
 
     private static final String TMP_FILE_EXTENSION = ".tmp";
 
-    private static final long METADATA_SIZE = Long.BYTES + 1L;
-
-    private static final long ENTRY_METADATA_SIZE = Long.BYTES;
-    private final int index;
-
     private final boolean hasNoTombstones;
+    private final AbstractSSTableReader reader;
 
     public static Path compressionInfoName(
+            final boolean isCompacted,
             final Path baseDir,
             final int fileIndex
     ) {
-        return baseDir.resolve(FILE_NAME + fileIndex + COMPRESSION_INFO_EXTENSION);
+        return isCompacted
+                ? baseDir.resolve(COMPACTED_PREFIX + FILE_NAME + fileIndex + COMPRESSION_INFO_EXTENSION)
+                : baseDir.resolve(FILE_NAME + fileIndex + COMPRESSION_INFO_EXTENSION);
     }
 
     public static Path indexName(
+            final boolean isCompacted,
             final Path baseDir,
             final int fileIndex
     ) {
-        return baseDir.resolve(fileIndex + SSTABLE_INDEX_EXTENSION);
+        return isCompacted
+                ? baseDir.resolve(COMPACTED_PREFIX + FILE_NAME + fileIndex + SSTABLE_INDEX_EXTENSION)
+                : baseDir.resolve(FILE_NAME + fileIndex + SSTABLE_INDEX_EXTENSION);
     }
 
     public static Path dataName(
+            final boolean isCompacted,
             final Path baseDir,
             final int fileIndex
     ) {
-        return baseDir.resolve(FILE_NAME + fileIndex + FILE_EXTENSION);
+        return isCompacted
+                ? baseDir.resolve(COMPACTED_PREFIX + FILE_NAME + fileIndex + FILE_EXTENSION)
+                : baseDir.resolve(FILE_NAME + fileIndex + FILE_EXTENSION);
     }
 
     public static Path tempCompressionInfoName(
+            final boolean isCompacted,
             final Path baseDir,
             final int fileIndex
     ) {
-        return baseDir.resolve(FILE_NAME + fileIndex + COMPRESSION_INFO_EXTENSION + TMP_FILE_EXTENSION);
+        if (isCompacted) {
+            return baseDir.resolve(
+                    COMPACTED_PREFIX + FILE_NAME + fileIndex + COMPRESSION_INFO_EXTENSION + TMP_FILE_EXTENSION
+            );
+        } else {
+            return baseDir.resolve(FILE_NAME + fileIndex + COMPRESSION_INFO_EXTENSION + TMP_FILE_EXTENSION);
+        }
     }
 
     public static Path tempIndexName(
+            final boolean isCompacted,
             final Path baseDir,
             final int fileIndex
     ) {
-        return baseDir.resolve(FILE_NAME + fileIndex + SSTABLE_INDEX_EXTENSION + TMP_FILE_EXTENSION);
+        if (isCompacted) {
+            return baseDir.resolve(
+                    COMPACTED_PREFIX + FILE_NAME + fileIndex + SSTABLE_INDEX_EXTENSION + TMP_FILE_EXTENSION
+            );
+        } else {
+            return baseDir.resolve(FILE_NAME + fileIndex + SSTABLE_INDEX_EXTENSION + TMP_FILE_EXTENSION);
+        }
     }
 
     public static Path tempDataName(
+            final boolean isCompacted,
             final Path baseDir,
             final int fileIndex
     ) {
-        return baseDir.resolve(FILE_NAME + fileIndex + FILE_EXTENSION + TMP_FILE_EXTENSION);
+        return isCompacted
+                ? baseDir.resolve(COMPACTED_PREFIX + FILE_NAME + fileIndex + FILE_EXTENSION + TMP_FILE_EXTENSION)
+                : baseDir.resolve(FILE_NAME + fileIndex + FILE_EXTENSION + TMP_FILE_EXTENSION);
     }
 
-    private SSTable(MemorySegment mappedSSTableFile, int index, boolean hasNoTombstones) {
-        this.mappedSSTableFile = mappedSSTableFile;
-        this.index = index;
-        this.hasNoTombstones = hasNoTombstones;
+    private SSTable(AbstractSSTableReader reader) {
+        this.hasNoTombstones = reader.hasNoTombstones();
+        this.reader = reader;
     }
 
-    public static List<SSTable> load(Arena arena, Path basePath) throws IOException {
-        if (checkIfCompactedExists(basePath)) {
+    public static List<SSTable> load(Arena arena, Config config) throws IOException {
+        Path basePath = config.basePath();
+        if (checkIfCompactedExists(config)) {
             finalizeCompaction(basePath);
         }
 
@@ -116,22 +144,64 @@ public final class SSTable {
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         List<SSTable> ssTables = new ArrayList<>(existedFiles.size());
         for (int i = 0; i < existedFiles.size(); i++) {
-            Path ssTablePath = basePath.resolve(existedFiles.get(i));
-            ssTables.add(loadOne(arena, ssTablePath, i));
+            ssTables.add(loadOne(arena, existedFiles.get(i).startsWith(COMPACTED_PREFIX), config, i));
         }
 
         return ssTables;
     }
 
-    public static SSTable loadOne(Arena arena, Path ssTablePath, int index) throws IOException {
-        try (FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
-            MemorySegment mappedSSTableFile =
-                    fileChannel.map(FileChannel.MapMode.READ_ONLY, 0L, fileChannel.size(), arena);
-            if (mappedSSTableFile.byteSize() == 0) {
-                throw new IOException("Couldn't read empty ssTable file");
+    public static SSTable loadOne(Arena arena, boolean isCompacted, Config config, int index) throws IOException {
+        try (
+                FileChannel ssTableFileChannel = FileChannel.open(
+                        SSTable.dataName(isCompacted, config.basePath(), index),
+                        StandardOpenOption.READ
+                );
+                FileChannel indexFileChannel = FileChannel.open(
+                        SSTable.indexName(isCompacted, config.basePath(), index),
+                        StandardOpenOption.READ
+                );
+                FileChannel compressionInfoFileChannel = FileChannel.open(
+                        SSTable.compressionInfoName(isCompacted, config.basePath(), index),
+                        StandardOpenOption.READ
+                )
+        ) {
+            MemorySegment mappedSSTable = ssTableFileChannel.map(
+                    FileChannel.MapMode.READ_ONLY,
+                    0,
+                    ssTableFileChannel.size(),
+                    arena
+            );
+            MemorySegment mappedIndexFile = indexFileChannel.map(
+                    FileChannel.MapMode.READ_ONLY,
+                    0,
+                    indexFileChannel.size(),
+                    arena
+            );
+            MemorySegment mappedCompressionInfo = compressionInfoFileChannel.map(
+                    FileChannel.MapMode.READ_ONLY,
+                    0,
+                    compressionInfoFileChannel.size(),
+                    arena
+            );
+            AbstractSSTableReader reader;
+            if (CompressedSSTableReader.isCompressed(mappedCompressionInfo)) {
+                Decompressor decompressor = CompressedSSTableReader.getDecompressor(mappedCompressionInfo);
+                reader = new CompressedSSTableReader(
+                        mappedSSTable,
+                        mappedIndexFile,
+                        mappedCompressionInfo,
+                        decompressor,
+                        index
+                );
+            } else {
+                reader = new BaseSSTableReader(
+                        mappedSSTable,
+                        mappedIndexFile,
+                        mappedCompressionInfo,
+                        index
+                );
             }
-            boolean hasNoTombstones = mappedSSTableFile.get(ValueLayout.JAVA_BOOLEAN, 0);
-            return new SSTable(mappedSSTableFile, index, hasNoTombstones);
+            return new SSTable(reader);
         }
     }
 
@@ -139,38 +209,29 @@ public final class SSTable {
         return ssTables.isEmpty() || (ssTables.size() == 1 && ssTables.getFirst().hasNoTombstones);
     }
 
-    public SSTableIterator iterator(MemorySegment from, MemorySegment to) {
-        long fromPosition = getMinKeySizeOffset();
-        long toPosition = getMaxKeySizeOffset();
-        if (from != null) {
-            fromPosition = getEntryOffset(from, SearchOption.GTE);
-            if (fromPosition == -1) {
-                return new SSTableIterator(0, -1);
-            }
-        }
-        if (to != null) {
-            toPosition = getEntryOffset(to, SearchOption.LT);
-            if (toPosition == -1) {
-                return new SSTableIterator(0, -1);
-            }
-        }
-
-        return new SSTableIterator(fromPosition, toPosition);
+    public LSMPointerIterator iterator(MemorySegment from, MemorySegment to) throws Exception {
+        return reader.iterator(from, to);
     }
 
-    public static List<SSTable.SSTableIterator> ssTableIterators(
+    public static List<LSMPointerIterator> ssTableIterators(
             List<SSTable> ssTables,
             MemorySegment from,
             MemorySegment to
     ) {
-        return ssTables.stream().map(ssTable -> ssTable.iterator(from, to)).toList();
+        return ssTables.stream().map(ssTable -> {
+            try {
+                return ssTable.iterator(from, to);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }).toList();
     }
 
-    public static void save(MemTable memTable, int fileIndex, Path basePath) throws IOException {
+    public static void save(MemTable memTable, int fileIndex, Config config) throws IOException {
         if (memTable.isEmpty()) return;
 
-        final Path indexTmp = basePath.resolve(INDEX_FILE_NAME + TMP_FILE_EXTENSION);
-        final Path indexFile = basePath.resolve(INDEX_FILE_NAME);
+        final Path indexTmp = config.basePath().resolve(INDEX_FILE_NAME + TMP_FILE_EXTENSION);
+        final Path indexFile = config.basePath().resolve(INDEX_FILE_NAME);
 
         try {
             Files.createFile(indexFile);
@@ -178,18 +239,10 @@ public final class SSTable {
             // it is ok, actually it is normal state
         }
 
-        Path tmpSSTable = basePath.resolve(FILE_NAME + fileIndex + FILE_EXTENSION + TMP_FILE_EXTENSION);
+        AbstractSSTableWriter writer = getWriter(config);
+        writer.write(false, memTable.values()::iterator, config.basePath(), fileIndex);
 
-        Files.deleteIfExists(tmpSSTable);
-        Files.createFile(tmpSSTable);
-
-        save(memTable.values()::iterator, memTable.values().size(), memTable.getByteSize(), tmpSSTable);
-        String newFileName = FILE_NAME + fileIndex + FILE_EXTENSION;
-        Files.move(
-                tmpSSTable,
-                basePath.resolve(newFileName),
-                StandardCopyOption.ATOMIC_MOVE
-        );
+        String newFileName = dataName(false, config.basePath(), fileIndex).getFileName().toString();
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
         List<String> list = new ArrayList<>(existedFiles.size() + 1);
@@ -208,107 +261,37 @@ public final class SSTable {
         Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
     }
 
-    private static Path save(
-            Supplier<? extends Iterator<Entry<MemorySegment>>> iteratorSupplier,
-            int entriesSize,
-            long entriesDataSize,
-            Path tmpSSTable
-    ) throws IOException {
-        if (entriesSize == 0) {
-            Files.deleteIfExists(tmpSSTable);
-            return tmpSSTable;
-        }
-
-        long entriesDataOffset = METADATA_SIZE + ENTRY_METADATA_SIZE * entriesSize;
-
-        try (Arena arena = Arena.ofConfined();
-             FileChannel channel = FileChannel.open(
-                     tmpSSTable, StandardOpenOption.READ,
-                     StandardOpenOption.WRITE,
-                     StandardOpenOption.TRUNCATE_EXISTING
-             )
-        ) {
-            MemorySegment mappedSSTableFile = channel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0L,
-                    entriesDataOffset + entriesDataSize,
-                    arena
-            );
-
-            mappedSSTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, 1, entriesSize);
-
-            writeIndex(iteratorSupplier.get(), mappedSSTableFile, entriesDataOffset);
-
-            long offset = entriesDataOffset;
-            Iterator<Entry<MemorySegment>> entryIterator = iteratorSupplier.get();
-            // by default file contains JAVA_BYTE == 0 with offset 0
-            // so if we have possibly compacted file and it has JAVA_BYTE == 0 with offset 0
-            // then it is corrupted
-            // otherwise we have unbroken file without tombstones (compacted)
-            // owing to this we use hasNoTombstones condition
-            boolean hasNoTombstones = true;
-            while (entryIterator.hasNext()) {
-                Entry<MemorySegment> entry = entryIterator.next();
-                if (entry.value() == null) {
-                    hasNoTombstones = false;
-                }
-                offset += writeMemorySegment(mappedSSTableFile, entry.key(), offset);
-                offset += writeMemorySegment(mappedSSTableFile, entry.value(), offset);
-            }
-
-            mappedSSTableFile.force();
-            mappedSSTableFile.set(ValueLayout.JAVA_BOOLEAN, 0, hasNoTombstones);
-            mappedSSTableFile.force();
-            return tmpSSTable;
-        }
-    }
-
-    private static void writeIndex(
-            Iterator<Entry<MemorySegment>> iterator,
-            MemorySegment mappedSSTableFile,
-            long offset
-    ) {
-        long index = 0;
-        while (iterator.hasNext()) {
-            mappedSSTableFile.set(
-                    ValueLayout.JAVA_LONG_UNALIGNED,
-                    METADATA_SIZE + index * ENTRY_METADATA_SIZE,
-                    offset
-            );
-            if (iterator instanceof MergeIterator.MergeIteratorWithTombstoneFilter mergeIterator) {
-                offset += mergeIterator.getPointerSizeAndShift();
-            } else {
-                Entry<MemorySegment> entry = iterator.next();
-                offset += Utils.getEntrySize(entry);
-            }
-            index++;
+    private static AbstractSSTableWriter getWriter(Config config) {
+        if (config.compressionConfig().enabled()) {
+            Compressor compressor = switch (config.compressionConfig().compressor()) {
+                case LZ4 -> LZ4Compressor.INSTANCE;
+            };
+            return new CompressedSSTableWriter(compressor, config.compressionConfig().blockSize());
+        } else {
+            return new BaseSSTableWriter();
         }
     }
 
     public static void compact(
             Supplier<MergeIterator.MergeIteratorWithTombstoneFilter> data,
-            Path basePath
+            Config config
     ) throws IOException {
-        Path tmpSSTable = basePath.resolve("_compacted_" + FILE_NAME + FILE_EXTENSION + TMP_FILE_EXTENSION);
-        Files.deleteIfExists(tmpSSTable);
-        Files.createFile(tmpSSTable);
-        EntriesMetadata entriesMetadata = data.get().countEntities();
-        Path compacted = save(data, entriesMetadata.count(), entriesMetadata.entriesDataSize(), tmpSSTable);
-        Files.move(compacted, getCompactedFilePath(basePath), StandardCopyOption.ATOMIC_MOVE);
-        finalizeCompaction(basePath);
+        AbstractSSTableWriter writer = getWriter(config);
+        writer.write(true, data, config.basePath(), 0);
+        finalizeCompaction(config.basePath());
     }
 
     private static Path getCompactedFilePath(Path basePath) {
-        return basePath.resolve("_compacted_" + FILE_NAME + FILE_EXTENSION);
+        return dataName(true, basePath, 0);
     }
 
-    private static boolean checkIfCompactedExists(Path basePath) {
-        Path compacted = getCompactedFilePath(basePath);
+    private static boolean checkIfCompactedExists(Config config) {
+        Path compacted = getCompactedFilePath(config.basePath());
         if (!Files.exists(compacted)) {
             return false;
         }
         try (Arena arena = Arena.ofConfined()) {
-            return !loadOne(arena, compacted, 0).hasNoTombstones;
+            return !loadOne(arena, true, config, 0).hasNoTombstones;
         } catch (IOException ignored) {
             return false;
         }
@@ -321,7 +304,12 @@ public final class SSTable {
                              1,
                              (path, ignored) -> {
                                  String fileName = path.getFileName().toString();
-                                 return fileName.startsWith(FILE_NAME) && fileName.endsWith(FILE_EXTENSION);
+                                 return fileName.startsWith(FILE_NAME)
+                                         && (
+                                         fileName.endsWith(FILE_EXTENSION)
+                                                 || fileName.endsWith(SSTABLE_INDEX_EXTENSION)
+                                                 || fileName.endsWith(COMPRESSION_INFO_EXTENSION)
+                                 );
                              })) {
             stream.forEach(p -> {
                 try {
@@ -340,210 +328,43 @@ public final class SSTable {
 
         Path compactionFile = getCompactedFilePath(storagePath);
         boolean noData = Files.size(compactionFile) == 0;
+        String newFile = dataName(false, storagePath, 0).getFileName().toString();
 
         Files.write(
                 indexTmp,
-                noData ? Collections.emptyList() : Collections.singleton(FILE_NAME + "0" + FILE_EXTENSION),
+                noData ? Collections.emptyList() : Collections.singleton(newFile),
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
 
         Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
+        Path sstableIndexFile = indexName(true, storagePath, 0);
+        Path sstableCompressionInfoFile = compressionInfoName(true, storagePath, 0);
         if (noData) {
             Files.delete(compactionFile);
+            Files.delete(sstableIndexFile);
+            Files.delete(sstableCompressionInfoFile);
         } else {
             Files.move(
                     compactionFile,
-                    storagePath.resolve(FILE_NAME + "0" + FILE_EXTENSION),
+                    storagePath.resolve(newFile),
+                    StandardCopyOption.ATOMIC_MOVE
+            );
+            Files.move(
+                    sstableIndexFile,
+                    indexName(false, storagePath, 0),
+                    StandardCopyOption.ATOMIC_MOVE
+            );
+            Files.move(
+                    sstableCompressionInfoFile,
+                    compressionInfoName(false, storagePath, 0),
                     StandardCopyOption.ATOMIC_MOVE
             );
         }
     }
 
-    private static long writeMemorySegment(
-            MemorySegment ssTableMemorySegment,
-            MemorySegment memorySegmentToWrite,
-            long offset
-    ) {
-        if (memorySegmentToWrite == null) {
-            ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
-            return Long.BYTES;
-        }
-        long memorySegmentToWriteSize = memorySegmentToWrite.byteSize();
-        // write memorySegment size and memorySegment
-        ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, memorySegmentToWriteSize);
-        MemorySegment.copy(
-                memorySegmentToWrite,
-                0,
-                ssTableMemorySegment,
-                offset + Long.BYTES,
-                memorySegmentToWrite.byteSize()
-        );
-        return Long.BYTES + memorySegmentToWriteSize;
-    }
-
     public Entry<MemorySegment> get(MemorySegment key) {
-        long entryOffset = getEntryOffset(key, SearchOption.EQ);
-        if (entryOffset == -1) {
-            return null;
-        }
-        return getByIndex(entryOffset);
-    }
-
-    private long getEntriesSize() {
-        return mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, 1);
-    }
-
-    private Entry<MemorySegment> getByIndex(long index) {
-        long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, index);
-        MemorySegment savedKey = mappedSSTableFile.asSlice(index + Long.BYTES, keySize);
-
-        long valueOffset = index + Long.BYTES + keySize;
-        long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
-        if (valueSize == -1) {
-            return new BaseEntry<>(savedKey, null);
-        }
-        return new BaseEntry<>(savedKey, mappedSSTableFile.asSlice(valueOffset + Long.BYTES, valueSize));
-    }
-
-    private long getMinKeySizeOffset() {
-        return mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, METADATA_SIZE);
-    }
-
-    private long getMaxKeySizeOffset() {
-        long entriesSize = getEntriesSize();
-        return mappedSSTableFile.get(
-                ValueLayout.JAVA_LONG_UNALIGNED,
-                METADATA_SIZE + (entriesSize - 1) * ENTRY_METADATA_SIZE
-        );
-    }
-
-    private long getEntryOffset(MemorySegment key, SearchOption searchOption) {
-        // binary search
-        long entriesSize = getEntriesSize();
-        long left = 0;
-        long right = entriesSize - 1;
-        while (left <= right) {
-            long mid = (right + left) / 2;
-            long keySizeOffset = mappedSSTableFile.get(
-                    ValueLayout.JAVA_LONG_UNALIGNED,
-                    METADATA_SIZE + mid * ENTRY_METADATA_SIZE
-            );
-            long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, keySizeOffset);
-            long keyOffset = keySizeOffset + Long.BYTES;
-            int keyComparison = MemorySegmentComparator.INSTANCE.compare(
-                    mappedSSTableFile, keyOffset,
-                    keyOffset + keySize,
-                    key
-            );
-            if (keyComparison < 0) {
-                left = mid + 1;
-            } else if (keyComparison > 0) {
-                right = mid - 1;
-            } else {
-                return switch (searchOption) {
-                    case EQ, GTE -> keySizeOffset;
-                    case LT -> keySizeOffset - METADATA_SIZE;
-                };
-            }
-        }
-
-        return switch (searchOption) {
-            case EQ -> -1;
-            case GTE -> {
-                if (left == entriesSize) {
-                    yield -1;
-                } else {
-                    yield mappedSSTableFile.get(
-                            ValueLayout.JAVA_LONG_UNALIGNED,
-                            METADATA_SIZE + left * ENTRY_METADATA_SIZE
-                    );
-                }
-            }
-            case LT -> mappedSSTableFile.get(
-                    ValueLayout.JAVA_LONG_UNALIGNED,
-                    METADATA_SIZE + right * ENTRY_METADATA_SIZE
-            );
-        };
-    }
-
-    private enum SearchOption {
-        EQ, GTE, LT
-    }
-
-    public final class SSTableIterator extends LSMPointerIterator {
-        private long fromPosition;
-        private final long toPosition;
-
-        private SSTableIterator(long fromPosition, long toPosition) {
-            this.fromPosition = fromPosition;
-            this.toPosition = toPosition;
-        }
-
-        @Override
-        public int getPriority() {
-            return index;
-        }
-
-        @Override
-        public MemorySegment getPointerKeySrc() {
-            return mappedSSTableFile;
-        }
-
-        @Override
-        public long getPointerKeySrcOffset() {
-            return fromPosition + Long.BYTES;
-        }
-
-        @Override
-        public boolean isPointerOnTombstone() {
-            long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
-            long valueOffset = fromPosition + Long.BYTES + keySize;
-            long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
-            return valueSize == -1;
-        }
-
-        @Override
-        public void shift() {
-            long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
-            long valueOffset = fromPosition + Long.BYTES + keySize;
-            long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
-            fromPosition += Long.BYTES + keySize + Long.BYTES;
-            if (valueSize != -1) {
-                fromPosition += valueSize;
-            }
-        }
-
-        @Override
-        public long getPointerSize() {
-            long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
-            long valueOffset = fromPosition + Long.BYTES + keySize;
-            long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
-            if (valueSize == -1) {
-                return Long.BYTES + keySize + Long.BYTES;
-            }
-            return Long.BYTES + keySize + Long.BYTES + valueSize;
-        }
-
-        @Override
-        public long getPointerKeySrcSize() {
-            return mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
-        }
-
-        @Override
-        public boolean hasNext() {
-            return fromPosition <= toPosition;
-        }
-
-        @Override
-        public Entry<MemorySegment> next() {
-            if (!hasNext()) {
-                throw new NoSuchElementException();
-            }
-            Entry<MemorySegment> entry = getByIndex(fromPosition);
-            fromPosition += Utils.getEntrySize(entry);
-            return entry;
-        }
+        return reader.get(key);
     }
 }

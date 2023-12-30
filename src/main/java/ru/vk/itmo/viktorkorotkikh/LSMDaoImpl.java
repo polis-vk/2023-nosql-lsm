@@ -1,5 +1,6 @@
 package ru.vk.itmo.viktorkorotkikh;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.viktorkorotkikh.exceptions.BackgroundExecutionException;
@@ -11,7 +12,6 @@ import ru.vk.itmo.viktorkorotkikh.exceptions.TooManyFlushesException;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -36,28 +36,24 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private volatile List<SSTable> ssTables;
     private Arena ssTablesArena;
 
-    private final Path storagePath;
-
-    private final long flushThresholdBytes;
-
+    private final Config config;
     private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
 
     private final ReadWriteLock upsertLock = new ReentrantReadWriteLock();
 
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    public LSMDaoImpl(Path storagePath, long flushThresholdBytes) {
-        this.memTable = new MemTable(flushThresholdBytes);
+    public LSMDaoImpl(Config config) {
+        this.config = config;
+        this.memTable = new MemTable(config.flushThresholdBytes());
         this.flushingMemTable = new MemTable(-1);
         try {
             this.ssTablesArena = Arena.ofShared();
-            this.ssTables = SSTable.load(ssTablesArena, storagePath);
+            this.ssTables = SSTable.load(ssTablesArena, config);
         } catch (IOException e) {
             ssTablesArena.close();
             throw new LSMDaoCreationException(e);
         }
-        this.storagePath = storagePath;
-        this.flushThresholdBytes = flushThresholdBytes;
     }
 
     @Override
@@ -66,7 +62,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     }
 
     private MergeIterator.MergeIteratorWithTombstoneFilter mergeIterator(MemorySegment from, MemorySegment to) {
-        List<SSTable.SSTableIterator> ssTableIterators = SSTable.ssTableIterators(ssTables, from, to);
+        List<LSMPointerIterator> ssTableIterators = SSTable.ssTableIterators(ssTables, from, to);
         return MergeIterator.create(
                 memTable.iterator(from, to, 0),
                 flushingMemTable.iterator(from, to, 1),
@@ -126,9 +122,9 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
                     () -> MergeIterator.createThroughSSTables(
                             SSTable.ssTableIterators(ssTables, null, null)
                     ),
-                    storagePath
+                    config
             );
-            ssTables = SSTable.load(ssTablesArena, storagePath);
+            ssTables = SSTable.load(ssTablesArena, config);
         } catch (IOException e) {
             throw new CompactionException(e);
         }
@@ -159,13 +155,13 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private void prepareFlush() {
         flushingMemTable = memTable;
-        memTable = new MemTable(flushThresholdBytes);
+        memTable = new MemTable(config.flushThresholdBytes());
     }
 
     private Future<?> runFlushInBackground() {
         return bgExecutor.submit(() -> {
             try {
-                flush(flushingMemTable, ssTables.size(), storagePath, ssTablesArena);
+                flush(flushingMemTable, ssTables.size(), ssTablesArena);
             } catch (IOException e) {
                 throw new FlushingException(e);
             }
@@ -175,12 +171,11 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private void flush(
             MemTable memTable,
             int fileIndex,
-            Path storagePath,
             Arena ssTablesArena
     ) throws IOException {
         if (memTable.isEmpty()) return;
-        SSTable.save(memTable, fileIndex, storagePath);
-        ssTables = SSTable.load(ssTablesArena, storagePath);
+        SSTable.save(memTable, fileIndex, config);
+        ssTables = SSTable.load(ssTablesArena, config);
         flushingMemTable = new MemTable(-1);
     }
 
@@ -214,7 +209,7 @@ public class LSMDaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
         if (ssTablesArena.scope().isAlive()) {
             ssTablesArena.close();
         }
-        SSTable.save(memTable, ssTables.size(), storagePath);
+        SSTable.save(memTable, ssTables.size(), config);
         memTable = new MemTable(-1);
     }
 }

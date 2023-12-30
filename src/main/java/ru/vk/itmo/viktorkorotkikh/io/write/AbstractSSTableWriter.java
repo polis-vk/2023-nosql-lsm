@@ -38,14 +38,15 @@ public abstract class AbstractSSTableWriter {
     }
 
     public void write(
+            boolean isCompacted,
             Supplier<? extends Iterator<? extends Entry<MemorySegment>>> iteratorSupplier,
             final Path baseDir,
             final int fileIndex
     ) throws IOException {
         // Write to temporary files
-        final Path tempCompressionInfo = SSTable.tempCompressionInfoName(baseDir, fileIndex);
-        final Path tempIndexName = SSTable.tempIndexName(baseDir, fileIndex);
-        final Path tempDataName = SSTable.tempDataName(baseDir, fileIndex);
+        final Path tempCompressionInfo = SSTable.tempCompressionInfoName(isCompacted, baseDir, fileIndex);
+        final Path tempIndexName = SSTable.tempIndexName(isCompacted, baseDir, fileIndex);
+        final Path tempDataName = SSTable.tempDataName(isCompacted, baseDir, fileIndex);
 
         // Delete temporary files to eliminate tails
         Files.deleteIfExists(tempIndexName);
@@ -134,21 +135,21 @@ public abstract class AbstractSSTableWriter {
 
         // Publish files atomically
         // FIRST index, LAST data
-        final Path compressionInfoName = SSTable.compressionInfoName(baseDir, fileIndex);
+        final Path compressionInfoName = SSTable.compressionInfoName(isCompacted, baseDir, fileIndex);
         Files.move(
                 tempCompressionInfo,
                 compressionInfoName,
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
-        final Path indexName = SSTable.indexName(baseDir, fileIndex);
+        final Path indexName = SSTable.indexName(isCompacted, baseDir, fileIndex);
         Files.move(
                 tempIndexName,
                 indexName,
                 StandardCopyOption.ATOMIC_MOVE,
                 StandardCopyOption.REPLACE_EXISTING
         );
-        final Path dataName = SSTable.dataName(baseDir, fileIndex);
+        final Path dataName = SSTable.dataName(isCompacted, baseDir, fileIndex);
         Files.move(
                 tempDataName,
                 dataName,

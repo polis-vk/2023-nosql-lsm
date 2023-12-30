@@ -8,7 +8,6 @@ import ru.vk.itmo.viktorkorotkikh.Utils;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 public class BaseSSTableReader extends AbstractSSTableReader {
@@ -38,7 +37,7 @@ public class BaseSSTableReader extends AbstractSSTableReader {
     }
 
     @Override
-    public Iterator<Entry<MemorySegment>> iterator(MemorySegment from, MemorySegment to) {
+    public LSMPointerIterator iterator(MemorySegment from, MemorySegment to) {
         long fromPosition = getMinKeySizeOffset();
         long toPosition = getMaxKeySizeOffset();
         if (from != null) {
@@ -111,16 +110,22 @@ public class BaseSSTableReader extends AbstractSSTableReader {
                 if (left == entriesSize) {
                     yield -1;
                 } else {
-                    yield mappedSSTable.get(
+                    yield mappedIndexFile.get(
                             ValueLayout.JAVA_LONG_UNALIGNED,
                             METADATA_SIZE + left * ENTRY_METADATA_SIZE
                     );
                 }
             }
-            case LT -> mappedSSTable.get(
-                    ValueLayout.JAVA_LONG_UNALIGNED,
-                    METADATA_SIZE + right * ENTRY_METADATA_SIZE
-            );
+            case LT -> {
+                if (right == -1) {
+                    yield -1;
+                } else {
+                    yield mappedIndexFile.get(
+                            ValueLayout.JAVA_LONG_UNALIGNED,
+                            METADATA_SIZE + right * ENTRY_METADATA_SIZE
+                    );
+                }
+            }
         };
     }
 
