@@ -1,6 +1,5 @@
-package ru.vk.itmo.shemetovalexey;
+package ru.vk.itmo.grunskiialexey;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
@@ -15,44 +14,19 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
-import java.util.NoSuchElementException;
 
-final class StorageUtils {
-    private static final String TMP_DIRECTORY_NAME = "tmp";
-    private static final String INDEX_FILE_NAME = "index";
-    private static final String IDX_EXTENSION = ".idx";
-    private static final String TMP_EXTENSION = ".tmp";
+public final class DiskStorage {
+    public static final String NAME_TMP_INDEX_FILE = "index.tmp";
+    public static final String NAME_INDEX_FILE = "index.idx";
 
-    private StorageUtils() {
-    }
-
-    public static void compact(Path path, Iterable<Entry<MemorySegment>> iterable) throws IOException {
-        try {
-            Files.createDirectory(path.resolve(TMP_DIRECTORY_NAME));
-        } catch (IOException ignored) {
-            // it is mean, that directory already exist
-        }
-        final Path tmpDirectory = path.resolve(TMP_DIRECTORY_NAME);
-        save(tmpDirectory, iterable);
-        final Path indexFile = path.resolve(INDEX_FILE_NAME + IDX_EXTENSION);
-        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        for (String existedFile : existedFiles) {
-            Files.delete(path.resolve(existedFile));
-        }
-        final Path indexTmp = tmpDirectory.resolve(INDEX_FILE_NAME + IDX_EXTENSION);
-        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-        final Path dataTmp = tmpDirectory.resolve(existedFiles.get(0));
-        final Path dataFile = path.resolve(existedFiles.get(0));
-        Files.move(dataTmp, dataFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    private DiskStorage() {
     }
 
     public static void save(Path storagePath, Iterable<Entry<MemorySegment>> iterable)
             throws IOException {
-        final Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXTENSION);
-        final Path indexFile = storagePath.resolve(INDEX_FILE_NAME + IDX_EXTENSION);
+        final Path indexTmp = storagePath.resolve(NAME_TMP_INDEX_FILE);
+        final Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
 
         try {
             Files.createFile(indexFile);
@@ -60,8 +34,7 @@ final class StorageUtils {
             // it is ok, actually it is normal state
         }
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
-
-        String newFileName = String.valueOf(existedFiles.size());
+        String newFileName = getNewFileName(existedFiles);
 
         long dataSize = 0;
         long count = 0;
@@ -78,17 +51,13 @@ final class StorageUtils {
         try (
                 FileChannel fileChannel = FileChannel.open(
                         storagePath.resolve(newFileName),
-                        StandardOpenOption.WRITE,
-                        StandardOpenOption.READ,
-                        StandardOpenOption.CREATE
+                        StandardOpenOption.WRITE, StandardOpenOption.READ,
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
                 );
                 Arena writeArena = Arena.ofConfined()
         ) {
             MemorySegment fileSegment = fileChannel.map(
-                    FileChannel.MapMode.READ_WRITE,
-                    0,
-                    indexSize + dataSize,
-                    writeArena
+                    FileChannel.MapMode.READ_WRITE, 0, indexSize + dataSize, writeArena
             );
 
             // index:
@@ -135,17 +104,20 @@ final class StorageUtils {
         Files.write(
                 indexFile,
                 list,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
+                StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING
         );
 
         Files.delete(indexTmp);
     }
 
+    public static String getNewFileName(List<String> existedFiles) {
+        int newFileNumber = existedFiles.isEmpty() ? 0 : Integer.parseInt(existedFiles.getLast()) + 1;
+        return Integer.toString(newFileNumber);
+    }
+
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
-        Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_EXTENSION);
-        Path indexFile = storagePath.resolve(INDEX_FILE_NAME + IDX_EXTENSION);
+        Path indexTmp = storagePath.resolve(NAME_TMP_INDEX_FILE);
+        Path indexFile = storagePath.resolve(NAME_INDEX_FILE);
 
         if (Files.exists(indexTmp)) {
             Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
@@ -175,7 +147,7 @@ final class StorageUtils {
         return result;
     }
 
-    private static long indexOf(MemorySegment segment, MemorySegment key) {
+    public static long indexOf(MemorySegment segment, MemorySegment key) {
         long recordsCount = recordsCount(segment);
 
         long left = 0;
@@ -212,7 +184,7 @@ final class StorageUtils {
         return tombstone(left);
     }
 
-    private static long recordsCount(MemorySegment segment) {
+    static long recordsCount(MemorySegment segment) {
         long indexSize = indexSize(segment);
         return indexSize / Long.BYTES / 2;
     }
@@ -221,45 +193,15 @@ final class StorageUtils {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
     }
 
-    static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? recordsCount(page) : normalize(indexOf(page, to));
-        long recordsCount = recordsCount(page);
-
-        return new Iterator<>() {
-            long index = recordIndexFrom;
-
-            @Override
-            public boolean hasNext() {
-                return index < recordIndexTo;
-            }
-
-            @Override
-            public Entry<MemorySegment> next() {
-                if (!hasNext()) {
-                    throw new NoSuchElementException();
-                }
-                MemorySegment key = slice(page, startOfKey(page, index), endOfKey(page, index));
-                long startOfValue = startOfValue(page, index);
-                MemorySegment value =
-                        startOfValue < 0
-                                ? null
-                                : slice(page, startOfValue, endOfValue(page, index, recordsCount));
-                index++;
-                return new BaseEntry<>(key, value);
-            }
-        };
-    }
-
-    private static MemorySegment slice(MemorySegment page, long start, long end) {
+    static MemorySegment slice(MemorySegment page, long start, long end) {
         return page.asSlice(start, end - start);
     }
 
-    private static long startOfKey(MemorySegment segment, long recordIndex) {
+    static long startOfKey(MemorySegment segment, long recordIndex) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES);
     }
 
-    private static long endOfKey(MemorySegment segment, long recordIndex) {
+    static long endOfKey(MemorySegment segment, long recordIndex) {
         return normalizedStartOfValue(segment, recordIndex);
     }
 
@@ -267,11 +209,11 @@ final class StorageUtils {
         return normalize(startOfValue(segment, recordIndex));
     }
 
-    private static long startOfValue(MemorySegment segment, long recordIndex) {
+    static long startOfValue(MemorySegment segment, long recordIndex) {
         return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, recordIndex * 2 * Long.BYTES + Long.BYTES);
     }
 
-    private static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
+    static long endOfValue(MemorySegment segment, long recordIndex, long recordsCount) {
         if (recordIndex < recordsCount - 1) {
             return startOfKey(segment, recordIndex + 1);
         }
@@ -282,8 +224,7 @@ final class StorageUtils {
         return 1L << 63 | offset;
     }
 
-    private static long normalize(long value) {
+    static long normalize(long value) {
         return value & ~(1L << 63);
     }
-
 }

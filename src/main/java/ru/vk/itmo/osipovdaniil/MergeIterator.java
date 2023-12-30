@@ -1,4 +1,4 @@
-package ru.vk.itmo.bandurinvladislav;
+package ru.vk.itmo.osipovdaniil;
 
 import java.util.Collection;
 import java.util.Comparator;
@@ -11,7 +11,7 @@ public class MergeIterator<T> implements Iterator<T> {
     private final PriorityQueue<PeekIterator<T>> priorityQueue;
     private final Comparator<T> comparator;
 
-    private PeekIterator<T> peekIterator;
+    PeekIterator<T> peek;
 
     private static class PeekIterator<T> implements Iterator<T> {
 
@@ -37,9 +37,9 @@ public class MergeIterator<T> implements Iterator<T> {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
-            T peekValue = peek();
+            T pk = peek();
             this.peek = null;
-            return peekValue;
+            return pk;
         }
 
         private T peek() {
@@ -53,7 +53,7 @@ public class MergeIterator<T> implements Iterator<T> {
         }
     }
 
-    public MergeIterator(Collection<Iterator<T>> iterators, Comparator<T> comparator) {
+    public MergeIterator(final Collection<Iterator<T>> iterators, final Comparator<T> comparator) {
         this.comparator = comparator;
         Comparator<PeekIterator<T>> peekComp = (o1, o2) -> comparator.compare(o1.peek(), o2.peek());
         priorityQueue = new PriorityQueue<>(
@@ -70,43 +70,41 @@ public class MergeIterator<T> implements Iterator<T> {
     }
 
     private PeekIterator<T> peek() {
-        while (peekIterator == null) {
-            peekIterator = priorityQueue.poll();
-            if (peekIterator == null) {
+        while (peek == null) {
+            peek = priorityQueue.poll();
+            if (peek == null) {
                 return null;
             }
-
-            refreshIterator();
-
-            if (peekIterator.peek() == null) {
-                peekIterator = null;
+            fillingQueue();
+            if (peek.peek() == null) {
+                peek = null;
                 continue;
             }
-
-            if (skip(peekIterator.peek())) {
-                peekIterator.next();
-                if (peekIterator.hasNext()) {
-                    priorityQueue.add(peekIterator);
+            if (skip(peek.peek())) {
+                peek.next();
+                if (peek.hasNext()) {
+                    priorityQueue.add(peek);
                 }
-                peekIterator = null;
+                peek = null;
             }
         }
-        return peekIterator;
+        return peek;
     }
 
-    @SuppressWarnings("DataFlowIssue")
-    private void refreshIterator() {
+    private void fillingQueue() {
         while (true) {
-            PeekIterator<T> next = priorityQueue.peek();
+            final PeekIterator<T> next = priorityQueue.peek();
             if (next == null) {
                 break;
             }
-
-            int compare = comparator.compare(peekIterator.peek(), next.peek());
+            int compare = comparator.compare(peek.peek(), next.peek());
             if (compare != 0) {
                 break;
             }
             PeekIterator<T> poll = priorityQueue.poll();
+            if (poll == null) {
+                continue;
+            }
             poll.next();
             if (poll.hasNext()) {
                 priorityQueue.add(poll);
@@ -114,7 +112,7 @@ public class MergeIterator<T> implements Iterator<T> {
         }
     }
 
-    protected boolean skip(T t) {
+    protected boolean skip(final T t) {
         return t == null;
     }
 
@@ -125,14 +123,14 @@ public class MergeIterator<T> implements Iterator<T> {
 
     @Override
     public T next() {
-        PeekIterator<T> peek = peek();
-        if (peek == null) {
+        final PeekIterator<T> pk = peek();
+        if (pk == null) {
             throw new NoSuchElementException();
         }
-        T next = peek.next();
-        this.peekIterator = null;
-        if (peek.hasNext()) {
-            priorityQueue.add(peek);
+        final T next = pk.next();
+        this.peek = null;
+        if (pk.hasNext()) {
+            priorityQueue.add(pk);
         }
         return next;
     }
