@@ -98,7 +98,7 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
     }
 
     private static void writeInt(OutputStream outputStream, int value) throws IOException {
-        outputStream.write((byte) (value));
+        outputStream.write((byte) value);
         outputStream.write((byte) (value >> 8));
         outputStream.write((byte) (value >> 16));
         outputStream.write((byte) (value >> 24));
@@ -171,7 +171,7 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
                 bytes = memorySegmentSize - writtenMemorySegmentBytes;
                 blobBufferOffset += (int) bytes;
             } else {
-                bytes = blockSize - blobBufferOffset;
+                bytes = (long) blockSize - blobBufferOffset;
                 blobBufferOffset = blockSize;
             }
 

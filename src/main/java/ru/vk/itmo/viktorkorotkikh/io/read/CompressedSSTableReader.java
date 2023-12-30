@@ -1,7 +1,6 @@
 package ru.vk.itmo.viktorkorotkikh.io.read;
 
 import ru.vk.itmo.BaseEntry;
-import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.viktorkorotkikh.LSMPointerIterator;
 import ru.vk.itmo.viktorkorotkikh.MemorySegmentComparator;
@@ -15,7 +14,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 /**
@@ -133,7 +131,6 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
             ByteArraySegment blockBuffer,
             long srcOffset,
             byte[] dest,
-            int destOff,
             int compressedSize,
             int uncompressedSize
     ) throws IOException {
@@ -144,7 +141,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                 0L,
                 compressedSize
         );
-        decompressor.decompress(blockBuffer.getArray(), dest, destOff, uncompressedSize);
+        decompressor.decompress(blockBuffer.getArray(), dest, 0, uncompressedSize);
     }
 
     @Override
@@ -178,7 +175,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
         byte[] decompressedKeySize = new byte[Long.BYTES];
         readCompressed(keyNBlockNumber, blockBuffer.get(), decompressedKeySize, keyNSizeBlockOffset);
 
-        long keySize = byteArrayToLong(decompressedKeySize, 0);
+        long keySize = byteArrayToLong(decompressedKeySize);
 
         ByteArraySegment keyByteArray = new ByteArraySegment((int) keySize);
         readCompressed(
@@ -199,7 +196,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                 decompressedValueSize,
                 lastUncompressedBlockInfo.get().lastUncompressedBlockOffset
         );
-        long valueSize = byteArrayToLong(decompressedValueSize, 0);
+        long valueSize = byteArrayToLong(decompressedValueSize);
 
         if (valueSize == -1) {
             return new BaseEntry<>(keyByteArray.segment(), null);
@@ -213,200 +210,9 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
             );
             return new BaseEntry<>(keyByteArray.segment(), valueByteArray.segment());
         }
-
-        /*int tailOfLastBlock = decompressedKeySize.length - (keyNSizeBlockOffset + Long.BYTES);
-        ByteArraySegment decompressedKey;
-        MemorySegment key;
-
-        if (tailOfLastBlock < keySize) { // need to read more blocks
-            int countOfBlocksToReadKey = (int) ((keySize - tailOfLastBlock) / uncompressedBlockSize + 1);
-            // allocate more space than keySize because we read entire block
-            decompressedKey
-                    = new ByteArraySegment(tailOfLastBlock + countOfBlocksToReadKey * uncompressedBlockSize);
-
-            // copy tail of last decompressed block
-            System.arraycopy(
-                    decompressedKeySize,
-                    (keyNSizeBlockOffset + Long.BYTES),
-                    decompressedKey.getArray(),
-                    0,
-                    tailOfLastBlock
-            );
-
-            keyNBlockNumber = decompressBlocks(
-                    keyNBlockNumber,
-                    blockBuffer.get(),
-                    decompressedKey.getArray(),
-                    countOfBlocksToReadKey
-            );
-            key = decompressedKey.segment().asSlice(0, keySize);
-        } else { // last read block contains key
-            // copy key
-            decompressedKey = new ByteArraySegment((int) keySize);
-            System.arraycopy(
-                    decompressedKeySize,
-                    (keyNSizeBlockOffset + Long.BYTES),
-                    decompressedKey.getArray(),
-                    0,
-                    (int) keySize
-            );
-            key = decompressedKey.segment();
-        }
-        if (!readValue) {
-            return new BaseEntry<>(key, null);
-        }
-
-        int tailOfLastReadKeyBlock = (int) (tailOfLastBlock - keySize);
-
-        long valueSize;
-        byte[] decompressedValueSize;
-
-        if (tailOfLastReadKeyBlock < Long.BYTES) { // need to read more blocks
-            int countOfBlocksToReadValueSize = (Long.BYTES - tailOfLastReadKeyBlock) / uncompressedBlockSize + 1;
-            // allocate more space than keySize because we read entire block
-            decompressedValueSize
-                    = new byte[tailOfLastReadKeyBlock + countOfBlocksToReadValueSize * uncompressedBlockSize];
-
-            // copy tail of last decompressed block
-            System.arraycopy(
-                    decompressedKey.getArray(),
-                    (int) keySize,
-                    decompressedValueSize,
-                    0,
-                    tailOfLastReadKeyBlock
-            );
-
-            keyNBlockNumber = decompressBlocks(
-                    keyNBlockNumber,
-                    blockBuffer.get(),
-                    decompressedValueSize,
-                    countOfBlocksToReadValueSize
-            );
-        } else {
-            // copy value size
-            decompressedValueSize = new byte[Long.BYTES];
-            System.arraycopy(
-                    decompressedKeySize,
-                    (int) (keyNSizeBlockOffset + Long.BYTES + keySize),
-                    decompressedValueSize,
-                    0,
-                    Long.BYTES
-            );
-        }
-        valueSize = byteArrayToLong(decompressedValueSize, 0);
-        MemorySegment value;
-
-        if (valueSize == -1) {
-            value = null;
-        } else { // read value
-            int tailOfLastReadValueSizeBlock = (tailOfLastReadKeyBlock - Long.BYTES);
-            if (tailOfLastReadValueSizeBlock < valueSize) { // need to read more blocks
-                int countOfBlocksToReadValue
-                        = (int) ((valueSize - tailOfLastReadValueSizeBlock) / uncompressedBlockSize + 1);
-                // allocate more space than keySize because we read entire block
-                ByteArraySegment decompressedValue = new ByteArraySegment(
-                        tailOfLastReadValueSizeBlock + countOfBlocksToReadValue * uncompressedBlockSize
-                );
-
-                // copy tail of last decompressed block
-                System.arraycopy(
-                        decompressedValueSize,
-                        Long.BYTES,
-                        decompressedValue.getArray(),
-                        0,
-                        tailOfLastReadValueSizeBlock
-                );
-
-                keyNBlockNumber = decompressBlocks(
-                        keyNBlockNumber,
-                        blockBuffer.get(),
-                        decompressedValue.getArray(),
-                        countOfBlocksToReadValue
-                );
-                value = decompressedValue.segment().asSlice(0, valueSize);
-            } else { // last read block contains value
-                // copy value
-                ByteArraySegment decompressedValue = new ByteArraySegment((int) valueSize);
-                System.arraycopy(
-                        decompressedValueSize,
-                        Long.BYTES,
-                        decompressedValue.getArray(),
-                        0,
-                        (int) valueSize
-                );
-                value = decompressedValue.segment();
-            }
-        }
-
-        return new DecompressedEntry(key, value, keyNBlockNumber - initialKeyNBlockNumber);*/
     }
 
-    private int decompressBlocks(
-            int startBlockNumber,
-            ByteArraySegment blockBuffer,
-            byte[] targetDecompressedByteArray,
-            int countOfBlocksToRead
-    ) throws IOException {
-        return decompressBlocks(
-                startBlockNumber,
-                startBlockNumber,
-                blockBuffer,
-                targetDecompressedByteArray,
-                countOfBlocksToRead
-        );
-    }
-
-    private int decompressBlocks(
-            int start,
-            int startBlockNumber,
-            ByteArraySegment blockBuffer,
-            byte[] targetDecompressedByteArray,
-            int countOfBlocksToRead
-    ) throws IOException {
-        for (int i = start; i < countOfBlocksToRead; i++) {
-            int blockStart = getBlockOffset(startBlockNumber);
-            int blockEnd = startBlockNumber + 1 == blocksCount
-                    ? (int) mappedCompressionInfo.byteSize()
-                    : getBlockOffset(startBlockNumber + 1);
-
-            int compressedSize = blockEnd - blockStart;
-            decompressOneBlock(
-                    blockBuffer,
-                    blockStart,
-                    uncompressedBlockBuffer.get().getArray(),
-                    0,
-                    compressedSize,
-                    uncompressedBlockSize
-            );
-            // ====================================================================
-            //               BLOCK
-            // |................................|
-            //  ^_____DATA_____^
-            // countOfBlocksToRead - start == 1, so we should copy only DATA.length
-            // ====================================================================
-            //               BLOCK                              BLOCK
-            // |................................||................................|
-            //                            ^_____DATA_____^
-            // countOfBlocksToRead - start > 1, so we should copy
-            // ====================================================================
-            System.arraycopy(
-                    uncompressedBlockBuffer.get().getArray(),
-                    0,
-                    targetDecompressedByteArray,
-                    i * uncompressedBlockSize,
-                    Math.min(// fill full tail of targetDecompressedByteArray
-                            targetDecompressedByteArray.length - i * uncompressedBlockSize,
-                            // or
-                            (uncompressedBlockSize - 1) * i
-                    )
-            );
-
-            startBlockNumber++;
-        }
-        return startBlockNumber;
-    }
-
-    private int readCompressed(
+    private void readCompressed(
             int startBlockNumber,
             ByteArraySegment blockBuffer,
             byte[] targetDecompressedByteArray,
@@ -450,7 +256,6 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                     ? (int) mappedSSTable.byteSize()
                     : getBlockOffset(startBlockNumber + 1);
             int compressedSize = blockEnd - blockStart;
-            // todo workaround not full last block
             int uncompressedSize = startBlockNumber + 1 == blocksCount
                     ? getLastDataUncompressedSize()
                     : uncompressedBlockSize;
@@ -458,7 +263,6 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                     blockBuffer,
                     blockStart,
                     uncompressedBlockBuffer.get().getArray(),
-                    0,
                     compressedSize,
                     uncompressedSize
             );
@@ -479,7 +283,6 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
             startBlockNumber++;
         }
 
-        return startBlockNumber;
     }
 
     private int getLastDataUncompressedSize() {
@@ -511,9 +314,9 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
         return length;
     }
 
-    private static long byteArrayToLong(byte[] bytes, int offset) {
+    private static long byteArrayToLong(byte[] bytes) {
         long value = 0;
-        for (int i = offset + Long.BYTES - 1; i >= offset; i--) {
+        for (int i = Long.BYTES - 1; i >= 0; i--) {
             value <<= 8;
             value |= (bytes[i] & 0xFFL);
         }
