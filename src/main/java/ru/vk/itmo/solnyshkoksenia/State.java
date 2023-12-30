@@ -18,16 +18,16 @@ import java.util.concurrent.atomic.AtomicLong;
 public class State {
     private static final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
     protected final Config config;
-    protected final NavigableMap<MemorySegment, Triple<MemorySegment>> storage;
-    protected final NavigableMap<MemorySegment, Triple<MemorySegment>> flushingStorage;
+    protected final NavigableMap<MemorySegment, EntryExtended<MemorySegment>> storage;
+    protected final NavigableMap<MemorySegment, EntryExtended<MemorySegment>> flushingStorage;
     protected final DiskStorage diskStorage;
     private final AtomicLong storageByteSize = new AtomicLong();
     private final AtomicBoolean isClosed = new AtomicBoolean();
     private final AtomicBoolean overflow = new AtomicBoolean();
 
     public State(Config config,
-                 NavigableMap<MemorySegment, Triple<MemorySegment>> storage,
-                 NavigableMap<MemorySegment, Triple<MemorySegment>> flushingStorage,
+                 NavigableMap<MemorySegment, EntryExtended<MemorySegment>> storage,
+                 NavigableMap<MemorySegment, EntryExtended<MemorySegment>> flushingStorage,
                  DiskStorage diskStorage) {
         this.config = config;
         this.storage = storage;
@@ -49,14 +49,14 @@ public class State {
             long[] ar = {System.currentTimeMillis() + ttl};
             expiration = MemorySegment.ofArray(ar);
         }
-        Triple<MemorySegment> triple = new Triple<>(entry.key(), entry.value(), expiration);
-        Triple<MemorySegment> previousEntry = storage.put(triple.key(), triple);
+        EntryExtended<MemorySegment> entryExtended = new EntryExtended<>(entry.key(), entry.value(), expiration);
+        EntryExtended<MemorySegment> previousEntry = storage.put(entryExtended.key(), entryExtended);
 
         if (previousEntry != null) {
             storageByteSize.addAndGet(-getSize(previousEntry));
         }
 
-        if (storageByteSize.addAndGet(getSize(triple)) > config.flushThresholdBytes()) {
+        if (storageByteSize.addAndGet(getSize(entryExtended)) > config.flushThresholdBytes()) {
             overflow.set(true);
         }
     }
@@ -65,7 +65,7 @@ public class State {
         diskStorage.save(storage.values());
     }
 
-    private static long getSize(Triple<MemorySegment> entry) {
+    private static long getSize(EntryExtended<MemorySegment> entry) {
         long valueSize = entry.value() == null ? 0 : entry.value().byteSize();
         long expirationSize = entry.expiration() == null ? 0 : entry.expiration().byteSize();
         return Long.BYTES + entry.key().byteSize() + Long.BYTES + valueSize + Long.BYTES + expirationSize;
@@ -104,7 +104,7 @@ public class State {
     }
 
     public Entry<MemorySegment> get(MemorySegment key, Comparator<MemorySegment> comparator) {
-        Triple<MemorySegment> entry = storage.get(key);
+        EntryExtended<MemorySegment> entry = storage.get(key);
         if (isValidEntry(entry)) {
             return entry.value() == null ? null : entry;
         }
@@ -114,25 +114,25 @@ public class State {
             return entry.value() == null ? null : entry;
         }
 
-        Iterator<Triple<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+        Iterator<EntryExtended<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
 
         if (!iterator.hasNext()) {
             return null;
         }
-        Triple<MemorySegment> next = iterator.next();
+        EntryExtended<MemorySegment> next = iterator.next();
         if (comparator.compare(next.key(), key) == 0 && isValidEntry(next)) {
                 return next;
         }
         return null;
     }
 
-    private boolean isValidEntry(Triple<MemorySegment> entry) {
+    private boolean isValidEntry(EntryExtended<MemorySegment> entry) {
         return entry != null && (entry.expiration() == null
                 || entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis());
     }
 
-    protected Iterator<Triple<MemorySegment>> getInMemory(NavigableMap<MemorySegment, Triple<MemorySegment>> memory,
-                                                          MemorySegment from, MemorySegment to) {
+    protected Iterator<EntryExtended<MemorySegment>> getInMemory(NavigableMap<MemorySegment, EntryExtended<MemorySegment>> memory,
+                                                                 MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
             return memory.values().iterator();
         }

@@ -2,14 +2,13 @@ package ru.vk.itmo.solnyshkoksenia.storage;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.solnyshkoksenia.EntryExtended;
 import ru.vk.itmo.solnyshkoksenia.MemorySegmentComparator;
 import ru.vk.itmo.solnyshkoksenia.MergeIterator;
-import ru.vk.itmo.solnyshkoksenia.Triple;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
@@ -36,11 +35,11 @@ public class DiskStorage {
         this.storagePath = storagePath;
     }
 
-    public Iterator<Triple<MemorySegment>> range(
-            Iterator<Triple<MemorySegment>> firstIterator,
+    public Iterator<EntryExtended<MemorySegment>> range(
+            Iterator<EntryExtended<MemorySegment>> firstIterator,
             MemorySegment from,
             MemorySegment to) {
-        List<Iterator<Triple<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        List<Iterator<EntryExtended<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
@@ -48,18 +47,17 @@ public class DiskStorage {
 
         return new MergeIterator<>(iterators, (e1, e2) -> comparator.compare(e1.key(), e2.key())) {
             @Override
-            protected boolean skip(Triple<MemorySegment> memorySegmentEntry) {
+            protected boolean skip(EntryExtended<MemorySegment> memorySegmentEntry) {
                 if (memorySegmentEntry.expiration() != null) {
                     return memorySegmentEntry.value() == null
-                            || memorySegmentEntry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0]
-                                    <= System.currentTimeMillis();
+                            || !utils.checkTTL(memorySegmentEntry.expiration(), System.currentTimeMillis());
                 }
                 return memorySegmentEntry.value() == null;
             }
         };
     }
 
-    public void save(Iterable<Triple<MemorySegment>> iterable)
+    public void save(Iterable<EntryExtended<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
@@ -73,19 +71,25 @@ public class DiskStorage {
 
         String newFileName = String.valueOf(existedFiles.size());
 
+        final long currentTime = System.currentTimeMillis();
         long dataSize = 0;
         long count = 0;
-        for (Triple<MemorySegment> entry : iterable) {
-            dataSize += entry.key().byteSize();
-            MemorySegment value = entry.value();
-            if (value != null) {
-                dataSize += value.byteSize();
-            }
+        for (EntryExtended<MemorySegment> entry : iterable) {
             MemorySegment expiration = entry.expiration();
-            if (expiration != null) {
-                dataSize += expiration.byteSize();
+            if (expiration == null || utils.checkTTL(expiration, currentTime)) {
+                dataSize += entry.key().byteSize();
+                MemorySegment value = entry.value();
+                if (value != null) {
+                    dataSize += value.byteSize();
+                }
+                if (expiration != null) {
+                    dataSize += expiration.byteSize();
+                }
+                count++;
             }
-            count++;
+        }
+        if (count == 0) {
+            return;
         }
         long indexSize = count * 3 * Long.BYTES;
 
@@ -107,8 +111,11 @@ public class DiskStorage {
             // data:
             // |key0|value0|expiration0|key1|value1|expiration1|...
             Entry<Long> offsets = new BaseEntry<>(indexSize, 0L);
-            for (Triple<MemorySegment> triple : iterable) {
-                offsets = utils.putEntry(fileSegment, offsets, triple);
+            for (EntryExtended<MemorySegment> entry : iterable) {
+                MemorySegment expiration = entry.expiration();
+                if (expiration == null || utils.checkTTL(expiration, currentTime)) {
+                    offsets = utils.putEntry(fileSegment, offsets, entry);
+                }
             }
         }
 
@@ -144,14 +151,14 @@ public class DiskStorage {
             return; // nothing to compact
         }
 
-        Iterator<Triple<MemorySegment>> iterator = range(Collections.emptyIterator(), null, null);
-        Iterator<Triple<MemorySegment>> iterator1 = range(Collections.emptyIterator(), null, null);
+        Iterator<EntryExtended<MemorySegment>> iterator = range(Collections.emptyIterator(), null, null);
+        Iterator<EntryExtended<MemorySegment>> iterator1 = range(Collections.emptyIterator(), null, null);
 
         long dataSize = 0;
         long indexSize = 0;
         while (iterator.hasNext()) {
             indexSize += Long.BYTES * 3;
-            Triple<MemorySegment> entry = iterator.next();
+            EntryExtended<MemorySegment> entry = iterator.next();
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
             if (value != null) {
@@ -233,7 +240,7 @@ public class DiskStorage {
         return result;
     }
 
-    private static Iterator<Triple<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
+    private static Iterator<EntryExtended<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : utils.normalize(utils.indexOf(page, from));
         long recordIndexTo = to == null ? utils.recordsCount(page) : utils.normalize(utils.indexOf(page, to));
         long recordsCount = utils.recordsCount(page);
@@ -247,7 +254,7 @@ public class DiskStorage {
             }
 
             @Override
-            public Triple<MemorySegment> next() {
+            public EntryExtended<MemorySegment> next() {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
@@ -263,7 +270,7 @@ public class DiskStorage {
                                 ? null
                                 : utils.slice(page, startOfExp, utils.endOfExpiration(page, index, recordsCount));
                 index++;
-                return new Triple<>(key, value, expiration);
+                return new EntryExtended<>(key, value, expiration);
             }
         };
     }

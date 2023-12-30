@@ -40,15 +40,26 @@ public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
         State state = this.curState.checkAndGet();
-        List<Iterator<Triple<MemorySegment>>> iterators = List.of(
+        List<Iterator<EntryExtended<MemorySegment>>> iterators = List.of(
                 state.getInMemory(state.flushingStorage, from, to),
                 state.getInMemory(state.storage, from, to)
         );
 
-        Iterator<Triple<MemorySegment>> iterator = new MergeIterator<>(iterators,
+        Iterator<EntryExtended<MemorySegment>> iterator = new MergeIterator<>(iterators,
                 (e1, e2) -> comparator.compare(e1.key(), e2.key()));
+        Iterator<EntryExtended<MemorySegment>> innerIterator = state.diskStorage.range(iterator, from, to);
 
-        return new FilterIterator(state.diskStorage.range(iterator, from, to));
+        return new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                return innerIterator.hasNext();
+            }
+
+            @Override
+            public Entry<MemorySegment> next() {
+                return innerIterator.next();
+            }
+        };
     }
 
     public void upsert(Entry<MemorySegment> entry, Long ttl) {

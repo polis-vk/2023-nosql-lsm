@@ -198,7 +198,7 @@ public class ExpirationTest {
         try {
             DaoImpl dao = new DaoImpl(config);
             for (int i = 0; i < 25; i++) {
-                dao.upsert(entry(i), 1000 * 60L);
+                dao.upsert(entry(i), 1000 * 60 * 60L);
             }
             dao.close();
             dao = new DaoImpl(config);

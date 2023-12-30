@@ -2,7 +2,7 @@ package ru.vk.itmo.solnyshkoksenia.storage;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
-import ru.vk.itmo.solnyshkoksenia.Triple;
+import ru.vk.itmo.solnyshkoksenia.EntryExtended;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -64,7 +64,7 @@ public class StorageUtils {
         );
     }
 
-    protected Entry<Long> putEntry(MemorySegment fileSegment, Entry<Long> offsets, Triple<MemorySegment> entry) {
+    protected Entry<Long> putEntry(MemorySegment fileSegment, Entry<Long> offsets, EntryExtended<MemorySegment> entry) {
         long dataOffset = offsets.key();
         long indexOffset = offsets.value();
         fileSegment.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dataOffset);
@@ -144,5 +144,9 @@ public class StorageUtils {
         }
 
         return tombstone(left);
+    }
+
+    protected boolean checkTTL(MemorySegment expiration, long time) {
+        return expiration.get(ValueLayout.JAVA_LONG_UNALIGNED, 0) > time;
     }
 }
