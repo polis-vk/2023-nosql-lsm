@@ -64,6 +64,20 @@ public class StorageUtils {
         );
     }
 
+    protected Entry<Long> countEntrySize(EntryExtended<MemorySegment> entry, Entry<Long> sizes) {
+        long dataSize = sizes.key();
+        dataSize += entry.key().byteSize();
+        MemorySegment value = entry.value();
+        if (value != null) {
+            dataSize += value.byteSize();
+        }
+        MemorySegment expiration = entry.expiration();
+        if (expiration != null) {
+            dataSize += expiration.byteSize();
+        }
+        return new BaseEntry<>(dataSize, sizes.value() + 1);
+    }
+
     protected Entry<Long> putEntry(MemorySegment fileSegment, Entry<Long> offsets, EntryExtended<MemorySegment> entry) {
         long dataOffset = offsets.key();
         long indexOffset = offsets.value();

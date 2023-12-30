@@ -121,7 +121,7 @@ public class State {
         }
         EntryExtended<MemorySegment> next = iterator.next();
         if (comparator.compare(next.key(), key) == 0 && isValidEntry(next)) {
-                return next;
+            return next;
         }
         return null;
     }
@@ -131,8 +131,9 @@ public class State {
                 || entry.expiration().toArray(ValueLayout.JAVA_LONG_UNALIGNED)[0] > System.currentTimeMillis());
     }
 
-    protected Iterator<EntryExtended<MemorySegment>> getInMemory(NavigableMap<MemorySegment, EntryExtended<MemorySegment>> memory,
-                                                                 MemorySegment from, MemorySegment to) {
+    protected Iterator<EntryExtended<MemorySegment>> getInMemory(
+            NavigableMap<MemorySegment, EntryExtended<MemorySegment>> memory,
+            MemorySegment from, MemorySegment to) {
         if (from == null && to == null) {
             return memory.values().iterator();
         }

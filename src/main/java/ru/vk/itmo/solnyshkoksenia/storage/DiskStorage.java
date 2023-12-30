@@ -72,22 +72,17 @@ public class DiskStorage {
         String newFileName = String.valueOf(existedFiles.size());
 
         final long currentTime = System.currentTimeMillis();
-        long dataSize = 0;
-        long count = 0;
+
+        Entry<Long> sizes = new BaseEntry<>(0L, 0L);
         for (EntryExtended<MemorySegment> entry : iterable) {
             MemorySegment expiration = entry.expiration();
             if (expiration == null || utils.checkTTL(expiration, currentTime)) {
-                dataSize += entry.key().byteSize();
-                MemorySegment value = entry.value();
-                if (value != null) {
-                    dataSize += value.byteSize();
-                }
-                if (expiration != null) {
-                    dataSize += expiration.byteSize();
-                }
-                count++;
+                sizes = utils.countEntrySize(entry, sizes);
             }
         }
+        long dataSize = sizes.key();
+        long count = sizes.value();
+
         if (count == 0) {
             return;
         }
@@ -240,7 +235,8 @@ public class DiskStorage {
         return result;
     }
 
-    private static Iterator<EntryExtended<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
+    private static Iterator<EntryExtended<MemorySegment>> iterator(MemorySegment page,
+                                                                   MemorySegment from, MemorySegment to) {
         long recordIndexFrom = from == null ? 0 : utils.normalize(utils.indexOf(page, from));
         long recordIndexTo = to == null ? utils.recordsCount(page) : utils.normalize(utils.indexOf(page, to));
         long recordsCount = utils.recordsCount(page);
