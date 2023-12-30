@@ -167,7 +167,7 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
             long bytes;
             // calc bytes size to write
             int localBufferOffset = blobBufferOffset;
-            if (blobBufferOffset + memorySegmentSize <= blockSize) {
+            if (blobBufferOffset + memorySegmentSize - writtenMemorySegmentBytes <= blockSize) {
                 bytes = memorySegmentSize - writtenMemorySegmentBytes;
                 blobBufferOffset += (int) bytes;
             } else {

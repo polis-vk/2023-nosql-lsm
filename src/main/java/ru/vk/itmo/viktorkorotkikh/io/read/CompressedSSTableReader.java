@@ -204,7 +204,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
         if (valueSize == -1) {
             return new BaseEntry<>(keyByteArray.segment(), null);
         } else { // read value
-            ByteArraySegment valueByteArray = new ByteArraySegment((int) keySize);
+            ByteArraySegment valueByteArray = new ByteArraySegment((int) valueSize);
             readCompressed(
                     lastUncompressedBlockInfo.get().lastUncompressedBlockNumber,
                     blockBuffer.get(),
