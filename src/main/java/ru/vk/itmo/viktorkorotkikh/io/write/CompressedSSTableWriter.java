@@ -130,22 +130,17 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
     ) throws IOException {
         longBuffer.segment().set(ValueLayout.JAVA_LONG_UNALIGNED, 0, value);
         int longBytesIndex = 0;
-        int i = blobBufferOffset;
         while (longBytesIndex < Long.BYTES) {
-            int index = i;
+            int index = blobBufferOffset;
 
             int finalLongBytesIndex = longBytesIndex;
-            byte keySizeByte = longBuffer.withArrayReturn(longBytes -> longBytes[finalLongBytesIndex]);
+            byte longByte = longBuffer.withArrayReturn(longBytes -> longBytes[finalLongBytesIndex]);
 
-            blobBuffer.withArray(array -> array[index] = keySizeByte);
-            i++;
+            blobBuffer.withArray(array -> array[index] = longByte);
+            blobBufferOffset++;
             longBytesIndex++;
-            if (i >= blockSize) {
-                flush(os, compressionInfoStream);
-                i = 0;
-            }
+            flush(os, compressionInfoStream);
         }
-        blobBufferOffset = i;
     }
 
     /**
