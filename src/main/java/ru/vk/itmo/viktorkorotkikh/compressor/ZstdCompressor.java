@@ -6,6 +6,7 @@ import java.io.IOException;
 
 public class ZstdCompressor implements Compressor {
     public static ZstdCompressor INSTANCE = new ZstdCompressor();
+
     @Override
     public byte[] compress(byte[] src) throws IOException {
         return Zstd.compress(src);
