@@ -81,7 +81,8 @@ public abstract class AbstractSSTableWriter {
             // index:
             // keyNBlockNumber - номер блока для начала ключа номер N (key1Size|key1|value1Size|value1)
             // keyNSizeBlockOffset - смещение начала размера ключа внутри блока
-            // hasNoTombstones|entriesSize|key1BlockNumber|key1SizeBlockOffset|key2BlockNumber|key2SizeBlockOffset|...|keyNBlockNumber|keyNSizeBlockOffset|
+            // hasNoTombstones|entriesSize|key1BlockNumber|key1SizeBlockOffset|key2BlockNumber|key2SizeBlockOffset|
+            // ...|keyNBlockNumber|keyNSizeBlockOffset|
             // data:
             // block1|block2|...|blockN
 

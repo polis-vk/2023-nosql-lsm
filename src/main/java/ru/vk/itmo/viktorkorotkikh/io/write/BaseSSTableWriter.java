@@ -8,7 +8,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 public final class BaseSSTableWriter extends AbstractSSTableWriter {
-    private long entryOffset = 0L;
+    private long entryOffset;
 
     public BaseSSTableWriter() {
         super(-1);
@@ -24,7 +24,6 @@ public final class BaseSSTableWriter extends AbstractSSTableWriter {
         mappedIndexFile.set(ValueLayout.JAVA_BOOLEAN, 0, hasNoTombstones);
         mappedIndexFile.set(ValueLayout.JAVA_LONG_UNALIGNED, 1, entriesSize);
     }
-
 
     @Override
     protected void writeEntry(

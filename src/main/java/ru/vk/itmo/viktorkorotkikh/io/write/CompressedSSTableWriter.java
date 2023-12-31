@@ -13,7 +13,8 @@ import java.lang.foreign.ValueLayout;
  * isCompressed|algorithm|blocksCount|uncompressedBlockSize|block1Offset|block2Offset|blockNOffset
  * <p/>
  * <B>index</B>:
- * hasNoTombstones|entriesSize|key1BlockNumber|key1SizeBlockOffset|key2BlockNumber|key2SizeBlockOffset|keyNBlockNumber|keyNSizeBlockOffset|
+ * hasNoTombstones|entriesSize|key1BlockNumber|key1SizeBlockOffset|key2BlockNumber|key2SizeBlockOffset| ...
+ * |keyNBlockNumber|keyNSizeBlockOffset|
  * <p/>
  * keyNBlockNumber - номер блока для начала ключа номер N (key1Size|key1|value1Size|value1)
  * <br/>
@@ -25,10 +26,9 @@ import java.lang.foreign.ValueLayout;
 public final class CompressedSSTableWriter extends AbstractSSTableWriter {
 
     private final Compressor compressor;
-    private int blobBufferOffset = 0;
-    private int blockCount = 0;
-
-    private int blockOffset = 0;
+    private int blobBufferOffset;
+    private int blockCount;
+    private int blockOffset;
 
     public CompressedSSTableWriter(Compressor compressor, int blockSize) {
         super(blockSize);
@@ -60,7 +60,7 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
     ) throws IOException {
         // write index
         writeInt(indexStream, blockCount); // keyNBlockNumber
-        writeInt(indexStream, blobBufferOffset);  // keyNSizeBlockOffset
+        writeInt(indexStream, blobBufferOffset); // keyNSizeBlockOffset
 
         final MemorySegment key = entry.key();
         final long keySize = key.byteSize();
@@ -149,7 +149,7 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
     }
 
     /**
-     * Write memorySegment to blobBuffer and flush it if necessary to os
+     * Write memorySegment to blobBuffer and flush it if necessary to os.
      *
      * @param memorySegment memorySegment to write
      * @param os            outputStream to flush

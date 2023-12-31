@@ -66,7 +66,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
     }
 
     @Override
-    public LSMPointerIterator iterator(MemorySegment from, MemorySegment to) throws Exception {
+    public LSMPointerIterator iterator(MemorySegment from, MemorySegment to) throws IOException {
         int fromPosition = 0;
         int toPosition = (int) getEntriesSize() - 1;
         ByteArraySegment iteratorBlockBuffer = null;
@@ -78,11 +78,16 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
             iteratorBlockBuffer = getBuffer();
             iteratorUncompressedBuffer = getBuffer();
             iteratorLastUncompressedBlockInfo = new LastUncompressedBlockInfo();
-            fromPosition = ScopedValue
-                    .where(blockBuffer, iteratorBlockBuffer)
-                    .where(uncompressedBlockBuffer, iteratorUncompressedBuffer)
-                    .where(lastUncompressedBlockInfo, iteratorLastUncompressedBlockInfo)
-                    .call(() -> (int) getEntryOffset(from, SearchOption.GTE));
+            try {
+                fromPosition = ScopedValue
+                        .where(blockBuffer, iteratorBlockBuffer)
+                        .where(uncompressedBlockBuffer, iteratorUncompressedBuffer)
+                        .where(lastUncompressedBlockInfo, iteratorLastUncompressedBlockInfo)
+                        .call(() -> (int) getEntryOffset(from, SearchOption.GTE));
+            } catch (Exception e) {
+                throw new IOException(e);
+            }
+
             if (fromPosition == -1) {
                 return new CompressedSSTableIterator(0, -1, null, null, null);
             }
@@ -91,11 +96,16 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
             ByteArraySegment toBlockBuffer = getBuffer();
             ByteArraySegment toUncompressedBuffer = getBuffer();
             LastUncompressedBlockInfo toLastUncompressedBlockInfo = new LastUncompressedBlockInfo();
-            toPosition = ScopedValue
-                    .where(blockBuffer, toBlockBuffer)
-                    .where(uncompressedBlockBuffer, toUncompressedBuffer)
-                    .where(lastUncompressedBlockInfo, toLastUncompressedBlockInfo)
-                    .call(() -> (int) getEntryOffset(to, SearchOption.LT));
+            try {
+                toPosition = ScopedValue
+                        .where(blockBuffer, toBlockBuffer)
+                        .where(uncompressedBlockBuffer, toUncompressedBuffer)
+                        .where(lastUncompressedBlockInfo, toLastUncompressedBlockInfo)
+                        .call(() -> (int) getEntryOffset(to, SearchOption.LT));
+            } catch (Exception e) {
+                throw new IOException(e);
+            }
+
             if (toPosition == -1) {
                 return new CompressedSSTableIterator(0, -1, null, null, null);
             }
@@ -150,7 +160,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
     }
 
     @Override
-    public Entry<MemorySegment> get(MemorySegment key) {
+    public Entry<MemorySegment> get(MemorySegment key) throws IOException {
         try {
             return ScopedValue
                     .where(blockBuffer, getBuffer())
@@ -158,7 +168,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                     .where(lastUncompressedBlockInfo, new LastUncompressedBlockInfo())
                     .call(() -> super.get(key));
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new IOException(e);
         }
     }
 
@@ -235,8 +245,8 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
         int decompressedAndCopiedLength = 0;
         LastUncompressedBlockInfo localLastUncompressedBlockInfo = lastUncompressedBlockInfo.get();
         while (decompressedAndCopiedLength < targetDecompressedByteArray.length) {
-            if (localLastUncompressedBlockInfo.lastUncompressedBlockNumber == startBlockNumber &&
-                    localLastUncompressedBlockInfo.lastUncompressedBlockOffset < uncompressedBlockSize) {
+            if (localLastUncompressedBlockInfo.lastUncompressedBlockNumber == startBlockNumber
+                    && localLastUncompressedBlockInfo.lastUncompressedBlockOffset < uncompressedBlockSize) {
                 // read tail from the last uncompressed block
                 int length = readFromDecompressedBlock(
                         targetDecompressedByteArray,
@@ -293,6 +303,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
     }
 
     /**
+     * Read bytes from decompressed block.
      * @param target       target array
      * @param targetOffset starting position in the target data
      * @param blockOffset  offset in uncompressedBlockBuffer
@@ -383,24 +394,28 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                 ByteArraySegment iteratorCompressedBlockBuffer,
                 ByteArraySegment iteratorUncompressedBlockBuffer,
                 LastUncompressedBlockInfo iteratorLastUncompressedBlockInfo
-        ) throws Exception {
+        ) throws IOException {
             this.startEntityNumber = startEntityNumber;
             this.endEntityNumber = endEntityNumber;
             this.iteratorCompressedBlockBuffer = iteratorCompressedBlockBuffer;
             this.iteratorUncompressedBlockBuffer = iteratorUncompressedBlockBuffer;
             this.iteratorLastUncompressedBlockInfo = iteratorLastUncompressedBlockInfo;
             if (startEntityNumber <= endEntityNumber) {
-                current = ScopedValue
-                        .where(blockBuffer, this.iteratorCompressedBlockBuffer)
-                        .where(uncompressedBlockBuffer, this.iteratorUncompressedBlockBuffer)
-                        .where(lastUncompressedBlockInfo, this.iteratorLastUncompressedBlockInfo)
-                        .call(() -> {
-                            try {
-                                return readEntry(startEntityNumber, true);
-                            } catch (IOException e) {
-                                throw new UncheckedIOException(e);
-                            }
-                        });
+                try {
+                    current = ScopedValue
+                            .where(blockBuffer, this.iteratorCompressedBlockBuffer)
+                            .where(uncompressedBlockBuffer, this.iteratorUncompressedBlockBuffer)
+                            .where(lastUncompressedBlockInfo, this.iteratorLastUncompressedBlockInfo)
+                            .call(() -> {
+                                try {
+                                    return readEntry(startEntityNumber, true);
+                                } catch (IOException e) {
+                                    throw new UncheckedIOException(e);
+                                }
+                            });
+                } catch (Exception e) {
+                    throw new IOException(e);
+                }
                 this.startEntityNumber += 1;
             }
         }
@@ -447,7 +462,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                         });
                 startEntityNumber += 1;
             } catch (Exception e) {
-                throw new RuntimeException(e);
+                throw (UncheckedIOException) e;
             }
         }
 

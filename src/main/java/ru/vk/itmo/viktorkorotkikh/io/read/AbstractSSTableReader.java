@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Iterator;
 
 public abstract class AbstractSSTableReader {
     protected final MemorySegment mappedSSTable;
@@ -27,7 +26,7 @@ public abstract class AbstractSSTableReader {
         this.index = index;
     }
 
-    public Entry<MemorySegment> get(MemorySegment key) {
+    public Entry<MemorySegment> get(MemorySegment key) throws IOException {
         try {
             long entryOffset = getEntryOffset(key, SearchOption.EQ);
             if (entryOffset == -1) {
@@ -39,7 +38,7 @@ public abstract class AbstractSSTableReader {
         }
     }
 
-    public abstract LSMPointerIterator iterator(MemorySegment from, MemorySegment to) throws Exception;
+    public abstract LSMPointerIterator iterator(MemorySegment from, MemorySegment to) throws IOException;
 
     protected abstract Entry<MemorySegment> getByIndex(long index) throws IOException;
 

@@ -6,19 +6,19 @@ import java.io.IOException;
 
 public class LZ4Compressor implements Compressor {
     public static LZ4Compressor INSTANCE = new LZ4Compressor();
-    private final net.jpountz.lz4.LZ4Compressor lz4Compressor;
+    private final net.jpountz.lz4.LZ4Compressor lz4FastCompressor;
 
     public LZ4Compressor() {
-        this.lz4Compressor = LZ4Factory.fastestInstance().fastCompressor();
+        this.lz4FastCompressor = LZ4Factory.fastestInstance().fastCompressor();
     }
 
     @Override
     public byte[] compress(byte[] src) throws IOException {
-        return lz4Compressor.compress(src);
+        return lz4FastCompressor.compress(src);
     }
 
     @Override
     public byte[] compress(byte[] src, int len) throws IOException {
-        return lz4Compressor.compress(src, 0, len);
+        return lz4FastCompressor.compress(src, 0, len);
     }
 }
