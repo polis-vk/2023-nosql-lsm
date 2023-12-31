@@ -26,7 +26,7 @@ public abstract class AbstractSSTableWriter {
 
     private static final long INDEX_METADATA_SIZE = Long.BYTES + 1L; // entries size + hasNoTombstones flag
 
-    private static final long COMPRESSION_INFO_METADATA_SIZE = 2L * Integer.BYTES; // blocksCount|blockSize
+    private static final int COMPRESSION_INFO_METADATA_SIZE = 2 * Integer.BYTES; // blocksCount|blockSize
 
     protected AbstractSSTableWriter(int blockSize) {
         this.blockSize = blockSize;
@@ -75,19 +75,8 @@ public abstract class AbstractSSTableWriter {
 
             Iterator<? extends Entry<MemorySegment>> entries = iteratorSupplier.get();
 
-            // Iterate and serialize
-            // compression info:
-            // isCompressed|algorithm|blocksCount|blockSize|block1Offset|block2Offset|...|blockNOffset
-            // index:
-            // keyNBlockNumber - номер блока для начала ключа номер N (key1Size|key1|value1Size|value1)
-            // keyNSizeBlockOffset - смещение начала размера ключа внутри блока
-            // hasNoTombstones|entriesSize|key1BlockNumber|key1SizeBlockOffset|key2BlockNumber|key2SizeBlockOffset|
-            // ...|keyNBlockNumber|keyNSizeBlockOffset|
-            // data:
-            // block1|block2|...|blockN
-
             writeCompressionHeader(compressionInfo);
-            compressionInfo.write(new byte[(int) COMPRESSION_INFO_METADATA_SIZE]); // write 0, fill in the data later
+            compressionInfo.write(new byte[COMPRESSION_INFO_METADATA_SIZE]); // write 0s, fill in the data later
 
             int entriesSize = 0;
             boolean hasNoTombstones = true;

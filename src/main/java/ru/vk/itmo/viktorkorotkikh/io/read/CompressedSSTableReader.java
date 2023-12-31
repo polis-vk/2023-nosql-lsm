@@ -246,13 +246,13 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
         //               BLOCK
         // |................................|
         //  ^_____DATA_____^
-        // uncompressedBlockSize - blockOffset >= targetDecompressedByteArray.length
+        // uncompressedBlockSize - lastUncompressedBlockOffset >= targetDecompressedByteArray.length
         // so we should copy only DATA.length
         // ====================================================================
         //               BLOCK                              BLOCK
         // |................................||................................|
         //                            ^_____DATA_____^
-        // uncompressedBlockSize - blockOffset < targetDecompressedByteArray.length
+        // uncompressedBlockSize - lastUncompressedBlockOffset < targetDecompressedByteArray.length
         // so we should copy tail of startBlockNumber and part of the next block(s)
         // ====================================================================
 
@@ -277,7 +277,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
             }
             int blockStart = getBlockOffset(startBlockNumber);
             int blockEnd = startBlockNumber + 1 >= blocksCount
-                    ? (int) mappedSSTable.byteSize()
+                    ? (int) mappedSSTable.byteSize() // the end of the last block is the end of the mappedSSTable
                     : getBlockOffset(startBlockNumber + 1);
             int compressedSize = blockEnd - blockStart;
             int uncompressedSize = startBlockNumber + 1 == blocksCount

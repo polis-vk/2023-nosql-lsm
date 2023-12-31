@@ -65,12 +65,7 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
         final MemorySegment key = entry.key();
         final long keySize = key.byteSize();
         // write keyNSize
-        int writtenBytes = writeLong(keySize, 0);
-
-        while (writtenBytes < Long.BYTES) { // continue writing keySize
-            flush(os, compressionInfoStream);
-            writtenBytes += writeLong(keySize, writtenBytes);
-        }
+        writeLong(keySize, os, compressionInfoStream);
 
         // write key
         writeMemorySegment(key, os, compressionInfoStream);
@@ -84,11 +79,7 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
         }
 
         // write value size
-        writtenBytes = writeLong(valueSize, 0);
-        while (writtenBytes < Long.BYTES) { // continue writing keySize
-            flush(os, compressionInfoStream);
-            writtenBytes += writeLong(valueSize, writtenBytes);
-        }
+        writeLong(valueSize, os, compressionInfoStream);
 
         if (value != null) {
             // write value
@@ -132,11 +123,15 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
         blockOffset += compressed.length;
     }
 
-    private int writeLong(final long value, final int writtenBytes) throws IOException {
+    private void writeLong(
+            final long value,
+            OutputStream os,
+            OutputStream compressionInfoStream
+    ) throws IOException {
         longBuffer.segment().set(ValueLayout.JAVA_LONG_UNALIGNED, 0, value);
-        int longBytesIndex = writtenBytes;
+        int longBytesIndex = 0;
         int i = blobBufferOffset;
-        while (i < blockSize && longBytesIndex < Long.BYTES) { // write part
+        while (longBytesIndex < Long.BYTES) {
             int index = i;
 
             int finalLongBytesIndex = longBytesIndex;
@@ -145,9 +140,12 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
             blobBuffer.withArray(array -> array[index] = keySizeByte);
             i++;
             longBytesIndex++;
+            if (i >= blockSize) {
+                flush(os, compressionInfoStream);
+                i = 0;
+            }
         }
-        blobBufferOffset += longBytesIndex - writtenBytes;
-        return longBytesIndex - writtenBytes;
+        blobBufferOffset = i;
     }
 
     /**
