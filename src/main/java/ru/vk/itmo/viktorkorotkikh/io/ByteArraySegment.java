@@ -32,10 +32,6 @@ public final class ByteArraySegment {
         return consumer.process(array);
     }
 
-    public byte[] getArray() {
-        return array;
-    }
-
     public MemorySegment segment() {
         return segment;
     }
