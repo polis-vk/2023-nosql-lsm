@@ -195,10 +195,12 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
     protected void writeCompressionHeader(OutputStream os) throws IOException {
         os.write(1); // isCompressed == true
         // algorithm: 0 - LZ4; 1 - ZSTD
-        switch (compressor) {
-            case LZ4Compressor ignored -> os.write(0);
-            case ZstdCompressor ignored -> os.write(1); // algorithm: 0 - LZ4
-            default -> throw new IllegalStateException("Unexpected value: " + compressor);
+        if (compressor instanceof LZ4Compressor) { // switch-case codeclimate error
+            os.write(0);
+        } else if (compressor instanceof ZstdCompressor) {
+            os.write(1);
+        } else {
+            throw new IllegalStateException("Unexpected value: " + compressor);
         }
     }
 }
