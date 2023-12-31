@@ -112,7 +112,7 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
      */
     private void flush(OutputStream os, OutputStream compressionInfoStream) throws IOException {
         if (blobBufferOffset >= blockSize) {
-            byte[] compressed = compressor.compress(blobBuffer.getArray());
+            byte[] compressed = blobBuffer.withArrayReturn(compressor::compress);
             os.write(compressed);
             blobBufferOffset = 0;
             blockCount++;
@@ -123,7 +123,7 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
 
     @Override
     protected void finish(OutputStream os, OutputStream compressionInfoStream) throws IOException {
-        byte[] compressed = compressor.compress(blobBuffer.getArray(), blobBufferOffset);
+        byte[] compressed = blobBuffer.withArrayReturn(src -> compressor.compress(src, blobBufferOffset));
         os.write(compressed);
         writeInt(compressionInfoStream, blockOffset);
         writeInt(compressionInfoStream, blobBufferOffset); // size of last uncompressed data
@@ -134,12 +134,14 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
 
     private int writeLong(final long value, final int writtenBytes) throws IOException {
         longBuffer.segment().set(ValueLayout.JAVA_LONG_UNALIGNED, 0, value);
-        byte[] longBytes = longBuffer.getArray();
         int longBytesIndex = writtenBytes;
         int i = blobBufferOffset;
-        while (i < blockSize && longBytesIndex < longBytes.length) { // write part
+        while (i < blockSize && longBytesIndex < Long.BYTES) { // write part
             int index = i;
-            byte keySizeByte = longBytes[longBytesIndex];
+
+            int finalLongBytesIndex = longBytesIndex;
+            byte keySizeByte = longBuffer.withArrayReturn(longBytes -> longBytes[finalLongBytesIndex]);
+
             blobBuffer.withArray(array -> array[index] = keySizeByte);
             i++;
             longBytesIndex++;

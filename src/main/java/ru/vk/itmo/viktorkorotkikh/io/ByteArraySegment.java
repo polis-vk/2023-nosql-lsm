@@ -28,6 +28,10 @@ public final class ByteArraySegment {
         consumer.process(array);
     }
 
+    public <T> T withArrayReturn(final ArrayProcessor<T> consumer) throws IOException {
+        return consumer.process(array);
+    }
+
     public byte[] getArray() {
         return array;
     }
@@ -57,5 +61,9 @@ public final class ByteArraySegment {
 
     public interface ArrayConsumer {
         void process(byte[] array) throws IOException;
+    }
+
+    public interface ArrayProcessor<T> {
+        T process(byte[] array) throws IOException;
     }
 }

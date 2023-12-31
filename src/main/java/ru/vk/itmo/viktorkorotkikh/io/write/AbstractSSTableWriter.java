@@ -134,6 +134,17 @@ public abstract class AbstractSSTableWriter {
             }
         }
 
+        renameTmpFiles(isCompacted, baseDir, fileIndex, tempCompressionInfo, tempIndexName, tempDataName);
+    }
+
+    private static void renameTmpFiles(
+            boolean isCompacted,
+            Path baseDir,
+            int fileIndex,
+            Path tempCompressionInfo,
+            Path tempIndexName,
+            Path tempDataName
+    ) throws IOException {
         // Publish files atomically
         // FIRST index, LAST data
         final Path compressionInfoName = SSTable.compressionInfoName(isCompacted, baseDir, fileIndex);

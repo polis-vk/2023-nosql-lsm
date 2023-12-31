@@ -365,6 +365,10 @@ public final class SSTable {
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-        return reader.get(key);
+        try {
+            return reader.get(key);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 }

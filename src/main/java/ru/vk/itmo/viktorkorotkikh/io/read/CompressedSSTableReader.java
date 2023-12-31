@@ -21,7 +21,8 @@ import java.util.NoSuchElementException;
  * isCompressed|algorithm|blocksCount|uncompressedBlockSize|block1Offset|block2Offset|blockNOffset
  * <p/>
  * <B>index</B>:
- * hasNoTombstones|entriesSize|key1BlockNumber|key1SizeBlockOffset|key2BlockNumber|key2SizeBlockOffset|keyNBlockNumber|keyNSizeBlockOffset|
+ * hasNoTombstones|entriesSize|key1BlockNumber|key1SizeBlockOffset|key2BlockNumber|key2SizeBlockOffset| ...
+ * |keyNBlockNumber|keyNSizeBlockOffset|
  * <p/>
  * keyNBlockNumber - номер блока для начала ключа номер N (key1Size|key1|value1Size|value1)
  * <br/>
@@ -151,7 +152,9 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                 0L,
                 compressedSize
         );
-        decompressor.decompress(blockBuffer.getArray(), dest, 0, uncompressedSize);
+        blockBuffer.withArray(array ->
+                decompressor.decompress(array, dest, 0, uncompressedSize)
+        );
     }
 
     @Override
@@ -188,10 +191,10 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
         long keySize = byteArrayToLong(decompressedKeySize);
 
         ByteArraySegment keyByteArray = new ByteArraySegment((int) keySize);
-        readCompressed(
+        readCompressedByteArraySegment(
                 lastUncompressedBlockInfo.get().lastUncompressedBlockNumber,
                 blockBuffer.get(),
-                keyByteArray.getArray(),
+                keyByteArray,
                 lastUncompressedBlockInfo.get().lastUncompressedBlockOffset
         );
 
@@ -212,14 +215,25 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
             return new BaseEntry<>(keyByteArray.segment(), null);
         } else { // read value
             ByteArraySegment valueByteArray = new ByteArraySegment((int) valueSize);
-            readCompressed(
+            readCompressedByteArraySegment(
                     lastUncompressedBlockInfo.get().lastUncompressedBlockNumber,
                     blockBuffer.get(),
-                    valueByteArray.getArray(),
+                    valueByteArray,
                     lastUncompressedBlockInfo.get().lastUncompressedBlockOffset
             );
             return new BaseEntry<>(keyByteArray.segment(), valueByteArray.segment());
         }
+    }
+
+    private void readCompressedByteArraySegment(
+            int startBlockNumber,
+            ByteArraySegment blockBuffer,
+            ByteArraySegment targetDecompressedByteArraySegment,
+            int blockOffset
+    ) throws IOException {
+        targetDecompressedByteArraySegment.withArray(targetDecompressedByteArray ->
+                readCompressed(startBlockNumber, blockBuffer, targetDecompressedByteArray, blockOffset)
+        );
     }
 
     private void readCompressed(
@@ -269,13 +283,17 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
             int uncompressedSize = startBlockNumber + 1 == blocksCount
                     ? getLastDataUncompressedSize()
                     : uncompressedBlockSize;
-            decompressOneBlock(
-                    blockBuffer,
-                    blockStart,
-                    uncompressedBlockBuffer.get().getArray(),
-                    compressedSize,
-                    uncompressedSize
+
+            uncompressedBlockBuffer.get().withArray(dest ->
+                    decompressOneBlock(
+                            blockBuffer,
+                            blockStart,
+                            dest,
+                            compressedSize,
+                            uncompressedSize
+                    )
             );
+
             int length = readFromDecompressedBlock(
                     targetDecompressedByteArray,
                     decompressedAndCopiedLength,
@@ -304,23 +322,25 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
 
     /**
      * Read bytes from decompressed block.
+     *
      * @param target       target array
      * @param targetOffset starting position in the target data
      * @param blockOffset  offset in uncompressedBlockBuffer
      * @return the total number of bytes read into the buffer
      */
-    private int readFromDecompressedBlock(byte[] target, int targetOffset, int blockOffset) {
+    private int readFromDecompressedBlock(byte[] target, int targetOffset, int blockOffset) throws IOException {
         int length = Math.min(
                 target.length - targetOffset,
                 uncompressedBlockSize - blockOffset
         );
-
-        System.arraycopy(
-                uncompressedBlockBuffer.get().getArray(),
-                blockOffset,
-                target,
-                targetOffset,
-                length
+        uncompressedBlockBuffer.get().withArray(src ->
+                System.arraycopy(
+                        src,
+                        blockOffset,
+                        target,
+                        targetOffset,
+                        length
+                )
         );
         return length;
     }
