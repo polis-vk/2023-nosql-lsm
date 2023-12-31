@@ -11,6 +11,10 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 /**
+ * Writer implementation with compression.
+ * Implementations of the {@link Compressor} interface are used for compression.
+ * <br/>
+ * <br/>
  * <B>compression info</B>:
  * isCompressed|algorithm|blocksCount|uncompressedBlockSize|block1Offset|block2Offset|blockNOffset
  * <p/>
@@ -18,12 +22,14 @@ import java.lang.foreign.ValueLayout;
  * hasNoTombstones|entriesSize|key1BlockNumber|key1SizeBlockOffset|key2BlockNumber|key2SizeBlockOffset| ...
  * |keyNBlockNumber|keyNSizeBlockOffset|
  * <p/>
- * keyNBlockNumber - номер блока для начала ключа номер N (key1Size|key1|value1Size|value1)
+ * keyNBlockNumber - block number to start key number N (key1Size|key1|value1Size|value1)
  * <br/>
- * keyNSizeBlockOffset - смещение начала размера ключа внутри блока
+ * keyNSizeBlockOffset - offset of the start of the key size inside the block
  * <p/>
  * <B>blocks</B>:
  * block1|block2|...|blockN
+ *
+ * @author vitekkor
  */
 public final class CompressedSSTableWriter extends AbstractSSTableWriter {
 
@@ -120,7 +126,7 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
         os.write(compressed);
         writeInt(compressionInfoStream, blockOffset);
 
-        if (compressor instanceof ZstdCompressor) {
+        if (compressor instanceof ZstdCompressor) { // zstd specific
             blobBufferOffset = compressed.length;
         }
         writeInt(compressionInfoStream, blobBufferOffset); // size of last uncompressed data
@@ -165,14 +171,17 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
         // write memory segment
         final long memorySegmentSize = memorySegment.byteSize();
         long writtenMemorySegmentBytes = 0L;
+        // loop until the entire memory segment has been written
         while (writtenMemorySegmentBytes < memorySegmentSize) {
             long bytes;
             // calc bytes size to write
             int localBufferOffset = blobBufferOffset;
             if (blobBufferOffset + memorySegmentSize - writtenMemorySegmentBytes <= blockSize) {
+                // if the remaining data fits within the current blob buffer, write the rest of the memory segment
                 bytes = memorySegmentSize - writtenMemorySegmentBytes;
                 blobBufferOffset += (int) bytes;
             } else {
+                // if the remaining data exceeds the current blob buffer capacity, fill the buffer
                 bytes = (long) blockSize - blobBufferOffset;
                 blobBufferOffset = blockSize;
             }

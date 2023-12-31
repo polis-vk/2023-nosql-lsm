@@ -8,6 +8,7 @@ import ru.vk.itmo.viktorkorotkikh.Utils;
 import ru.vk.itmo.viktorkorotkikh.decompressor.Decompressor;
 import ru.vk.itmo.viktorkorotkikh.decompressor.LZ4Decompressor;
 import ru.vk.itmo.viktorkorotkikh.decompressor.ZstdDecompressor;
+import ru.vk.itmo.viktorkorotkikh.exceptions.UnexpectedIOException;
 import ru.vk.itmo.viktorkorotkikh.exceptions.UnknownCompressorTypeException;
 import ru.vk.itmo.viktorkorotkikh.io.ByteArraySegment;
 
@@ -38,12 +39,16 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
     private final Decompressor decompressor;
 
     // hasNoTombstones|entriesSize|key1BlockNumber|key1SizeBlockOffset|...|keyNBlockNumber|keyNSizeBlockOffset|
+    //       1b            4b            4b                 4b                   4b               4b
     private static final long INDEX_FILE_METADATA_OFFSET = 1L + Long.BYTES;
     private static final long KEY_SIZE_BLOCK_OFFSET = 2L * Integer.BYTES;
 
     private static final ScopedValue<ByteArraySegment> blockBuffer = ScopedValue.newInstance();
     private static final ScopedValue<ByteArraySegment> uncompressedBlockBuffer = ScopedValue.newInstance();
 
+    /**
+     * Help info about last decompressed block.
+     */
     private static final class LastUncompressedBlockInfo {
         int lastUncompressedBlockNumber = -1;
         int lastUncompressedBlockOffset = -1;
@@ -134,11 +139,22 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
     private int getBlockOffset(int blockNumber) {
         return mappedCompressionInfo.get(
                 ValueLayout.JAVA_INT_UNALIGNED,
-                // isCompressed|algorithm|blocksCount|uncompressedBlockSize|blockNOffset
+                // isCompressed|algorithm|blocksCount|uncompressedBlockSize|blockNOffset|
+                //     1b      |    1b   |     4b    |        4b           |      4b    |
                 (1L + 1L + Integer.BYTES + Integer.BYTES + (long) blockNumber * Integer.BYTES)
         );
     }
 
+    /**
+     * Decompresses a single block of data from a source segment into a destination array.
+     *
+     * @param blockBuffer       A ByteArraySegment representing a buffer to hold the compressed data.
+     * @param srcOffset         The offset in the source segment where the compressed data begins.
+     * @param dest              The byte array where the decompressed data will be stored.
+     * @param compressedSize    The size of the compressed data in bytes.
+     * @param uncompressedSize  The expected size of the decompressed data in bytes.
+     * @throws IOException If an I/O error occurs during decompression.
+     */
     private void decompressOneBlock(
             ByteArraySegment blockBuffer,
             long srcOffset,
@@ -146,6 +162,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
             int compressedSize,
             int uncompressedSize
     ) throws IOException {
+        // copy compressed data into buffer
         MemorySegment.copy(
                 mappedSSTable,
                 srcOffset,
@@ -153,6 +170,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                 0L,
                 compressedSize
         );
+        // decompress from blockBuffer into dest
         blockBuffer.withArray(array ->
                 decompressor.decompress(array, dest, 0, uncompressedSize, compressedSize)
         );
@@ -176,7 +194,16 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
         }
     }
 
+    /**
+     * Reads an entry based on the provided index and optionally reads the value.
+     *
+     * @param index     The index of the entry to read.
+     * @param readValue A boolean flag indicating whether to read the value associated with the entry.
+     * @return An Entry object containing the memory segment for the key and, if requested, the value.
+     * @throws IOException If an I/O error occurs while reading the entry.
+     */
     private Entry<MemorySegment> readEntry(int index, boolean readValue) throws IOException {
+        // retrieve the block number and offset for the key size from the index file
         int keyNBlockNumber = mappedIndexFile.get(
                 ValueLayout.JAVA_INT_UNALIGNED,
                 INDEX_FILE_METADATA_OFFSET + KEY_SIZE_BLOCK_OFFSET * index
@@ -186,11 +213,13 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                 INDEX_FILE_METADATA_OFFSET + KEY_SIZE_BLOCK_OFFSET * index + Integer.BYTES
         );
 
+        // read and decompress the key size.
         byte[] decompressedKeySize = new byte[Long.BYTES];
         readCompressed(keyNBlockNumber, blockBuffer.get(), decompressedKeySize, keyNSizeBlockOffset);
 
         long keySize = byteArrayToLong(decompressedKeySize);
 
+        // read and decompress the key
         ByteArraySegment keyByteArray = new ByteArraySegment((int) keySize);
         readCompressedByteArraySegment(
                 lastUncompressedBlockInfo.get().lastUncompressedBlockNumber,
@@ -203,6 +232,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
             return new BaseEntry<>(keyByteArray.segment(), null);
         }
 
+        // read and decompress the value size
         byte[] decompressedValueSize = new byte[Long.BYTES];
         readCompressed(
                 lastUncompressedBlockInfo.get().lastUncompressedBlockNumber,
@@ -214,7 +244,8 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
 
         if (valueSize == -1) {
             return new BaseEntry<>(keyByteArray.segment(), null);
-        } else { // read value
+        } else {
+            // read and decompress the value
             ByteArraySegment valueByteArray = new ByteArraySegment((int) valueSize);
             readCompressedByteArraySegment(
                     lastUncompressedBlockInfo.get().lastUncompressedBlockNumber,
@@ -237,6 +268,20 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
         );
     }
 
+    /**
+     * Reads compressed data starting from a specified block, decompresses it, and copies it into a target byte array.
+     *
+     * <p>This method handles the reading of compressed data from one or more blocks, decompressing it,
+     * and copying the resulting decompressed data into the provided target byte array. It accounts for
+     * cases where the target data spans across multiple blocks. The method updates the last uncompressed
+     * block information as it proceeds through the blocks.</p>
+     *
+     * @param startBlockNumber             The block number from which to start reading the compressed data.
+     * @param blockBuffer                  The ByteArraySegment used as a buffer for reading compressed data.
+     * @param targetDecompressedByteArray  The target byte array where the decompressed data will be copied.
+     * @param blockOffset                  The offset within the block from which to start reading.
+     * @throws IOException If an I/O error occurs during the read or decompression process.
+     */
     private void readCompressed(
             int startBlockNumber,
             ByteArraySegment blockBuffer,
@@ -270,6 +315,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                 );
                 decompressedAndCopiedLength += length;
                 localLastUncompressedBlockInfo.lastUncompressedBlockOffset = blockOffset + length;
+                // if we reached the end of the block, we should read next block
                 if (localLastUncompressedBlockInfo.lastUncompressedBlockOffset >= uncompressedBlockSize) {
                     blockOffset = 0;
                     startBlockNumber++;
@@ -315,7 +361,9 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
     }
 
     private int getLastDataUncompressedSize() {
+        // ZSTD specific
         if (decompressor instanceof ZstdDecompressor) return uncompressedBlockSize;
+
         return mappedCompressionInfo.get(
                 ValueLayout.JAVA_INT_UNALIGNED,
                 mappedCompressionInfo.byteSize() - Integer.BYTES
@@ -488,7 +536,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                         });
                 startEntityNumber += 1;
             } catch (Exception e) {
-                throw (UncheckedIOException) e;
+                throw new UnexpectedIOException(e);
             }
         }
 

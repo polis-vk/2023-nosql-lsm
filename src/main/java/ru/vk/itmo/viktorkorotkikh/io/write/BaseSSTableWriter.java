@@ -7,6 +7,11 @@ import java.io.OutputStream;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
+/**
+ * Writer without compression. Instead of blocks, normal data is written: key1Size|key1|value1Size|value1
+ *
+ * @author vitekkor
+ */
 public final class BaseSSTableWriter extends AbstractSSTableWriter {
     private long entryOffset;
 

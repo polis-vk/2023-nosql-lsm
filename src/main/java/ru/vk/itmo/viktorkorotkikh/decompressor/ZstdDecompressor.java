@@ -5,7 +5,7 @@ import com.github.luben.zstd.Zstd;
 import java.io.IOException;
 
 public class ZstdDecompressor implements Decompressor {
-    public static ZstdDecompressor INSTANCE = new ZstdDecompressor();
+    public static final ZstdDecompressor INSTANCE = new ZstdDecompressor();
 
     @Override
     public void decompress(

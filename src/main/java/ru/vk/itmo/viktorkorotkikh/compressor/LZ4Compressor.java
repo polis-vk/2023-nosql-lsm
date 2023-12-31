@@ -5,7 +5,7 @@ import net.jpountz.lz4.LZ4Factory;
 import java.io.IOException;
 
 public class LZ4Compressor implements Compressor {
-    public static LZ4Compressor INSTANCE = new LZ4Compressor();
+    public static final LZ4Compressor INSTANCE = new LZ4Compressor();
     private final net.jpountz.lz4.LZ4Compressor lz4FastCompressor;
 
     public LZ4Compressor() {

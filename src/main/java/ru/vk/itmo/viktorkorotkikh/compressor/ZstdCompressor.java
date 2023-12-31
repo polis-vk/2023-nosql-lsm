@@ -5,7 +5,7 @@ import com.github.luben.zstd.Zstd;
 import java.io.IOException;
 
 public class ZstdCompressor implements Compressor {
-    public static ZstdCompressor INSTANCE = new ZstdCompressor();
+    public static final ZstdCompressor INSTANCE = new ZstdCompressor();
 
     @Override
     public byte[] compress(byte[] src) throws IOException {
@@ -24,6 +24,7 @@ public class ZstdCompressor implements Compressor {
                 len,
                 Zstd.defaultCompressionLevel()
         );
+        // zstd specific - we should write correct size of the last block
         byte[] result = new byte[(int) originalSize];
         System.arraycopy(
                 dst,
