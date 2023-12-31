@@ -98,16 +98,6 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
         }
     }
 
-    private long getPointerSizeAndShift() {
-        LSMPointerIterator lsmPointerIterator = shiftIterators();
-        long pointerSize = lsmPointerIterator.getPointerSize();
-        lsmPointerIterator.shift();
-        if (lsmPointerIterator.hasNext()) {
-            lsmPointerIterators.add(lsmPointerIterator);
-        }
-        return pointerSize;
-    }
-
     @Override
     public Entry<MemorySegment> next() {
         LSMPointerIterator lsmPointerIterator = shiftIterators();
