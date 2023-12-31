@@ -391,7 +391,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
         return switch (searchOption) {
             case EQ -> -1;
             case GTE -> {
-                if (left == blocksCount) {
+                if (left == getEntriesSize()) {
                     yield -1;
                 } else {
                     yield left;
@@ -469,6 +469,10 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
 
         @Override
         public void shift() {
+            if (startEntityNumber > endEntityNumber) {
+                current = null;
+                return;
+            }
             int finalStartBlockNumber = startEntityNumber;
             try {
                 current = ScopedValue
