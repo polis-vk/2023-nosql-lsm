@@ -4,6 +4,7 @@ import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.viktorkorotkikh.compressor.Compressor;
 import ru.vk.itmo.viktorkorotkikh.compressor.LZ4Compressor;
+import ru.vk.itmo.viktorkorotkikh.compressor.ZstdCompressor;
 import ru.vk.itmo.viktorkorotkikh.decompressor.Decompressor;
 import ru.vk.itmo.viktorkorotkikh.io.read.AbstractSSTableReader;
 import ru.vk.itmo.viktorkorotkikh.io.read.BaseSSTableReader;
@@ -265,6 +266,7 @@ public final class SSTable {
         if (config.compressionConfig().enabled()) {
             Compressor compressor = switch (config.compressionConfig().compressor()) {
                 case LZ4 -> LZ4Compressor.INSTANCE;
+                case ZSTD -> ZstdCompressor.INSTANCE;
             };
             return new CompressedSSTableWriter(compressor, config.compressionConfig().blockSize());
         } else {

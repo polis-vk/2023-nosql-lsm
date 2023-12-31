@@ -14,7 +14,13 @@ public class LZ4Decompressor implements Decompressor {
     }
 
     @Override
-    public void decompress(byte[] src, byte[] dest, int destOff, int uncompressedSize) throws IOException {
+    public void decompress(
+            byte[] src,
+            byte[] dest,
+            int destOff,
+            int uncompressedSize,
+            int compressedSize
+    ) throws IOException {
         lz4FastDecompressor.decompress(src, 0, dest, destOff, uncompressedSize);
     }
 }

@@ -29,13 +29,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CompressionTest extends BaseTest {
     private static final int BLOCK_4KB = 4 * 1024;
     private static final int BLOCK_2KB = 2 * 1024;
+
+    private static final long flushThreshold = 1 << 20; // 1 MB
     private static final DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> factory = new FactoryImpl();
 
     @Test
-    void compareUncompressedAndCompressedDataSize() throws IOException {
+    void compareUncompressedAndCompressedDataSizeLZ4() throws IOException {
+        compareUncompressedAndCompressedDataSize(Config.CompressionConfig.Compressor.LZ4);
+    }
+
+    @Test
+    void compareUncompressedAndCompressedDataSizeZSTD() throws IOException {
+        compareUncompressedAndCompressedDataSize(Config.CompressionConfig.Compressor.ZSTD);
+    }
+
+    private void compareUncompressedAndCompressedDataSize(Config.CompressionConfig.Compressor compressor) throws IOException {
         Path uncompressedTmp = Files.createTempDirectory("uncompressedDao");
         Path compressedTmp = Files.createTempDirectory("compressedDao");
-        long flushThreshold = 1 << 20; // 1 MB
 
         Dao<String, Entry<String>> uncompressedDao = factory.createStringDao(new Config(
                 uncompressedTmp,
@@ -45,7 +55,7 @@ class CompressionTest extends BaseTest {
         Dao<String, Entry<String>> compressedDao = factory.createStringDao(new Config(
                 compressedTmp,
                 flushThreshold,
-                new Config.CompressionConfig(true, Config.CompressionConfig.Compressor.LZ4, BLOCK_4KB)
+                new Config.CompressionConfig(true, compressor, BLOCK_4KB)
         ));
         List<Entry<String>> entries = entries(1000);
         entries.forEach(stringEntry -> {
@@ -64,14 +74,22 @@ class CompressionTest extends BaseTest {
     }
 
     @Test
-    void compressAndCheckData() throws IOException {
+    void compressAndCheckDataLZ4() throws IOException {
+        compressAndCheckData(Config.CompressionConfig.Compressor.LZ4);
+    }
+
+    @Test
+    void compressAndCheckDataZSTD() throws IOException {
+        compressAndCheckData(Config.CompressionConfig.Compressor.ZSTD);
+    }
+
+    private void compressAndCheckData(Config.CompressionConfig.Compressor compressor) throws IOException {
         Path compressedTmp = Files.createTempDirectory("compressedDao");
-        long flushThreshold = 1 << 20; // 1 MB
 
         Dao<String, Entry<String>> compressedDao = factory.createStringDao(new Config(
                 compressedTmp,
                 flushThreshold,
-                new Config.CompressionConfig(true, Config.CompressionConfig.Compressor.LZ4, BLOCK_4KB)
+                new Config.CompressionConfig(true, compressor, BLOCK_4KB)
         ));
         addRemoveAddAndCompact(compressedDao);
         cleanUp(compressedTmp);
@@ -116,12 +134,12 @@ class CompressionTest extends BaseTest {
         dao = DaoFactory.Factory.reopen(dao);
 
         assertSame(dao.all(), List.copyOf(values));
+        dao.close();
     }
 
     @Test
     void compressMusicTest() throws Exception {
         Path compressedTmp = Files.createTempDirectory("compressedDao");
-        long flushThreshold = 1 << 20; // 1 MB
 
         Dao<String, Entry<String>> compressedDao = factory.createStringDao(new Config(
                 compressedTmp,
@@ -136,7 +154,6 @@ class CompressionTest extends BaseTest {
     @Timeout(20)
     void writeUncompressedReopenAndCompress() throws IOException, InterruptedException {
         Path tmp = Files.createTempDirectory("dao");
-        long flushThreshold = 1 << 20; // 1 MB
 
         // uncompressed dao
         Dao<String, Entry<String>> dao = factory.createStringDao(new Config(
@@ -183,7 +200,6 @@ class CompressionTest extends BaseTest {
     void compareBlockSizes() throws IOException {
         Path compressedTmp4KB = Files.createTempDirectory("compressedDao4KB");
         Path compressedTmp2KB = Files.createTempDirectory("compressedDao2KB");
-        long flushThreshold = 1 << 20; // 1 MB
 
         Dao<String, Entry<String>> compressedDao2KB = factory.createStringDao(new Config(
                 compressedTmp4KB,
@@ -209,6 +225,68 @@ class CompressionTest extends BaseTest {
         assertTrue(compressedSize4KB < compressedSize2KB);
         cleanUp(compressedTmp2KB);
         cleanUp(compressedTmp4KB);
+    }
+
+    @Test
+    void multipleCompressionAlgorithms() throws IOException, InterruptedException {
+        Path tmp = Files.createTempDirectory("dao");
+        Dao<String, Entry<String>> dao = factory.createStringDao(new Config(
+                tmp,
+                flushThreshold,
+                new Config.CompressionConfig(true, Config.CompressionConfig.Compressor.LZ4, BLOCK_4KB)
+        ));
+        List<Entry<String>> entries = entries(4000);
+
+        for (int i = 0; i < 1000; i++) {
+            Entry<String> entry = entries.get(i);
+            dao.upsert(entry);
+        }
+        dao.close();
+
+        dao = factory.createStringDao(new Config(
+                tmp,
+                flushThreshold,
+                new Config.CompressionConfig(true, Config.CompressionConfig.Compressor.ZSTD, BLOCK_4KB)
+        ));
+
+        for (int i = 1000; i < 2000; i++) {
+            Entry<String> entry = entries.get(i);
+            dao.upsert(entry);
+        }
+        dao.close();
+
+
+        dao = factory.createStringDao(new Config(
+                tmp,
+                flushThreshold,
+                new Config.CompressionConfig(true, Config.CompressionConfig.Compressor.LZ4, BLOCK_2KB)
+        ));
+
+        for (int i = 2000; i < 3000; i++) {
+            Entry<String> entry = entries.get(i);
+            dao.upsert(entry);
+        }
+        dao.close();
+
+        dao = factory.createStringDao(new Config(
+                tmp,
+                flushThreshold,
+                new Config.CompressionConfig(true, Config.CompressionConfig.Compressor.ZSTD, BLOCK_2KB)
+        ));
+
+        for (int i = 3000; i < 4000; i++) {
+            Entry<String> entry = entries.get(i);
+            dao.upsert(entry);
+        }
+        assertSame(dao.all(), entries);
+
+        dao.compact();
+        Thread.sleep(Duration.ofSeconds(5));
+
+        assertSame(dao.all(), entries);
+        dao.close();
+
+        cleanUp(tmp);
     }
 
     private static void cleanUp(Path tmp) throws IOException {

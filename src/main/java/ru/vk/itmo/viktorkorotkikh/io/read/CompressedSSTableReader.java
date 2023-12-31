@@ -7,6 +7,7 @@ import ru.vk.itmo.viktorkorotkikh.MemorySegmentComparator;
 import ru.vk.itmo.viktorkorotkikh.Utils;
 import ru.vk.itmo.viktorkorotkikh.decompressor.Decompressor;
 import ru.vk.itmo.viktorkorotkikh.decompressor.LZ4Decompressor;
+import ru.vk.itmo.viktorkorotkikh.decompressor.ZstdDecompressor;
 import ru.vk.itmo.viktorkorotkikh.exceptions.UnknownCompressorTypeException;
 import ru.vk.itmo.viktorkorotkikh.io.ByteArraySegment;
 
@@ -153,7 +154,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
                 compressedSize
         );
         blockBuffer.withArray(array ->
-                decompressor.decompress(array, dest, 0, uncompressedSize)
+                decompressor.decompress(array, dest, 0, uncompressedSize, compressedSize)
         );
     }
 
@@ -314,6 +315,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
     }
 
     private int getLastDataUncompressedSize() {
+        if (decompressor instanceof ZstdDecompressor) return uncompressedBlockSize;
         return mappedCompressionInfo.get(
                 ValueLayout.JAVA_INT_UNALIGNED,
                 mappedCompressionInfo.byteSize() - Integer.BYTES
@@ -519,6 +521,7 @@ public class CompressedSSTableReader extends AbstractSSTableReader {
         byte compressorType = mappedCompressionInfo.get(ValueLayout.JAVA_BYTE, 1);
         return switch (compressorType) {
             case 0 -> LZ4Decompressor.INSTANCE;
+            case 1 -> ZstdDecompressor.INSTANCE;
             default -> throw new UnknownCompressorTypeException(compressorType);
         };
     }

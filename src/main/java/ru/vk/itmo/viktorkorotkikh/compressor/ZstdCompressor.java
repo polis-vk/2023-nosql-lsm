@@ -1,0 +1,36 @@
+package ru.vk.itmo.viktorkorotkikh.compressor;
+
+import com.github.luben.zstd.Zstd;
+
+import java.io.IOException;
+
+public class ZstdCompressor implements Compressor {
+    public static ZstdCompressor INSTANCE = new ZstdCompressor();
+    @Override
+    public byte[] compress(byte[] src) throws IOException {
+        return Zstd.compress(src);
+    }
+
+    @Override
+    public byte[] compress(byte[] src, int len) throws IOException {
+        byte[] dst = new byte[len];
+        long originalSize = Zstd.compressByteArray(
+                dst,
+                0,
+                len,
+                src,
+                0,
+                len,
+                Zstd.defaultCompressionLevel()
+        );
+        byte[] result = new byte[(int) originalSize];
+        System.arraycopy(
+                dst,
+                0,
+                result,
+                0,
+                (int) originalSize
+        );
+        return result;
+    }
+}

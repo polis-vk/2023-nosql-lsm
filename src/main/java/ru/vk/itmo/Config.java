@@ -13,7 +13,7 @@ public record Config(
             int blockSize
     ) {
         public enum Compressor {
-            LZ4;
+            LZ4, ZSTD;
         }
     }
 

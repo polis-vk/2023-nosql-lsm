@@ -2,6 +2,8 @@ package ru.vk.itmo.viktorkorotkikh.io.write;
 
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.viktorkorotkikh.compressor.Compressor;
+import ru.vk.itmo.viktorkorotkikh.compressor.LZ4Compressor;
+import ru.vk.itmo.viktorkorotkikh.compressor.ZstdCompressor;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -117,7 +119,12 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
         byte[] compressed = blobBuffer.withArrayReturn(src -> compressor.compress(src, blobBufferOffset));
         os.write(compressed);
         writeInt(compressionInfoStream, blockOffset);
+
+        if (compressor instanceof ZstdCompressor) {
+            blobBufferOffset = compressed.length;
+        }
         writeInt(compressionInfoStream, blobBufferOffset); // size of last uncompressed data
+        
         blobBufferOffset = 0;
         blockCount++;
         blockOffset += compressed.length;
@@ -187,6 +194,11 @@ public final class CompressedSSTableWriter extends AbstractSSTableWriter {
     @Override
     protected void writeCompressionHeader(OutputStream os) throws IOException {
         os.write(1); // isCompressed == true
-        os.write(0); // algorithm: 0 - LZ4
+        // algorithm: 0 - LZ4; 1 - ZSTD
+        switch (compressor) {
+            case LZ4Compressor ignored -> os.write(0);
+            case ZstdCompressor ignored -> os.write(1); // algorithm: 0 - LZ4
+            default -> throw new IllegalStateException("Unexpected value: " + compressor);
+        }
     }
 }
