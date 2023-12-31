@@ -10,6 +10,11 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.NoSuchElementException;
 
+/**
+ * SSTable reader without compression.
+ *
+ * @author vitekkor
+ */
 public class BaseSSTableReader extends AbstractSSTableReader {
     private static final long METADATA_SIZE = Long.BYTES + 1L;
 

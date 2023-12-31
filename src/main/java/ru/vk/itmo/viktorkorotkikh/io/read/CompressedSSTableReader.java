@@ -5,6 +5,7 @@ import ru.vk.itmo.Entry;
 import ru.vk.itmo.viktorkorotkikh.LSMPointerIterator;
 import ru.vk.itmo.viktorkorotkikh.MemorySegmentComparator;
 import ru.vk.itmo.viktorkorotkikh.Utils;
+import ru.vk.itmo.viktorkorotkikh.compressor.Compressor;
 import ru.vk.itmo.viktorkorotkikh.decompressor.Decompressor;
 import ru.vk.itmo.viktorkorotkikh.decompressor.LZ4Decompressor;
 import ru.vk.itmo.viktorkorotkikh.decompressor.ZstdDecompressor;
@@ -19,6 +20,10 @@ import java.lang.foreign.ValueLayout;
 import java.util.NoSuchElementException;
 
 /**
+ * SSTable reader implementation with compression.
+ * Implementations of the {@link Decompressor} interface are used for decompression.
+ * <br/>
+ * <br/>
  * <B>compression info</B>:
  * isCompressed|algorithm|blocksCount|uncompressedBlockSize|block1Offset|block2Offset|blockNOffset
  * <p/>
