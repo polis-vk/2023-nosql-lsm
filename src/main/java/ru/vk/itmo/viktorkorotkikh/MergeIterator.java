@@ -153,20 +153,5 @@ public final class MergeIterator implements Iterator<Entry<MemorySegment>> {
             haveNext = false;
             return next;
         }
-
-        public long getPointerSizeAndShift() {
-            haveNext = false;
-            return mergeIterator.getPointerSizeAndShift();
-        }
-
-        public EntriesMetadata countEntities() {
-            int count = 0;
-            long entriesSize = 0;
-            while (hasNext()) {
-                entriesSize += getPointerSizeAndShift();
-                count++;
-            }
-            return new EntriesMetadata(count, entriesSize);
-        }
     }
 }
