@@ -46,6 +46,18 @@ class TestDao<Data, E extends Entry<Data>> implements Dao<String, Entry<String>>
     }
 
     @Override
+    public Entry<String> getNoBloomFilter(String key) {
+        E result = delegate.getNoBloomFilter(factory.fromString(key));
+        if (result == null) {
+            return null;
+        }
+        return new BaseEntry<>(
+                factory.toString(result.key()),
+                factory.toString(result.value())
+        );
+    }
+
+    @Override
     public Iterator<Entry<String>> get(String from, String to) {
         Iterator<E> iterator = delegate.get(
                 factory.fromString(from),

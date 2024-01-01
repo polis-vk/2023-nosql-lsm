@@ -12,9 +12,9 @@ public final class SSTableUtils {
     public static final int SS_TABLE_PRIORITY = 2;
     public static final long COMPACTION_NOT_FINISHED_TAG = -1;
     public static final long BLOOM_FILTER_LENGTH_OFFSET = 0;
-    public static final long BLOOM_FILTER_BIT_SIZE_OFFSET = Long.BYTES;
-    public static final long BLOOM_FILTER_HASH_FUNCTIONS_OFFSET = 2L * Long.BYTES;
-    public static final long ENTRIES_SIZE_OFFSET = 3L * Long.BYTES;
+    public static final long BLOOM_FILTER_HASH_FUNCTIONS_OFFSET =  Long.BYTES;
+    public static final long ENTRIES_SIZE_OFFSET = 2L * Long.BYTES;
+    public static final double FALSE_POSITIVE_RATE = 0.3;
 
     private SSTableUtils() {
 
@@ -25,7 +25,7 @@ public final class SSTableUtils {
         long high = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, ENTRIES_SIZE_OFFSET);
 
         final long bloomFilterLength = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_LENGTH_OFFSET);
-        final long keyOffset = 4L * Long.BYTES + bloomFilterLength * Long.BYTES;
+        final long keyOffset = 3L * Long.BYTES + bloomFilterLength * Long.BYTES;
 
         while (low < high - 1) {
             long mid = (high - low) / 2 + low;
@@ -60,16 +60,16 @@ public final class SSTableUtils {
             }
         }
 
-        return low + 1;
+
+        return -(low + 1);
     }
 
     public static Entry<MemorySegment> get(MemorySegment readSegment, MemorySegment key) {
+        final long bloomFilterLength = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_LENGTH_OFFSET);
+        final long keyOffset = 3L * Long.BYTES + Long.BYTES * bloomFilterLength;
+
         long low = -1;
         long high = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, ENTRIES_SIZE_OFFSET);
-
-        final long bloomFilterLength = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_LENGTH_OFFSET);
-        final long keyOffset = 4L * Long.BYTES + Long.BYTES * bloomFilterLength;
-
         while (low < high - 1) {
             long mid = (high - low) / 2 + low;
 
@@ -106,7 +106,7 @@ public final class SSTableUtils {
         return null;
     }
 
-    private static Entry<MemorySegment> get(MemorySegment sstable, long index, final long afterBloomFilterOffset) {
+    private static Entry<MemorySegment> get(MemorySegment sstable, long index, long afterBloomFilterOffset) {
         long offset = afterBloomFilterOffset + index * Byte.SIZE;
 
         long keyOffset = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);

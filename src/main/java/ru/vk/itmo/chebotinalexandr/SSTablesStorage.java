@@ -110,7 +110,7 @@ public class SSTablesStorage {
     }
 
     public static long find(MemorySegment readSegment, MemorySegment key) {
-        return SSTableUtils.binarySearch(readSegment, key);
+        return binarySearch(readSegment, key);
 
     }
 
@@ -152,37 +152,42 @@ public class SSTablesStorage {
         }
 
         final long bloomFilterLength = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_LENGTH_OFFSET);
-        final long keyOffset = 4L * Long.BYTES + bloomFilterLength * Long.BYTES;
+        final long keyOffset = 3L * Long.BYTES + bloomFilterLength * Long.BYTES;
+
+        if (keyIndexFrom < 0) {
+            keyIndexFrom = Math.abs(keyIndexFrom);
+        }
+        if (keyIndexTo < 0) {
+            keyIndexTo = Math.abs(keyIndexTo);
+        }
 
         return new SSTableIterator(sstable, keyIndexFrom, keyIndexTo, keyOffset);
     }
 
-    // |bf length|bf bit size|hash_functions_count|entries length|key1 offset|
+    // |bf array length|hash_functions_count|entries length|key1 offset|
     // |key2 offset| ... |key_n offset|key1Size|key1|value1Size|value1| ...
-    public MemorySegment write(Collection<Entry<MemorySegment>> dataToFlush) throws IOException {
+    public MemorySegment write(Collection<Entry<MemorySegment>> dataToFlush, double bloomFilterFPP) throws IOException {
         long size = 0;
 
         for (Entry<MemorySegment> entry : dataToFlush) {
             size += entryByteSize(entry);
         }
 
-        long bloomFilterLength = BloomFilter.divide(dataToFlush.size(), Long.SIZE);
+        long bloomFilterLength = BloomFilter.bloomFilterLength(dataToFlush.size(), bloomFilterFPP);
 
         size += 2L * Long.BYTES * dataToFlush.size();
-        size += 4L * Long.BYTES + Long.BYTES * dataToFlush.size(); //for metadata (header + key offsets)
+        size += 3L * Long.BYTES + (long) Long.BYTES * dataToFlush.size(); //for metadata (header + key offsets)
         size += Long.BYTES * bloomFilterLength; //for bloom filter
 
         MemorySegment memorySegment;
         try (Arena arenaForSave = Arena.ofShared()) {
+
             memorySegment = writeMappedSegment(size, arenaForSave);
 
             //Writing sstable header
             long headerOffset = 0;
 
             memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_LENGTH_OFFSET, bloomFilterLength);
-            headerOffset += Long.BYTES;
-            memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                    BLOOM_FILTER_BIT_SIZE_OFFSET, bloomFilterLength * Long.SIZE);
             headerOffset += Long.BYTES;
             memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_HASH_FUNCTIONS_OFFSET, HASH_FUNCTIONS_NUM);
             headerOffset += Long.BYTES;
@@ -193,7 +198,7 @@ public class SSTablesStorage {
             //Writing bloom filter + memory entries
             long bloomFilterOffset = headerOffset;
             final long keyOffset = bloomFilterOffset + bloomFilterLength * Long.BYTES;
-            long offset = keyOffset + Long.BYTES * dataToFlush.size();
+            long offset = keyOffset + (long) Long.BYTES * dataToFlush.size();
 
             long i = 0;
             for (Entry<MemorySegment> entry : dataToFlush) {
@@ -204,7 +209,6 @@ public class SSTablesStorage {
                 i++;
             }
             //---------
-
         }
 
         return memorySegment;
@@ -260,7 +264,7 @@ public class SSTablesStorage {
         Path path = basePath.resolve(SSTABLE_NAME + ".tmp");
 
         MemorySegment memorySegment;
-        try (Arena arenaForCompact = Arena.ofShared()) {
+        try(Arena arenaForCompact = Arena.ofShared()) {
             try (FileChannel channel = FileChannel.open(path,
                     StandardOpenOption.READ,
                     StandardOpenOption.WRITE,
@@ -274,8 +278,6 @@ public class SSTablesStorage {
             long headerOffset = 0;
 
             memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_LENGTH_OFFSET, bfLength);
-            headerOffset += Long.BYTES;
-            memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_BIT_SIZE_OFFSET, bfLength * Long.SIZE);
             headerOffset += Long.BYTES;
             memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_HASH_FUNCTIONS_OFFSET, HASH_FUNCTIONS_NUM);
             headerOffset += Long.BYTES;
@@ -299,13 +301,12 @@ public class SSTablesStorage {
             }
 
             memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, ENTRIES_SIZE_OFFSET, entryCount);
+
+            deleteOldSSTables(basePath);
+            Files.move(path, path.resolveSibling(SSTABLE_NAME + OLDEST_SS_TABLE_INDEX + SSTABLE_EXTENSION),
+                    StandardCopyOption.ATOMIC_MOVE);
+
         }
-
-
-        deleteOldSSTables(basePath);
-        Files.move(path, path.resolveSibling(SSTABLE_NAME + OLDEST_SS_TABLE_INDEX + SSTABLE_EXTENSION),
-                StandardCopyOption.ATOMIC_MOVE);
-
         return memorySegment;
     }
 

@@ -32,6 +32,10 @@ public interface Dao<D, E extends Entry<D>> extends Closeable {
         return null;
     }
 
+    default E getNoBloomFilter(D key) {
+        return get(key);
+    }
+
     /**
      * Returns ordered iterator of all entries with keys from (inclusive).
      * @param from lower bound of range (inclusive)

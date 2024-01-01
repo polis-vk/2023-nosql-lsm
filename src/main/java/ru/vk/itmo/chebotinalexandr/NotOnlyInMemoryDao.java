@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.FALSE_POSITIVE_RATE;
 import static ru.vk.itmo.chebotinalexandr.SSTableUtils.SS_TABLE_PRIORITY;
 
 public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -110,6 +111,30 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
         return null;
     }
 
+    @Override
+    public Entry<MemorySegment> getNoBloomFilter(MemorySegment key) {
+        State currState = this.state.get();
+
+        Entry<MemorySegment> result = currState.writeEntries.get(key);
+        if (result != null) {
+            return result.value() == null ? null : result;
+        }
+        result = currState.readEntries.get(key);
+        if (result != null) {
+            return result.value() == null ? null : result;
+        }
+
+        for (MemorySegment sstable : currState.sstables) {
+            result = SSTableUtils.get(sstable, key);
+
+            if (result != null) {
+                return result.value() == null ? null : result;
+            }
+        }
+
+        return null;
+    }
+
     private PeekingIterator<Entry<MemorySegment>> range(
             Iterator<Entry<MemorySegment>> firstIterator,
             Iterator<Entry<MemorySegment>> secondIterator,
@@ -121,13 +146,13 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
 
         iterators.add(new PeekingIteratorImpl<>(firstIterator, 1));
         iterators.add(new PeekingIteratorImpl<>(secondIterator, 0));
-        iterators.add(new PeekingIteratorImpl<>(ssTablesStorage.iteratorsAll(segments, from, to), SS_TABLE_PRIORITY));
+        iterators.add(new PeekingIteratorImpl<>(SSTablesStorage.iteratorsAll(segments, from, to), SS_TABLE_PRIORITY));
 
         return new PeekingIteratorImpl<>(MergeIterator.merge(iterators, NotOnlyInMemoryDao::entryComparator));
     }
 
     private PeekingIterator<Entry<MemorySegment>> iteratorForCompaction(List<MemorySegment> segments) {
-        return new PeekingIteratorImpl<>(ssTablesStorage.iteratorsAll(segments, null, null));
+        return new PeekingIteratorImpl<>(SSTablesStorage.iteratorsAll(segments, null, null));
     }
 
     private static Iterator<Entry<MemorySegment>> memoryIterator(
@@ -213,10 +238,10 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
             return null;
         }
 
-        long newBloomFilterLength = BloomFilter.divide(entryCount, Long.SIZE);
+        long newBloomFilterLength = BloomFilter.bloomFilterLength(entryCount, config.bloomFilterFPP());
 
         sizeForCompaction += 2L * Long.BYTES * nonEmptyEntryCount;
-        sizeForCompaction += 4L * Long.BYTES + Long.BYTES * nonEmptyEntryCount; //for metadata (header + key offsets)
+        sizeForCompaction += 3L * Long.BYTES + Long.BYTES * nonEmptyEntryCount; //for metadata (header + key offsets)
         sizeForCompaction += Long.BYTES * newBloomFilterLength; //for bloom filter
 
         iterator = new SkipTombstoneIterator(iteratorForCompaction(segments));
@@ -244,7 +269,7 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
             MemorySegment newPage;
             toFlush = writeEntries.values();
             try {
-                newPage = ssTablesStorage.write(toFlush);
+                newPage = ssTablesStorage.write(toFlush, config.bloomFilterFPP());
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -267,6 +292,7 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
         }
 
         flush();
+       // state.get().sstables.clear();
         bgExecutor.execute(arena::close);
         bgExecutor.shutdown();
         waitForClose();
