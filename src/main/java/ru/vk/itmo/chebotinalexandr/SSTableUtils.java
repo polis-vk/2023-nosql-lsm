@@ -73,10 +73,10 @@ public final class SSTableUtils {
 
         FindResult findResult = binarySearch(readSegment, key);
 
-        if (!findResult.found()) {
-            return null;
-        } else {
+        if (findResult.found()) {
             return get(readSegment, findResult.index(), keyOffset);
+        } else {
+            return null;
         }
     }
 

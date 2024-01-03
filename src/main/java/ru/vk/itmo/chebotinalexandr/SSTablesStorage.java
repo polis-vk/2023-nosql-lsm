@@ -173,7 +173,6 @@ public class SSTablesStorage {
     }
 
     /**
-     *
      * Writes SSTable in next format:
      * SSTable header contains:
      * ┌─────────────────────┬─────────────────────────┬─────────────────────┐
