@@ -24,7 +24,15 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static ru.vk.itmo.chebotinalexandr.SSTableUtils.*;
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.BLOOM_FILTER_HASH_FUNCTIONS_OFFSET;
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.BLOOM_FILTER_LENGTH_OFFSET;
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.COMPACTION_NOT_FINISHED_TAG;
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.ENTRIES_SIZE_OFFSET;
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.OLDEST_SS_TABLE_INDEX;
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.TOMBSTONE;
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.binarySearch;
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.deleteOldSSTables;
+import static ru.vk.itmo.chebotinalexandr.SSTableUtils.entryByteSize;
 
 public class SSTablesStorage {
     private static final String SSTABLE_NAME = "sstable_";
@@ -88,7 +96,7 @@ public class SSTablesStorage {
             if (tag == COMPACTION_NOT_FINISHED_TAG) {
                 Files.delete(pathTmp);
             } else {
-                deleteOldSSTables(basePath);
+                deleteOldSSTables(basePath, SSTABLE_EXTENSION);
                 Files.move(pathTmp, pathTmp.resolveSibling(SSTABLE_NAME + OLDEST_SS_TABLE_INDEX + SSTABLE_EXTENSION),
                         StandardCopyOption.ATOMIC_MOVE);
             }
@@ -245,20 +253,6 @@ public class SSTablesStorage {
         }
     }
 
-    private static void deleteOldSSTables(Path basePath) throws IOException {
-        try (Stream<Path> stream = Files.list(basePath)) {
-            stream
-                    .filter(path -> path.toString().endsWith(SSTABLE_EXTENSION))
-                    .forEach(path -> {
-                        try {
-                            Files.delete(path);
-                        } catch (IOException e) {
-                            throw new UncheckedIOException(e);
-                        }
-                    });
-        }
-    }
-
     public MemorySegment compact(Iterator<Entry<MemorySegment>> iterator,
                                  long sizeForCompaction, long entryCount, long bfLength) throws IOException {
         Path path = basePath.resolve(SSTABLE_NAME + ".tmp");
@@ -302,7 +296,7 @@ public class SSTablesStorage {
 
             memorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, ENTRIES_SIZE_OFFSET, entryCount);
 
-            deleteOldSSTables(basePath);
+            deleteOldSSTables(basePath, SSTABLE_EXTENSION);
             Files.move(path, path.resolveSibling(SSTABLE_NAME + OLDEST_SS_TABLE_INDEX + SSTABLE_EXTENSION),
                     StandardCopyOption.ATOMIC_MOVE);
 

@@ -3,8 +3,13 @@ package ru.vk.itmo.chebotinalexandr;
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.stream.Stream;
 
 public final class SSTableUtils {
     public static final long TOMBSTONE = -1;
@@ -119,6 +124,20 @@ public final class SSTableUtils {
             return new BaseEntry<>(key, null);
         } else {
             return new BaseEntry<>(key, sstable.asSlice(keyOffset, valueSize));
+        }
+    }
+
+    public static void deleteOldSSTables(Path basePath, String extension) throws IOException {
+        try (Stream<Path> stream = Files.list(basePath)) {
+            stream
+                    .filter(path -> path.toString().endsWith(extension))
+                    .forEach(path -> {
+                        try {
+                            Files.delete(path);
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    });
         }
     }
 

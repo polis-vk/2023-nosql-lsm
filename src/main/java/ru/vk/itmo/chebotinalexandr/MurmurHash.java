@@ -5,12 +5,12 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 
-
 /**
  * taken from <a href="https://github.com/apache/cassandra/blob/trunk/src/java/org/apache/cassandra/utils/MurmurHash.java#L178">...</a>.
  * remade for MemorySegment
  * generates 64-bit hash
  */
+
 public final class MurmurHash {
     public static final int DEFAULT_SEED = 104729;
     public static final VarHandle LITTLE_ENDIAN_LONG =
@@ -123,6 +123,7 @@ public final class MurmurHash {
                 k1 *= c2;
                 h1 ^= k1;
                 // fall through
+                break;
             default:
                 break;
         }
