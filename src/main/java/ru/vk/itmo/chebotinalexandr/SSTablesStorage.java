@@ -264,7 +264,7 @@ public class SSTablesStorage {
         Path path = basePath.resolve(SSTABLE_NAME + ".tmp");
 
         MemorySegment memorySegment;
-        try(Arena arenaForCompact = Arena.ofShared()) {
+        try (Arena arenaForCompact = Arena.ofShared()) {
             try (FileChannel channel = FileChannel.open(path,
                     StandardOpenOption.READ,
                     StandardOpenOption.WRITE,
@@ -307,6 +307,7 @@ public class SSTablesStorage {
                     StandardCopyOption.ATOMIC_MOVE);
 
         }
+
         return memorySegment;
     }
 

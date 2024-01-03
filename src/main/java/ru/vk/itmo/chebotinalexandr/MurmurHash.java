@@ -1,13 +1,10 @@
 package ru.vk.itmo.chebotinalexandr;
 
-import sun.misc.Unsafe;
-
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+
 
 /**
  * taken from <a href="https://github.com/apache/cassandra/blob/trunk/src/java/org/apache/cassandra/utils/MurmurHash.java#L178">...</a>.
@@ -16,7 +13,8 @@ import java.nio.ByteOrder;
  */
 public final class MurmurHash {
     public static final int DEFAULT_SEED = 104729;
-    public static final VarHandle LITTLE_ENDIAN_LONG = MethodHandles.memorySegmentViewVarHandle(ValueLayout.JAVA_LONG_UNALIGNED);
+    public static final VarHandle LITTLE_ENDIAN_LONG =
+            MethodHandles.memorySegmentViewVarHandle(ValueLayout.JAVA_LONG_UNALIGNED);
 
     private MurmurHash() {
 
@@ -26,7 +24,6 @@ public final class MurmurHash {
         return hash64(key, offset, length, DEFAULT_SEED);
     }
 
-    @SuppressWarnings("fallthrough")
     public static long[] hash64(MemorySegment key, int offset, int length, long seed) {
         final int nblocks = length >> 4;
 
@@ -75,42 +72,57 @@ public final class MurmurHash {
         switch (length & 15) {
             case 15:
                 k2 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 14)) << 48;
+                // fall through
             case 14:
                 k2 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 13)) << 40;
+                // fall through
             case 13:
                 k2 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 12)) << 32;
+                // fall through
             case 12:
                 k2 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 11)) << 24;
+                // fall through
             case 11:
                 k2 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 10)) << 16;
+                // fall through
             case 10:
                 k2 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 9)) << 8;
+                // fall through
             case 9:
                 k2 ^= key.get(ValueLayout.JAVA_BYTE, advancedOffset + 8);
                 k2 *= c2;
                 k2 = rotl64(k2, 33);
                 k2 *= c1;
                 h2 ^= k2;
+                // fall through
             case 8:
                 k1 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 7)) << 56;
+                // fall through
             case 7:
                 k1 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 6)) << 48;
+                // fall through
             case 6:
                 k1 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 5)) << 40;
+                // fall through
             case 5:
                 k1 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 4)) << 32;
+                // fall through
             case 4:
                 k1 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 3)) << 24;
+                // fall through
             case 3:
                 k1 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 2)) << 16;
+                // fall through
             case 2:
                 k1 ^= ((long) key.get(ValueLayout.JAVA_BYTE, advancedOffset + 1)) << 8;
+                // fall through
             case 1:
                 k1 ^= key.get(ValueLayout.JAVA_BYTE, advancedOffset);
                 k1 *= c1;
                 k1 = rotl64(k1, 31);
                 k1 *= c2;
                 h1 ^= k1;
+                // fall through
             default:
                 break;
         }

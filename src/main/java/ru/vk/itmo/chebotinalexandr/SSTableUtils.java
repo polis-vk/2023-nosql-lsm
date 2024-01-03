@@ -12,9 +12,8 @@ public final class SSTableUtils {
     public static final int SS_TABLE_PRIORITY = 2;
     public static final long COMPACTION_NOT_FINISHED_TAG = -1;
     public static final long BLOOM_FILTER_LENGTH_OFFSET = 0;
-    public static final long BLOOM_FILTER_HASH_FUNCTIONS_OFFSET =  Long.BYTES;
+    public static final long BLOOM_FILTER_HASH_FUNCTIONS_OFFSET = Long.BYTES;
     public static final long ENTRIES_SIZE_OFFSET = 2L * Long.BYTES;
-    public static final double FALSE_POSITIVE_RATE = 0.3;
 
     private SSTableUtils() {
 
@@ -59,7 +58,6 @@ public final class SSTableUtils {
                 low = mid;
             }
         }
-
 
         return -(low + 1);
     }

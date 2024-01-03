@@ -28,7 +28,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static ru.vk.itmo.chebotinalexandr.SSTableUtils.FALSE_POSITIVE_RATE;
 import static ru.vk.itmo.chebotinalexandr.SSTableUtils.SS_TABLE_PRIORITY;
 
 public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
@@ -146,7 +145,6 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
 
         return null;
     }
-
 
     private PeekingIterator<Entry<MemorySegment>> range(
             Iterator<Entry<MemorySegment>> firstIterator,
@@ -305,21 +303,18 @@ public class NotOnlyInMemoryDao implements Dao<MemorySegment, Entry<MemorySegmen
         }
 
         flush();
-       // state.get().sstables.clear();
         bgExecutor.execute(arena::close);
         bgExecutor.shutdown();
         waitForClose();
     }
 
-    private void waitForClose() throws InterruptedIOException {
+    private void waitForClose() {
         try {
             if (!bgExecutor.awaitTermination(5, TimeUnit.MINUTES)) {
                 throw new InterruptedException("Timeout");
             }
         } catch (InterruptedException e) {
-            InterruptedIOException exception = new InterruptedIOException("Interrupted or timed out");
-            exception.initCause(e);
-            throw exception;
+            Thread.currentThread().interrupt();
         }
     }
 

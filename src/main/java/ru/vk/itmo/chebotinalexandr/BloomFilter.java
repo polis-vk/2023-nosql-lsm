@@ -18,8 +18,7 @@ public final class BloomFilter {
         return (long) (-n * Math.log(falsePositiveRate) / (Math.log(2) * Math.log(2)));
     }
 
-    /**
-     * Divides {@code entriesCount} by {@code 64} with ceiling rounding
+    /** Divides {@code entriesCount} by {@code 64} with ceiling rounding.
      */
     private static long divide(long entriesCount) {
         long div = entriesCount / (long) Long.SIZE;
@@ -82,8 +81,7 @@ public final class BloomFilter {
         return (hashFromSstable & (1L << bitIndex)) != 0;
     }
 
-    /**
-     * get sstable offset for bloom filter array index
+    /** Get sstable offset for bloom filter array index.
      */
     private static long offsetForIndex(long bitIndex) {
         long longIndex = bitIndex >>> LONG_ADDRESSABLE_BITS;
