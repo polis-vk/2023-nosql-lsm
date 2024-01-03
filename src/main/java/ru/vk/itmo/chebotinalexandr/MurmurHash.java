@@ -16,6 +16,7 @@ import java.nio.ByteOrder;
  */
 public final class MurmurHash {
     public static final int DEFAULT_SEED = 104729;
+    public static final VarHandle LITTLE_ENDIAN_LONG = MethodHandles.memorySegmentViewVarHandle(ValueLayout.JAVA_LONG_UNALIGNED);
 
     private MurmurHash() {
 
@@ -136,9 +137,7 @@ public final class MurmurHash {
         int i16 = index << 4; //blocks are 16 bytes
         int blockOffset = offset + i16;
 
-        ByteBuffer buffer = key.asByteBuffer().order(ByteOrder.nativeOrder());
-        buffer.position(blockOffset);
-        return buffer.getLong();
+        return (long) LITTLE_ENDIAN_LONG.get(key, blockOffset);
     }
 
     private static long rotl64(long v, int n) {
