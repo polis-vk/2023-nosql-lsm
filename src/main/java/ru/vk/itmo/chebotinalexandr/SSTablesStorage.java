@@ -117,7 +117,7 @@ public class SSTablesStorage {
         return Comparator.comparingInt(Map.Entry::getValue);
     }
 
-    public static long find(MemorySegment readSegment, MemorySegment key) {
+    public static FindResult find(MemorySegment readSegment, MemorySegment key) {
         return binarySearch(readSegment, key);
 
     }
@@ -150,13 +150,13 @@ public class SSTablesStorage {
             keyIndexTo = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, ENTRIES_SIZE_OFFSET);
         } else if (from == null) {
             keyIndexFrom = 0;
-            keyIndexTo = find(sstable, to);
+            keyIndexTo = find(sstable, to).index();
         } else if (to == null) {
-            keyIndexFrom = find(sstable, from);
+            keyIndexFrom = find(sstable, from).index();
             keyIndexTo = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, ENTRIES_SIZE_OFFSET);
         } else {
-            keyIndexFrom = find(sstable, from);
-            keyIndexTo = find(sstable, to);
+            keyIndexFrom = find(sstable, from).index();
+            keyIndexTo = find(sstable, to).index();
         }
 
         final long bloomFilterLength = sstable.get(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_LENGTH_OFFSET);
@@ -172,8 +172,30 @@ public class SSTablesStorage {
         return new SSTableIterator(sstable, keyIndexFrom, keyIndexTo, keyOffset);
     }
 
-    // |bf array length|hash_functions_count|entries length|key1 offset|
-    // |key2 offset| ... |key_n offset|key1Size|key1|value1Size|value1| ...
+    /**
+     *
+     * Writes SSTable in next format:
+     * SSTable header contains:
+     * ┌─────────────────────┬─────────────────────────┬─────────────────────┐
+     * │          8          │            8            │          8          │
+     * │─────────────────────│─────────────────────────│─────────────────────│
+     * │   BF array length   │  Hash functions count   │    Entries count    │
+     * └─────────────────────┴─────────────────────────┴─────────────────────┘
+     * SStable bloom filter:
+     * ┌────────────────────────────┐
+     * │ 8 x BloomFilter array size │
+     * │────────────────────────────│
+     * │           Hash_i           │
+     * └────────────────────────────┘
+     * where i = 1, ... , bloom filter array size
+     * SStable data format:
+     * ┌─────────────────────┬──────────┬──────────┬────────────┬────────────┐
+     * │  8 x Entries count  │    8     │ Key size │     8      │ Value size │
+     * │─────────────────────│──────────│──────────│────────────│────────────│
+     * │     Key_j offset    │ Key size │    Key   │ Value size │ Value      │
+     * └─────────────────────┴──────────┴──────────┴────────────┴────────────┘
+     * where j = 1, ... , entries count.
+     */
     public MemorySegment write(Collection<Entry<MemorySegment>> dataToFlush, double bloomFilterFPP) throws IOException {
         long size = 0;
 

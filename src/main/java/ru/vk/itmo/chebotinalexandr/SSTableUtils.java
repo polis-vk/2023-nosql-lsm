@@ -24,7 +24,7 @@ public final class SSTableUtils {
 
     }
 
-    public static long binarySearch(MemorySegment readSegment, MemorySegment key) {
+    public static FindResult binarySearch(MemorySegment readSegment, MemorySegment key) {
         long low = -1;
         long high = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, ENTRIES_SIZE_OFFSET);
 
@@ -42,7 +42,7 @@ public final class SSTableUtils {
                     key, 0, key.byteSize());
 
             if (mismatch == -1) {
-                return mid;
+                return new FindResult(true, mid);
             }
 
             if (mismatch == keySize) {
@@ -64,49 +64,20 @@ public final class SSTableUtils {
             }
         }
 
-        return -(low + 1);
+        return new FindResult(false, -(low + 1));
     }
 
     public static Entry<MemorySegment> get(MemorySegment readSegment, MemorySegment key) {
         final long bloomFilterLength = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, BLOOM_FILTER_LENGTH_OFFSET);
         final long keyOffset = 3L * Long.BYTES + Long.BYTES * bloomFilterLength;
 
-        long low = -1;
-        long high = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, ENTRIES_SIZE_OFFSET);
-        while (low < high - 1) {
-            long mid = (high - low) / 2 + low;
+        FindResult findResult = binarySearch(readSegment, key);
 
-            long offset = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, keyOffset + mid * Long.BYTES);
-            long keySize = readSegment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-            offset += Long.BYTES;
-
-            long mismatch = MemorySegment.mismatch(readSegment, offset, offset + keySize,
-                    key, 0, key.byteSize());
-
-            if (mismatch == -1) {
-                return get(readSegment, mid, keyOffset);
-            }
-
-            if (mismatch == keySize) {
-                low = mid;
-                continue;
-            }
-            if (mismatch == key.byteSize()) {
-                high = mid;
-                continue;
-            }
-
-            int compare = Byte.compare(readSegment.get(ValueLayout.JAVA_BYTE, offset + mismatch),
-                    key.get(ValueLayout.JAVA_BYTE, mismatch));
-
-            if (compare > 0) {
-                high = mid;
-            } else {
-                low = mid;
-            }
+        if (!findResult.found()) {
+            return null;
+        } else {
+            return get(readSegment, findResult.index(), keyOffset);
         }
-
-        return null;
     }
 
     private static Entry<MemorySegment> get(MemorySegment sstable, long index, long afterBloomFilterOffset) {
