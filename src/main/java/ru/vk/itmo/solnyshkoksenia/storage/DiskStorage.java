@@ -2,13 +2,13 @@ package ru.vk.itmo.solnyshkoksenia.storage;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.solnyshkoksenia.EntryExtended;
 import ru.vk.itmo.solnyshkoksenia.MemorySegmentComparator;
 import ru.vk.itmo.solnyshkoksenia.MergeIterator;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -34,11 +35,11 @@ public class DiskStorage {
         this.storagePath = storagePath;
     }
 
-    public Iterator<Entry<MemorySegment>> range(
-            Iterator<Entry<MemorySegment>> firstIterator,
+    public Iterator<EntryExtended<MemorySegment>> range(
+            Iterator<EntryExtended<MemorySegment>> firstIterator,
             MemorySegment from,
             MemorySegment to) {
-        List<Iterator<Entry<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
+        List<Iterator<EntryExtended<MemorySegment>>> iterators = new ArrayList<>(segmentList.size() + 1);
         for (MemorySegment memorySegment : segmentList) {
             iterators.add(iterator(memorySegment, from, to));
         }
@@ -46,13 +47,17 @@ public class DiskStorage {
 
         return new MergeIterator<>(iterators, (e1, e2) -> comparator.compare(e1.key(), e2.key())) {
             @Override
-            protected boolean skip(Entry<MemorySegment> memorySegmentEntry) {
+            protected boolean skip(EntryExtended<MemorySegment> memorySegmentEntry) {
+                if (memorySegmentEntry.expiration() != null) {
+                    return memorySegmentEntry.value() == null
+                            || !utils.checkTTL(memorySegmentEntry.expiration(), System.currentTimeMillis());
+                }
                 return memorySegmentEntry.value() == null;
             }
         };
     }
 
-    public void save(Iterable<Entry<MemorySegment>> iterable)
+    public void save(Iterable<EntryExtended<MemorySegment>> iterable)
             throws IOException {
         final Path indexTmp = storagePath.resolve("index.tmp");
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
@@ -66,17 +71,22 @@ public class DiskStorage {
 
         String newFileName = String.valueOf(existedFiles.size());
 
-        long dataSize = 0;
-        long count = 0;
-        for (Entry<MemorySegment> entry : iterable) {
-            dataSize += entry.key().byteSize();
-            MemorySegment value = entry.value();
-            if (value != null) {
-                dataSize += value.byteSize();
+        final long currentTime = System.currentTimeMillis();
+
+        Entry<Long> sizes = new BaseEntry<>(0L, 0L);
+        for (EntryExtended<MemorySegment> entry : iterable) {
+            MemorySegment expiration = entry.expiration();
+            if (expiration == null || utils.checkTTL(expiration, currentTime)) {
+                sizes = utils.countEntrySize(entry, sizes);
             }
-            count++;
         }
-        long indexSize = count * 2 * Long.BYTES;
+        long dataSize = sizes.key();
+        long count = sizes.value();
+
+        if (count == 0) {
+            return;
+        }
+        long indexSize = count * 3 * Long.BYTES;
 
         try (
                 FileChannel fileChannel = FileChannel.open(
@@ -90,14 +100,17 @@ public class DiskStorage {
             MemorySegment fileSegment = utils.mapFile(fileChannel, indexSize + dataSize, writeArena);
 
             // index:
-            // |key0_Start|value0_Start|key1_Start|value1_Start|key2_Start|value2_Start|...
+            // |key0_Start|value0_Start|expiration0_Start|key1_Start|value1_Start|expiration1_Start|key2_Start|...
             // key0_Start = data start = end of index
 
             // data:
-            // |key0|value0|key1|value1|...
+            // |key0|value0|expiration0|key1|value1|expiration1|...
             Entry<Long> offsets = new BaseEntry<>(indexSize, 0L);
-            for (Entry<MemorySegment> entry : iterable) {
-                offsets = utils.putEntry(fileSegment, offsets, entry);
+            for (EntryExtended<MemorySegment> entry : iterable) {
+                MemorySegment expiration = entry.expiration();
+                if (expiration == null || utils.checkTTL(expiration, currentTime)) {
+                    offsets = utils.putEntry(fileSegment, offsets, entry);
+                }
             }
         }
 
@@ -117,7 +130,7 @@ public class DiskStorage {
         Files.delete(indexTmp);
     }
 
-    public void compact(Iterable<Entry<MemorySegment>> iterable) throws IOException {
+    public void compact() throws IOException {
         final Path tmpFile = storagePath.resolve("tmp");
         final Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
 
@@ -129,22 +142,26 @@ public class DiskStorage {
 
         List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
 
-        if (existedFiles.isEmpty() && !iterable.iterator().hasNext()) {
+        if (existedFiles.isEmpty()) {
             return; // nothing to compact
         }
 
-        Iterator<Entry<MemorySegment>> iterator = range(iterable.iterator(), null, null);
-        Iterator<Entry<MemorySegment>> iterator1 = range(iterable.iterator(), null, null);
+        Iterator<EntryExtended<MemorySegment>> iterator = range(Collections.emptyIterator(), null, null);
+        Iterator<EntryExtended<MemorySegment>> iterator1 = range(Collections.emptyIterator(), null, null);
 
         long dataSize = 0;
         long indexSize = 0;
         while (iterator.hasNext()) {
-            indexSize += Long.BYTES * 2;
-            Entry<MemorySegment> entry = iterator.next();
+            indexSize += Long.BYTES * 3;
+            EntryExtended<MemorySegment> entry = iterator.next();
             dataSize += entry.key().byteSize();
             MemorySegment value = entry.value();
             if (value != null) {
                 dataSize += value.byteSize();
+            }
+            MemorySegment expiration = entry.expiration();
+            if (expiration != null) {
+                dataSize += expiration.byteSize();
             }
         }
 
@@ -169,16 +186,26 @@ public class DiskStorage {
             Files.delete(storagePath.resolve(file));
         }
 
-        Files.move(tmpFile, storagePath.resolve("0"), StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING);
+        final Path indexTmp = storagePath.resolve("indexTmp");
+        Files.deleteIfExists(indexTmp);
+
+        boolean noData = Files.size(tmpFile) == 0;
 
         Files.write(
-                indexFile,
-                List.of("0"),
+                indexTmp,
+                noData ? Collections.emptyList() : List.of("0"),
                 StandardOpenOption.WRITE,
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING
         );
+
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
+        if (noData) {
+            Files.delete(tmpFile);
+        } else {
+            Files.move(tmpFile, storagePath.resolve("0"), StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     public static List<MemorySegment> loadOrRecover(Path storagePath, Arena arena) throws IOException {
@@ -208,46 +235,10 @@ public class DiskStorage {
         return result;
     }
 
-    private static long indexOf(MemorySegment segment, MemorySegment key) {
-        long recordsCount = utils.recordsCount(segment);
-
-        long left = 0;
-        long right = recordsCount - 1;
-        while (left <= right) {
-            long mid = (left + right) >>> 1;
-
-            long startOfKey = utils.startOfKey(segment, mid);
-            long endOfKey = utils.endOfKey(segment, mid);
-            long mismatch = MemorySegment.mismatch(segment, startOfKey, endOfKey, key, 0, key.byteSize());
-            if (mismatch == -1) {
-                return mid;
-            }
-
-            if (mismatch == key.byteSize()) {
-                right = mid - 1;
-                continue;
-            }
-
-            if (mismatch == endOfKey - startOfKey) {
-                left = mid + 1;
-                continue;
-            }
-
-            int b1 = Byte.toUnsignedInt(segment.get(ValueLayout.JAVA_BYTE, startOfKey + mismatch));
-            int b2 = Byte.toUnsignedInt(key.get(ValueLayout.JAVA_BYTE, mismatch));
-            if (b1 > b2) {
-                right = mid - 1;
-            } else {
-                left = mid + 1;
-            }
-        }
-
-        return utils.tombstone(left);
-    }
-
-    private static Iterator<Entry<MemorySegment>> iterator(MemorySegment page, MemorySegment from, MemorySegment to) {
-        long recordIndexFrom = from == null ? 0 : utils.normalize(indexOf(page, from));
-        long recordIndexTo = to == null ? utils.recordsCount(page) : utils.normalize(indexOf(page, to));
+    private static Iterator<EntryExtended<MemorySegment>> iterator(MemorySegment page,
+                                                                   MemorySegment from, MemorySegment to) {
+        long recordIndexFrom = from == null ? 0 : utils.normalize(utils.indexOf(page, from));
+        long recordIndexTo = to == null ? utils.recordsCount(page) : utils.normalize(utils.indexOf(page, to));
         long recordsCount = utils.recordsCount(page);
 
         return new Iterator<>() {
@@ -259,7 +250,7 @@ public class DiskStorage {
             }
 
             @Override
-            public Entry<MemorySegment> next() {
+            public EntryExtended<MemorySegment> next() {
                 if (!hasNext()) {
                     throw new NoSuchElementException();
                 }
@@ -268,9 +259,14 @@ public class DiskStorage {
                 MemorySegment value =
                         startOfValue < 0
                                 ? null
-                                : utils.slice(page, startOfValue, utils.endOfValue(page, index, recordsCount));
+                                : utils.slice(page, startOfValue, utils.endOfValue(page, index));
+                long startOfExp = utils.startOfExpiration(page, index);
+                MemorySegment expiration =
+                        startOfExp < 0
+                                ? null
+                                : utils.slice(page, startOfExp, utils.endOfExpiration(page, index, recordsCount));
                 index++;
-                return new BaseEntry<>(key, value);
+                return new EntryExtended<>(key, value, expiration);
             }
         };
     }
