@@ -9,9 +9,11 @@ import java.util.NavigableMap;
 public class MemTable implements Table {
     private final Iterator<Entry<MemorySegment>> iterator;
     private MemTableEntry currentEntry;
+    final int number;
 
-    public MemTable(NavigableMap<MemorySegment, Entry<MemorySegment>> map) {
-        iterator = map.values().iterator();
+    public MemTable(NavigableMap<MemorySegment, Entry<MemorySegment>> map, int number) {
+        this.iterator = map.values().iterator();
+        this.number = number;
         if (iterator.hasNext()) {
             currentEntry = new MemTableEntry(iterator.next(), this);
         } else {

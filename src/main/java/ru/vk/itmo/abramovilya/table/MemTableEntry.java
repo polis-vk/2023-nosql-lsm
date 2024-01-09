@@ -31,7 +31,7 @@ public class MemTableEntry implements TableEntry {
 
     @Override
     public int number() {
-        return Integer.MAX_VALUE;
+        return memTable.number;
     }
 
     @Override

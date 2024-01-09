@@ -13,10 +13,6 @@ import java.util.Iterator;
 import java.util.NavigableMap;
 
 final class StorageFileWriter {
-
-    public static final ValueLayout.OfInt ENTRY_NUMBER_LAYOUT = ValueLayout.JAVA_INT_UNALIGNED;
-    public static final ValueLayout.OfLong MEMORY_SEGMENT_SIZE_LAYOUT = ValueLayout.JAVA_LONG_UNALIGNED;
-
     private StorageFileWriter() {
     }
 
@@ -67,10 +63,10 @@ final class StorageFileWriter {
     // And it also won't give any speed boost,
     // because I would still be in need to find iterator.next() entry in another file
     static void writeMapIntoFile(long sstableSize,
-                                        long indexSize,
-                                        NavigableMap<MemorySegment, Entry<MemorySegment>> map,
-                                        Path sstablePath,
-                                        Path indexPath) throws IOException {
+                                 long indexSize,
+                                 NavigableMap<MemorySegment, Entry<MemorySegment>> map,
+                                 Path sstablePath,
+                                 Path indexPath) throws IOException {
         long storageWriteOffset = 0;
         long indexWriteOffset = 0;
         try (var storageChannel = FileChannel.open(sstablePath,
@@ -97,7 +93,7 @@ final class StorageFileWriter {
                 );
                 entryNum++;
 
-                storageWriteOffset += Storage.BYTES_TO_STORE_ENTRY_SIZE;
+                storageWriteOffset += 2 * Long.BYTES;
                 storageWriteOffset += entry.key().byteSize();
                 if (entry.value() != null) {
                     storageWriteOffset += entry.value().byteSize();
@@ -108,6 +104,7 @@ final class StorageFileWriter {
             MemorySegment mappedStorage =
                     storageChannel.map(FileChannel.MapMode.READ_WRITE, 0, sstableSize, writeArena);
             storageWriteOffset = 0;
+
             for (var entry : map.values()) {
                 storageWriteOffset = writeMemorySegment(entry.key(), mappedStorage, storageWriteOffset);
                 storageWriteOffset = writeMemorySegment(entry.value(), mappedStorage, storageWriteOffset);
@@ -121,10 +118,10 @@ final class StorageFileWriter {
                                               int entryNum,
                                               long storageWriteOffset) {
         long offset = indexWriteOffset;
-        mappedIndex.set(ENTRY_NUMBER_LAYOUT, offset, entryNum);
-        offset += Storage.BYTES_TO_STORE_INDEX_KEY;
-        mappedIndex.set(MEMORY_SEGMENT_SIZE_LAYOUT, offset, storageWriteOffset);
-        offset += Storage.BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
+        mappedIndex.set(ValueLayout.JAVA_INT_UNALIGNED, offset, entryNum);
+        offset += Integer.BYTES;
+        mappedIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, storageWriteOffset);
+        offset += Long.BYTES;
         return offset;
     }
 
@@ -134,12 +131,12 @@ final class StorageFileWriter {
     static long writeMemorySegment(MemorySegment memorySegment, MemorySegment mapped, long writeOffset) {
         long offset = writeOffset;
         if (memorySegment == null) {
-            mapped.set(MEMORY_SEGMENT_SIZE_LAYOUT, offset, -1);
-            offset += Storage.BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
+            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, -1);
+            offset += Long.BYTES;
         } else {
             long msSize = memorySegment.byteSize();
-            mapped.set(MEMORY_SEGMENT_SIZE_LAYOUT, offset, msSize);
-            offset += Storage.BYTES_TO_STORE_ENTRY_ELEMENT_SIZE;
+            mapped.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, msSize);
+            offset += Long.BYTES;
             MemorySegment.copy(memorySegment, 0, mapped, offset, msSize);
             offset += msSize;
         }
