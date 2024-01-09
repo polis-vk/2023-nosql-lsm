@@ -80,6 +80,9 @@ public final class MemorySegmentEntryExtractor implements EntryExtractor<MemoryS
 
     @Override
     public long size(Entry<MemorySegment> entry) {
+        if (entry == null) {
+            return 0;
+        }
         return size(entry.key()) + size(entry.value());
     }
 
