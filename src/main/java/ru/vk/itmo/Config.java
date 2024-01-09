@@ -7,6 +7,13 @@ public record Config(
         long flushThresholdBytes,
         CompressionConfig compressionConfig
 ) {
+    public Config(
+            Path basePath,
+            long flushThresholdBytes
+    ) {
+        this(basePath, flushThresholdBytes, Config.disableCompression());
+    }
+
     public record CompressionConfig(
             boolean enabled,
             Compressor compressor,
