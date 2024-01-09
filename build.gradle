@@ -18,6 +18,8 @@ dependencies {
     // Checks
     errorprone 'com.google.errorprone:error_prone_core:2.11.0'
     checkstyle 'com.puppycrawl.tools:checkstyle:9.3'
+    implementation 'org.lz4:lz4-java:1.8.0'
+    implementation group: 'com.github.luben', name: 'zstd-jni', version: '1.5.5-11'
 
     // JUnit Jupiter test framework
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.8.2'

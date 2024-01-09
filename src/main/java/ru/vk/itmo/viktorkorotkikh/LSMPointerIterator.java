@@ -7,7 +7,7 @@ import java.util.Iterator;
 
 public abstract class LSMPointerIterator implements Iterator<Entry<MemorySegment>> {
 
-    abstract int getPriority();
+    public abstract int getPriority();
 
     protected abstract MemorySegment getPointerKeySrc();
 
@@ -15,11 +15,11 @@ public abstract class LSMPointerIterator implements Iterator<Entry<MemorySegment
 
     protected abstract long getPointerKeySrcSize();
 
-    abstract boolean isPointerOnTombstone();
+    public abstract boolean isPointerOnTombstone();
 
-    abstract void shift();
+    public abstract void shift();
 
-    abstract long getPointerSize();
+    public abstract long getPointerSize();
 
     public int compareByPointers(LSMPointerIterator otherIterator) {
         return MemorySegmentComparator.INSTANCE.compare(

@@ -1,6 +1,7 @@
 package ru.vk.itmo.viktorkorotkikh;
 
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.viktorkorotkikh.exceptions.LSMDaoOutOfMemoryException;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Collection;
@@ -91,7 +92,7 @@ public class MemTable {
         }
 
         @Override
-        int getPriority() {
+        public int getPriority() {
             return priority;
         }
 
@@ -106,12 +107,12 @@ public class MemTable {
         }
 
         @Override
-        boolean isPointerOnTombstone() {
+        public boolean isPointerOnTombstone() {
             return current.value() == null;
         }
 
         @Override
-        void shift() {
+        public void shift() {
             if (!hasNext()) {
                 throw new NoSuchElementException();
             }
@@ -119,7 +120,7 @@ public class MemTable {
         }
 
         @Override
-        long getPointerSize() {
+        public long getPointerSize() {
             return Utils.getEntrySize(current);
         }
 

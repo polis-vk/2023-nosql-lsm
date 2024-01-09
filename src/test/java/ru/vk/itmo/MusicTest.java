@@ -54,7 +54,7 @@ public class MusicTest extends BaseTest {
     }
 
     @DaoTest(stage = 3)
-    void database(Dao<String, Entry<String>> dao) throws Exception {
+    public void database(Dao<String, Entry<String>> dao) throws Exception {
         // Fill the music database
         dao.upsert(record(trackFrom("Ar1", "Al11", "T111"), 15));
         dao.upsert(record(trackFrom("Ar1", "Al11", "T112"), 24));
