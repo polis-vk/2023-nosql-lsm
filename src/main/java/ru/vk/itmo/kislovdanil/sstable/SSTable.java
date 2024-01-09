@@ -1,4 +1,4 @@
-package ru.vk.itmo.kislovdanil;
+package ru.vk.itmo.kislovdanil.sstable;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
@@ -12,29 +12,51 @@ import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
 
-public class SSTable implements Comparable<SSTable> {
+public class SSTable implements Comparable<SSTable>, Iterable<Entry<MemorySegment>> {
     // Contains offset and size for every key and every value in index file
-    private MemorySegment summaryFile;
+    MemorySegment summaryFile;
     private static final String SUMMARY_FILENAME = "summary";
     // Contains keys
-    private MemorySegment indexFile;
+    MemorySegment indexFile;
     private static final String INDEX_FILENAME = "index";
     // Contains values
-    private MemorySegment dataFile;
+    MemorySegment dataFile;
     private static final String DATA_FILENAME = "data";
-    private final Comparator<MemorySegment> memSegComp;
-    private final Arena filesArena = Arena.ofAuto();
+    final Comparator<MemorySegment> memSegComp;
+    private final Arena filesArena;
     private final long tableId;
     private final Path ssTablePath;
 
-    private final long size;
+    final long size;
+
+    /* In case deletion while compaction of this table field would link to table with compacted data.
+    Necessary for iterators created before compaction. */
+    // Gives a guarantee that SSTable files wouldn't be deleted while reading
+
+    public long getTableId() {
+        return tableId;
+    }
+
+    public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId, Arena filesArena)
+            throws IOException {
+        this(basePath, memSegComp, tableId, null, false, filesArena);
+    }
 
     public SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
-                   Iterable<Entry<MemorySegment>> entriesContainer,
-                   boolean rewrite) throws IOException {
+                   Iterator<Entry<MemorySegment>> entriesContainer, Arena filesArena) throws IOException {
+        this(basePath, memSegComp, tableId, entriesContainer, true, filesArena);
+    }
+
+    private SSTable(Path basePath, Comparator<MemorySegment> memSegComp, long tableId,
+                    Iterator<Entry<MemorySegment>> entriesContainer,
+                    boolean rewrite, Arena filesArena) throws IOException {
         this.tableId = tableId;
+        this.filesArena = filesArena;
         this.ssTablePath = basePath.resolve(Long.toString(tableId));
         this.memSegComp = memSegComp;
         Path summaryFilePath = this.ssTablePath.resolve(SUMMARY_FILENAME);
@@ -106,13 +128,18 @@ public class SSTable implements Comparable<SSTable> {
     }
 
     // Sequentially writes every entity data in SStable keeping files data consistent
-    private void write(Iterable<Entry<MemorySegment>> entriesContainer,
+    private void write(Iterator<Entry<MemorySegment>> entryIterator,
                        Path summaryFilePath, Path indexFilePath, Path dataFilePath) throws IOException {
         prepareForWriting(summaryFilePath);
         prepareForWriting(indexFilePath);
         prepareForWriting(dataFilePath);
 
-        long[] filesSize = getFilesSize(entriesContainer);
+        List<Entry<MemorySegment>> entries = new ArrayList<>();
+        while (entryIterator.hasNext()) {
+            entries.add(entryIterator.next());
+        }
+
+        long[] filesSize = getFilesSize(entries);
 
         summaryFile = mapFile(filesSize[0], summaryFilePath);
         indexFile = mapFile(filesSize[1], indexFilePath);
@@ -121,7 +148,7 @@ public class SSTable implements Comparable<SSTable> {
         long currentSummaryOffset = 0;
         long currentIndexOffset = 0;
         long currentDataOffset = 0;
-        for (Entry<MemorySegment> entry : entriesContainer) {
+        for (Entry<MemorySegment> entry : entries) {
             MemorySegment value = entry.value();
             value = value == null ? filesArena.allocate(0) : value;
             MemorySegment key = entry.key();
@@ -140,19 +167,19 @@ public class SSTable implements Comparable<SSTable> {
         Files.delete(ssTablePath);
     }
 
-    private Range readRange(MemorySegment segment, long offset) {
+    Range readRange(MemorySegment segment, long offset) {
         return new Range(segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset),
                 segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset + Long.BYTES));
     }
 
     /* Binary search in summary and index files. Returns index of least record greater than key or equal.
     Returns -1 if no such key */
-    private long findByKey(MemorySegment key) {
+    long findByKey(MemorySegment key) {
         long left = -1; // Always less than key
         long right = size; // Always greater or equal than key
         while (right - left > 1) {
             long middle = (right + left) / 2;
-            Metadata currentEntryMetadata = new Metadata(middle);
+            Metadata currentEntryMetadata = new Metadata(middle, this);
             MemorySegment curKey = currentEntryMetadata.readKey();
             int compRes = memSegComp.compare(key, curKey);
             if (compRes <= 0) {
@@ -170,8 +197,8 @@ public class SSTable implements Comparable<SSTable> {
         return goe;
     }
 
-    private Entry<MemorySegment> readEntry(long index) {
-        Metadata metadata = new Metadata(index);
+    Entry<MemorySegment> readEntry(long index) {
+        Metadata metadata = new Metadata(index, this);
         MemorySegment key = metadata.readKey();
         MemorySegment value = metadata.readValue();
         return new BaseEntry<>(key, value);
@@ -184,58 +211,26 @@ public class SSTable implements Comparable<SSTable> {
     }
 
     public DatabaseIterator getRange(MemorySegment from, MemorySegment to) {
-        return new SSTableIterator(from, to);
+        return new SSTableIterator(from, to, this);
     }
 
-    private class SSTableIterator implements DatabaseIterator {
-        private long curItemIndex;
-        private final MemorySegment maxKey;
-
-        private Entry<MemorySegment> curEntry;
-
-        public SSTableIterator(MemorySegment minKey, MemorySegment maxKey) {
-            this.maxKey = maxKey;
-            if (minKey == null) {
-                this.curItemIndex = 0;
-            } else {
-                this.curItemIndex = findByKey(minKey);
-            }
-            if (curItemIndex == -1) {
-                curItemIndex = Long.MAX_VALUE;
-            } else {
-                this.curEntry = readEntry(curItemIndex);
-            }
-        }
-
-        @Override
-        public boolean hasNext() {
-            if (curItemIndex >= size) return false;
-            return maxKey == null || memSegComp.compare(curEntry.key(), maxKey) < 0;
-        }
-
-        @Override
-        public Entry<MemorySegment> next() {
-            Entry<MemorySegment> result = curEntry;
-            curItemIndex++;
-            if (curItemIndex < size) {
-                curEntry = readEntry(curItemIndex);
-            }
-            return result;
-        }
-
-        @Override
-        public long getPriority() {
-            return tableId;
-        }
+    public DatabaseIterator getRange() {
+        return getRange(null, null);
     }
 
     @Override
+    public Iterator<Entry<MemorySegment>> iterator() {
+        return getRange();
+    }
+
+    // The less the ID, the less the table
+    @Override
     public int compareTo(SSTable o) {
-        return Long.compare(o.tableId, this.tableId);
+        return Long.compare(this.tableId, o.tableId);
     }
 
     // Describes offset and size of any data segment
-    private static class Range {
+    static class Range {
         public long offset;
         public long length;
 
@@ -244,42 +239,4 @@ public class SSTable implements Comparable<SSTable> {
             this.length = length;
         }
     }
-
-    private class Metadata {
-        private final Range keyRange;
-        private final Range valueRange;
-        private final Boolean isDeletion;
-        public static final long SIZE = Long.BYTES * 4 + 1;
-
-        public Metadata(long index) {
-            long base = index * Metadata.SIZE;
-            keyRange = readRange(summaryFile, base);
-            valueRange = readRange(summaryFile, base + 2 * Long.BYTES);
-            isDeletion = summaryFile.get(ValueLayout.JAVA_BOOLEAN, base + 4 * Long.BYTES);
-        }
-
-        public MemorySegment readKey() {
-            return indexFile.asSlice(keyRange.offset, keyRange.length);
-        }
-
-        public MemorySegment readValue() {
-            return isDeletion ? null : dataFile.asSlice(valueRange.offset, valueRange.length);
-        }
-
-        public static void writeEntryMetadata(Entry<MemorySegment> entry, MemorySegment summaryFile,
-                                              long sumOffset, long indexOffset, long dataOffset) {
-            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                    sumOffset, indexOffset);
-            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                    sumOffset + Long.BYTES, entry.key().byteSize());
-            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                    sumOffset + 2 * Long.BYTES, dataOffset);
-            summaryFile.set(ValueLayout.JAVA_BOOLEAN,
-                    sumOffset + 4 * Long.BYTES, entry.value() == null);
-            summaryFile.set(ValueLayout.JAVA_LONG_UNALIGNED,
-                    sumOffset + 3 * Long.BYTES, entry.value() == null ? 0 : entry.value().byteSize());
-        }
-
-    }
-
 }

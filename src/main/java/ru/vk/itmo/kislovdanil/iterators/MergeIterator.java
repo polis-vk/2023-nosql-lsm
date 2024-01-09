@@ -2,8 +2,11 @@ package ru.vk.itmo.kislovdanil.iterators;
 
 import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
+import ru.vk.itmo.kislovdanil.sstable.SSTable;
 
 import java.lang.foreign.MemorySegment;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.Iterator;
 import java.util.List;
@@ -15,12 +18,24 @@ public class MergeIterator implements Iterator<Entry<MemorySegment>> {
     private final NavigableMap<MemorySegment, IteratorAndValue> itemsPool;
     private Entry<MemorySegment> currentEntry;
 
-    public MergeIterator(List<DatabaseIterator> iterators, Comparator<MemorySegment> comp) {
+    private static Iterable<DatabaseIterator> getDBIterators(Collection<SSTable> tables) {
+        List<DatabaseIterator> it = new ArrayList<>(tables.size());
+        for (SSTable table: tables) {
+            it.add(table.getRange());
+        }
+        return it;
+    }
+
+    public MergeIterator(Iterable<DatabaseIterator> iterators, Comparator<MemorySegment> comp) {
         this.itemsPool = new TreeMap<>(comp);
         for (DatabaseIterator iter : iterators) {
             moveIterator(iter);
         }
         updateCurrentEntry();
+    }
+
+    public MergeIterator(Collection<SSTable> tables, Comparator<MemorySegment> comp) {
+        this(getDBIterators(tables), comp);
     }
 
     // Get next entry (skip all entries with null value)
