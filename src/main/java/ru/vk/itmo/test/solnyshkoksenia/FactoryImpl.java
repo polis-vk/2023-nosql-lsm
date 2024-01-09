@@ -12,14 +12,9 @@ import java.lang.foreign.ValueLayout;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
-@DaoFactory(stage = 4)
+@DaoFactory(stage = 5)
 public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     private static final Charset UTF_8 = StandardCharsets.UTF_8;
-
-    @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new DaoImpl();
-    }
 
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
