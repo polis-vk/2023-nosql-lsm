@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.LongSummaryStatistics;
 import java.util.NavigableSet;
@@ -270,4 +271,40 @@ class CompactionTest extends BaseTest {
         assertSame(dao.all(), List.copyOf(values));
     }
 
+    @DaoTest(stage = 5)
+    void oldIteratorAfterCompact(Dao<String, Entry<String>> dao) throws Exception {
+        NavigableSet<Entry<String>> values = new TreeSet<>(Comparator.comparing(Entry::key));
+        Duration flushDelay = Duration.ofSeconds(1);
+        // insert some entries
+        for (int i = 0; i < 50; i++) {
+            values.add(entryAt(i));
+            dao.upsert(entryAt(i));
+        }
+
+        // flush and check
+        dao.flush();
+        Thread.sleep(flushDelay);
+        assertSame(dao.all(), List.copyOf(values));
+
+        // save iterator before compact
+        Iterator<Entry<String>> iterator = dao.all();
+        List<Entry<String>> oldValues = List.copyOf(values);
+
+        // remove some entries
+        for (int i = 0; i < 25; i++) {
+            dao.upsert(entry(keyAt(i), null));
+            values.remove(entryAt(i));
+        }
+
+        // another flush and compact
+        dao.flush();
+        assertSame(dao.all(), List.copyOf(values));
+
+        dao.compact();
+        Thread.sleep(flushDelay);
+
+        // assert old iterator
+        assertSame(iterator, oldValues);
+        dao.close();
+    }
 }

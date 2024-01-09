@@ -20,12 +20,13 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-public class Storage {
+public class Storage implements Iterable<Entry<MemorySegment>> {
 
     private static final String TABLE_FILENAME = "ssTable";
     private static final String TABLE_EXTENSION = ".dat";
@@ -39,17 +40,15 @@ public class Storage {
     private final Config config;
     private final List<MemorySegment> mappedSsTables;
 
-    private boolean isCompacted;
-
     /*
     Filling ssTable with bytes from the memory segment with a structure:
     [entry_count]{[entry_pos]...}{[key_size][key][value_size][value]}...
 
     If value is null then value_size = -1
-    */
+     */
     public Storage(Config config) {
         this.config = config;
-        mappedSsTables = new ArrayList<>();
+        mappedSsTables = new CopyOnWriteArrayList<>();
         Path tablesDir = config.basePath();
 
         if (!Files.exists(tablesDir)) {
@@ -115,28 +114,33 @@ public class Storage {
         return GlobalIterator.merge(iterators);
     }
 
-    public void save(Collection<Entry<MemorySegment>> entries) throws IOException {
-        if (!arena.scope().isAlive()) {
-            return;
-        }
-        arena.close();
-
-        if (entries.isEmpty() || isCompacted) {
+    public void flush(Collection<Entry<MemorySegment>> entries) throws IOException {
+        if (entries.isEmpty()) {
             return;
         }
 
         Path tablePath = getTablePathForIndex(mappedSsTables.size());
         saveOnDisk(entries, tablePath);
+
+        long size = Files.size(tablePath);
+        mappedSsTables.addFirst(
+            mapFile(tablePath, size, FileChannel.MapMode.READ_ONLY, arena, StandardOpenOption.READ));
     }
 
-    public void compact(Iterable<Entry<MemorySegment>> iterable) throws IOException {
-        if (!arena.scope().isAlive() || isCompacted || !iterable.iterator().hasNext()) {
+    public void save() {
+        if (!arena.scope().isAlive()) {
+            return;
+        }
+        arena.close();
+    }
+
+    public void compact() {
+        if (!iterator().hasNext()) {
             return;
         }
 
         Path compactedTablePath = config.basePath().resolve(COMPACTED_TABLE_FILENAME);
-        saveOnDisk(iterable, compactedTablePath);
-        isCompacted = true;
+        saveOnDisk(this, compactedTablePath);
 
         try (Stream<Path> files = Files.list(config.basePath())) {
             files
@@ -145,13 +149,34 @@ public class Storage {
                     try {
                         Files.delete(tablePath);
                     } catch (IOException e) {
+                        logger.log(Level.SEVERE, "Can''t delete file {0}", tablePath);
                         throw new ApplicationException("Can't delete file", e);
                     }
                 });
+        } catch (IOException e) {
+            throw new ApplicationException("Can't access the directory " + config.basePath(), e);
         }
 
         Path tablePath = getTablePathForIndex(0);
-        Files.move(compactedTablePath, tablePath, StandardCopyOption.ATOMIC_MOVE);
+        try {
+            Files.move(compactedTablePath, tablePath, StandardCopyOption.ATOMIC_MOVE);
+            mappedSsTables.clear();
+        } catch (IOException e) {
+            logger.log(Level.SEVERE, "Can''t rename the file {0}", tablePath);
+            throw new ApplicationException("Can't rename the file " + tablePath, e);
+        }
+
+        try {
+            long size = Files.size(tablePath);
+            mappedSsTables.add(mapFile(tablePath, size, FileChannel.MapMode.READ_ONLY, arena, StandardOpenOption.READ));
+        } catch (IOException e) {
+            throw new ApplicationException("Can't access the file " + tablePath, e);
+        }
+    }
+
+    @Override
+    public Iterator<Entry<MemorySegment>> iterator() {
+        return iterator(null, null);
     }
 
     /**
@@ -167,7 +192,7 @@ public class Storage {
      * @param iterable data to be saved on disk
      * @param tablePath path to the file where you want to save the data
      */
-    private static void saveOnDisk(Iterable<Entry<MemorySegment>> iterable, Path tablePath) throws IOException {
+    private static void saveOnDisk(Iterable<Entry<MemorySegment>> iterable, Path tablePath) {
         try (Arena writeArena = Arena.ofConfined()) {
             long ssTableSize = 0;
             long entriesCount = 0;
@@ -197,6 +222,8 @@ public class Storage {
                 dataOffset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.key(), dataOffset);
                 dataOffset += writeSegmentToMappedTableFile(mappedSsTableFile, entry.value(), dataOffset);
             }
+        } catch (IOException e) {
+            throw new ApplicationException("Can't map file " + tablePath, e);
         }
     }
 
