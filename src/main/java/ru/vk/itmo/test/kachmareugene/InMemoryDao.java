@@ -29,6 +29,10 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        if (new MemSegComparatorNull().compare(from, to) > 0) {
+            return reverseIter(from, to);
+        }
+
         SortedMap<MemorySegment, Entry<MemorySegment>> dataSlice;
 
         if (from == null && to == null) {
@@ -42,6 +46,11 @@ public class InMemoryDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         return new SSTableIterator(dataSlice.values().iterator(), controller, from, to);
+    }
+
+    private Iterator<Entry<MemorySegment>> reverseIter(MemorySegment fromRightSide, MemorySegment toLeftSide) {
+        return new SSTableIterator(getMemTable().reversed().values().iterator(),
+                controller, fromRightSide, toLeftSide, true, new MemSegComparatorNull().reversed());
     }
 
     @Override

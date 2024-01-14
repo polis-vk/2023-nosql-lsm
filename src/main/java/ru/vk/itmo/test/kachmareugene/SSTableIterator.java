@@ -14,17 +14,20 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
 
     private final Iterator<Entry<MemorySegment>> memTableIterator;
     private final SSTablesController controller;
-    private final Comparator<MemorySegment> comp = new MemSegComparatorNull();
-    private final SortedMap<MemorySegment, SSTableRowInfo> mp = new TreeMap<>(comp);
+    private final Comparator<MemorySegment> comp;
+    private final SortedMap<MemorySegment, SSTableRowInfo> mp;
     private final MemorySegment from;
     private final MemorySegment to;
     private Entry<MemorySegment> head;
     private Entry<MemorySegment> keeper;
+    private boolean isReversed;
 
     public SSTableIterator(Iterator<Entry<MemorySegment>> it, SSTablesController controller,
                            MemorySegment from, MemorySegment to) {
-        memTableIterator = it;
+        this.memTableIterator = it;
         this.controller = controller;
+        this.comp = new MemSegComparatorNull();
+        this.mp = new TreeMap<>(comp);
 
         this.from = from;
         this.to = to;
@@ -32,33 +35,25 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
         positioningIterator();
     }
 
-    private void insertNew(SSTableRowInfo info) {
-        Entry<MemorySegment> kv = controller.getRow(info);
+    public SSTableIterator(Iterator<Entry<MemorySegment>> it, SSTablesController controller,
+                           MemorySegment from, MemorySegment to, boolean isReversed, Comparator<MemorySegment> comp) {
+        this.memTableIterator = it;
+        this.controller = controller;
+        this.comp = comp;
+        this.mp = new TreeMap<>(comp);
 
-        if (kv == null) {
-            return;
-        }
+        this.from = from;
+        this.to = to;
+        this.isReversed = isReversed;
 
-        if (!mp.containsKey(kv.key())) {
-            mp.put(kv.key(), info);
-            return;
-        }
-        SSTableRowInfo old = mp.get(kv.key());
-
-        SSTableRowInfo oldInfo = old.ssTableInd > info.ssTableInd ? info : old;
-        SSTableRowInfo newInfo = old.ssTableInd < info.ssTableInd ? info : old;
-
-        mp.put(controller.getRow(newInfo).key(), newInfo);
-
-        // tail recursion
-        insertNew(controller.getNextInfo(oldInfo, to));
+        positioningIterator();
     }
 
     private void positioningIterator() {
-        List<SSTableRowInfo> rawData = controller.firstGreaterKeys(from);
+        List<SSTableRowInfo> rawData = controller.firstKeys(from, isReversed);
 
         for (var info : rawData) {
-            insertNew(info);
+            IteratorUtils.insertNew(mp, controller, info, to);
         }
     }
 
@@ -138,7 +133,13 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     private void updateMp(MemorySegment key) {
-        insertNew(controller.getNextInfo(mp.remove(key), to));
+        if (isReversed) {
+            IteratorUtils.insertNew(mp, controller,
+                    controller.getPrevInfo(mp.remove(key), to), to);
+            return;
+        }
+        IteratorUtils.insertNew(mp, controller,
+                controller.getNextInfo(mp.remove(key), to), to);
     }
 
     private boolean isBetween(MemorySegment who) {
@@ -150,8 +151,7 @@ public class SSTableIterator implements Iterator<Entry<MemorySegment>> {
     private Map.Entry<MemorySegment, SSTableRowInfo> getFirstMin() {
         Map.Entry<MemorySegment, SSTableRowInfo> minSStablesEntry = mp.firstEntry();
         while (!mp.isEmpty() && !isBetween(minSStablesEntry.getKey())) {
-            mp.remove(minSStablesEntry.getKey());
-            insertNew(controller.getNextInfo(minSStablesEntry.getValue(), to));
+            updateMp(minSStablesEntry.getKey());
             minSStablesEntry = mp.firstEntry();
         }
         return minSStablesEntry;

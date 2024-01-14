@@ -72,4 +72,56 @@ public final class Utils {
         }
         return value;
     }
+
+    private static boolean greaterThen(Comparator<MemorySegment> segComp, long keyOffset, long keySize,
+                                       MemorySegment mapped, MemorySegment key) {
+
+        return segComp.compare(key, mapped.asSlice(keyOffset, keySize)) > 0;
+    }
+
+    private static boolean greaterEqThen(Comparator<MemorySegment> segComp, long keyOffset, long keySize,
+                                         MemorySegment mapped, MemorySegment key) {
+
+        return segComp.compare(key, mapped.asSlice(keyOffset, keySize)) >= 0;
+    }
+
+    //Gives offset for line in index file
+    public static long searchKeyInFile(SSTablesController controller,
+                                       int ind, long numberOfEntries,
+                                       MemorySegment mapped, MemorySegment key,
+                                       Comparator<MemorySegment> segComp) {
+        long l = -1;
+        long r = numberOfEntries;
+
+        while (r - l > 1) {
+            long mid = (l + r) / 2;
+            SSTableRowInfo info = controller.createRowInfo(ind, mid);
+            if (greaterThen(segComp, info.keyOffset, info.keySize, mapped, key)) {
+                l = mid;
+            } else {
+                r = mid;
+            }
+        }
+        return r == numberOfEntries ? -1 : r;
+    }
+
+    public static long searchKeyInFileReversed(SSTablesController controller,
+                                               int ind, long numberOfEntries,
+                                               MemorySegment mapped, MemorySegment key,
+                                               Comparator<MemorySegment> segComp) {
+        long l = -1;
+        long r = numberOfEntries;
+
+        while (r - l > 1) {
+            long mid = (l + r) / 2;
+            SSTableRowInfo info = controller.createRowInfo(ind, mid);
+            if (greaterEqThen(segComp, info.keyOffset, info.keySize, mapped, key)) {
+                l = mid;
+            } else {
+                r = mid;
+            }
+        }
+        return l;
+    }
+
 }
