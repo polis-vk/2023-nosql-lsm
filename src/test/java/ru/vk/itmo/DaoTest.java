@@ -67,14 +67,9 @@ public @interface DaoTest {
                     for (Class<?> factory : factories) {
                         DaoFactory annotation = factory.getAnnotation(DaoFactory.class);
                         long stage = ((long) annotation.stage()) << 32 | annotation.week();
-                        if (stage < maxStage) {
-                            continue;
+                        if (factory.getName().startsWith("ru.vk.itmo.test.tveritinalexandr")) {
+                            maxFactories.add(factory);
                         }
-                        if (stage > maxStage) {
-                            maxStage = stage;
-                            maxFactories.clear();
-                        }
-                        maxFactories.add(factory);
                     }
 
                     if (maxFactories.isEmpty()) {

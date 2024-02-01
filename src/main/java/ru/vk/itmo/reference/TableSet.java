@@ -98,14 +98,14 @@ final class TableSet {
                 newSsTables);
     }
 
-    Iterator<Entry<MemorySegment>> get(
+    Iterator<TimeStampEntry> get(
             final MemorySegment from,
             final MemorySegment to) {
         final List<WeightedPeekingEntryIterator> iterators =
                 new ArrayList<>(2 + ssTables.size());
 
         // MemTable goes first
-        final Iterator<Entry<MemorySegment>> memTableIterator =
+        final Iterator<TimeStampEntry> memTableIterator =
                 memTable.get(from, to);
         if (memTableIterator.hasNext()) {
             iterators.add(
@@ -116,7 +116,7 @@ final class TableSet {
 
         // Then goes flushing
         if (flushingTable != null) {
-            final Iterator<Entry<MemorySegment>> flushingIterator =
+            final Iterator<TimeStampEntry> flushingIterator =
                     flushingTable.get(from, to);
             if (flushingIterator.hasNext()) {
                 iterators.add(
@@ -129,7 +129,7 @@ final class TableSet {
         // Then go all the SSTables
         for (int i = 0; i < ssTables.size(); i++) {
             final SSTable ssTable = ssTables.get(i);
-            final Iterator<Entry<MemorySegment>> ssTableIterator =
+            final Iterator<TimeStampEntry> ssTableIterator =
                     ssTable.get(from, to);
             if (ssTableIterator.hasNext()) {
                 iterators.add(
@@ -166,12 +166,20 @@ final class TableSet {
         }
 
         // At last check SSTables from freshest to oldest
+        long freshestTimeStamp = Long.MIN_VALUE;
+
         for (final SSTable ssTable : ssTables) {
-            result = ssTable.get(key);
-            if (result != null) {
-                // Transform tombstone
-                return swallowTombstone(result);
+            TimeStampEntry timeStampEntryResult = ssTable.get(key);
+            if (timeStampEntryResult != null && timeStampEntryResult.getClearEntry() != null) {
+                if (freshestTimeStamp < timeStampEntryResult.timeStamp()) {
+                    freshestTimeStamp = timeStampEntryResult.timeStamp();
+                    result = timeStampEntryResult.getClearEntry();
+                }
             }
+        }
+
+        if (freshestTimeStamp != Long.MIN_VALUE) {
+            return swallowTombstone(result);
         }
 
         // Nothing found
@@ -186,13 +194,13 @@ final class TableSet {
         return memTable.upsert(entry);
     }
 
-    Iterator<Entry<MemorySegment>> allSSTableEntries() {
+    Iterator<TimeStampEntry> allSSTableEntries() {
         final List<WeightedPeekingEntryIterator> iterators =
                 new ArrayList<>(ssTables.size());
 
         for (int i = 0; i < ssTables.size(); i++) {
             final SSTable ssTable = ssTables.get(i);
-            final Iterator<Entry<MemorySegment>> ssTableIterator =
+            final Iterator<TimeStampEntry> ssTableIterator =
                     ssTable.get(null, null);
             iterators.add(
                     new WeightedPeekingEntryIterator(

@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
  * @author incubos
  */
 final class MemTable {
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
+    private final NavigableMap<MemorySegment, TimeStampEntry> map =
             new ConcurrentSkipListMap<>(
                     MemorySegmentComparator.INSTANCE);
 
@@ -21,7 +21,7 @@ final class MemTable {
         return map.isEmpty();
     }
 
-    Iterator<Entry<MemorySegment>> get(
+    Iterator<TimeStampEntry> get(
             final MemorySegment from,
             final MemorySegment to) {
         if (from == null && to == null) {
@@ -39,11 +39,18 @@ final class MemTable {
         }
     }
 
+    /// Тут мы пока просто игнорим таймсетмп
     Entry<MemorySegment> get(final MemorySegment key) {
-        return map.get(key);
+        TimeStampEntry timeStampEntry = map.get(key);
+
+        if (timeStampEntry != null) {
+            return timeStampEntry.getClearEntry();
+        }
+
+        return null;
     }
 
     Entry<MemorySegment> upsert(final Entry<MemorySegment> entry) {
-        return map.put(entry.key(), entry);
+        return map.put(entry.key(), new TimeStampEntry(entry));
     }
 }
