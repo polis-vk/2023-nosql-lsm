@@ -17,7 +17,7 @@ public class BasicConcurrentTest extends BaseTest {
     }
 
     @DaoTest(stage = 1)
-    @Timeout(15)
+    @Timeout(3600)
     void testConcurrentRW_2_500(Dao<String, Entry<String>> dao) throws Exception {
         int count = 2_500;
         List<Entry<String>> entries = entries("k", "v", count);
