@@ -4,21 +4,23 @@ import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.stream.Collectors;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 public final class SSTable {
@@ -27,54 +29,68 @@ public final class SSTable {
 
     private static final String FILE_NAME = "sstable";
 
+    private static final String INDEX_FILE_NAME = "index.idx";
+
     private static final String FILE_EXTENSION = ".db";
 
     private static final String TMP_FILE_EXTENSION = ".tmp";
 
-    private static final long METADATA_SIZE = Long.BYTES;
+    private static final long METADATA_SIZE = Long.BYTES + 1L;
 
     private static final long ENTRY_METADATA_SIZE = Long.BYTES;
     private final int index;
 
-    private SSTable(MemorySegment mappedSSTableFile, int index) {
+    private final boolean hasNoTombstones;
+
+    private SSTable(MemorySegment mappedSSTableFile, int index, boolean hasNoTombstones) {
         this.mappedSSTableFile = mappedSSTableFile;
         this.index = index;
-    }
-
-    private static Comparator<Path> ssTablePathComparator() {
-        return (p1, p2) -> {
-            String p1String = p1.getFileName().toString();
-            int p1Index = Integer.parseInt(
-                    p1String.substring(FILE_NAME.length(), p1String.length() - FILE_EXTENSION.length())
-            );
-            String p2String = p2.getFileName().toString();
-            int p2Index = Integer.parseInt(
-                    p2String.substring(FILE_NAME.length(), p2String.length() - FILE_EXTENSION.length())
-            );
-            return Integer.compare(p1Index, p2Index);
-        };
+        this.hasNoTombstones = hasNoTombstones;
     }
 
     public static List<SSTable> load(Arena arena, Path basePath) throws IOException {
-        List<Path> ssTablePaths;
-        try (Stream<Path> paths = Files.walk(basePath, 1)) {
-            ssTablePaths = paths.filter(Files::isRegularFile)
-                    .filter(filePath -> filePath.getFileName().toString().endsWith(FILE_EXTENSION))
-                    .sorted(ssTablePathComparator())
-                    .collect(Collectors.toList());
-        } catch (NoSuchFileException e) {
-            return new ArrayList<>();
+        if (checkIfCompactedExists(basePath)) {
+            finalizeCompaction(basePath);
         }
-        List<SSTable> ssTables = new ArrayList<>(ssTablePaths.size());
-        for (int i = 0; i < ssTablePaths.size(); i++) {
-            Path ssTablePath = ssTablePaths.get(i);
-            MemorySegment mappedSSTableFile;
-            try (FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
-                mappedSSTableFile = fileChannel.map(FileChannel.MapMode.READ_ONLY, 0L, fileChannel.size(), arena);
-                ssTables.add(new SSTable(mappedSSTableFile, i));
+
+        Path indexTmp = basePath.resolve(INDEX_FILE_NAME + TMP_FILE_EXTENSION);
+        Path indexFile = basePath.resolve(INDEX_FILE_NAME);
+
+        if (!Files.exists(indexFile)) {
+            if (Files.exists(indexTmp)) {
+                Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                if (!Files.exists(basePath)) {
+                    Files.createDirectory(basePath);
+                }
+                Files.createFile(indexFile);
             }
         }
+
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        List<SSTable> ssTables = new ArrayList<>(existedFiles.size());
+        for (int i = 0; i < existedFiles.size(); i++) {
+            Path ssTablePath = basePath.resolve(existedFiles.get(i));
+            ssTables.add(loadOne(arena, ssTablePath, i));
+        }
+
         return ssTables;
+    }
+
+    public static SSTable loadOne(Arena arena, Path ssTablePath, int index) throws IOException {
+        try (FileChannel fileChannel = FileChannel.open(ssTablePath, StandardOpenOption.READ)) {
+            MemorySegment mappedSSTableFile =
+                    fileChannel.map(FileChannel.MapMode.READ_ONLY, 0L, fileChannel.size(), arena);
+            if (mappedSSTableFile.byteSize() == 0) {
+                throw new IOException("Couldn't read empty ssTable file");
+            }
+            boolean hasNoTombstones = mappedSSTableFile.get(ValueLayout.JAVA_BOOLEAN, 0);
+            return new SSTable(mappedSSTableFile, index, hasNoTombstones);
+        }
+    }
+
+    public static boolean isCompacted(List<SSTable> ssTables) {
+        return ssTables.isEmpty() || (ssTables.size() == 1 && ssTables.getFirst().hasNoTombstones);
     }
 
     public SSTableIterator iterator(MemorySegment from, MemorySegment to) {
@@ -96,22 +112,68 @@ public final class SSTable {
         return new SSTableIterator(fromPosition, toPosition);
     }
 
-    public static void save(Collection<Entry<MemorySegment>> entries, int fileIndex, Path basePath) throws IOException {
-        if (entries.isEmpty()) return;
+    public static List<SSTable.SSTableIterator> ssTableIterators(
+            List<SSTable> ssTables,
+            MemorySegment from,
+            MemorySegment to
+    ) {
+        return ssTables.stream().map(ssTable -> ssTable.iterator(from, to)).toList();
+    }
+
+    public static void save(MemTable memTable, int fileIndex, Path basePath) throws IOException {
+        if (memTable.isEmpty()) return;
+
+        final Path indexTmp = basePath.resolve(INDEX_FILE_NAME + TMP_FILE_EXTENSION);
+        final Path indexFile = basePath.resolve(INDEX_FILE_NAME);
+
+        try {
+            Files.createFile(indexFile);
+        } catch (FileAlreadyExistsException ignored) {
+            // it is ok, actually it is normal state
+        }
+
         Path tmpSSTable = basePath.resolve(FILE_NAME + fileIndex + FILE_EXTENSION + TMP_FILE_EXTENSION);
 
         Files.deleteIfExists(tmpSSTable);
         Files.createFile(tmpSSTable);
 
-        MemorySegment mappedSSTableFile;
+        save(memTable.values()::iterator, memTable.values().size(), memTable.getByteSize(), tmpSSTable);
+        String newFileName = FILE_NAME + fileIndex + FILE_EXTENSION;
+        Files.move(
+                tmpSSTable,
+                basePath.resolve(newFileName),
+                StandardCopyOption.ATOMIC_MOVE
+        );
 
-        long entriesDataSize = 0;
+        List<String> existedFiles = Files.readAllLines(indexFile, StandardCharsets.UTF_8);
+        List<String> list = new ArrayList<>(existedFiles.size() + 1);
+        list.addAll(existedFiles);
+        list.add(newFileName);
+        Files.write(
+                indexTmp,
+                list,
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
 
-        for (Entry<MemorySegment> entry : entries) {
-            entriesDataSize += getEntrySize(entry);
+        Files.deleteIfExists(indexFile);
+
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
+    }
+
+    private static Path save(
+            Supplier<? extends Iterator<Entry<MemorySegment>>> iteratorSupplier,
+            int entriesSize,
+            long entriesDataSize,
+            Path tmpSSTable
+    ) throws IOException {
+        if (entriesSize == 0) {
+            Files.deleteIfExists(tmpSSTable);
+            return tmpSSTable;
         }
 
-        long entriesDataOffset = METADATA_SIZE + ENTRY_METADATA_SIZE * entries.size();
+        long entriesDataOffset = METADATA_SIZE + ENTRY_METADATA_SIZE * entriesSize;
 
         try (Arena arena = Arena.ofConfined();
              FileChannel channel = FileChannel.open(
@@ -120,47 +182,137 @@ public final class SSTable {
                      StandardOpenOption.TRUNCATE_EXISTING
              )
         ) {
-            mappedSSTableFile = channel.map(
+            MemorySegment mappedSSTableFile = channel.map(
                     FileChannel.MapMode.READ_WRITE,
                     0L,
                     entriesDataOffset + entriesDataSize,
                     arena
             );
 
-            mappedSSTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, entries.size());
+            mappedSSTableFile.set(ValueLayout.JAVA_LONG_UNALIGNED, 1, entriesSize);
 
-            long index = 0;
+            writeIndex(iteratorSupplier.get(), mappedSSTableFile, entriesDataOffset);
+
             long offset = entriesDataOffset;
-            for (Entry<MemorySegment> entry : entries) {
-                mappedSSTableFile.set(
-                        ValueLayout.JAVA_LONG_UNALIGNED,
-                        METADATA_SIZE + index * ENTRY_METADATA_SIZE,
-                        offset
-                );
-                offset += getEntrySize(entry);
-                index++;
-            }
-
-            offset = entriesDataOffset;
-            for (Entry<MemorySegment> entry : entries) {
+            Iterator<Entry<MemorySegment>> entryIterator = iteratorSupplier.get();
+            // by default file contains JAVA_BYTE == 0 with offset 0
+            // so if we have possibly compacted file and it has JAVA_BYTE == 0 with offset 0
+            // then it is corrupted
+            // otherwise we have unbroken file without tombstones (compacted)
+            // owing to this we use hasNoTombstones condition
+            boolean hasNoTombstones = true;
+            while (entryIterator.hasNext()) {
+                Entry<MemorySegment> entry = entryIterator.next();
+                if (entry.value() == null) {
+                    hasNoTombstones = false;
+                }
                 offset += writeMemorySegment(mappedSSTableFile, entry.key(), offset);
                 offset += writeMemorySegment(mappedSSTableFile, entry.value(), offset);
             }
 
             mappedSSTableFile.force();
-            Files.move(
-                    tmpSSTable,
-                    basePath.resolve(FILE_NAME + fileIndex + FILE_EXTENSION),
-                    StandardCopyOption.ATOMIC_MOVE
-            );
+            mappedSSTableFile.set(ValueLayout.JAVA_BOOLEAN, 0, hasNoTombstones);
+            mappedSSTableFile.force();
+            return tmpSSTable;
         }
     }
 
-    private static long getEntrySize(Entry<MemorySegment> entry) {
-        if (entry.value() == null) {
-            return Long.BYTES + entry.key().byteSize() + Long.BYTES;
+    private static void writeIndex(
+            Iterator<Entry<MemorySegment>> iterator,
+            MemorySegment mappedSSTableFile,
+            long offset
+    ) {
+        long index = 0;
+        while (iterator.hasNext()) {
+            mappedSSTableFile.set(
+                    ValueLayout.JAVA_LONG_UNALIGNED,
+                    METADATA_SIZE + index * ENTRY_METADATA_SIZE,
+                    offset
+            );
+            if (iterator instanceof MergeIterator.MergeIteratorWithTombstoneFilter mergeIterator) {
+                offset += mergeIterator.getPointerSizeAndShift();
+            } else {
+                Entry<MemorySegment> entry = iterator.next();
+                offset += Utils.getEntrySize(entry);
+            }
+            index++;
         }
-        return Long.BYTES + entry.key().byteSize() + Long.BYTES + entry.value().byteSize();
+    }
+
+    public static void compact(
+            Supplier<MergeIterator.MergeIteratorWithTombstoneFilter> data,
+            Path basePath
+    ) throws IOException {
+        Path tmpSSTable = basePath.resolve("_compacted_" + FILE_NAME + FILE_EXTENSION + TMP_FILE_EXTENSION);
+        Files.deleteIfExists(tmpSSTable);
+        Files.createFile(tmpSSTable);
+        EntriesMetadata entriesMetadata = data.get().countEntities();
+        Path compacted = save(data, entriesMetadata.count(), entriesMetadata.entriesDataSize(), tmpSSTable);
+        Files.move(compacted, getCompactedFilePath(basePath), StandardCopyOption.ATOMIC_MOVE);
+        finalizeCompaction(basePath);
+    }
+
+    private static Path getCompactedFilePath(Path basePath) {
+        return basePath.resolve("_compacted_" + FILE_NAME + FILE_EXTENSION);
+    }
+
+    private static boolean checkIfCompactedExists(Path basePath) {
+        Path compacted = getCompactedFilePath(basePath);
+        if (!Files.exists(compacted)) {
+            return false;
+        }
+        try (Arena arena = Arena.ofConfined()) {
+            return !loadOne(arena, compacted, 0).hasNoTombstones;
+        } catch (IOException ignored) {
+            return false;
+        }
+    }
+
+    private static void finalizeCompaction(Path storagePath) throws IOException {
+        try (Stream<Path> stream =
+                     Files.find(
+                             storagePath,
+                             1,
+                             (path, ignored) -> {
+                                 String fileName = path.getFileName().toString();
+                                 return fileName.startsWith(FILE_NAME) && fileName.endsWith(FILE_EXTENSION);
+                             })) {
+            stream.forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            });
+        }
+
+        Path indexTmp = storagePath.resolve(INDEX_FILE_NAME + TMP_FILE_EXTENSION);
+        Path indexFile = storagePath.resolve(INDEX_FILE_NAME);
+
+        Files.deleteIfExists(indexFile);
+        Files.deleteIfExists(indexTmp);
+
+        Path compactionFile = getCompactedFilePath(storagePath);
+        boolean noData = Files.size(compactionFile) == 0;
+
+        Files.write(
+                indexTmp,
+                noData ? Collections.emptyList() : Collections.singleton(FILE_NAME + "0" + FILE_EXTENSION),
+                StandardOpenOption.WRITE,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+
+        Files.move(indexTmp, indexFile, StandardCopyOption.ATOMIC_MOVE);
+        if (noData) {
+            Files.delete(compactionFile);
+        } else {
+            Files.move(
+                    compactionFile,
+                    storagePath.resolve(FILE_NAME + "0" + FILE_EXTENSION),
+                    StandardCopyOption.ATOMIC_MOVE
+            );
+        }
     }
 
     private static long writeMemorySegment(
@@ -193,6 +345,10 @@ public final class SSTable {
         return getByIndex(entryOffset);
     }
 
+    private long getEntriesSize() {
+        return mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, 1);
+    }
+
     private Entry<MemorySegment> getByIndex(long index) {
         long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, index);
         MemorySegment savedKey = mappedSSTableFile.asSlice(index + Long.BYTES, keySize);
@@ -210,7 +366,7 @@ public final class SSTable {
     }
 
     private long getMaxKeySizeOffset() {
-        long entriesSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        long entriesSize = getEntriesSize();
         return mappedSSTableFile.get(
                 ValueLayout.JAVA_LONG_UNALIGNED,
                 METADATA_SIZE + (entriesSize - 1) * ENTRY_METADATA_SIZE
@@ -219,7 +375,7 @@ public final class SSTable {
 
     private long getEntryOffset(MemorySegment key, SearchOption searchOption) {
         // binary search
-        long entriesSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, 0);
+        long entriesSize = getEntriesSize();
         long left = 0;
         long right = entriesSize - 1;
         while (left <= right) {
@@ -242,7 +398,7 @@ public final class SSTable {
             } else {
                 return switch (searchOption) {
                     case EQ, GTE -> keySizeOffset;
-                    case LT -> keySizeOffset - Long.BYTES;
+                    case LT -> keySizeOffset - METADATA_SIZE;
                 };
             }
         }
@@ -285,12 +441,12 @@ public final class SSTable {
         }
 
         @Override
-        public MemorySegment getPointerSrc() {
+        public MemorySegment getPointerKeySrc() {
             return mappedSSTableFile;
         }
 
         @Override
-        public long getPointerSrcOffset() {
+        public long getPointerKeySrcOffset() {
             return fromPosition + Long.BYTES;
         }
 
@@ -303,7 +459,29 @@ public final class SSTable {
         }
 
         @Override
-        public long getPointerSrcSize() {
+        void shift() {
+            long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
+            long valueOffset = fromPosition + Long.BYTES + keySize;
+            long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
+            fromPosition += Long.BYTES + keySize + Long.BYTES;
+            if (valueSize != -1) {
+                fromPosition += valueSize;
+            }
+        }
+
+        @Override
+        long getPointerSize() {
+            long keySize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
+            long valueOffset = fromPosition + Long.BYTES + keySize;
+            long valueSize = mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, valueOffset);
+            if (valueSize == -1) {
+                return Long.BYTES + keySize + Long.BYTES;
+            }
+            return Long.BYTES + keySize + Long.BYTES + valueSize;
+        }
+
+        @Override
+        public long getPointerKeySrcSize() {
             return mappedSSTableFile.get(ValueLayout.JAVA_LONG_UNALIGNED, fromPosition);
         }
 
@@ -318,7 +496,7 @@ public final class SSTable {
                 throw new NoSuchElementException();
             }
             Entry<MemorySegment> entry = getByIndex(fromPosition);
-            fromPosition += getEntrySize(entry);
+            fromPosition += Utils.getEntrySize(entry);
             return entry;
         }
     }

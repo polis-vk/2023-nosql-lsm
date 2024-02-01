@@ -1,26 +1,17 @@
 package ru.vk.itmo.dyagayalexandra;
 
-import ru.vk.itmo.Entry;
-
-import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 
-public class PeekingIterator implements Iterator<Entry<MemorySegment>> {
+public class PeekingIterator<E> implements Iterator<E> {
 
-    private final int index;
-    private final Iterator<Entry<MemorySegment>> iterator;
-    private Entry<MemorySegment> peekedEntry;
+    private final Iterator<E> iterator;
+    private E peekedEntry;
 
-    public PeekingIterator(int index, Iterator<Entry<MemorySegment>> iterator) {
-        this.index = index;
+    public PeekingIterator(Iterator<E> iterator) {
         this.iterator = iterator;
     }
 
-    public int getIndex() {
-        return index;
-    }
-
-    public Entry<MemorySegment> peek() {
+    public E peek() {
         if (peekedEntry == null && iterator.hasNext()) {
             peekedEntry = iterator.next();
         }
@@ -34,8 +25,8 @@ public class PeekingIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     @Override
-    public Entry<MemorySegment> next() {
-        Entry<MemorySegment> result = peek();
+    public E next() {
+        E result = peek();
         peekedEntry = null;
         return result;
     }
