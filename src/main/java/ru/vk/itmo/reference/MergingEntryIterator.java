@@ -3,11 +3,7 @@ package ru.vk.itmo.reference;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
-import java.util.Iterator;
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.PriorityQueue;
-import java.util.Queue;
+import java.util.*;
 
 /**
  * Merges entry {@link Iterator}s.
@@ -15,12 +11,12 @@ import java.util.Queue;
  * @author incubos
  */
 final class MergingEntryIterator implements Iterator<TimeStampEntry> {
-    private final Queue<WeightedPeekingEntryIterator> iterators;
+    private final List<WeightedPeekingEntryIterator> iterators;
 
     MergingEntryIterator(final List<WeightedPeekingEntryIterator> iterators) {
         assert iterators.stream().allMatch(WeightedPeekingEntryIterator::hasNext);
 
-        this.iterators = new PriorityQueue<>(iterators);
+        this.iterators = new ArrayList<>(iterators);
     }
 
     @Override
@@ -30,43 +26,39 @@ final class MergingEntryIterator implements Iterator<TimeStampEntry> {
 
     @Override
     public TimeStampEntry next() {
-        if (!hasNext()) {
-            throw new NoSuchElementException();
+        TimeStampEntry nextElement = null;
+
+        iterators.removeIf(currentIterator -> !currentIterator.hasNext());
+
+        int numberOfIterator = 0;
+        int counter = 0;
+
+        for(WeightedPeekingEntryIterator iterator: iterators) {
+            if (nextElement == null) {
+                nextElement = iterator.peek();
+            } else {
+                TimeStampEntry nextElementCandidate = iterator.peek();
+                if (MemorySegmentComparator.INSTANCE.compare(nextElement.key(), nextElementCandidate.key()) > 0) {
+                    nextElement = nextElementCandidate;
+                    numberOfIterator = counter;
+                } else if (MemorySegmentComparator.INSTANCE.compare(nextElement.key(), nextElementCandidate.key()) == 0) {
+                    if(nextElementCandidate.timeStamp() > nextElement.timeStamp()) {
+                        nextElement = nextElementCandidate;
+                        iterators.get(numberOfIterator).next();
+                        numberOfIterator = counter;
+                    } else {
+                        iterators.get(counter).next();
+                    }
+                }
+            }
+            counter += 1;
         }
 
-        final WeightedPeekingEntryIterator top = iterators.remove();
-        final TimeStampEntry result = top.next();
-
-        if (top.hasNext()) {
-            // Not exhausted
-            iterators.add(top);
+        nextElement = iterators.get(numberOfIterator).next();
+        if (!iterators.get(numberOfIterator).hasNext()) {
+            iterators.remove(numberOfIterator);
         }
 
-        // Remove older versions of the key
-        while (true) {
-            final WeightedPeekingEntryIterator iterator = iterators.peek();
-            if (iterator == null) {
-                // Nothing left
-                break;
-            }
-
-            // Skip entries with the same key
-            final TimeStampEntry entry = iterator.peek();
-            if (MemorySegmentComparator.INSTANCE.compare(result.key(), entry.key()) != 0) {
-                // Reached another key
-                break;
-            }
-
-            // Drop
-            iterators.remove();
-            // Skip
-            iterator.next();
-            if (iterator.hasNext()) {
-                // Not exhausted
-                iterators.add(iterator);
-            }
-        }
-
-        return result;
+        return nextElement;
     }
 }
