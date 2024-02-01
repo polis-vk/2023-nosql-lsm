@@ -16,7 +16,7 @@ import java.nio.charset.StandardCharsets;
  *
  * @author incubos
  */
-@DaoFactory(stage = 5)
+@DaoFactory(stage = 500)
 public class ReferenceDaoFactory implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
     @Override
     public Dao<MemorySegment, Entry<MemorySegment>> createDao(final Config config) throws IOException {

@@ -5,9 +5,13 @@ import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NoSuchElementException;
+
+import static ru.vk.itmo.reference.SampledIndex.SAMPLED_INDEX_STEP;
 
 /**
  * Persistent SSTable in data file and index file.
@@ -19,6 +23,7 @@ final class SSTable {
     final int sequence;
 
     private final MemorySegment index;
+    private final List<SampledIndex> sampledIndices;
     private final MemorySegment data;
     private final long size;
 
@@ -30,6 +35,29 @@ final class SSTable {
         this.index = index;
         this.data = data;
         this.size = index.byteSize() / Long.BYTES;
+
+        this.sampledIndices = new ArrayList<>();
+        for (int indexOffset = 0; indexOffset < size; indexOffset += SAMPLED_INDEX_STEP) {
+            // | [kv][kv][kv][kv][kv][kv][kv] | [kv][kv][kv][kv]...[kv]
+            //    ^                       ^
+            //    |                       |
+            // keyAtTheStart          keyAtTheEnd
+            final long keyAtTheStartOffset = entryOffset(indexOffset);
+            final long keyAtTheStartLength = getLength(keyAtTheStartOffset);
+
+            final long keyAtTheEndOffset = indexOffset + SAMPLED_INDEX_STEP - 1 >= size
+                    ? entryOffset(size - 1)
+                    : entryOffset(indexOffset + SAMPLED_INDEX_STEP - 1);
+            final long keyAtTheEndLength = getLength(keyAtTheEndOffset);
+
+            sampledIndices.add(
+                    new SampledIndex(
+                            keyAtTheStartOffset + Long.BYTES, keyAtTheStartLength,
+                            keyAtTheEndOffset + Long.BYTES, keyAtTheEndLength,
+                            indexOffset
+                    )
+            );
+        }
     }
 
     SSTable withSequence(final int sequence) {
@@ -37,6 +65,54 @@ final class SSTable {
                 sequence,
                 index,
                 data);
+    }
+
+    private long sampledIndexBinarySearch(final MemorySegment key) {
+        int low = 0;
+        int high = sampledIndices.size() - 1;
+
+        while (low <= high) {
+            final int mid = (low + high) >>> 1;
+            System.out.println("low: " + low + ", mid: " + mid + ", high: " + high);
+            final SampledIndex sampledIndex = sampledIndices.get(mid);
+
+            final long keyAtTheStartOffset = sampledIndex.keyAtTheStartOffset();
+            final long keyAtTheStartLength = sampledIndex.keyAtTheStartLength();
+            final long mismatchForStartKey = MemorySegment.mismatch(
+                    data, keyAtTheStartOffset, keyAtTheStartOffset + keyAtTheStartLength,
+                    key, 0L, key.byteSize()
+            );
+
+            final int compare;
+            if (mismatchForStartKey == -1L) {
+                // found the necessary key
+                return sampledIndex.offset();
+            } else if (mismatchForStartKey == keyAtTheStartLength) {
+                // move to the right
+                low = mid + 1;
+                continue;
+            } else if (mismatchForStartKey == key.byteSize()) {
+                // move to the left
+                high = mid - 1;
+                continue;
+            }
+
+            compare = Byte.compareUnsigned(
+                    data.getAtIndex(ValueLayout.OfByte.JAVA_BYTE, keyAtTheStartOffset + mismatchForStartKey),
+                    key.getAtIndex(ValueLayout.OfByte.JAVA_BYTE, mismatchForStartKey)
+            );
+
+            if (compare < 0) {
+                low = mid + 1;
+            } else if (compare > 0) {
+                high = mid - 1;
+            } else {
+                return sampledIndex.offset();
+            }
+        }
+        System.out.println("low: " + low + ", high: " + high);
+
+        return sampledIndices.get(high).offset();
     }
 
     /**
@@ -48,8 +124,9 @@ final class SSTable {
      * if and only if the key is found.
      */
     private long entryBinarySearch(final MemorySegment key) {
-        long low = 0L;
-        long high = size - 1;
+        long low = sampledIndexBinarySearch(key);
+        System.out.println("low: " + low);
+        long high = low + SAMPLED_INDEX_STEP;
 
         while (low <= high) {
             final long mid = (low + high) >>> 1;
