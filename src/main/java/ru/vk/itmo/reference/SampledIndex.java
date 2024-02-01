@@ -5,5 +5,5 @@ public record SampledIndex(
         long keyAtTheStartLength,
         long offset
 ) {
-    final static int SAMPLED_INDEX_STEP = 16;
+    static final int SAMPLED_INDEX_STEP = 16;
 }

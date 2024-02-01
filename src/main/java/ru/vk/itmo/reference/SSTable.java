@@ -71,28 +71,9 @@ final class SSTable {
 
             final long keyAtTheStartOffset = sampledIndex.keyAtTheStartOffset();
             final long keyAtTheStartLength = sampledIndex.keyAtTheStartLength();
-            final long mismatchForStartKey = MemorySegment.mismatch(
-                    data, keyAtTheStartOffset, keyAtTheStartOffset + keyAtTheStartLength,
+            final int compare = MemorySegmentComparator.compare(
+                    data, keyAtTheStartOffset, keyAtTheStartLength,
                     key, 0L, key.byteSize()
-            );
-
-            final int compare;
-            if (mismatchForStartKey == -1L) {
-                // found the necessary key
-                return sampledIndex.offset();
-            } else if (mismatchForStartKey == keyAtTheStartLength) {
-                // move to the right
-                low = mid + 1;
-                continue;
-            } else if (mismatchForStartKey == key.byteSize()) {
-                // move to the left
-                high = mid - 1;
-                continue;
-            }
-
-            compare = Byte.compareUnsigned(
-                    data.getAtIndex(ValueLayout.OfByte.JAVA_BYTE, keyAtTheStartOffset + mismatchForStartKey),
-                    key.getAtIndex(ValueLayout.OfByte.JAVA_BYTE, mismatchForStartKey)
             );
 
             if (compare < 0) {
@@ -117,7 +98,6 @@ final class SSTable {
      */
     private long entryBinarySearch(final MemorySegment key) {
         long low = sampledIndexBinarySearch(key);
-        System.out.println("low: " + low);
         long high = low + SAMPLED_INDEX_STEP;
 
         while (low <= high) {
