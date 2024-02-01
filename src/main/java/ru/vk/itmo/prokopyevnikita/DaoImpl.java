@@ -1,214 +1,202 @@
 package ru.vk.itmo.prokopyevnikita;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 
 import java.io.IOException;
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Iterator;
-import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
 
     private final Config config;
-    private final MemorySegment mappedDB;
-    private final MemorySegment mappedIndex;
-    private final Arena arena;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
-
-    private static final String DB = "data";
-    private static final String INDEX = DB + "_index";
-
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
-            new ConcurrentSkipListMap<>(DaoImpl::compare);
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor(r -> {
+        return new Thread(r, "flusher");
+    });
+    private volatile State state;
 
     public DaoImpl(Config config) throws IOException {
         this.config = config;
-
-        Path pathDB = getFilePath(DB);
-        Path pathIndex = getFilePath(INDEX);
-
-        if (!Files.exists(pathDB)) {
-            mappedDB = null;
-            mappedIndex = null;
-            arena = null;
-            return;
-        }
-
-        arena = Arena.ofShared();
-        try (
-                FileChannel dbChannel = getFileChannelRead(pathDB);
-                FileChannel indexChannel = getFileChannelRead(pathIndex)
-        ) {
-            mappedDB = dbChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(pathDB), arena);
-            mappedIndex = indexChannel.map(FileChannel.MapMode.READ_ONLY, 0, Files.size(pathIndex), arena);
-        }
+        this.state = State.initState(config, Storage.load(config));
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) {
-            return map.values().iterator();
-        } else if (to == null) {
-            return map.tailMap(from).values().iterator();
-        } else if (from == null) {
-            return map.headMap(to).values().iterator();
+        return combinedIterator(Objects.requireNonNullElse(from, MemorySegment.NULL), to, true);
+    }
+
+    public Iterator<Entry<MemorySegment>> getOnlyFromDisk(MemorySegment from, MemorySegment to) {
+        return combinedIterator(Objects.requireNonNullElse(from, MemorySegment.NULL), to, false);
+    }
+
+    private Iterator<Entry<MemorySegment>> combinedIterator(
+            MemorySegment from,
+            MemorySegment to,
+            boolean includeMemoryAndFlushing
+    ) {
+        State currenState = accessStateAndCloseCheck();
+        if (includeMemoryAndFlushing) {
+            Iterator<Entry<MemorySegment>> memoryIterator = currenState.memory.get(from, to);
+            Iterator<Entry<MemorySegment>> flushingIterator = currenState.flushing.get(from, to);
+            return currenState.storage.getIterator(from, to, memoryIterator, flushingIterator);
         }
-        return map.subMap(from, to).values().iterator();
+        return currenState.storage.getIterator(from, to, null, null);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        lock.readLock().lock();
-        try {
-            Entry<MemorySegment> entry = map.get(key);
-            if (entry != null) {
-                return entry;
-            }
-
-            if (mappedDB == null) {
-                return null;
-            }
-
-            long start = 0;
-            long end = mappedIndex.byteSize() / Long.BYTES - 1;
-            while (start <= end) {
-                long mid = start + (end - start) / 2;
-
-                long offset = mappedIndex.get(ValueLayout.JAVA_LONG_UNALIGNED, mid * Long.BYTES);
-
-                long keySize = mappedDB.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                offset += Long.BYTES;
-
-                MemorySegment memorySegmentKey = mappedDB.asSlice(offset, keySize);
-                offset += keySize;
-
-                int cmp = compare(memorySegmentKey, key);
-                if (cmp == 0) {
-                    long valueSize = mappedDB.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
-                    offset += Long.BYTES;
-
-                    MemorySegment memorySegmentValue = mappedDB.asSlice(offset, valueSize);
-
-                    return new BaseEntry<>(memorySegmentKey, memorySegmentValue);
-                } else if (cmp < 0) {
-                    start = mid + 1;
-                } else {
-                    end = mid - 1;
-                }
-            }
-
+        Iterator<Entry<MemorySegment>> iterator = get(key, null);
+        if (!iterator.hasNext()) {
             return null;
-        } finally {
-            lock.readLock().unlock();
         }
+        Entry<MemorySegment> next = iterator.next();
+        if (MemorySegmentComparator.compare(key, next.key()) == 0) {
+            return next;
+        }
+        return null;
+
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        if (entry == null) {
-            throw new IllegalArgumentException("Value cannot be null");
-        }
-        lock.readLock().lock();
-        try {
-            map.put(entry.key(), entry);
-        } finally {
-            lock.readLock().unlock();
+        State currenState = accessStateAndCloseCheck();
+        boolean flush = currenState.memory.put(entry.key(), entry);
+        if (flush) {
+            flushInBackground(false);
         }
     }
 
-    @Override
-    public void flush() {
-        throw new UnsupportedOperationException("Not implemented yet");
-    }
+    private void flushInBackground(boolean canBeParallel) {
 
-    @Override
-    public void close() throws IOException {
-        if (arena != null) {
-            if (!arena.scope().isAlive()) {
-                return;
+        executorService.execute(() -> {
+            lock.writeLock().lock();
+            try {
+                State currenState = accessStateAndCloseCheck();
+                if (currenState.isFlushing()) {
+                    if (canBeParallel) {
+                        return;
+                    }
+                    throw new AlreadyFlushingInBg();
+                }
+                currenState = currenState.prepareForFlush();
+                this.state = currenState;
+            } finally {
+                lock.writeLock().unlock();
             }
-            arena.close();
-        }
+            try {
+                State currenState = accessStateAndCloseCheck();
 
+                Storage.save(config, currenState.flushing.values());
+                Storage newStorage = Storage.load(config);
+
+                lock.writeLock().lock();
+                try {
+                    this.state = currenState.afterFlush(newStorage);
+                } finally {
+                    lock.writeLock().unlock();
+                }
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+
+    }
+
+    @Override
+    public void flush() throws IOException {
+        boolean flush = false;
         lock.writeLock().lock();
-        try (
-                Arena writeArena = Arena.ofConfined();
-                FileChannel dbChannel = getFileChannelWrite(getFilePath(DB));
-                FileChannel indexChannel = getFileChannelWrite(getFilePath(INDEX))
-        ) {
-            long dbSize = 0;
-            long indexSize = (long) map.size() * Long.BYTES;
-            for (Entry<MemorySegment> entry : map.values()) {
-                dbSize += entry.key().byteSize() + entry.value().byteSize();
-            }
-
-            dbSize += Long.BYTES * map.size() * 2L;
-
-            MemorySegment memorySegmentDB = dbChannel
-                    .map(FileChannel.MapMode.READ_WRITE, 0, dbSize, writeArena);
-            MemorySegment memorySegmentIndex = indexChannel
-                    .map(FileChannel.MapMode.READ_WRITE, 0, indexSize, writeArena);
-
-            long dbOffset = 0;
-            long indexOffset = 0;
-            for (Entry<MemorySegment> entry : map.values()) {
-                memorySegmentIndex.set(ValueLayout.JAVA_LONG_UNALIGNED, indexOffset, dbOffset);
-                indexOffset += Long.BYTES;
-
-                memorySegmentDB.set(ValueLayout.JAVA_LONG_UNALIGNED, dbOffset, entry.key().byteSize());
-                dbOffset += Long.BYTES;
-                memorySegmentDB.asSlice(dbOffset).copyFrom(entry.key());
-                dbOffset += entry.key().byteSize();
-                memorySegmentDB.set(ValueLayout.JAVA_LONG_UNALIGNED, dbOffset, entry.value().byteSize());
-                dbOffset += Long.BYTES;
-                memorySegmentDB.asSlice(dbOffset).copyFrom(entry.value());
-                dbOffset += entry.value().byteSize();
-            }
+        try {
+            flush = state.memory.overflow();
         } finally {
             lock.writeLock().unlock();
         }
-    }
 
-    private FileChannel getFileChannelRead(Path path) throws IOException {
-        return FileChannel.open(path, StandardOpenOption.READ);
-    }
-
-    private FileChannel getFileChannelWrite(Path path) throws IOException {
-        return FileChannel.open(path,
-                StandardOpenOption.READ,
-                StandardOpenOption.WRITE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING);
-    }
-
-    private Path getFilePath(String file) {
-        return config.basePath().resolve(file);
-    }
-
-    public static int compare(MemorySegment o1, MemorySegment o2) {
-        long relativeOffset = o1.mismatch(o2);
-        if (relativeOffset == -1) {
-            return 0;
-        } else if (relativeOffset == o1.byteSize()) {
-            return -1;
-        } else if (relativeOffset == o2.byteSize()) {
-            return 1;
+        if (flush) {
+            flushInBackground(true);
         }
-        return Byte.compare(
-                o1.get(ValueLayout.JAVA_BYTE, relativeOffset),
-                o2.get(ValueLayout.JAVA_BYTE, relativeOffset)
-        );
+    }
+
+    // only single thread can call this method
+    @Override
+    public synchronized void close() throws IOException {
+        State currenState = this.state;
+        if (currenState.closed) {
+            return;
+        }
+        executorService.shutdown();
+        // await for all tasks to complete
+        // it can take a lot of time depending on the size of the database
+        try {
+            while (!executorService.awaitTermination(12, TimeUnit.HOURS)) {
+                wait(10);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        currenState.storage.close();
+        this.state = currenState.afterClose();
+        if (currenState.memory.isEmpty()) {
+            return;
+        }
+        Storage.save(config, currenState.memory.values());
+    }
+
+    @Override
+    public void compact() {
+        State currenState = accessStateAndCloseCheck();
+
+        if (currenState.memory.isEmpty() && currenState.storage.isCompacted()) {
+            return;
+        }
+
+        executorService.execute(() -> {
+            State stateCompaction = accessStateAndCloseCheck();
+
+            if (stateCompaction.memory.isEmpty() && stateCompaction.storage.isCompacted()) {
+                return;
+            }
+
+            // compact only ssTables
+            Storage storage = null;
+            try {
+                Storage.compact(config,
+                        () -> new MergeSkipNullValuesIterator(
+                                List.of(
+                                        new OrderedPeekIteratorImpl(0,
+                                                getOnlyFromDisk(null, null)
+                                        )
+                                )
+                        )
+                );
+                storage = Storage.load(config);
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+
+            lock.writeLock().lock();
+            try {
+                this.state = stateCompaction.afterCompaction(storage);
+            } finally {
+                lock.writeLock().unlock();
+            }
+        });
+    }
+
+    private State accessStateAndCloseCheck() {
+        State currenState = this.state;
+        if (currenState.closed) {
+            throw new IllegalStateException("DAO is Already closed");
+        }
+        return currenState;
     }
 }

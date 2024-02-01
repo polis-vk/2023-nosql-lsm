@@ -5,26 +5,30 @@ import ru.vk.itmo.Entry;
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 
-abstract class LSMPointerIterator implements Iterator<Entry<MemorySegment>> {
+public abstract class LSMPointerIterator implements Iterator<Entry<MemorySegment>> {
 
     abstract int getPriority();
 
-    protected abstract MemorySegment getPointerSrc();
+    protected abstract MemorySegment getPointerKeySrc();
 
-    protected abstract long getPointerSrcOffset();
+    protected abstract long getPointerKeySrcOffset();
 
-    protected abstract long getPointerSrcSize();
+    protected abstract long getPointerKeySrcSize();
 
     abstract boolean isPointerOnTombstone();
 
+    abstract void shift();
+
+    abstract long getPointerSize();
+
     public int compareByPointers(LSMPointerIterator otherIterator) {
         return MemorySegmentComparator.INSTANCE.compare(
-                getPointerSrc(),
-                getPointerSrcOffset(),
-                getPointerSrcOffset() + getPointerSrcSize(),
-                otherIterator.getPointerSrc(),
-                otherIterator.getPointerSrcOffset(),
-                otherIterator.getPointerSrcOffset() + otherIterator.getPointerSrcSize()
+                getPointerKeySrc(),
+                getPointerKeySrcOffset(),
+                getPointerKeySrcOffset() + getPointerKeySrcSize(),
+                otherIterator.getPointerKeySrc(),
+                otherIterator.getPointerKeySrcOffset(),
+                otherIterator.getPointerKeySrcOffset() + otherIterator.getPointerKeySrcSize()
         );
     }
 

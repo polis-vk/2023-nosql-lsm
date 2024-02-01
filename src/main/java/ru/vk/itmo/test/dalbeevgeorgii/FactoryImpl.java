@@ -1,21 +1,22 @@
 package ru.vk.itmo.test.dalbeevgeorgii;
 
+import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
 import ru.vk.itmo.dalbeevgeorgii.DaoImpl;
 import ru.vk.itmo.test.DaoFactory;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 
-import static java.lang.foreign.ValueLayout.JAVA_BYTE;
-
-@DaoFactory
+@DaoFactory(stage = 3)
 public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<MemorySegment>> {
 
     @Override
-    public Dao<MemorySegment, Entry<MemorySegment>> createDao() {
-        return new DaoImpl();
+    public Dao<MemorySegment, Entry<MemorySegment>> createDao(Config config) throws IOException {
+        return new DaoImpl(config);
     }
 
     @Override
@@ -23,7 +24,7 @@ public class FactoryImpl implements DaoFactory.Factory<MemorySegment, Entry<Memo
         if (memorySegment == null) {
             return null;
         }
-        return new String(memorySegment.toArray(JAVA_BYTE), StandardCharsets.UTF_8);
+        return new String(memorySegment.toArray(ValueLayout.JAVA_BYTE), StandardCharsets.UTF_8);
     }
 
     @Override

@@ -1,106 +1,60 @@
 package ru.vk.itmo.svistukhinandrey;
 
-import ru.vk.itmo.BaseEntry;
-import ru.vk.itmo.Config;
 import ru.vk.itmo.Entry;
 
-import java.io.Closeable;
-import java.io.IOException;
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
-import java.nio.channels.FileChannel;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.util.Collection;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.NavigableMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 
-public class SSTable implements Closeable {
+public class SSTable {
+    private final Comparator<MemorySegment> comparator = MemorySegmentUtils::compare;
+    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
+    private final AtomicLong sizeInBytes = new AtomicLong(0);
 
-    private static final long BLOCK_SIZE = ValueLayout.JAVA_LONG_UNALIGNED.byteSize();
-    private static final String SS_TABLE_FILENAME = "sstable.db";
-    private final Path ssTablePath;
-    private final MemorySegment data;
-    private final Arena arena;
-    private final MemorySegmentComparator memorySegmentComparator;
+    public Iterator<Entry<MemorySegment>> getAll() {
+        return storage.values().iterator();
+    }
 
-    public SSTable(Config config) throws IOException {
-        arena = Arena.ofConfined();
-        ssTablePath = config.basePath().resolve(SS_TABLE_FILENAME);
-        if (!Files.exists(ssTablePath)) {
-            data = null;
-            memorySegmentComparator = null;
-            return;
+    public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
+        if (from == null && to == null) {
+            return storage.values().iterator();
+        }
+        if (from == null) {
+            return storage.headMap(to).values().iterator();
+        }
+        if (to == null) {
+            return storage.tailMap(from).values().iterator();
         }
 
-        memorySegmentComparator = new MemorySegmentComparator();
-
-        try (FileChannel dataFileChannel = FileChannel.open(ssTablePath)) {
-            data = dataFileChannel.map(FileChannel.MapMode.READ_ONLY, 0, dataFileChannel.size(), arena);
-        }
+        return storage.subMap(from, to).values().iterator();
     }
 
     public Entry<MemorySegment> get(MemorySegment key) {
-        if (data == null) {
-            return null;
-        }
-
-        long pos = 0L;
-        while (pos < data.byteSize()) {
-            long keySize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, pos);
-            pos += BLOCK_SIZE;
-            MemorySegment foundKey = data.asSlice(pos, keySize);
-            pos += foundKey.byteSize();
-
-            long valueSize = data.get(ValueLayout.JAVA_LONG_UNALIGNED, pos);
-            pos += BLOCK_SIZE;
-            if (memorySegmentComparator.compare(key, foundKey) == 0) {
-                return new BaseEntry<>(foundKey, data.asSlice(pos, valueSize));
-            }
-            pos += valueSize;
-        }
-
-        return null;
+        return storage.get(key);
     }
 
-    public void save(Collection<Entry<MemorySegment>> entries) throws IOException {
-        if (entries.isEmpty()) {
-            return;
+    public void upsert(Entry<MemorySegment> entry) {
+        Entry<MemorySegment> oldValue = storage.get(entry.key());
+        storage.put(entry.key(), entry);
+        if (oldValue != null) {
+            sizeInBytes.addAndGet(-byteSizeOfEntry(oldValue));
         }
-
-        MemorySegment ssTableMemorySegment;
-        Files.deleteIfExists(ssTablePath);
-        Files.createFile(ssTablePath);
-
-        long dataBlockSize = 0L;
-
-        for (Entry<MemorySegment> entry : entries) {
-            dataBlockSize += BLOCK_SIZE + entry.key().byteSize() + BLOCK_SIZE + entry.value().byteSize();
-        }
-
-        try (FileChannel ssTable = FileChannel.open(ssTablePath, StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-            ssTableMemorySegment = ssTable.map(FileChannel.MapMode.READ_WRITE, 0, dataBlockSize, arena);
-
-            long pos = 0;
-            for (Entry<MemorySegment> entry : entries) {
-                ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, pos, entry.key().byteSize());
-                pos += BLOCK_SIZE;
-
-                MemorySegment.copy(entry.key(), 0, ssTableMemorySegment, pos, entry.key().byteSize());
-                pos += entry.key().byteSize();
-
-                long valueSize = entry.value().byteSize();
-                ssTableMemorySegment.set(ValueLayout.JAVA_LONG_UNALIGNED, pos, valueSize);
-                pos += BLOCK_SIZE;
-
-                MemorySegment.copy(entry.value(), 0, ssTableMemorySegment, pos, valueSize);
-                pos += entry.value().byteSize();
-            }
-        }
+        sizeInBytes.addAndGet(byteSizeOfEntry(entry));
     }
 
-    @Override
-    public void close() {
-        arena.close();
+    public NavigableMap<MemorySegment, Entry<MemorySegment>> getStorage() {
+        return storage;
+    }
+
+    public long getStorageSize() {
+        return sizeInBytes.get();
+    }
+
+    public static long byteSizeOfEntry(Entry<MemorySegment> entry) {
+        long valueSize = entry.value() == null ? 0L : entry.value().byteSize();
+        return entry.key().byteSize() + valueSize;
     }
 }
