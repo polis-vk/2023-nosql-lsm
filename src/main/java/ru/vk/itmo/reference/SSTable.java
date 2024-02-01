@@ -39,21 +39,15 @@ final class SSTable {
         this.sampledIndices = new ArrayList<>();
         for (int indexOffset = 0; indexOffset < size; indexOffset += SAMPLED_INDEX_STEP) {
             // | [kv][kv][kv][kv][kv][kv][kv] | [kv][kv][kv][kv]...[kv]
-            //    ^                       ^
-            //    |                       |
-            // keyAtTheStart          keyAtTheEnd
+            //    ^
+            //    |
+            // keyAtTheStart
             final long keyAtTheStartOffset = entryOffset(indexOffset);
             final long keyAtTheStartLength = getLength(keyAtTheStartOffset);
-
-            final long keyAtTheEndOffset = indexOffset + SAMPLED_INDEX_STEP - 1 >= size
-                    ? entryOffset(size - 1)
-                    : entryOffset(indexOffset + SAMPLED_INDEX_STEP - 1);
-            final long keyAtTheEndLength = getLength(keyAtTheEndOffset);
 
             sampledIndices.add(
                     new SampledIndex(
                             keyAtTheStartOffset + Long.BYTES, keyAtTheStartLength,
-                            keyAtTheEndOffset + Long.BYTES, keyAtTheEndLength,
                             indexOffset
                     )
             );
@@ -73,7 +67,6 @@ final class SSTable {
 
         while (low <= high) {
             final int mid = (low + high) >>> 1;
-            System.out.println("low: " + low + ", mid: " + mid + ", high: " + high);
             final SampledIndex sampledIndex = sampledIndices.get(mid);
 
             final long keyAtTheStartOffset = sampledIndex.keyAtTheStartOffset();
@@ -110,7 +103,6 @@ final class SSTable {
                 return sampledIndex.offset();
             }
         }
-        System.out.println("low: " + low + ", high: " + high);
 
         return sampledIndices.get(high).offset();
     }
