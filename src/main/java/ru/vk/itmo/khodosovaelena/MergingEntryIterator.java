@@ -10,13 +10,13 @@ import java.util.*;
  *
  * @author incubos
  */
-final class MergingEntryIterator implements Iterator<Entry<MemorySegment>> {
+final class MergingEntryIterator implements Iterator<EntryWithTimestamp<MemorySegment>> {
     private final Queue<WeightedPeekingEntryIterator> iterators;
 
     MergingEntryIterator(final List<WeightedPeekingEntryIterator> iterators) {
         assert iterators.stream().allMatch(WeightedPeekingEntryIterator::hasNext);
 
-        this.iterators = new PriorityQueue<>(iterators);
+        this.iterators = new PriorityQueue<>(iterators); //todo comparator by 1st entry key -> timestamp
     }
 
     @Override
@@ -25,13 +25,13 @@ final class MergingEntryIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     @Override
-    public Entry<MemorySegment> next() {
+    public EntryWithTimestamp<MemorySegment> next() {
         if (!hasNext()) {
             throw new NoSuchElementException();
         }
 
         final WeightedPeekingEntryIterator top = iterators.remove();
-        final Entry<MemorySegment> result = top.next();
+        final EntryWithTimestamp<MemorySegment> result = top.next();
 
         if (top.hasNext()) {
             // Not exhausted
@@ -47,10 +47,11 @@ final class MergingEntryIterator implements Iterator<Entry<MemorySegment>> {
             }
 
             // Skip entries with the same key
-            final Entry<MemorySegment> entry = iterator.peek();
+            final EntryWithTimestamp<MemorySegment> entry = iterator.peek();
             if (MemorySegmentComparator.INSTANCE.compare(result.key(), entry.key()) != 0) {
-                // Reached another key
-                break;
+                if (result.timestamp() != entry.timestamp())
+                    // Reached another key
+                    break;
             }
 
             // Drop

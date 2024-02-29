@@ -1,5 +1,6 @@
 package ru.vk.itmo.khodosovaelena;
 
+import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
@@ -87,14 +88,14 @@ final class TableSet {
                 newSsTables);
     }
 
-    Iterator<Entry<MemorySegment>> get(
+    Iterator<EntryWithTimestamp<MemorySegment>> get(
             final MemorySegment from,
             final MemorySegment to) {
         final List<WeightedPeekingEntryIterator> iterators =
                 new ArrayList<>(2 + ssTables.size());
 
         // MemTable goes first
-        final Iterator<Entry<MemorySegment>> memTableIterator =
+        final Iterator<EntryWithTimestamp<MemorySegment>> memTableIterator =
                 memTable.get(from, to);
         if (memTableIterator.hasNext()) {
             iterators.add(
@@ -105,7 +106,7 @@ final class TableSet {
 
         // Then goes flushing
         if (flushingTable != null) {
-            final Iterator<Entry<MemorySegment>> flushingIterator =
+            final Iterator<EntryWithTimestamp<MemorySegment>> flushingIterator =
                     flushingTable.get(from, to);
             if (flushingIterator.hasNext()) {
                 iterators.add(
@@ -118,7 +119,7 @@ final class TableSet {
         // Then go all the SSTables
         for (int i = 0; i < ssTables.size(); i++) {
             final SSTable ssTable = ssTables.get(i);
-            final Iterator<Entry<MemorySegment>> ssTableIterator =
+            final Iterator<EntryWithTimestamp<MemorySegment>> ssTableIterator =
                     ssTable.get(from, to);
             if (ssTableIterator.hasNext()) {
                 iterators.add(
@@ -139,10 +140,10 @@ final class TableSet {
         // Slightly optimized version not to pollute the heap
 
         // First check MemTable
-        Entry<MemorySegment> result = memTable.get(key);
+        EntryWithTimestamp<MemorySegment> result = memTable.get(key);
         if (result != null) {
             // Transform tombstone
-            return swallowTombstone(result);
+            return swallowTombstoneWithTimestamp(result);
         }
 
         // Then check flushing
@@ -150,16 +151,16 @@ final class TableSet {
             result = flushingTable.get(key);
             if (result != null) {
                 // Transform tombstone
-                return swallowTombstone(result);
+                return swallowTombstoneWithTimestamp(result);
             }
         }
 
         // At last check SSTables from freshest to oldest
         for (final SSTable ssTable : ssTables) {
-            result = ssTable.get(key);
-            if (result != null) {
+            Entry<MemorySegment> resultFromSstable = ssTable.get(key);
+            if (resultFromSstable != null) {
                 // Transform tombstone
-                return swallowTombstone(result);
+                return swallowTombstone(resultFromSstable);
             }
         }
 
@@ -171,17 +172,22 @@ final class TableSet {
         return entry.value() == null ? null : entry;
     }
 
-    Entry<MemorySegment> upsert(final Entry<MemorySegment> entry) {
+    private static Entry<MemorySegment> swallowTombstoneWithTimestamp(final EntryWithTimestamp<MemorySegment> entry) {
+        if (entry.value() == null) return null;
+        return new BaseEntry<>(entry.key(), entry.value());
+    }
+
+    EntryWithTimestamp<MemorySegment> upsert(final Entry<MemorySegment> entry) {
         return memTable.upsert(entry);
     }
 
-    Iterator<Entry<MemorySegment>> allSSTableEntries() {
+    Iterator<EntryWithTimestamp<MemorySegment>> allSSTableEntries() {
         final List<WeightedPeekingEntryIterator> iterators =
                 new ArrayList<>(ssTables.size());
 
         for (int i = 0; i < ssTables.size(); i++) {
             final SSTable ssTable = ssTables.get(i);
-            final Iterator<Entry<MemorySegment>> ssTableIterator =
+            final Iterator<EntryWithTimestamp<MemorySegment>> ssTableIterator =
                     ssTable.get(null, null);
             iterators.add(
                     new WeightedPeekingEntryIterator(

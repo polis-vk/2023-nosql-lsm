@@ -1,5 +1,6 @@
 package ru.vk.itmo.khodosovaelena;
 
+import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Config;
 import ru.vk.itmo.Dao;
 import ru.vk.itmo.Entry;
@@ -7,10 +8,13 @@ import ru.vk.itmo.Entry;
 import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
-import java.sql.Timestamp;
+import java.lang.foreign.ValueLayout;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -67,10 +71,10 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
     public Iterator<Entry<MemorySegment>> get(
             final MemorySegment from,
             final MemorySegment to) {
-        return new LiveFilteringIterator(
-                tableSet.get(
-                        from,
-                        to));
+        var iterable = tableSet.get(from, to);
+        List<Entry<MemorySegment>> list = new ArrayList<>();
+        iterable.forEachRemaining(val -> list.add(new BaseEntry<>(val.key(), val.value())));
+        return list.iterator();
     }
 
     @Override
@@ -90,10 +94,10 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
             }
 
             // Upsert
-            final Entry<MemorySegment> previous = tableSet.upsert(entry);
+            final EntryWithTimestamp<MemorySegment> previous = tableSet.upsert(entry);
 
             // Update size estimate
-            final long size = tableSet.memTableSize.addAndGet(sizeOf(entry) - sizeOf(previous));
+            final long size = tableSet.memTableSize.addAndGet(sizeOf(entry) - sizeOfWithTimestamp(previous));
             autoFlush = size > config.flushThresholdBytes();
         } finally {
             lock.readLock().unlock();
@@ -114,6 +118,19 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
         }
 
         return entry.key().byteSize() + entry.value().byteSize();
+    }
+
+
+    private static long sizeOfWithTimestamp(final EntryWithTimestamp<MemorySegment> entry) {
+        if (entry == null) {
+            return 0L;
+        }
+
+        if (entry.value() == null) {
+            return entry.key().byteSize() + ValueLayout.JAVA_LONG.byteSize();
+        }
+
+        return entry.key().byteSize() + entry.value().byteSize() + ValueLayout.JAVA_LONG.byteSize();
     }
 
     private void initiateFlush(final boolean auto) {
@@ -202,8 +219,7 @@ public class ReferenceDao implements Dao<MemorySegment, Entry<MemorySegment>> {
                         .write(
                                 config.basePath(),
                                 0,
-                                new LiveFilteringIterator(
-                                        currentTableSet.allSSTableEntries()));
+                                new LiveFilteringIteratorWithTimestamp(currentTableSet.allSSTableEntries()));
             } catch (IOException e) {
                 e.printStackTrace();
                 Runtime.getRuntime().halt(-3);

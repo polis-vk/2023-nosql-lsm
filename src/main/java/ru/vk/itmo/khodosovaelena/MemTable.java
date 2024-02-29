@@ -1,5 +1,6 @@
 package ru.vk.itmo.khodosovaelena;
 
+import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;
@@ -13,7 +14,7 @@ import java.util.concurrent.ConcurrentSkipListMap;
  * @author incubos
  */
 final class MemTable {
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> map =
+    private final NavigableMap<MemorySegment, EntryWithTimestamp<MemorySegment>> map =
             new ConcurrentSkipListMap<>(
                     MemorySegmentComparator.INSTANCE);
 
@@ -21,7 +22,7 @@ final class MemTable {
         return map.isEmpty();
     }
 
-    Iterator<Entry<MemorySegment>> get(
+    Iterator<EntryWithTimestamp<MemorySegment>> get(
             final MemorySegment from,
             final MemorySegment to) {
         if (from == null && to == null) {
@@ -39,11 +40,15 @@ final class MemTable {
         }
     }
 
-    Entry<MemorySegment> get(final MemorySegment key) {
+    EntryWithTimestamp<MemorySegment> get(final MemorySegment key) {
         return map.get(key);
+       // EntryWithTimestamp<MemorySegment> entryWithTimestamp = map.get(key);
+       // return new BaseEntry<>(entryWithTimestamp.key(), entryWithTimestamp.value());
     }
 
-    Entry<MemorySegment> upsert(final Entry<MemorySegment> entry) {
-        return map.put(entry.key(), entry);
+    EntryWithTimestamp<MemorySegment> upsert(final Entry<MemorySegment> entry) {
+        EntryWithTimestamp<MemorySegment> entryWithTimestamp =
+                new BaseEntryWithTimestamp<>(entry.key(), entry.value(), System.currentTimeMillis());
+        return map.put(entry.key(), entryWithTimestamp);
     }
 }
