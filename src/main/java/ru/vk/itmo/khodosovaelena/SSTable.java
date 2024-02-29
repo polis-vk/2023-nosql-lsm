@@ -195,7 +195,7 @@ final class SSTable {
                 //add timestamp length
                 offset += Long.BYTES;
                 // Tombstone encountered
-                return new BaseEntryWithTimestamp<>(key, null, 0L);
+                return new BaseEntryWithTimestamp<>(key, null, timestamp);
             } else {
                 final MemorySegment value = data.asSlice(offset, valueLength);
                 offset += valueLength;

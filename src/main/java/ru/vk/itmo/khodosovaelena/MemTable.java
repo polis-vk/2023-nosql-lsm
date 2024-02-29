@@ -1,6 +1,5 @@
 package ru.vk.itmo.khodosovaelena;
 
-import ru.vk.itmo.BaseEntry;
 import ru.vk.itmo.Entry;
 
 import java.lang.foreign.MemorySegment;

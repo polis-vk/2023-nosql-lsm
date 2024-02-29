@@ -11,18 +11,18 @@ import java.util.NoSuchElementException;
  *
  * @author incubos
  */
-final class LiveFilteringIterator implements Iterator<Entry<MemorySegment>> {
-    private final Iterator<Entry<MemorySegment>> delegate;
-    private Entry<MemorySegment> next;
+final class LiveFilteringIterator<T extends Entry<MemorySegment>> implements Iterator<T> {
+    private final Iterator<T> delegate;
+    private T next;
 
-    LiveFilteringIterator(final Iterator<Entry<MemorySegment>> delegate) {
+    LiveFilteringIterator(final Iterator<T> delegate) {
         this.delegate = delegate;
         skipTombstones();
     }
 
     private void skipTombstones() {
         while (delegate.hasNext()) {
-            final Entry<MemorySegment> entry = delegate.next();
+            final T entry = delegate.next();
             if (entry.value() != null) {
                 this.next = entry;
                 break;
@@ -36,13 +36,13 @@ final class LiveFilteringIterator implements Iterator<Entry<MemorySegment>> {
     }
 
     @Override
-    public Entry<MemorySegment> next() {
+    public T next() {
         if (!hasNext()) {
             throw new NoSuchElementException();
         }
 
         // Consume
-        final Entry<MemorySegment> result = next;
+        final T result = next;
         next = null;
 
         skipTombstones();

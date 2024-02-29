@@ -1,7 +1,5 @@
 package ru.vk.itmo.khodosovaelena;
 
-import ru.vk.itmo.Entry;
-
 import java.lang.foreign.MemorySegment;
 import java.util.*;
 
@@ -16,7 +14,7 @@ final class MergingEntryIterator implements Iterator<EntryWithTimestamp<MemorySe
     MergingEntryIterator(final List<WeightedPeekingEntryIterator> iterators) {
         assert iterators.stream().allMatch(WeightedPeekingEntryIterator::hasNext);
 
-        this.iterators = new PriorityQueue<>(iterators); //todo comparator by 1st entry key -> timestamp
+        this.iterators = new PriorityQueue<>(iterators);
     }
 
     @Override
@@ -49,7 +47,6 @@ final class MergingEntryIterator implements Iterator<EntryWithTimestamp<MemorySe
             // Skip entries with the same key
             final EntryWithTimestamp<MemorySegment> entry = iterator.peek();
             if (MemorySegmentComparator.INSTANCE.compare(result.key(), entry.key()) != 0) {
-                if (result.timestamp() != entry.timestamp())
                     // Reached another key
                     break;
             }

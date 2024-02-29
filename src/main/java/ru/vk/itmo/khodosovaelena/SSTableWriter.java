@@ -162,7 +162,7 @@ final class SSTableWriter {
             result += value.byteSize();
         }
 
-        // Key
+        // Timestamp
         writeLong(timestamp, os);
         result += Long.BYTES;
         return result;

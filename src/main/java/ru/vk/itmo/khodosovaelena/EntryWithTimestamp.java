@@ -1,9 +1,7 @@
 package ru.vk.itmo.khodosovaelena;
 
-public interface EntryWithTimestamp<D> {
-    D key();
+import ru.vk.itmo.Entry;
 
-    D value();
-
+public interface EntryWithTimestamp<D> extends Entry<D> {
     long timestamp();
 }

@@ -1,7 +1,5 @@
 package ru.vk.itmo.khodosovaelena;
 
-import ru.vk.itmo.Entry;
-
 import java.lang.foreign.MemorySegment;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
@@ -14,14 +12,11 @@ import java.util.NoSuchElementException;
 final class WeightedPeekingEntryIterator
         implements Iterator<EntryWithTimestamp<MemorySegment>>,
         Comparable<WeightedPeekingEntryIterator> {
-    private final int weight;
     private final Iterator<EntryWithTimestamp<MemorySegment>> delegate;
     private EntryWithTimestamp<MemorySegment> next;
 
     WeightedPeekingEntryIterator(
-            final int weight,
             final Iterator<EntryWithTimestamp<MemorySegment>> delegate) {
-        this.weight = weight;
         this.delegate = delegate;
         this.next = delegate.hasNext() ? delegate.next() : null;
     }
@@ -61,7 +56,7 @@ final class WeightedPeekingEntryIterator
             return result;
         }
 
-        // Then compare weights if keys are equal
-        return Integer.compare(weight, other.weight);
+        // Then compare timestamp if keys are equal
+        return Long.compare(peek().timestamp(), other.peek().timestamp());
     }
 }

@@ -99,9 +99,7 @@ final class TableSet {
                 memTable.get(from, to);
         if (memTableIterator.hasNext()) {
             iterators.add(
-                    new WeightedPeekingEntryIterator(
-                            Integer.MIN_VALUE,
-                            memTableIterator));
+                    new WeightedPeekingEntryIterator(memTableIterator));
         }
 
         // Then goes flushing
@@ -110,9 +108,7 @@ final class TableSet {
                     flushingTable.get(from, to);
             if (flushingIterator.hasNext()) {
                 iterators.add(
-                        new WeightedPeekingEntryIterator(
-                                Integer.MIN_VALUE + 1,
-                                flushingIterator));
+                        new WeightedPeekingEntryIterator(flushingIterator));
             }
         }
 
@@ -123,9 +119,7 @@ final class TableSet {
                     ssTable.get(from, to);
             if (ssTableIterator.hasNext()) {
                 iterators.add(
-                        new WeightedPeekingEntryIterator(
-                                i,
-                                ssTableIterator));
+                        new WeightedPeekingEntryIterator(ssTableIterator));
             }
         }
 
@@ -190,9 +184,7 @@ final class TableSet {
             final Iterator<EntryWithTimestamp<MemorySegment>> ssTableIterator =
                     ssTable.get(null, null);
             iterators.add(
-                    new WeightedPeekingEntryIterator(
-                            i,
-                            ssTableIterator));
+                    new WeightedPeekingEntryIterator(ssTableIterator));
         }
 
         return new MergingEntryIterator(iterators);
