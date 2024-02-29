@@ -10,92 +10,182 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.Iterator;
-import java.util.NavigableMap;
+import java.util.List;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DaoImpl implements Dao<MemorySegment, Entry<MemorySegment>> {
     private static final Comparator<MemorySegment> comparator = new MemorySegmentComparator();
-    private final NavigableMap<MemorySegment, Entry<MemorySegment>> storage = new ConcurrentSkipListMap<>(comparator);
-    private Arena arena;
-    private DiskStorage diskStorage;
-
-    public DaoImpl() {
-        // Empty constructor
-    }
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private final Arena arena;
+    private final Path path;
+    private volatile State curState;
 
     public DaoImpl(Config config) throws IOException {
-        Path path = config.basePath().resolve("data");
+        path = config.basePath().resolve("data");
         Files.createDirectories(path);
 
         arena = Arena.ofShared();
 
-        this.diskStorage = new DiskStorage(DiskStorage.loadOrRecover(path, arena), path);
+        this.curState = new State(config, new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
     }
 
     @Override
     public Iterator<Entry<MemorySegment>> get(MemorySegment from, MemorySegment to) {
-        return diskStorage.range(getInMemory(from, to), from, to);
+        State state = this.curState.checkAndGet();
+        List<Iterator<EntryExtended<MemorySegment>>> iterators = List.of(
+                state.getInMemory(state.flushingStorage, from, to),
+                state.getInMemory(state.storage, from, to)
+        );
+
+        Iterator<EntryExtended<MemorySegment>> iterator = new MergeIterator<>(iterators,
+                (e1, e2) -> comparator.compare(e1.key(), e2.key()));
+        Iterator<EntryExtended<MemorySegment>> innerIterator = state.diskStorage.range(iterator, from, to);
+
+        return new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                return innerIterator.hasNext();
+            }
+
+            @Override
+            public Entry<MemorySegment> next() {
+                return innerIterator.next();
+            }
+        };
     }
 
-    private Iterator<Entry<MemorySegment>> getInMemory(MemorySegment from, MemorySegment to) {
-        if (from == null && to == null) {
-            return storage.values().iterator();
+    public void upsert(Entry<MemorySegment> entry, Long ttl) {
+        State state = this.curState.checkAndGet();
+
+        lock.readLock().lock();
+        try {
+            state.putInMemory(entry, ttl);
+        } finally {
+            lock.readLock().unlock();
         }
-        if (from == null) {
-            return storage.headMap(to).values().iterator();
+
+        if (state.isOverflowed()) {
+            try {
+                autoFlush();
+            } catch (IOException e) {
+                throw new DaoException("Memory storage overflowed. Cannot flush", e);
+            }
         }
-        if (to == null) {
-            return storage.tailMap(from).values().iterator();
-        }
-        return storage.subMap(from, to).values().iterator();
     }
 
     @Override
     public void upsert(Entry<MemorySegment> entry) {
-        storage.put(entry.key(), entry);
+        upsert(entry, null);
     }
 
     @Override
     public Entry<MemorySegment> get(MemorySegment key) {
-        Entry<MemorySegment> entry = storage.get(key);
-        if (entry != null) {
-            if (entry.value() == null) {
-                return null;
+        State state = this.curState.checkAndGet();
+        return state.get(key, comparator);
+    }
+
+    @Override
+    public void flush() throws IOException {
+        State state = this.curState.checkAndGet();
+        if (state.storage.isEmpty() || state.isFlushing()) {
+            return;
+        }
+        autoFlush();
+    }
+
+    private void autoFlush() throws IOException {
+        State state = this.curState.checkAndGet();
+        lock.writeLock().lock();
+        try {
+            if (state.isFlushing()) {
+                if (state.isOverflowed()) {
+                    throw new IOException();
+                } else {
+                    return;
+                }
             }
-            return entry;
+            this.curState = state.moveStorage();
+        } finally {
+            lock.writeLock().unlock();
         }
 
-        Iterator<Entry<MemorySegment>> iterator = diskStorage.range(Collections.emptyIterator(), key, null);
+        executor.execute(this::tryFlush);
+    }
 
-        if (!iterator.hasNext()) {
-            return null;
+    private void tryFlush() {
+        State state = this.curState.checkAndGet();
+        try {
+            state.flush();
+        } catch (IOException e) {
+            throw new DaoException("Flush failed", e);
         }
-        Entry<MemorySegment> next = iterator.next();
-        if (comparator.compare(next.key(), key) == 0) {
-            return next;
+
+        lock.writeLock().lock();
+        try {
+            this.curState = new State(state.config, state.storage, new ConcurrentSkipListMap<>(comparator),
+                    new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
+        } catch (IOException e) {
+            throw new DaoException("Cannot recover storage on disk", e);
+        } finally {
+            lock.writeLock().unlock();
         }
-        return null;
     }
 
     @Override
     public void compact() throws IOException {
-        diskStorage.compact(storage.values());
-        storage.clear();
+        try {
+            executor.submit(this::tryCompact).get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new DaoException("Compaction failed. Thread interrupted", e);
+        } catch (ExecutionException e) {
+            throw new DaoException("Compaction failed", e);
+        }
+    }
+
+    private Object tryCompact() {
+        State state = this.curState.checkAndGet();
+        try {
+            state.diskStorage.compact();
+        } catch (IOException e) {
+            throw new DaoException("Cannot compact", e);
+        }
+
+        lock.writeLock().lock();
+        try {
+            this.curState = new State(state.config, state.storage, state.flushingStorage,
+                    new DiskStorage(DiskStorage.loadOrRecover(path, arena), path));
+        } catch (IOException e) {
+            throw new DaoException("Cannot recover storage on disk after compaction", e);
+        } finally {
+            lock.writeLock().unlock();
+        }
+
+        return null;
     }
 
     @Override
-    public void close() throws IOException {
-        if (!arena.scope().isAlive()) {
+    public synchronized void close() throws IOException {
+        State state = this.curState;
+        if (state.isClosed() || !arena.scope().isAlive()) {
             return;
         }
 
+        if (!state.storage.isEmpty()) {
+            state.save();
+        }
+
+        executor.close();
         arena.close();
 
-        if (!storage.isEmpty()) {
-            diskStorage.save(storage.values());
-        }
+        this.curState = state.close();
     }
 }
